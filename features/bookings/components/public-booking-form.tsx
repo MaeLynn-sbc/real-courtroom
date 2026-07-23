@@ -47,7 +47,14 @@ function toLocalDateValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-export function PublicBookingForm({ courts }: { courts: PublicBookingFormCourt[] }) {
+interface PublicBookingFormProps {
+  courts: PublicBookingFormCourt[];
+  initialCourtId?: string;
+  initialDate?: string;
+  initialTime?: string;
+}
+
+export function PublicBookingForm({ courts, initialCourtId, initialDate, initialTime }: PublicBookingFormProps) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null);
@@ -57,9 +64,9 @@ export function PublicBookingForm({ courts }: { courts: PublicBookingFormCourt[]
       guestName: "",
       guestPhone: "",
       guestEmail: "",
-      courtId: courts[0]?.id ?? "",
-      date: toLocalDateValue(new Date()),
-      time: "09:00",
+      courtId: initialCourtId ?? courts[0]?.id ?? "",
+      date: initialDate ?? toLocalDateValue(new Date()),
+      time: initialTime ?? "09:00",
       durationMinutes: "60",
     },
   });

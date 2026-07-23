@@ -7,6 +7,7 @@ import type {
   Prisma,
 } from "@/lib/generated/prisma/client";
 import type { BookingStatus, CourtStatus, SaleSource } from "@/lib/generated/prisma/enums";
+import { isWithinCourtBookingWindow } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
@@ -14,6 +15,7 @@ import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import { formatBookingReference } from "@/services/booking/booking-reference";
 import { canTransitionBookingStatus } from "@/services/booking/booking-status";
 import { saleService } from "@/services/sales/sale.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 // v1.1 Sub-phase 2: every booking is created by a signed-in Employee with a
 // currently open Shift, and pays through one of the configured
@@ -28,7 +30,11 @@ export interface CreateBookingSaleContext {
   source?: SaleSource;
 }
 
-export type AvailabilityConflictType = "COURT_DISABLED" | "MAINTENANCE" | "BOOKING";
+export type AvailabilityConflictType =
+  | "COURT_DISABLED"
+  | "OUTSIDE_OPERATING_HOURS"
+  | "MAINTENANCE"
+  | "BOOKING";
 
 export interface AvailabilityConflict {
   type: AvailabilityConflictType;
@@ -53,6 +59,8 @@ function describeConflict(conflict: AvailabilityConflict): string {
   switch (conflict.type) {
     case "COURT_DISABLED":
       return "This court is currently disabled and cannot be booked.";
+    case "OUTSIDE_OPERATING_HOURS":
+      return "This court isn't bookable at the selected time — it's Open Play hours.";
     case "MAINTENANCE":
       return "This court has scheduled maintenance during the selected time.";
     case "BOOKING":
@@ -207,11 +215,19 @@ export class BookingService {
     startAt: Date,
     endAt: Date,
     excludeBookingId?: string,
+    enforceOperatingHours = false,
   ): Promise<AvailabilityCheckResult> {
     const court = await client.court.findUniqueOrThrow({ where: { id: courtId } });
 
     if (court.status === "DISABLED") {
       return { available: false, conflict: { type: "COURT_DISABLED" } };
+    }
+
+    if (enforceOperatingHours) {
+      const courtHours = await settingsService.getCourtHours();
+      if (!isWithinCourtBookingWindow(courtHours, court.name, startAt, endAt)) {
+        return { available: false, conflict: { type: "OUTSIDE_OPERATING_HOURS" } };
+      }
     }
 
     const maintenanceWindows = await client.courtMaintenance.findMany({
@@ -294,6 +310,8 @@ export class BookingService {
               input.courtId,
               input.startAt,
               input.endAt,
+              undefined,
+              saleContext.source === "WEBSITE",
             );
             if (!availability.available && availability.conflict) {
               throw new BookingConflictError(availability.conflict);

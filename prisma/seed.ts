@@ -232,7 +232,7 @@ const MEMBERSHIP_PLAN_DEFINITIONS: Record<string, MembershipPlanDefinition> = {
 // soft-retired via a one-time `status: DISABLED` data update instead of
 // being deleted, preserving their historical booking/match data.
 const COURT_COUNT = 3;
-const COURT_HOURLY_RATE_CENTS = 40000;
+const COURT_HOURLY_RATE_CENTS = 35000;
 
 // v1.1: the two retail items The Courtroom actually sells outright today
 // (SaleCategory.PRODUCT — see services/products/product.service.ts).
@@ -394,6 +394,16 @@ async function main(): Promise<void> {
       firstName: "Courtroom",
       lastName: "Owner",
     },
+  });
+
+  // Owner's employeeNumber above is hardcoded rather than drawn from
+  // nextSequence("EMPLOYEE"), so register it with the shared counter here —
+  // otherwise the next nextSequence("EMPLOYEE") call also returns 1 and
+  // collides with EMP-0001's unique constraint.
+  await prisma.referenceCounter.upsert({
+    where: { scope: "EMPLOYEE" },
+    update: {},
+    create: { scope: "EMPLOYEE", value: 1 },
   });
 
   logger.info(

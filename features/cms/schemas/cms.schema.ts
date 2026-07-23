@@ -38,3 +38,22 @@ export const galleryImageSchema = z.object({
 export type GalleryImage = z.infer<typeof galleryImageSchema>;
 
 export const galleryImagesSchema = z.array(galleryImageSchema).max(50);
+
+// "HH:MM" 24-hour time, plus the literal "24:00" sentinel for midnight —
+// courtCloseTimes needs to express "open until midnight" (Court 3's
+// default), which a plain 00-23 hour range can't represent.
+const timeStringSchema = z
+  .string()
+  .refine((value) => value === "24:00" || /^([01]\d|2[0-3]):[0-5]\d$/.test(value), {
+    message: "Use 24-hour HH:MM format (or 24:00 for midnight).",
+  });
+
+export const courtHoursSchema = z.object({
+  facilityOpenTime: timeStringSchema,
+  fridaySaturdayCloseTime: timeStringSchema,
+  // Keyed by court name — a court with no entry here is treated as open
+  // until midnight every day it isn't Friday/Saturday.
+  courtCloseTimes: z.record(z.string(), timeStringSchema),
+});
+
+export type CourtHoursSettings = z.infer<typeof courtHoursSchema>;

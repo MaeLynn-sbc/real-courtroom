@@ -7,4 +7,5 @@ export const CMS_KEYS = {
   BUSINESS_INFO: "cms.business.info",
   OTHER_RATES: "cms.rates.other",
   GALLERY_IMAGES: "cms.gallery.images",
+  COURT_HOURS: "cms.courtHours",
 } as const;

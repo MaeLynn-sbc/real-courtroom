@@ -5,6 +5,7 @@ import Link from "next/link";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { buttonVariants } from "@/components/ui/button";
+import { CourtAvailabilityGrid } from "@/features/bookings/components/court-availability-grid";
 import { announcementService } from "@/services/notifications/announcement.service";
 import { settingsService } from "@/services/settings/settings.service";
 
@@ -15,13 +16,19 @@ import { settingsService } from "@/services/settings/settings.service";
 // for the same bug pattern found and fixed on the booking form.
 export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
-  const [hero, galleryImages, announcements] = await Promise.all([
+interface HomePageProps {
+  searchParams: Promise<{ date?: string }>;
+}
+
+export default async function HomePage({ searchParams }: HomePageProps) {
+  const [{ date: dateParam }, hero, galleryImages, announcements] = await Promise.all([
+    searchParams,
     settingsService.getHomepageHero(),
     settingsService.getGalleryImages(),
     announcementService.listPublished(),
   ]);
   const latestAnnouncement = announcements[0];
+  const date = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();
 
   return (
     <div className="flex min-h-svh flex-1 flex-col">
@@ -82,6 +89,12 @@ export default async function HomePage() {
           ) : null}
         </div>
       </main>
+
+      <section className="border-border/60 border-t px-6 py-16">
+        <div className="mx-auto max-w-6xl">
+          <CourtAvailabilityGrid date={date} />
+        </div>
+      </section>
 
       {galleryImages.length > 0 ? (
         <section className="border-border/60 border-t px-6 py-16">

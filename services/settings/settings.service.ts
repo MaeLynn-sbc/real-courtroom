@@ -1,5 +1,6 @@
 import type {
   BusinessInfo,
+  CourtHoursSettings,
   GalleryImage,
   HomepageHero,
   OtherRateLine,
@@ -38,6 +39,19 @@ const DEFAULT_BUSINESS_INFO: BusinessInfo = {
   hours: "",
   facebookUrl: "",
   mapsUrl: "",
+};
+
+// Matches the facility's actual current hours — Court 1 until 6pm, Court 2
+// until 8pm, Court 3 until midnight, everyone until 6pm on Fri/Sat — so a
+// facility with no admin edits yet behaves exactly as it does today.
+const DEFAULT_COURT_HOURS: CourtHoursSettings = {
+  facilityOpenTime: "07:00",
+  fridaySaturdayCloseTime: "18:00",
+  courtCloseTimes: {
+    "Court 1": "18:00",
+    "Court 2": "20:00",
+    "Court 3": "24:00",
+  },
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never
@@ -156,6 +170,14 @@ export class SettingsService {
 
   async setGalleryImages(value: GalleryImage[], actorUserId: string) {
     return this.setJsonValue(CMS_KEYS.GALLERY_IMAGES, value, actorUserId);
+  }
+
+  async getCourtHours(): Promise<CourtHoursSettings> {
+    return this.getJsonValue(CMS_KEYS.COURT_HOURS, DEFAULT_COURT_HOURS);
+  }
+
+  async setCourtHours(value: CourtHoursSettings, actorUserId: string) {
+    return this.setJsonValue(CMS_KEYS.COURT_HOURS, value, actorUserId);
   }
 
   private async getJsonValue<T>(key: string, fallback: T): Promise<T> {

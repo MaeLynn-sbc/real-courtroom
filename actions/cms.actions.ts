@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 
 import {
   businessInfoSchema,
+  courtHoursSchema,
   galleryImagesSchema,
   homepageHeroSchema,
   otherRatesSchema,
   type BusinessInfo,
+  type CourtHoursSettings,
   type GalleryImage,
   type HomepageHero,
   type OtherRateLine,
@@ -94,6 +96,26 @@ export async function setOtherRatesAction(input: OtherRateLine[]): Promise<CmsAc
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "setOtherRatesAction", userId: authz.userId }) };
+  }
+}
+
+export async function setCourtHoursAction(input: CourtHoursSettings): Promise<CmsActionState> {
+  const authz = await requireWebsiteAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = courtHoursSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid court hours." };
+  }
+
+  try {
+    await settingsService.setCourtHours(parsed.data, authz.userId);
+    revalidatePublicSite();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "setCourtHoursAction", userId: authz.userId }) };
   }
 }
 
