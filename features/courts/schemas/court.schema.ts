@@ -1,0 +1,51 @@
+import { z } from "zod";
+
+// hourlyRateCents is intentionally required (not .optional()) in the form
+// schema: z.coerce.number() on an empty string coerces to 0 rather than
+// undefined, so "optional" would silently accept a blank field as ₱0
+// instead of leaving the rate unset. The form always supplies a default
+// (the standard rate for new courts, the existing rate when editing).
+
+export const createCourtSchema = z.object({
+  name: z.string().min(1, "Court name is required.").max(100),
+  description: z.string().max(500).optional(),
+  indoor: z.boolean(),
+  hourlyRateCents: z.coerce.number().int().nonnegative(),
+});
+
+export type CreateCourtInput = z.infer<typeof createCourtSchema>;
+
+export const updateCourtSchema = z.object({
+  name: z.string().min(1, "Court name is required.").max(100),
+  description: z.string().max(500).optional(),
+  indoor: z.boolean(),
+  hourlyRateCents: z.coerce.number().int().nonnegative(),
+});
+
+export type UpdateCourtInput = z.infer<typeof updateCourtSchema>;
+
+export const courtMaintenanceSchema = z
+  .object({
+    reason: z.string().min(1, "A reason is required.").max(200),
+    notes: z.string().max(1000).optional(),
+    startAt: z.coerce.date(),
+    endAt: z.coerce.date(),
+  })
+  .refine((data) => data.endAt > data.startAt, {
+    message: "End time must be after the start time.",
+    path: ["endAt"],
+  });
+
+export type CourtMaintenanceInput = z.infer<typeof courtMaintenanceSchema>;
+
+export const courtStatusSchema = z.object({
+  status: z.enum(["ACTIVE", "MAINTENANCE", "DISABLED"]),
+});
+
+export type CourtStatusInput = z.infer<typeof courtStatusSchema>;
+
+export const maintenanceStatusSchema = z.object({
+  status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]),
+});
+
+export type MaintenanceStatusInput = z.infer<typeof maintenanceStatusSchema>;

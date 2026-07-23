@@ -1,0 +1,1410 @@
+// TCPMS schema.
+// Phase 1 added authentication + database-backed RBAC (Role, Permission,
+// RolePermission, User, Account, Session, VerificationToken).
+// Phase 2 added the full domain data model per ARCHITECTURE.md's DATABASE
+// section — schema and seed data only, no services/actions/UI/APIs for any
+// of it yet (see the module comment headers below).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// --- RBAC -------------------------------------------------------------
+// Role and Permission are real tables (not enums) so permissions can be
+// reconfigured from the database later without a code change. The fixed
+// set of system role keys also exists in code as `types/roles.ts:
+// SYSTEM_ROLES`, used only for seeding and type-narrowing — the database
+// is always the source of truth for which permissions a role grants.
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  label       String
+  description String?
+  // v1.1: true for the roles seeded out of the box. The Roles workspace
+  // lets an Owner edit any role's label/description/permission set, but
+  // blocks deleting a role or renaming its stable `name` key when this is
+  // true — some code paths (e.g. Player creation) still look a role up by
+  // that stable name.
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  id           String   @id @default(cuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+// --- Auth.js (NextAuth v5) ----------------------------------------------
+// Standard Prisma-adapter shape (Account, Session, VerificationToken) so the
+// optional Google provider can link accounts. Sessions are JWT-based in
+// Phase 1, so the Session table exists for adapter type-compatibility and
+// future flexibility but is not written to at runtime.
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  // v1.1: email became optional and is no longer the login identifier —
+  // username is (see Employee below). Existing rows keep their email; a
+  // loosened constraint, not a narrowing, so this stays additive.
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  username      String?   @unique
+  passwordHash  String?
+  roleId        String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  role     Role      @relation(fields: [roleId], references: [id])
+  accounts Account[]
+  sessions Session[]
+
+  // Phase 2 relations
+  player                            Player?
+  // v1.1
+  employee                          Employee?
+  bookingsCreated                   Booking[]
+  bookingHistoryChanges             BookingHistory[]
+  courtMaintenanceCreated           CourtMaintenance[]
+  payments                          Payment[]
+  invoices                          Invoice[]
+  tournamentsCreated                Tournament[]
+  announcementsCreated              Announcement[]
+  notifications                     Notification[]
+  auditLogs                         AuditLog[]
+  settingsUpdated                   Setting[]
+  eventsCreated                     Event[]
+  openPlayMatchesCompleted          OpenPlayMatch[]
+  membershipHistoryChanges          MembershipHistory[]
+  equipmentMaintenanceLogsPerformed EquipmentMaintenanceLog[]
+  lockerMaintenanceLogsPerformed    LockerMaintenanceLog[]
+
+  @@index([deletedAt])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// --- Players & Ratings ---------------------------------------------------
+// Player is the pickleball-specific profile extending a User 1:1 (Player
+// Profiles module). PlayerRating and PlayerStatistics are split into their
+// own tables, matching ARCHITECTURE.md's DATABASE entity list, so ratings
+// and aggregate stats can be recomputed independently of the profile.
+
+enum SkillLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  PRO
+}
+
+enum DominantHand {
+  LEFT
+  RIGHT
+  AMBIDEXTROUS
+}
+
+enum PlayerPosition {
+  LEFT
+  RIGHT
+  BOTH
+}
+
+enum StreakType {
+  WIN
+  LOSS
+}
+
+model Player {
+  id           String          @id @default(cuid())
+  userId       String          @unique
+  photoUrl     String?
+  bio          String?
+  phone        String?
+  dateOfBirth  DateTime?
+  skillLevel   SkillLevel?
+  dominantHand DominantHand?
+  position     PlayerPosition?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  deletedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rating                PlayerRating?
+  statistics            PlayerStatistics?
+  teamsAsPlayer1        Team[]                 @relation("TeamPlayer1")
+  teamsAsPlayer2        Team[]                 @relation("TeamPlayer2")
+  memberships           Membership[]
+  openPlayRegistrations OpenPlayRegistration[]
+  bookings              Booking[]
+  equipmentRentals      EquipmentRental[]
+  lockerRentals         LockerRental[]
+  sales                 Sale[]
+
+  @@index([deletedAt])
+}
+
+model PlayerRating {
+  id            String      @id @default(cuid())
+  playerId      String      @unique
+  eloRating     Int         @default(1200)
+  duprRating    Float?
+  currentStreak Int         @default(0)
+  streakType    StreakType?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+}
+
+model PlayerStatistics {
+  id                String   @id @default(cuid())
+  playerId          String   @unique
+  matchesPlayed     Int      @default(0)
+  matchesWon        Int      @default(0)
+  matchesLost       Int      @default(0)
+  winPercentage     Float    @default(0)
+  tournamentsPlayed Int      @default(0)
+  tournamentsWon    Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+}
+
+model Team {
+  id        String    @id @default(cuid())
+  name      String?
+  player1Id String
+  player2Id String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  player1 Player  @relation("TeamPlayer1", fields: [player1Id], references: [id])
+  player2 Player? @relation("TeamPlayer2", fields: [player2Id], references: [id])
+
+  tournamentRegistrations TournamentRegistration[]
+  matchesAsTeam1          Match[]                  @relation("MatchTeam1")
+  matchesAsTeam2          Match[]                  @relation("MatchTeam2")
+  matchesWon              Match[]                  @relation("MatchWinnerTeam")
+
+  @@index([player1Id])
+  @@index([player2Id])
+}
+
+// --- Employees & Shifts (v1.1) ----------------------------------------------
+// Employee is the staff-specific profile extending a User 1:1 — the exact
+// precedent Player already set for members. Employees are staff, Players
+// are customers; the two are never the same User row. Login is by
+// User.username; Employee holds the day-to-day staff fields (name shown on
+// receipts/shift logs, phone, photo, active/inactive).
+
+model Employee {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  // "EMP-0001" — sequential, generated the same count-then-retry-on-
+  // collision way as Booking.bookingReference, just with no date component
+  // since an employee number is a stable identity, not a per-day sequence.
+  employeeNumber String    @unique
+  firstName      String
+  lastName       String
+  phone          String?
+  photoUrl       String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shifts Shift[]
+  sales  Sale[]
+
+  @@index([deletedAt])
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
+model Shift {
+  id               String      @id @default(cuid())
+  // "SHIFT-20260722-001" — same date + per-day-sequence pattern as every
+  // other human-facing reference code in this app.
+  shiftNumber      String      @unique
+  employeeId       String
+  status           ShiftStatus @default(OPEN)
+  // Philippine business terminology: "Opening Cash" / "Closing Cash", not
+  // "float" / "cash count".
+  openingCashCents Int         @default(0)
+  closingCashCents Int?
+  // Stays null until a Sale model exists (v1.1 Sub-phase 2) to compute
+  // cash sales against — variance = closingCash - (openingCash + cashSales).
+  varianceCents    Int?
+  openingNotes     String?
+  closingNotes     String?
+  startedAt        DateTime    @default(now())
+  endedAt          DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+  sales    Sale[]
+
+  // Only one OPEN shift per employee is enforced at the service layer;
+  // this index supports that lookup. Multiple CLOSED shifts per employee
+  // per day are fine — nothing prevents clocking in more than once a day.
+  @@index([employeeId, status])
+  @@index([startedAt])
+}
+
+// --- Court Management ------------------------------------------------------
+// Court.status is the administrative toggle (Create/Edit/Disable Courts).
+// CourtMaintenance is the scheduled-downtime history — a separate lifecycle
+// from the court's live status.
+
+enum CourtStatus {
+  ACTIVE
+  MAINTENANCE
+  DISABLED
+}
+
+enum MaintenanceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Court {
+  id              String      @id @default(cuid())
+  name            String      @unique
+  description     String?
+  indoor          Boolean     @default(true)
+  status          CourtStatus @default(ACTIVE)
+  hourlyRateCents Int?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
+
+  maintenanceRecords   CourtMaintenance[]
+  bookings             Booking[]
+  openPlayQueueEntries OpenPlayQueue[]
+  openPlayMatches      OpenPlayMatch[]
+  openPlayQueueHistory OpenPlayQueueHistory[]
+  matches              Match[]
+
+  @@index([status])
+}
+
+model CourtMaintenance {
+  id          String            @id @default(cuid())
+  courtId     String
+  createdById String
+  reason      String
+  notes       String?
+  startAt     DateTime
+  endAt       DateTime
+  status      MaintenanceStatus @default(SCHEDULED)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  court     Court @relation(fields: [courtId], references: [id])
+  createdBy User  @relation(fields: [createdById], references: [id])
+
+  @@index([courtId, startAt, endAt])
+  @@index([status])
+}
+
+// --- Booking System ---------------------------------------------------------
+// bookedById is who performed the booking action (a member, or a
+// receptionist entering a walk-in). playerId is who it's for, and is
+// nullable — a walk-in without a Player profile is captured via the
+// guestName/guestPhone fields instead. parentBookingId links recurring
+// instances to the series they belong to.
+
+enum BookingType {
+  HOURLY
+  RECURRING
+  WALK_IN
+  PRIVATE
+  MAINTENANCE_BLOCK
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  PAID
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+// bookingReference (added in Phase 4, a pre-approved exception to the
+// Database freeze) is the human-friendly, stable identifier shown in UI/
+// receipts/communication ("BK-YYYYMMDD-NNNN") — id stays the internal PK.
+model Booking {
+  id               String        @id @default(cuid())
+  bookingReference String        @unique
+  courtId          String
+  bookedById       String
+  playerId         String?
+  parentBookingId  String?
+  type             BookingType
+  status           BookingStatus @default(PENDING)
+  startAt          DateTime
+  endAt            DateTime
+  recurrenceRule   String?
+  guestName        String?
+  guestPhone       String?
+  guestEmail       String?
+  totalAmountCents Int?
+  qrCodeToken      String?       @unique
+  notes            String?
+  cancelledAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  court         Court            @relation(fields: [courtId], references: [id])
+  bookedBy      User             @relation(fields: [bookedById], references: [id])
+  player        Player?          @relation(fields: [playerId], references: [id])
+  parentBooking Booking?         @relation("BookingRecurrence", fields: [parentBookingId], references: [id])
+  recurrences   Booking[]        @relation("BookingRecurrence")
+  history       BookingHistory[]
+  payments      Payment[]
+  invoices      Invoice[]
+  sale          Sale?
+
+  @@index([courtId, startAt, endAt])
+  @@index([status])
+  @@index([playerId])
+}
+
+model BookingHistory {
+  id          String        @id @default(cuid())
+  bookingId   String
+  status      BookingStatus
+  note        String?
+  changedById String?
+  createdAt   DateTime      @default(now())
+
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  changedBy User?   @relation(fields: [changedById], references: [id])
+
+  @@index([bookingId])
+}
+
+// --- Membership --------------------------------------------------------
+// MembershipPlan is a real table (not an enum), same precedent as
+// Role/Permission — the five named tiers are seeded rows, not hardcoded
+// values, so a plan can be added or changed without a code change.
+
+enum BillingPeriod {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum MembershipStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+model MembershipPlan {
+  id              String        @id @default(cuid())
+  name            String        @unique
+  description     String?
+  priceCents      Int
+  billingPeriod   BillingPeriod
+  discountPercent Float?
+  priorityBooking Boolean       @default(false)
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  memberships       Membership[]
+  membershipHistory MembershipHistory[]
+}
+
+// membershipReference (Phase 7, a pre-approved exception to the Database
+// freeze, same precedent as Booking.bookingReference/
+// OpenPlaySession.sessionReference) is the human-friendly, stable
+// identifier shown in UI/history ("MB-YYYYMMDD-NNNN") — id stays the
+// internal PK.
+model Membership {
+  id                  String           @id @default(cuid())
+  membershipReference String           @unique
+  playerId            String
+  membershipPlanId    String
+  status              MembershipStatus @default(PENDING)
+  startDate           DateTime
+  endDate             DateTime
+  autoRenew           Boolean          @default(false)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  player         Player              @relation(fields: [playerId], references: [id])
+  membershipPlan MembershipPlan      @relation(fields: [membershipPlanId], references: [id])
+  payments       Payment[]
+  invoices       Invoice[]
+  history        MembershipHistory[]
+  sale           Sale?
+
+  @@index([playerId])
+  @@index([status])
+  @@index([endDate])
+}
+
+// Append-only log of every enrollment/renewal/plan-change/suspension/
+// reactivation/cancellation/expiration event a membership goes through
+// (Phase 7, a pre-approved exception, same shape as BookingHistory).
+// Suspension has no dedicated MembershipStatus value (that enum is
+// frozen) — a suspended membership's status is CANCELLED, distinguished
+// from a permanent cancellation only by this log's eventType.
+enum MembershipHistoryEventType {
+  ENROLLED
+  RENEWED
+  UPGRADED
+  DOWNGRADED
+  SUSPENDED
+  REACTIVATED
+  CANCELLED
+  EXPIRED
+}
+
+model MembershipHistory {
+  id               String                     @id @default(cuid())
+  membershipId     String
+  eventType        MembershipHistoryEventType
+  membershipPlanId String?
+  note             String?
+  changedById      String?
+  createdAt        DateTime                   @default(now())
+
+  membership     Membership      @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  membershipPlan MembershipPlan? @relation(fields: [membershipPlanId], references: [id])
+  changedBy      User?           @relation(fields: [changedById], references: [id])
+
+  @@index([membershipId])
+  @@index([createdAt])
+}
+
+// --- Open Play -----------------------------------------------------------
+// OpenPlayRegistration is a player's (or walk-in guest's) registration/
+// waitlist status for a session (unique per session+player, guests
+// identified by nullable playerId + guestName/guestPhone — same walk-in
+// pattern as Booking). OpenPlayQueue is the separate, real-time in-session
+// rotation (Waiting/Playing/Resting) — it only exists once a registration
+// has checked in, and points at OpenPlayRegistration (never Player
+// directly) so a queue entry's identity always comes from one source of
+// truth whether it's a player or a guest.
+//
+// sessionReference (Phase 5, a pre-approved exception to the Database
+// freeze, same precedent as Booking.bookingReference) is the human-
+// friendly, stable identifier shown in UI/reports ("OP-YYYYMMDD-NNNN").
+//
+// OpenPlayMatch/OpenPlayMatchParticipant (Phase 5) record match history:
+// one row per match started via RotationEngine.startNextMatch, with which
+// registrations played in it — an audit trail that also lays the
+// groundwork for future player statistics without further schema changes.
+//
+// OpenPlayQueueHistory (Phase 5) is an append-only log of every
+// Waiting/Playing/Resting transition a queue entry goes through, enabling
+// future analytics (total waiting time, total playing time) without a
+// schema change later.
+
+enum OpenPlaySessionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum OpenPlayRegistrationStatus {
+  REGISTERED
+  WAITLISTED
+  CHECKED_IN
+  CANCELLED
+  NO_SHOW
+}
+
+enum OpenPlayQueueStatus {
+  WAITING
+  PLAYING
+  RESTING
+}
+
+model OpenPlaySession {
+  id               String                @id @default(cuid())
+  sessionReference String                @unique
+  title            String?
+  startAt          DateTime
+  endAt            DateTime
+  capacity         Int
+  status           OpenPlaySessionStatus @default(SCHEDULED)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  registrations OpenPlayRegistration[]
+  queueEntries  OpenPlayQueue[]
+  matches       OpenPlayMatch[]
+
+  @@index([startAt, endAt])
+  @@index([status])
+}
+
+model OpenPlayRegistration {
+  id                String                     @id @default(cuid())
+  openPlaySessionId String
+  playerId          String?
+  guestName         String?
+  guestPhone        String?
+  status            OpenPlayRegistrationStatus @default(REGISTERED)
+  registeredAt      DateTime                   @default(now())
+  checkedInAt       DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  openPlaySession     OpenPlaySession            @relation(fields: [openPlaySessionId], references: [id])
+  player              Player?                    @relation(fields: [playerId], references: [id])
+  queueEntry          OpenPlayQueue?
+  matchParticipations OpenPlayMatchParticipant[]
+
+  @@unique([openPlaySessionId, playerId])
+  @@index([status])
+}
+
+model OpenPlayQueue {
+  id                String              @id @default(cuid())
+  openPlaySessionId String
+  registrationId    String              @unique
+  courtId           String?
+  status            OpenPlayQueueStatus @default(WAITING)
+  queuePosition     Int
+  stateChangedAt    DateTime            @default(now())
+  joinedAt          DateTime            @default(now())
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  openPlaySession OpenPlaySession        @relation(fields: [openPlaySessionId], references: [id])
+  registration    OpenPlayRegistration   @relation(fields: [registrationId], references: [id])
+  court           Court?                 @relation(fields: [courtId], references: [id])
+  history         OpenPlayQueueHistory[]
+
+  @@index([openPlaySessionId, queuePosition])
+  @@index([status])
+  @@index([courtId])
+}
+
+model OpenPlayQueueHistory {
+  id         String              @id @default(cuid())
+  queueId    String
+  status     OpenPlayQueueStatus
+  courtId    String?
+  occurredAt DateTime            @default(now())
+  createdAt  DateTime            @default(now())
+
+  queue OpenPlayQueue @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  court Court?        @relation(fields: [courtId], references: [id])
+
+  @@index([queueId, occurredAt])
+}
+
+model OpenPlayMatch {
+  id                String    @id @default(cuid())
+  openPlaySessionId String
+  courtId           String
+  matchNumber       Int
+  startedAt         DateTime  @default(now())
+  endedAt           DateTime?
+  completedByUserId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  openPlaySession OpenPlaySession            @relation(fields: [openPlaySessionId], references: [id])
+  court           Court                      @relation(fields: [courtId], references: [id])
+  completedBy     User?                      @relation(fields: [completedByUserId], references: [id])
+  participants    OpenPlayMatchParticipant[]
+
+  @@unique([openPlaySessionId, matchNumber])
+}
+
+model OpenPlayMatchParticipant {
+  id             String   @id @default(cuid())
+  matchId        String
+  registrationId String
+  createdAt      DateTime @default(now())
+
+  match        OpenPlayMatch        @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  registration OpenPlayRegistration @relation(fields: [registrationId], references: [id])
+
+  @@unique([matchId, registrationId])
+}
+
+// --- Tournament System -----------------------------------------------------
+// TournamentCategory separates the bracket `format` (how matches are
+// structured) from `division` (who's eligible) so e.g. "Mixed Doubles,
+// Round Robin" and "Men's Singles, Single Elimination" are both expressible.
+// Match.tournamentCategoryId is nullable so match recording isn't
+// permanently tied to tournaments only, matching "Match History" being
+// listed under Player Profiles independently of tournament history.
+
+enum TournamentStatus {
+  DRAFT
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TournamentFormat {
+  ROUND_ROBIN
+  SINGLE_ELIMINATION
+  DOUBLE_ELIMINATION
+  POOL_PLAY
+}
+
+enum TournamentDivision {
+  MENS
+  WOMENS
+  MIXED
+  OPEN
+}
+
+enum TournamentRegistrationStatus {
+  PENDING
+  CONFIRMED
+  WAITLISTED
+  WITHDRAWN
+  DISQUALIFIED
+}
+
+enum MatchStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  WALKOVER
+}
+
+model Tournament {
+  id                   String           @id @default(cuid())
+  name                 String
+  description          String?
+  createdById          String
+  status               TournamentStatus @default(DRAFT)
+  startDate            DateTime
+  endDate              DateTime
+  registrationOpensAt  DateTime?
+  registrationClosesAt DateTime?
+  venueInfo            String?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  deletedAt            DateTime?
+
+  createdBy  User                 @relation(fields: [createdById], references: [id])
+  categories TournamentCategory[]
+
+  @@index([status])
+  @@index([startDate])
+}
+
+model TournamentCategory {
+  id           String             @id @default(cuid())
+  tournamentId String
+  name         String
+  format       TournamentFormat
+  division     TournamentDivision
+  skillLevel   SkillLevel?
+  feeCents     Int                @default(0)
+  maxTeams     Int?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  deletedAt    DateTime?
+
+  tournament    Tournament               @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  registrations TournamentRegistration[]
+  matches       Match[]
+
+  @@index([tournamentId])
+}
+
+model TournamentRegistration {
+  id                   String                       @id @default(cuid())
+  tournamentCategoryId String
+  teamId               String
+  status               TournamentRegistrationStatus @default(PENDING)
+  seed                 Int?
+  registeredAt         DateTime                     @default(now())
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+
+  tournamentCategory TournamentCategory @relation(fields: [tournamentCategoryId], references: [id], onDelete: Cascade)
+  team               Team               @relation(fields: [teamId], references: [id])
+  payments           Payment[]
+  invoices           Invoice[]
+  sale               Sale?
+
+  @@unique([tournamentCategoryId, teamId])
+  @@index([status])
+}
+
+model Match {
+  id                   String      @id @default(cuid())
+  tournamentCategoryId String?
+  courtId              String?
+  round                Int?
+  bracketPosition      Int?
+  team1Id              String
+  team2Id              String?
+  winnerTeamId         String?
+  status               MatchStatus @default(SCHEDULED)
+  scheduledAt          DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  tournamentCategory TournamentCategory? @relation(fields: [tournamentCategoryId], references: [id])
+  court              Court?              @relation(fields: [courtId], references: [id])
+  team1              Team                @relation("MatchTeam1", fields: [team1Id], references: [id])
+  team2              Team?               @relation("MatchTeam2", fields: [team2Id], references: [id])
+  winnerTeam         Team?               @relation("MatchWinnerTeam", fields: [winnerTeamId], references: [id])
+  scores             Score[]
+
+  // Phase 10, a pre-approved exception: a DB-level backstop against
+  // match.service.ts's tryAdvanceBracket creating the same next-round slot
+  // twice under concurrent completion of both sibling matches (the
+  // application-layer check-then-write race that Serializable transactions
+  // also guard against — this constraint holds even if that guard were
+  // ever bypassed). Safe on nullable columns: non-bracket matches (null
+  // tournamentCategoryId/round/bracketPosition) don't collide, since
+  // Postgres treats each NULL as distinct for uniqueness.
+  @@unique([tournamentCategoryId, round, bracketPosition])
+  @@index([tournamentCategoryId])
+  @@index([status])
+  @@index([team1Id])
+  @@index([team2Id])
+  @@index([winnerTeamId])
+}
+
+model Score {
+  id         String   @id @default(cuid())
+  matchId    String
+  setNumber  Int
+  team1Score Int
+  team2Score Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, setNumber])
+}
+
+// --- Equipment Rentals -----------------------------------------------------
+// Equipment is physical inventory (paddles/balls/ball machines), tracked as
+// a pooled quantity, not per-unit serials. Rentals are per-item
+// transactions; maintenance logs are an append-only history per item.
+// rentalReference (Phase 8, a pre-approved exception, same precedent as
+// Booking.bookingReference) is the human-friendly id ("ER-YYYYMMDD-NNNN").
+
+enum EquipmentType {
+  PADDLE
+  BALL
+  BALL_MACHINE
+}
+
+enum EquipmentStatus {
+  AVAILABLE
+  RENTED
+  MAINTENANCE
+  RETIRED
+}
+
+enum RentalStatus {
+  ACTIVE
+  RETURNED
+  OVERDUE
+  LOST
+}
+
+// Shared by EquipmentMaintenanceLog and LockerMaintenanceLog (Phase 8, a
+// pre-approved exception). resolvedAt is nullable — an unresolved
+// DAMAGE_REPORT/ROUTINE/REPAIR/REPLACEMENT entry is what the computed
+// condition/status functions treat as "currently under maintenance" or
+// "currently damaged."
+enum MaintenanceLogType {
+  ROUTINE
+  DAMAGE_REPORT
+  REPAIR
+  REPLACEMENT
+}
+
+model Equipment {
+  id              String          @id @default(cuid())
+  name            String          @unique
+  type            EquipmentType
+  status          EquipmentStatus @default(AVAILABLE)
+  condition       String?
+  quantity        Int             @default(1)
+  depositCents    Int             @default(0)
+  rentalRateCents Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  rentals         EquipmentRental[]
+  maintenanceLogs EquipmentMaintenanceLog[]
+
+  @@index([type])
+  @@index([status])
+}
+
+model EquipmentRental {
+  id               String       @id @default(cuid())
+  rentalReference  String       @unique
+  equipmentId      String
+  playerId         String
+  bookingId        String?
+  status           RentalStatus @default(ACTIVE)
+  rentedAt         DateTime     @default(now())
+  dueAt            DateTime?
+  returnedAt       DateTime?
+  depositPaidCents Int          @default(0)
+  lateFeeCents     Int          @default(0)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  equipment Equipment @relation(fields: [equipmentId], references: [id])
+  player    Player    @relation(fields: [playerId], references: [id])
+  payments  Payment[]
+  sale      Sale?
+
+  @@index([status])
+  @@index([playerId])
+  @@index([equipmentId])
+}
+
+model EquipmentMaintenanceLog {
+  id            String             @id @default(cuid())
+  equipmentId   String
+  logType       MaintenanceLogType @default(ROUTINE)
+  note          String
+  performedAt   DateTime
+  performedById String?
+  resolvedAt    DateTime?
+  createdAt     DateTime           @default(now())
+
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  performedBy User?     @relation(fields: [performedById], references: [id])
+
+  @@index([equipmentId])
+}
+
+// --- Lockers -----------------------------------------------------------
+// qrCodeToken is nullable and unused until the "Future QR support" bullet
+// under this module is implemented — the column exists now so that phase
+// doesn't require a schema change. rentalReference (Phase 8, a
+// pre-approved exception) mirrors EquipmentRental.rentalReference
+// ("LR-YYYYMMDD-NNNN").
+
+enum LockerStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+  DISABLED
+}
+
+enum LockerRentalType {
+  DAILY
+  MONTHLY
+}
+
+enum LockerRentalStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+model Locker {
+  id        String       @id @default(cuid())
+  code      String       @unique
+  status    LockerStatus @default(AVAILABLE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  rentals         LockerRental[]
+  maintenanceLogs LockerMaintenanceLog[]
+
+  @@index([status])
+}
+
+model LockerRental {
+  id              String             @id @default(cuid())
+  rentalReference String             @unique
+  lockerId        String
+  playerId        String
+  type            LockerRentalType
+  status          LockerRentalStatus @default(ACTIVE)
+  startAt         DateTime
+  endAt           DateTime
+  amountCents     Int                @default(0)
+  qrCodeToken     String?            @unique
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  locker   Locker    @relation(fields: [lockerId], references: [id])
+  player   Player    @relation(fields: [playerId], references: [id])
+  payments Payment[]
+  sale     Sale?
+
+  @@index([status])
+  @@index([playerId])
+  @@index([lockerId])
+}
+
+// New in Phase 8 — Lockers had no maintenance tracking at all until this
+// phase (unlike Equipment, which had EquipmentMaintenanceLog since Phase
+// 2). Same shape, same MaintenanceLogType enum.
+model LockerMaintenanceLog {
+  id            String             @id @default(cuid())
+  lockerId      String
+  logType       MaintenanceLogType @default(ROUTINE)
+  note          String
+  performedAt   DateTime
+  performedById String?
+  resolvedAt    DateTime?
+  createdAt     DateTime           @default(now())
+
+  locker      Locker @relation(fields: [lockerId], references: [id], onDelete: Cascade)
+  performedBy User?  @relation(fields: [performedById], references: [id])
+
+  @@index([lockerId])
+}
+
+// --- Payments & Invoices -----------------------------------------------
+// Payment is the actual transaction record; Invoice is the billing
+// document a payment can be applied against. Both use the same set of
+// nullable references to whatever they're for (booking, membership,
+// tournament registration, equipment rental, locker rental) rather than a
+// stringly-typed polymorphic association, so referential integrity is
+// enforced by the database. `purpose` on Payment is a fast discriminator
+// for reporting without needing to check which FK is set.
+
+enum PaymentPurpose {
+  BOOKING
+  MEMBERSHIP
+  TOURNAMENT
+  EQUIPMENT_RENTAL
+  LOCKER_RENTAL
+  OTHER
+}
+
+// PaymentMethod became a real, admin-editable table in v1.1 Sub-phase 2
+// (was a hardcoded enum until then, matching zero live usage — Payment
+// below was, and remains, unused by any service/action). Seeded with
+// Cash/GCash/Bank Transfer/Credit-Debit Card; Owner can add/disable/
+// reorder without a code change.
+model PaymentMethod {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sales    Sale[]
+  payments Payment[]
+
+  @@index([isActive, sortOrder])
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  VOID
+  OVERDUE
+}
+
+model Payment {
+  id                       String         @id @default(cuid())
+  userId                   String
+  purpose                  PaymentPurpose
+  bookingId                String?
+  membershipId             String?
+  tournamentRegistrationId String?
+  equipmentRentalId        String?
+  lockerRentalId           String?
+  invoiceId                String?
+  amountCents              Int
+  currency                 String         @default("PHP")
+  paymentMethodId          String
+  status                   PaymentStatus  @default(PENDING)
+  providerReference        String?
+  paidAt                   DateTime?
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+
+  user                   User                    @relation(fields: [userId], references: [id])
+  booking                Booking?                @relation(fields: [bookingId], references: [id])
+  membership             Membership?             @relation(fields: [membershipId], references: [id])
+  tournamentRegistration TournamentRegistration? @relation(fields: [tournamentRegistrationId], references: [id])
+  equipmentRental        EquipmentRental?        @relation(fields: [equipmentRentalId], references: [id])
+  lockerRental           LockerRental?           @relation(fields: [lockerRentalId], references: [id])
+  invoice                Invoice?                @relation(fields: [invoiceId], references: [id])
+  paymentMethod          PaymentMethod           @relation(fields: [paymentMethodId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([purpose])
+}
+
+model Invoice {
+  id                       String        @id @default(cuid())
+  invoiceNumber            String        @unique
+  userId                   String
+  bookingId                String?
+  membershipId             String?
+  tournamentRegistrationId String?
+  status                   InvoiceStatus @default(DRAFT)
+  subtotalCents            Int
+  taxCents                 Int           @default(0)
+  totalCents               Int
+  issuedAt                 DateTime?
+  dueAt                    DateTime?
+  paidAt                   DateTime?
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+
+  user                   User                    @relation(fields: [userId], references: [id])
+  booking                Booking?                @relation(fields: [bookingId], references: [id])
+  membership             Membership?             @relation(fields: [membershipId], references: [id])
+  tournamentRegistration TournamentRegistration? @relation(fields: [tournamentRegistrationId], references: [id])
+  payments               Payment[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+// --- Sales (v1.1 Sub-phase 2 — Unified Sales Engine) ------------------------
+// Sale is the single record every revenue-producing workflow creates,
+// through SaleService, never by hand — Booking/Membership/EquipmentRental/
+// LockerRental/TournamentRegistration each get exactly one, via their own
+// nullable+unique FK below (same "one FK per source domain" shape Payment
+// already established). employeeId/shiftId are both required: a Sale can
+// only be created by a signed-in Employee with a currently OPEN Shift —
+// this is what finally lets Shift.varianceCents be computed (closingCash -
+// (openingCash + cash Sales for that shift)), though that computation
+// itself is a later sub-phase, not built here.
+enum SaleCategory {
+  BOOKING
+  MEMBERSHIP
+  EQUIPMENT_RENTAL
+  LOCKER_RENTAL
+  TOURNAMENT_REGISTRATION
+  PRODUCT
+  OTHER
+}
+
+// Only RECEPTION is produced by any workflow today — the rest exist so
+// a future Customer Portal / Mobile App / Tournament kiosk can create
+// Sales through the same SaleService without a schema change.
+enum SaleSource {
+  RECEPTION
+  WEBSITE
+  MOBILE_APP
+  ADMIN
+  TOURNAMENT
+}
+
+enum SaleStatus {
+  COMPLETED
+  VOID
+}
+
+model Sale {
+  id              String       @id @default(cuid())
+  // "SALE-20260722-0001" — same date + per-day-sequence pattern as every
+  // other human-facing reference code in this app.
+  saleNumber      String       @unique
+  category        SaleCategory
+  source          SaleSource   @default(RECEPTION)
+  status          SaleStatus   @default(COMPLETED)
+  amountCents     Int
+  // Free-text context for categories with no source row (PRODUCT/OTHER) —
+  // every other category's detail lives on its own linked record.
+  description     String?
+  notes           String?
+  paymentMethodId String
+  employeeId      String
+  shiftId         String
+  playerId        String?
+
+  bookingId                String? @unique
+  membershipId             String? @unique
+  equipmentRentalId        String? @unique
+  lockerRentalId           String? @unique
+  tournamentRegistrationId String? @unique
+  productId                String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  paymentMethod          PaymentMethod           @relation(fields: [paymentMethodId], references: [id])
+  employee               Employee                @relation(fields: [employeeId], references: [id])
+  shift                  Shift                   @relation(fields: [shiftId], references: [id])
+  player                 Player?                 @relation(fields: [playerId], references: [id])
+  booking                Booking?                @relation(fields: [bookingId], references: [id])
+  membership             Membership?             @relation(fields: [membershipId], references: [id])
+  equipmentRental        EquipmentRental?        @relation(fields: [equipmentRentalId], references: [id])
+  lockerRental           LockerRental?           @relation(fields: [lockerRentalId], references: [id])
+  tournamentRegistration TournamentRegistration? @relation(fields: [tournamentRegistrationId], references: [id])
+  product                Product?                @relation(fields: [productId], references: [id])
+
+  @@index([category])
+  @@index([createdAt])
+  @@index([employeeId])
+  @@index([shiftId])
+  @@index([playerId])
+}
+
+// A simple retail catalog for one-time sales (SaleCategory.PRODUCT) —
+// distinct from Equipment, which is rental-shaped (deposit, rental rate,
+// return, RENTED status). No stock/quantity tracking: these are priced
+// items sold outright (e.g. balls, T-shirts), not inventory-tracked gear.
+model Product {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  priceCents Int
+  active     Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  sales Sale[]
+
+  @@index([sortOrder])
+}
+
+// --- Notifications & Announcements --------------------------------------
+
+// Reshaped in Phase 9 (a pre-approved exception to the Database freeze) from
+// the original Phase 2 values (BOOKING_CONFIRMATION/PAYMENT_CONFIRMATION/
+// TOURNAMENT_REMINDER/MEMBERSHIP_EXPIRATION/ANNOUNCEMENT/OTHER), which had
+// zero usages anywhere in app code, to one category per module that
+// generates notifications.
+enum NotificationType {
+  BOOKING
+  TOURNAMENT
+  MEMBERSHIP
+  EQUIPMENT
+  LOCKER
+  SYSTEM
+  ANNOUNCEMENT
+}
+
+// entityType/entityId (Phase 9, a pre-approved exception, same shape as
+// AuditLog) let generateReminders() dedupe — it only creates a Notification
+// if no existing row already matches userId+type+entityType+entityId for
+// the source record, so revisiting the Notification Center never spams
+// duplicates — and let a notification deep-link to its source record.
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String
+  type       NotificationType
+  entityType String?
+  entityId   String?
+  title      String
+  body       String
+  isRead     Boolean          @default(false)
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, type, entityType, entityId])
+}
+
+model Announcement {
+  id          String    @id @default(cuid())
+  title       String
+  body        String
+  createdById String
+  isPublished Boolean   @default(false)
+  publishedAt DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User @relation(fields: [createdById], references: [id])
+
+  @@index([isPublished])
+}
+
+// --- Admin: Audit Logs & Settings -----------------------------------------
+// AuditLog is append-only (no updatedAt/deletedAt). userId is nullable for
+// system-initiated actions. Setting is a simple typed key/value store for
+// app-wide configuration that shouldn't require a code change to update.
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  oldValues  Json?
+  newValues  Json?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Setting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  description String?
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  updatedBy User? @relation(fields: [updatedById], references: [id])
+}
+
+// v1.1 maintenance: backs every human-readable reference-number generator
+// in the app (Booking/Membership/Shift/EquipmentRental/LockerRental/Sale/
+// Employee/OpenPlaySession/OpenPlayMatch) — replaces the previous
+// count-existing-rows approach, which silently desynced from the actual
+// highest sequence number once rows were deleted, causing collisions.
+// One row per scope (e.g. "BOOKING:20260722", or "EMPLOYEE" for a stable
+// identifier with no date component); incremented via an atomic
+// `INSERT ... ON CONFLICT DO UPDATE` (see lib/reference-counter.ts) —
+// gap-tolerant by construction (a deleted downstream row never touches
+// the counter) and race-free under concurrent transactions via the
+// unique `scope` index, with no application-level locking needed.
+model ReferenceCounter {
+  scope String @id
+  value Int    @default(0)
+}
+
+// --- Events ----------------------------------------------------------------
+// A generic catch-all for facility activities that don't belong to Booking
+// or Tournament (open play nights, clinics, corporate/private functions,
+// social nights, etc.). eventType is a free-form string, not an enum or a
+// table — the whole point of this model is not forcing every activity into
+// a fixed shape, so the set of event types is intentionally open-ended.
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Event {
+  id                   String      @id @default(cuid())
+  title                String
+  description          String?
+  eventType            String
+  startDateTime        DateTime
+  endDateTime          DateTime
+  capacity             Int?
+  registrationRequired Boolean     @default(false)
+  feeCents             Int         @default(0)
+  status               EventStatus @default(DRAFT)
+  createdById          String
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  createdBy User @relation(fields: [createdById], references: [id])
+
+  @@index([status])
+  @@index([startDateTime, endDateTime])
+}
