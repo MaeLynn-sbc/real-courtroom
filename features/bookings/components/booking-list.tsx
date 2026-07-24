@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
 import type { bookingService } from "@/services/booking/booking.service";
@@ -41,7 +42,10 @@ export function BookingList({ bookings }: BookingListProps) {
               {dateTimeFormatter.format(booking.startAt)} – {dateTimeFormatter.format(booking.endAt)}
             </TableCell>
             <TableCell>
-              <BookingStatusBadge status={booking.status} />
+              <div className="flex items-center gap-1.5">
+                <BookingStatusBadge status={booking.status} />
+                {booking.isAfterHours ? <Badge variant="warning">After Hours</Badge> : null}
+              </div>
             </TableCell>
           </TableRow>
         ))}

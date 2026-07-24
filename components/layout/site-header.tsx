@@ -1,8 +1,9 @@
 import Link from "next/link";
 
 import { Logo } from "@/components/shared/logo";
-import { buttonVariants } from "@/components/ui/button";
+import { SiteStatusPill } from "@/components/layout/site-status-pill";
 import { PUBLIC_VISIBILITY_KEYS } from "@/lib/public-visibility";
+import { cn } from "@/lib/utils";
 import { settingsService } from "@/services/settings/settings.service";
 
 const BASE_NAV_LINKS: { href: string; label: string }[] = [
@@ -12,6 +13,14 @@ const BASE_NAV_LINKS: { href: string; label: string }[] = [
   { href: "/contact", label: "Contact" },
 ];
 
+const PILL_BUTTON =
+  "inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green";
+const PILL_BUTTON_PRIMARY = cn(
+  PILL_BUTTON,
+  "bg-green text-navy-900 hover:-translate-y-px hover:shadow-[0_8px_24px_rgba(143,194,79,.25)]",
+);
+const PILL_BUTTON_GHOST = cn(PILL_BUTTON, "border-line text-bone hover:border-green border font-semibold");
+
 export async function SiteHeader() {
   const visibility = await settingsService.getPublicVisibility();
 
@@ -20,28 +29,33 @@ export async function SiteHeader() {
     : BASE_NAV_LINKS;
 
   return (
-    <header className="border-border/60 bg-background/80 sticky top-0 z-40 border-b backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-6">
-        <Link href="/" className="flex shrink-0 items-center">
-          <Logo size="sm" showWordmark />
+    <header className="bg-navy-900/85 border-line sticky top-0 z-40 border-b backdrop-blur-md">
+      <div className="mx-auto flex h-16 max-w-6xl items-center gap-7 px-6">
+        <Link href="/" className="flex shrink-0 items-center gap-2.5">
+          <Logo size="sm" />
+          <span className="font-display text-bone text-[19px] leading-none font-black tracking-[0.03em] uppercase">
+            The <span className="text-green">Courtroom</span>
+          </span>
         </Link>
 
-        <nav className="hidden items-center gap-6 text-sm font-medium md:flex">
+        <nav className="ml-auto hidden items-center gap-6 text-sm font-semibold md:flex">
           {navLinks.map((link) => (
-            <Link key={link.href} href={link.href} className="hover:text-foreground text-muted-foreground">
+            <Link key={link.href} href={link.href} className="text-slate hover:text-bone transition-colors">
               {link.label}
             </Link>
           ))}
         </nav>
 
+        <SiteStatusPill />
+
         <div className="flex shrink-0 items-center gap-2">
-          <Link href="/lookup" className="hover:text-foreground text-muted-foreground hidden text-sm sm:inline">
+          <Link href="/lookup" className="text-slate hover:text-bone hidden text-sm font-semibold sm:inline">
             Find my booking
           </Link>
-          <Link href="/book" className={buttonVariants({ size: "sm" })}>
-            Book Now
+          <Link href="/book" className={PILL_BUTTON_PRIMARY}>
+            Book now
           </Link>
-          <Link href="/login" className={buttonVariants({ variant: "outline", size: "sm" })}>
+          <Link href="/login" className={cn(PILL_BUTTON_GHOST, "hidden md:inline-flex")}>
             Sign in
           </Link>
         </div>

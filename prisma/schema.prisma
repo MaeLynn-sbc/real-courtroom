@@ -427,6 +427,12 @@ model Booking {
   qrCodeToken      String?       @unique
   notes            String?
   cancelledAt      DateTime?
+  // v1.2 Phase 2: set when a staff/owner booking falls outside the
+  // court's effective operating window (BUILD-SPEC.md §0 "Facility close
+  // is a PUBLIC limit, not a data limit") — staff can always book past
+  // hours, this just flags it for reporting. Always false for WEBSITE
+  // bookings, since those are blocked outright instead of flagged.
+  isAfterHours     Boolean       @default(false)
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 

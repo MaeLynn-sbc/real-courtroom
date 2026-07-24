@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist_Mono, Inter, Manrope } from "next/font/google";
+import { Geist_Mono, Inter, JetBrains_Mono, Manrope, Saira_Condensed } from "next/font/google";
 
 import "./globals.css";
 
@@ -31,6 +31,23 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// v1.2: the public-site design port (docs/design-reference.html) — Saira
+// Condensed for display headings, JetBrains Mono for prices/times/eyebrow
+// labels. Scoped to the public home page + shared header/footer via the
+// font-display/font-jetbrains theme tokens (globals.css); the rest of the
+// app (dashboard etc.) keeps Manrope/Inter/Geist Mono untouched.
+const sairaCondensed = Saira_Condensed({
+  variable: "--font-saira-condensed",
+  subsets: ["latin"],
+  weight: ["600", "700", "800", "900"],
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
+});
+
 export const metadata: Metadata = {
   title: {
     default: siteConfig.name,
@@ -50,7 +67,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${manrope.variable} ${inter.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${manrope.variable} ${inter.variable} ${geistMono.variable} ${sairaCondensed.variable} ${jetbrainsMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col">

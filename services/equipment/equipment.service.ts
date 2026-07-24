@@ -58,6 +58,14 @@ function countByKey<T>(rows: T[], key: (row: T) => string): Map<string, number> 
 // functional equivalent of a soft delete, matching how Court uses
 // DISABLED rather than a literal delete.
 export class EquipmentService {
+  // Public site (House Rules copy) needs the real paddle-rental price
+  // without the rest of listEquipment()'s rental/damage-count queries —
+  // BUILD-SPEC.md §0 "read from the Equipment record, never hardcoded."
+  async getRentalRateCentsByName(name: string): Promise<number | null> {
+    const equipment = await prisma.equipment.findUnique({ where: { name }, select: { rentalRateCents: true } });
+    return equipment?.rentalRateCents ?? null;
+  }
+
   // Phase 10: batched, not per-item — the previous version called
   // attachComputed() (itself 3-4 queries) once per row via Promise.all,
   // making this ~4N+1 queries for N equipment items (confirmed the

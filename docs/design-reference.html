@@ -271,6 +271,18 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   font-family:var(--mono);font-size:13px;font-weight:700;color:var(--green);
 }
 .card-tag{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--coral)}
+/* capacity meter — reads live from the session record, never hardcoded */
+.cap{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.cap-bar{height:6px;border-radius:99px;background:var(--navy-600);overflow:hidden}
+.cap-bar i{display:block;height:100%;border-radius:99px;background:var(--green)}
+.cap-bar.tight i{background:var(--coral)}
+.cap-txt{
+  display:flex;justify-content:space-between;align-items:baseline;margin-top:9px;
+  font-family:var(--mono);font-size:12px;
+}
+.cap-txt b{color:var(--green);font-weight:700}
+.cap-txt.tight b{color:var(--coral)}
+.cap-txt span{color:var(--slate);font-size:11px}
 
 .rules{padding:clamp(56px,7vw,90px) 0;border-top:1px solid var(--line)}
 .rules-in{display:grid;grid-template-columns:.85fr 1.15fr;gap:clamp(28px,5vw,64px)}
@@ -390,7 +402,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
         <span class="eyebrow">The docket</span>
         <h2 class="h2" style="margin-top:10px">Today's open slots</h2>
       </div>
-      <p class="lede" style="font-size:14.5px">Tap any open slot to hold it. Courts run ₱350 an hour, flat. Once a court switches to open play you don't book it — just walk in.</p>
+      <p class="lede" style="font-size:14.5px">Tap any open slot to hold it. Courts run ₱350 an hour, flat. Once a court switches to open play it stops being bookable — see below for how those nights work.</p>
     </div>
 
     <!-- day picker (populated by JS) -->
@@ -399,7 +411,8 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
     <!-- EDIT YOUR RATES HERE and in the RATES object in the script below -->
     <div class="rates">
       <span class="rate"><b>₱350 / hour</b><span>Court rental, flat rate</span></span>
-      <span class="rate"><b>₱35 / game</b><span>Open play</span></span>
+      <span class="rate"><b>₱35 / game</b><span>Open play, Mon – Thu</span></span>
+      <span class="rate"><b>₱150 unlimited</b><span>Fri &amp; Sat, limited slots</span></span>
       <span class="rate"><b>₱20</b><span>Paddle rental</span></span>
     </div>
 
@@ -422,7 +435,7 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
     <div class="legend">
       <span><i class="lg-open"></i>Open — tap to hold</span>
       <span><i class="lg-taken"></i>Already booked</span>
-      <span><i class="lg-op"></i>Open play — walk in, ₱35 a game</span>
+      <span><i class="lg-op"></i>Open play — no court booking needed</span>
     </div>
   </div>
 </section>
@@ -432,26 +445,32 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
   <div class="wrap">
     <span class="eyebrow">No partner, no problem</span>
     <h2 class="h2" style="margin-top:10px">Open play</h2>
-    <p class="lede" style="margin-top:14px">Courts switch over to open play in the evening. Show up on your own, pay per game, and rotate in. Everyone's welcome — all levels, first-timers included.</p>
+    <p class="lede" style="margin-top:14px">Courts switch over to open play in the evening. Weeknights you pay per game and just turn up. Friday and Saturday are unlimited nights — one fee, limited slots, register ahead. All levels, first-timers included.</p>
 
     <div class="cards">
       <div class="card">
         <span class="card-tag">Mon – Thu</span>
         <h3>Weeknight rotation</h3>
-        <p>Court 1 opens up at 6PM and Court 2 at 8PM. Court 3 stays bookable right through to 11PM.</p>
+        <p>Court 1 frees up at 6PM, Court 2 at 8PM. Walk in, pay per game, rotate through. No sign-up needed.</p>
         <span class="price">₱35 per game</span>
       </div>
       <div class="card">
-        <span class="card-tag">Fri &amp; Sat · from 6PM</span>
-        <h3>All three courts</h3>
-        <p>Every court goes to open play at 6PM, so the whole floor is rotating. Book before 6PM if you want a court to yourselves.</p>
-        <span class="price">₱35 per game</span>
+        <span class="card-tag">Friday · from 6PM</span>
+        <h3>Unlimited night</h3>
+        <p>All three courts rotating. One flat fee, play as many games as you like. Register ahead — slots are limited.</p>
+        <div class="cap">
+          <div class="cap-bar"><i style="width:56%"></i></div>
+          <div class="cap-txt"><b>14 slots left</b><span>₱150 · unlimited games</span></div>
+        </div>
       </div>
       <div class="card">
-        <span class="card-tag">Fri &amp; Sat</span>
-        <h3>Unli pass</h3>
-        <p>Register once and play as many games as you like across both nights. Sign up at the desk.</p>
-        <span class="price">Ask at the desk</span>
+        <span class="card-tag">Saturday · from 6PM</span>
+        <h3>Unlimited night</h3>
+        <p>Same format, bigger floor. Once the slots go you can join the waitlist, and we'll message you if someone drops out.</p>
+        <div class="cap">
+          <div class="cap-bar tight"><i style="width:90%"></i></div>
+          <div class="cap-txt tight"><b>4 slots left</b><span>₱150 · unlimited games</span></div>
+        </div>
       </div>
     </div>
   </div>

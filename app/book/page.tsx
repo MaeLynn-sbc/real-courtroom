@@ -13,11 +13,14 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 interface BookPageProps {
-  searchParams: Promise<{ courtId?: string; date?: string; time?: string }>;
+  searchParams: Promise<{ courtId?: string; date?: string; time?: string; durationMinutes?: string }>;
 }
 
 export default async function BookPage({ searchParams }: BookPageProps) {
-  const [courts, { courtId, date, time }] = await Promise.all([courtService.listCourts(), searchParams]);
+  const [courts, { courtId, date, time, durationMinutes }] = await Promise.all([
+    courtService.listCourts(),
+    searchParams,
+  ]);
   const courtOptions = courts
     .filter((court) => court.status === "ACTIVE")
     .map((court) => ({ id: court.id, name: court.name }));
@@ -37,6 +40,7 @@ export default async function BookPage({ searchParams }: BookPageProps) {
           initialCourtId={courtId}
           initialDate={date}
           initialTime={time}
+          initialDurationMinutes={durationMinutes}
         />
       </main>
       <SiteFooter />

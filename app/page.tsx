@@ -1,11 +1,12 @@
-import { Trophy } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
-import { buttonVariants } from "@/components/ui/button";
 import { CourtAvailabilityGrid } from "@/features/bookings/components/court-availability-grid";
+import { getCourtBookingWindow, getFacilityCloseMinutes } from "@/lib/court-hours";
+import { formatCurrency } from "@/lib/utils";
+import { equipmentService } from "@/services/equipment/equipment.service";
 import { announcementService } from "@/services/notifications/announcement.service";
 import { settingsService } from "@/services/settings/settings.service";
 
@@ -20,89 +21,255 @@ interface HomePageProps {
   searchParams: Promise<{ date?: string }>;
 }
 
+const PILL_BUTTON =
+  "inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-bold transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green";
+
+function formatTimeOfDay(time: string): string {
+  const [hoursText, minutesText] = time.split(":");
+  const hours = Number(hoursText);
+  const period = hours < 12 ? "AM" : "PM";
+  const twelveHour = ((hours + 11) % 12) + 1;
+  return minutesText === "00" ? `${twelveHour}${period}` : `${twelveHour}:${minutesText} ${period}`;
+}
+
+function formatMinutesOfDay(minutes: number): string {
+  const hours = Math.floor(minutes / 60) % 24;
+  const mins = minutes % 60;
+  return formatTimeOfDay(`${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`);
+}
+
+// Any Monday/Friday works as a stand-in date — getCourtBookingWindow only
+// cares about day-of-week (weekday vs Fri/Sat), not the specific date.
+// Resolving through the real window function (rather than reading
+// courtCloseTimes directly) means this copy automatically reflects a
+// court's "00:00 = no cutoff, defer to facility close" sentinel correctly
+// instead of ever showing "12:00 AM" for it.
+function nextWeekday(targetDay: number): Date {
+  const result = new Date();
+  result.setDate(result.getDate() + ((targetDay - result.getDay() + 7) % 7));
+  return result;
+}
+
 export default async function HomePage({ searchParams }: HomePageProps) {
-  const [{ date: dateParam }, hero, galleryImages, announcements] = await Promise.all([
-    searchParams,
-    settingsService.getHomepageHero(),
-    settingsService.getGalleryImages(),
-    announcementService.listPublished(),
-  ]);
+  const [{ date: dateParam }, hero, galleryImages, announcements, courtHours, paddleRentalCents] =
+    await Promise.all([
+      searchParams,
+      settingsService.getHomepageHero(),
+      settingsService.getGalleryImages(),
+      announcementService.listPublished(),
+      settingsService.getCourtHours(),
+      equipmentService.getRentalRateCentsByName("House Paddle"),
+    ]);
   const latestAnnouncement = announcements[0];
   const date = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();
 
-  return (
-    <div className="flex min-h-svh flex-1 flex-col">
-      <SiteHeader />
-      <main className="bg-background relative flex flex-1 items-center overflow-hidden">
-        {/* Faint pickleball-court line grid — pure CSS, background-attachment:
-            fixed gives a cheap, dependency-free parallax feel on scroll. */}
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 -z-20 opacity-[0.05]"
-          style={{
-            backgroundImage:
-              "repeating-linear-gradient(0deg, transparent, transparent 79px, currentColor 79px, currentColor 80px), repeating-linear-gradient(90deg, transparent, transparent 79px, currentColor 79px, currentColor 80px)",
-            backgroundAttachment: "fixed",
-            color: "var(--foreground)",
-          }}
-        />
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 -z-10"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 18% 20%, oklch(0.62 0.17 135 / 0.14), transparent 45%), radial-gradient(circle at 82% 78%, oklch(0.58 0.1 250 / 0.14), transparent 45%)",
-          }}
-        />
+  const mondayForCopy = nextWeekday(1);
+  const fridayForCopy = nextWeekday(5);
+  const court1Close = formatMinutesOfDay(getCourtBookingWindow(courtHours, "Court 1", mondayForCopy).closeMinutes);
+  const court2Close = formatMinutesOfDay(getCourtBookingWindow(courtHours, "Court 2", mondayForCopy).closeMinutes);
+  const court3Close = formatMinutesOfDay(getCourtBookingWindow(courtHours, "Court 3", mondayForCopy).closeMinutes);
+  const fridaySaturdayClose = formatMinutesOfDay(
+    getCourtBookingWindow(courtHours, "Court 1", fridayForCopy).closeMinutes,
+  );
 
-        <div className="mx-auto grid w-full max-w-6xl gap-10 px-6 py-24 lg:grid-cols-[1.2fr_1fr] lg:items-center">
-          <div className="flex flex-col items-start gap-6">
-            <span className="bg-brand/10 text-brand animate-in fade-in slide-in-from-bottom-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium duration-700">
-              <Trophy className="size-3.5" aria-hidden="true" />
-              Indoor Pickleball, Done Right
-            </span>
-            <h1 className="hero-3d-text font-heading animate-in fade-in slide-in-from-bottom-4 text-6xl leading-[0.95] font-extrabold tracking-tight text-balance delay-100 duration-700 sm:text-7xl md:text-8xl">
-              {hero.title}
-            </h1>
-            {hero.subtitle ? (
-              <p className="text-muted-foreground animate-in fade-in slide-in-from-bottom-4 max-w-xl text-lg text-balance delay-200 duration-700">
-                {hero.subtitle}
-              </p>
-            ) : null}
-            {latestAnnouncement ? (
-              <p className="border-warning/40 bg-warning/10 text-foreground animate-in fade-in rounded-lg border px-3 py-2 text-sm delay-200 duration-700">
-                <span className="font-medium">{latestAnnouncement.title}</span> — {latestAnnouncement.body}
-              </p>
-            ) : null}
-            <Link
-              href="/book"
-              className={`${buttonVariants({ size: "lg" })} animate-in fade-in slide-in-from-bottom-4 delay-300 duration-700`}
-            >
+  return (
+    <div className="bg-navy-900 flex min-h-svh flex-1 flex-col">
+      <SiteHeader />
+
+      {/* ============================ HERO ============================ */}
+      <section className="relative overflow-hidden px-6 pt-[clamp(48px,7vw,84px)] pb-[clamp(36px,5vw,56px)]">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 opacity-[0.55]"
+          style={{
+            backgroundImage:
+              "linear-gradient(180deg,transparent 55%,var(--navy-900) 100%), repeating-linear-gradient(90deg,transparent 0 118px,var(--line) 118px 119px)",
+          }}
+        />
+        <div className="relative mx-auto max-w-6xl">
+          <span className="font-jetbrains text-green text-[11px] font-bold tracking-[0.22em] uppercase">
+            Indoor courts · Everyone welcome
+          </span>
+          <h1 className="font-display text-bone mt-4 text-[clamp(52px,9.4vw,104px)] leading-[0.86] font-black tracking-[-0.022em] text-balance uppercase">
+            {hero.title}
+          </h1>
+          {hero.subtitle ? (
+            <p className="text-slate mt-4 max-w-[44ch] text-[clamp(15px,1.5vw,17px)] text-balance">
+              {hero.subtitle}
+            </p>
+          ) : null}
+          {latestAnnouncement ? (
+            <p className="border-warning/40 bg-warning/10 text-bone mt-4 max-w-[52ch] rounded-lg border px-3 py-2 text-sm">
+              <span className="font-semibold">{latestAnnouncement.title}</span> — {latestAnnouncement.body}
+            </p>
+          ) : null}
+
+          <div className="mt-7 flex flex-wrap gap-3">
+            <Link href="#docket" className={`${PILL_BUTTON} bg-green text-navy-900 hover:-translate-y-px`}>
               {hero.ctaText}
+            </Link>
+            <Link
+              href="#sessions"
+              className={`${PILL_BUTTON} border-line text-bone hover:border-green border font-semibold`}
+            >
+              Join open play
             </Link>
           </div>
 
+          <div className="border-line mt-7 flex flex-wrap gap-7 border-t pt-6">
+            <div>
+              <b className="font-display block text-[32px] leading-none font-extrabold tracking-[0.01em]">3</b>
+              <span className="font-jetbrains text-slate text-[10px] tracking-[0.16em] uppercase">
+                Indoor courts
+              </span>
+            </div>
+            <div>
+              <b className="font-display block text-[32px] leading-none font-extrabold tracking-[0.01em]">
+                {formatTimeOfDay(courtHours.facilityOpenTime)}–{formatMinutesOfDay(getFacilityCloseMinutes(courtHours, date))}
+              </b>
+              <span className="font-jetbrains text-slate text-[10px] tracking-[0.16em] uppercase">
+                Open daily
+              </span>
+            </div>
+            <div>
+              <b className="font-display block text-[32px] leading-none font-extrabold tracking-[0.01em]">
+                All levels
+              </b>
+              <span className="font-jetbrains text-slate text-[10px] tracking-[0.16em] uppercase">
+                First-timers welcome
+              </span>
+            </div>
+          </div>
+
           {hero.imageUrl ? (
-            <div className="animate-in fade-in relative aspect-[4/3] w-full overflow-hidden rounded-2xl shadow-lg delay-300 duration-700">
+            <div className="border-line bg-navy-800 relative mt-8 aspect-[21/9] w-full overflow-hidden rounded-2xl border">
               <Image src={hero.imageUrl} alt={hero.title} fill className="object-cover" priority />
             </div>
           ) : null}
         </div>
-      </main>
+      </section>
 
-      <section className="border-border/60 border-t px-6 py-16">
+      {/* ============================ THE DOCKET ============================ */}
+      <section id="docket" className="border-line border-t px-6 py-[clamp(40px,5vw,64px)]">
         <div className="mx-auto max-w-6xl">
           <CourtAvailabilityGrid date={date} />
         </div>
       </section>
 
+      {/* ============================ SESSIONS ============================ */}
+      <section id="sessions" className="border-line border-t px-6 py-[clamp(56px,7vw,90px)]">
+        <div className="mx-auto max-w-6xl">
+          <span className="font-jetbrains text-coral text-[11px] font-bold tracking-[0.22em] uppercase">
+            No partner, no problem
+          </span>
+          <h2 className="font-display text-bone mt-2 text-[clamp(30px,4.4vw,52px)] leading-[0.94] font-extrabold tracking-[-0.01em] uppercase">
+            Open play
+          </h2>
+          <p className="text-slate mt-3 max-w-[52ch] text-sm">
+            Courts switch over to open play once their booking window closes. Show up on your own, and
+            rotate in. Everyone&apos;s welcome — all levels, first-timers included.
+          </p>
+
+          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="border-line bg-navy-800 hover:border-green/45 rounded-2xl border p-6 transition-colors">
+              <span className="font-jetbrains text-coral text-[10px] tracking-[0.18em] uppercase">
+                Sunday – Thursday
+              </span>
+              <h3 className="font-display mt-2 text-2xl font-extrabold tracking-[0.01em] uppercase">
+                Weeknight rotation
+              </h3>
+              <p className="text-slate mt-2 text-[14.5px]">
+                Court 1 switches over at {court1Close}, Court 2 at {court2Close}, Court 3 at {court3Close}.
+                Walk in, pay at the desk, no sign-up needed.
+              </p>
+              <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">₱35 / game</span>
+            </div>
+            <div className="border-line bg-navy-800 hover:border-green/45 rounded-2xl border p-6 transition-colors">
+              <span className="font-jetbrains text-coral text-[10px] tracking-[0.18em] uppercase">
+                Friday · from {fridaySaturdayClose}
+              </span>
+              <h3 className="font-display mt-2 text-2xl font-extrabold tracking-[0.01em] uppercase">
+                Friday unlimited
+              </h3>
+              <p className="text-slate mt-2 text-[14.5px]">
+                All three courts go to open play at {fridaySaturdayClose}. Prepaid registration holds your
+                spot — live capacity is coming online soon.
+              </p>
+              <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">₱150 unlimited</span>
+            </div>
+            <div className="border-line bg-navy-800 hover:border-green/45 rounded-2xl border p-6 transition-colors">
+              <span className="font-jetbrains text-coral text-[10px] tracking-[0.18em] uppercase">
+                Saturday · from {fridaySaturdayClose}
+              </span>
+              <h3 className="font-display mt-2 text-2xl font-extrabold tracking-[0.01em] uppercase">
+                Saturday unlimited
+              </h3>
+              <p className="text-slate mt-2 text-[14.5px]">
+                Same as Friday, bigger crowd. Prepaid registration holds your spot — live capacity is
+                coming online soon.
+              </p>
+              <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">₱150 unlimited</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ============================ RULES ============================ */}
+      <section className="border-line border-t px-6 py-[clamp(56px,7vw,90px)]">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-[clamp(28px,5vw,64px)] md:grid-cols-[0.85fr_1.15fr]">
+          <div>
+            <span className="font-jetbrains text-green text-[11px] font-bold tracking-[0.22em] uppercase">
+              Order in the court
+            </span>
+            <h2 className="font-display text-bone mt-2 text-[clamp(30px,4.4vw,52px)] leading-[0.94] font-extrabold tracking-[-0.01em] uppercase">
+              House rules
+            </h2>
+            <p className="text-slate mt-3 max-w-[52ch] text-sm">
+              Short list. It keeps the courts fast and the surface in good shape.
+            </p>
+          </div>
+          <div className="border-line divide-line grid divide-y overflow-hidden rounded-2xl border">
+            {[
+              {
+                title: "Non-marking shoes only",
+                body: "Court shoes or clean trainers. Dark-soled running shoes leave streaks we can't lift.",
+              },
+              {
+                title: "Your hour ends on the hour",
+                body: "Clear the court on time so the next booking starts clean. 15-minute grace before we release a no-show.",
+              },
+              { title: "Water only on court", body: "Everything else stays at the benches." },
+              {
+                title:
+                  paddleRentalCents != null
+                    ? `Paddle rentals — ${formatCurrency(paddleRentalCents)} each`
+                    : "Paddle rentals available",
+                body: "Ask at the desk before you head on court. Bring your own and there's nothing to pay.",
+              },
+            ].map((rule, index) => (
+              <div key={rule.title} className="bg-navy-800 flex gap-4 px-6 py-5">
+                <span className="font-jetbrains text-green pt-0.5 text-[11px] font-bold">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <div>
+                  <b className="text-bone block font-semibold">{rule.title}</b>
+                  <p className="text-slate mt-0.5 text-sm">{rule.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {galleryImages.length > 0 ? (
-        <section className="border-border/60 border-t px-6 py-16">
+        <section className="border-line border-t px-6 py-16">
           <div className="mx-auto max-w-6xl">
-            <h2 className="font-heading mb-6 text-2xl font-semibold tracking-tight">Gallery</h2>
+            <h2 className="font-display text-bone mb-6 text-2xl font-extrabold tracking-[-0.01em] uppercase">
+              Gallery
+            </h2>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {galleryImages.slice(0, 8).map((image) => (
-                <div key={image.url} className="relative aspect-square overflow-hidden rounded-xl">
+                <div key={image.url} className="border-line relative aspect-square overflow-hidden rounded-xl border">
                   <Image src={image.url} alt={image.alt || "The Courtroom"} fill className="object-cover" />
                 </div>
               ))}

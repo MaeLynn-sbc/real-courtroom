@@ -41,17 +41,29 @@ const DEFAULT_BUSINESS_INFO: BusinessInfo = {
   mapsUrl: "",
 };
 
-// Matches the facility's actual current hours — Court 1 until 6pm, Court 2
-// until 8pm, Court 3 until midnight, everyone until 6pm on Fri/Sat — so a
-// facility with no admin edits yet behaves exactly as it does today.
+// BUILD-SPEC.md §0's confirmed business facts — facility open 7AM, close
+// 11PM every day; Court 1 until 6PM, Court 2 until 8PM, Court 3 has no
+// per-court cutoff of its own (runs until facility close); everyone until
+// 6PM on Fri/Sat; business day rolls over at 3AM. A facility with no
+// admin edits yet behaves exactly as documented.
 const DEFAULT_COURT_HOURS: CourtHoursSettings = {
   facilityOpenTime: "07:00",
+  facilityCloseTimes: {
+    "0": "23:00",
+    "1": "23:00",
+    "2": "23:00",
+    "3": "23:00",
+    "4": "23:00",
+    "5": "23:00",
+    "6": "23:00",
+  },
   fridaySaturdayCloseTime: "18:00",
   courtCloseTimes: {
     "Court 1": "18:00",
     "Court 2": "20:00",
-    "Court 3": "24:00",
+    "Court 3": "00:00",
   },
+  businessDateRolloverHour: 3,
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never
@@ -172,8 +184,29 @@ export class SettingsService {
     return this.setJsonValue(CMS_KEYS.GALLERY_IMAGES, value, actorUserId);
   }
 
+  // Merges over DEFAULT_COURT_HOURS (rather than returning the stored row
+  // as-is like the other getX methods) because this shape has already
+  // grown once — a row saved before facilityCloseTimes/
+  // businessDateRolloverHour existed would otherwise come back missing
+  // both and crash lib/court-hours.ts on the next read. Also transparently
+  // migrates the old "24:00" no-cutoff sentinel (pre-BUILD-SPEC.md §0) to
+  // today's "00:00" sentinel, so a stale stored value keeps working
+  // instead of being silently misread as a literal cutoff.
   async getCourtHours(): Promise<CourtHoursSettings> {
-    return this.getJsonValue(CMS_KEYS.COURT_HOURS, DEFAULT_COURT_HOURS);
+    const stored = await this.getJsonValue<Partial<CourtHoursSettings>>(CMS_KEYS.COURT_HOURS, {});
+    const courtCloseTimes = { ...DEFAULT_COURT_HOURS.courtCloseTimes, ...stored.courtCloseTimes };
+    for (const [court, time] of Object.entries(courtCloseTimes)) {
+      if (time === "24:00") {
+        courtCloseTimes[court] = "00:00";
+      }
+    }
+
+    return {
+      ...DEFAULT_COURT_HOURS,
+      ...stored,
+      facilityCloseTimes: { ...DEFAULT_COURT_HOURS.facilityCloseTimes, ...stored.facilityCloseTimes },
+      courtCloseTimes,
+    };
   }
 
   async setCourtHours(value: CourtHoursSettings, actorUserId: string) {

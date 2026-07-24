@@ -7,6 +7,7 @@ import type {
   Prisma,
 } from "@/lib/generated/prisma/client";
 import type { BookingStatus, CourtStatus, SaleSource } from "@/lib/generated/prisma/enums";
+import { getBusinessDateRange } from "@/lib/business-date";
 import { isWithinCourtBookingWindow } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
@@ -151,8 +152,13 @@ export class BookingService {
       where.status = filters.status;
     }
     if (filters?.date) {
-      const { startOfDay, endOfDay } = dayRange(filters.date);
-      where.startAt = { gte: startOfDay, lt: endOfDay };
+      // "Today's bookings" is a business-date filter, not a calendar-day
+      // one (BUILD-SPEC.md §0) — a booking at 12:30AM still belongs to the
+      // previous night's date on this list, matching daily totals/
+      // reconciliation once those exist.
+      const { businessDateRolloverHour } = await settingsService.getCourtHours();
+      const { start, end } = getBusinessDateRange(filters.date, businessDateRolloverHour);
+      where.startAt = { gte: start, lt: end };
     }
 
     return prisma.booking.findMany({
@@ -323,10 +329,20 @@ export class BookingService {
 
             const court = await tx.court.findUniqueOrThrow({
               where: { id: input.courtId },
-              select: { hourlyRateCents: true },
+              select: { name: true, hourlyRateCents: true },
             });
             const durationHours = (input.endAt.getTime() - input.startAt.getTime()) / 3_600_000;
             const totalAmountCents = Math.round((court.hourlyRateCents ?? 0) * durationHours);
+
+            // Staff/owner bookings outside the effective operating window
+            // are allowed (unlike WEBSITE, which checkAvailabilityWithClient
+            // already blocked above) but flagged for reporting —
+            // BUILD-SPEC.md §0 "Facility close is a PUBLIC limit, not a
+            // data limit." A WEBSITE booking that reached this point already
+            // passed the operating-hours check, so this always resolves to
+            // false for it.
+            const courtHours = await settingsService.getCourtHours();
+            const isAfterHours = !isWithinCourtBookingWindow(courtHours, court.name, input.startAt, input.endAt);
 
             const created = await tx.booking.create({
               data: {
@@ -344,6 +360,7 @@ export class BookingService {
                 totalAmountCents,
                 notes: input.notes,
                 qrCodeToken,
+                isAfterHours,
               },
             });
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { Badge } from "@/components/ui/badge";
 import { BookingHistoryList } from "@/features/bookings/components/booking-history-list";
 import { BookingQrCode } from "@/features/bookings/components/booking-qr-code";
 import { BookingStatusActions } from "@/features/bookings/components/booking-status-actions";
@@ -43,7 +44,10 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
             {dateTimeFormatter.format(booking.endAt)}
           </p>
         </div>
-        <BookingStatusBadge status={booking.status} />
+        <div className="flex items-center gap-1.5">
+          <BookingStatusBadge status={booking.status} />
+          {booking.isAfterHours ? <Badge variant="warning">After Hours</Badge> : null}
+        </div>
       </div>
 
       <section className="grid gap-6 sm:grid-cols-2">

@@ -39,21 +39,33 @@ export type GalleryImage = z.infer<typeof galleryImageSchema>;
 
 export const galleryImagesSchema = z.array(galleryImageSchema).max(50);
 
-// "HH:MM" 24-hour time, plus the literal "24:00" sentinel for midnight —
-// courtCloseTimes needs to express "open until midnight" (Court 3's
-// default), which a plain 00-23 hour range can't represent.
+// Plain "HH:MM" 24-hour time. "00:00" is a valid value everywhere this is
+// used — for courtCloseTimes specifically it doubles as a sentinel (see
+// courtHoursSchema below), not a real midnight cutoff.
 const timeStringSchema = z
   .string()
-  .refine((value) => value === "24:00" || /^([01]\d|2[0-3]):[0-5]\d$/.test(value), {
-    message: "Use 24-hour HH:MM format (or 24:00 for midnight).",
-  });
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use 24-hour HH:MM format.");
+
+// BUILD-SPEC.md §0. Fixed weekday keys "0"-"6" (Sun-Sat, Date#getDay()
+// convention) — z.record needs string keys, JSON can't hold numeric ones.
+const weekdayTimesSchema = z.record(z.enum(["0", "1", "2", "3", "4", "5", "6"]), timeStringSchema);
 
 export const courtHoursSchema = z.object({
   facilityOpenTime: timeStringSchema,
+  // The building's own closing time per weekday — a hard cap independent
+  // of any court's individual cutoff below (BUILD-SPEC.md §0 "Facility
+  // close is a PUBLIC limit, not a data limit"). Default 23:00 every day.
+  facilityCloseTimes: weekdayTimesSchema,
   fridaySaturdayCloseTime: timeStringSchema,
-  // Keyed by court name — a court with no entry here is treated as open
-  // until midnight every day it isn't Friday/Saturday.
+  // Keyed by court name. "00:00" means "no per-court cutoff" — the court
+  // is bookable right up to facilityCloseTimes for that weekday. It's a
+  // sentinel, not a real midnight cutoff (BUILD-SPEC.md §0).
   courtCloseTimes: z.record(z.string(), timeStringSchema),
+  // BUILD-SPEC.md §0 "Business date vs calendar date" — the hour at which
+  // a new business day starts for reporting purposes (default 3AM), so a
+  // session that runs past midnight still reports under the night it
+  // started. See lib/business-date.ts.
+  businessDateRolloverHour: z.number().int().min(0).max(23),
 });
 
 export type CourtHoursSettings = z.infer<typeof courtHoursSchema>;

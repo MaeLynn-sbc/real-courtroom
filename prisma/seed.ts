@@ -253,7 +253,7 @@ interface EquipmentDefinition {
 }
 
 const EQUIPMENT_DEFINITIONS: Record<string, EquipmentDefinition> = {
-  "House Paddle": { type: "PADDLE", quantity: 15, depositCents: 50000, rentalRateCents: 10000 },
+  "House Paddle": { type: "PADDLE", quantity: 15, depositCents: 50000, rentalRateCents: 2000 },
   "Premium Paddle": { type: "PADDLE", quantity: 6, depositCents: 100000, rentalRateCents: 20000 },
   "Ball Sleeve (4-pack)": { type: "BALL", quantity: 30, depositCents: 0, rentalRateCents: 5000 },
   "Ball Machine": { type: "BALL_MACHINE", quantity: 2, depositCents: 500000, rentalRateCents: 50000 },

@@ -52,12 +52,24 @@ interface PublicBookingFormProps {
   initialCourtId?: string;
   initialDate?: string;
   initialTime?: string;
+  initialDurationMinutes?: string;
 }
 
-export function PublicBookingForm({ courts, initialCourtId, initialDate, initialTime }: PublicBookingFormProps) {
+export function PublicBookingForm({
+  courts,
+  initialCourtId,
+  initialDate,
+  initialTime,
+  initialDurationMinutes,
+}: PublicBookingFormProps) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null);
+
+  const validInitialDuration =
+    initialDurationMinutes && DURATIONS_MINUTES.includes(Number(initialDurationMinutes))
+      ? initialDurationMinutes
+      : undefined;
 
   const { control, register, handleSubmit } = useForm<PublicBookingFormValues>({
     defaultValues: {
@@ -67,7 +79,7 @@ export function PublicBookingForm({ courts, initialCourtId, initialDate, initial
       courtId: initialCourtId ?? courts[0]?.id ?? "",
       date: initialDate ?? toLocalDateValue(new Date()),
       time: initialTime ?? "09:00",
-      durationMinutes: "60",
+      durationMinutes: validInitialDuration ?? "60",
     },
   });
 
