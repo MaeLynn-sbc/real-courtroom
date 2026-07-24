@@ -23,13 +23,21 @@ const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {
   // Validated before the logger exists (the logger itself reads env), so this
   // is the one deliberate exception to the "no console.log" rule in the app.
+  //
+  // Deploy prep: a `throw` here surfaces as an uncaught exception — Node
+  // prints the message buried inside a full stack trace before exiting.
+  // An operator scanning container boot logs needs the message to BE the
+  // output, not a line inside one — this is a startup config error, not
+  // a bug with a call stack worth inspecting. `process.exit(1)` after an
+  // explicit console.error is a hard fail with nothing else printed.
   console.error(
     "Invalid environment variables:",
     z.treeifyError(parsed.error),
   );
-  throw new Error(
+  console.error(
     "Invalid environment variables. Check .env against .env.example.",
   );
+  process.exit(1);
 }
 
 export const env = parsed.data;
@@ -68,13 +76,18 @@ const PHILIPPINE_TIMEZONE_OFFSET_MINUTES = -480; // UTC+8, getTimezoneOffset() i
 function assertCorrectTimezone(): void {
   const actual = new Date().getTimezoneOffset();
   if (actual !== PHILIPPINE_TIMEZONE_OFFSET_MINUTES) {
-    throw new Error(
+    // `process.exit(1)` after an explicit console.error, not `throw` —
+    // same reasoning as the env-schema check above. A wrong-TZ container
+    // is a deploy misconfiguration an operator needs to see and fix
+    // immediately on boot, not a stack trace to read through.
+    console.error(
       `This process must run with a UTC+8, non-DST timezone (Asia/Manila) — ` +
         `every "date-only" value in this app, and a hand-written database ` +
         `CHECK constraint, assume it. Detected UTC offset ${-actual / 60}h ` +
         `instead. Set TZ=Asia/Manila in the environment before starting the ` +
         `app (see .env.example, Dockerfile).`,
     );
+    process.exit(1);
   }
 }
 
