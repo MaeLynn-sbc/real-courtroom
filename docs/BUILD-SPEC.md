@@ -1707,7 +1707,13 @@ nobody reaches for the nearest one out of habit.
    lock and in what order. Uses: `createBooking` (via the shared
    `runSerializableWithRetry` helper — see above), and independently,
    `locker-rental.service.ts`, `match.service.ts`,
-   `equipment-rental.service.ts`.
+   `equipment-rental.service.ts`. Retries in the shared helper use full
+   jitter (`random(0, min(400ms, 25ms * 2^attempt))`) between the 5
+   attempts, not an instant retry — an immediate retry after a genuine
+   conflict is likely to hit the same conflict again, since nothing
+   about the contention changed a microsecond later, and several
+   concurrent conflicting callers retrying instantly synchronizes them
+   into colliding repeatedly instead of spreading out.
 4. **Named benign-error / duck-typed unique-constraint catch, no-op the
    loser.** Not actually a concurrency *fix* — a real database unique
    constraint already prevents the corruption (two rows where one must
