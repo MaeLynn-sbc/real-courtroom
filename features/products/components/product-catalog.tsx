@@ -122,7 +122,14 @@ function ProductRow({
       onDragOver={onDragOver}
       onDrop={onDrop}
       data-product-name={product.name}
-      className="bg-card flex items-center gap-3 rounded-xl border p-3"
+      // text-card-foreground is required alongside bg-card, not implied
+      // by it — the <Card> component sets both together, but this is a
+      // raw div, not <Card>. Without it, the row's text inherits the
+      // PAGE's --foreground (light, for the dark theme) onto this white
+      // row background — confirmed live: the input text rendered at
+      // oklch(0.96 ...) on an oklch(1 ...) background, functionally
+      // invisible.
+      className="bg-card text-card-foreground flex items-center gap-3 rounded-xl border p-3"
     >
       <GripVertical
         className="text-muted-foreground size-4 shrink-0 cursor-grab active:cursor-grabbing"

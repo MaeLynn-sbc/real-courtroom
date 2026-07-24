@@ -104,7 +104,12 @@ export function GalleryPanel({ images }: { images: GalleryImage[] }) {
                 onDragStart={() => setDragIndex(index)}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={() => handleDrop(index)}
-                className="bg-card relative flex flex-col gap-1 rounded-xl border p-2"
+                // text-card-foreground alongside bg-card — see the
+                // identical fix in product-catalog.tsx's ProductRow.
+                // Nothing here reads inherited text color today, but the
+                // same trap (invisible text on this white row) is one
+                // careless future addition away without it.
+                className="bg-card text-card-foreground relative flex flex-col gap-1 rounded-xl border p-2"
               >
                 <div className="flex items-center justify-between">
                   <GripVertical
