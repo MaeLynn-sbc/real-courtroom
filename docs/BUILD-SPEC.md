@@ -1616,10 +1616,233 @@ low-likelihood:**
 - `settleTab`, `writeOffTab` — status-guarded `updateMany` (§9, prior
   review round).
 
-**Out of scope for this audit:** `booking.service.ts` and other
-pre-Phase-4 modules use their own, already-reviewed pattern
-(Serializable isolation + P2034 retry) — not re-audited here since this
-pass is scoped to the open-play services this session's phases built.
+`booking.service.ts` was originally marked out of scope for this audit
+("already-reviewed pattern, not re-audited") — that review predated
+every concurrency bug this session found, so it was re-audited properly.
+Findings:
+- `createBooking` — already used Serializable isolation + P2034 retry
+  (Phase 10), but that protection had never actually been proven against
+  a real concurrent-request test, only reasoned about. Now proven live
+  (`services/booking/booking.concurrency.integration.ts`): two
+  concurrent `createBooking` calls for the same court/overlapping time
+  never both succeed — confirmed by temporarily downgrading the
+  transaction to READ COMMITTED with no retry (see the extracted helper
+  below) and watching the SAME test fail 4/4 with two overlapping active
+  bookings, then restoring and confirming 5/5 clean.
+- `rescheduleBooking` — did **not** have the same protection: a plain
+  (READ COMMITTED, no retry) transaction. Two concurrent reschedules
+  onto overlapping times could each read "available" from their own
+  snapshot before either wrote — there is no unique constraint shaped
+  like "no two active bookings on one court may overlap" to catch this
+  at the write, unlike a simple duplicate-row case. Reproduced 3/3 under
+  the same downgrade; fixed by routing through the same helper
+  `createBooking` uses. Now proven live, 5/5 clean.
+
+The fix extracted the inline Serializable+retry loop `createBooking` had
+into `lib/serializable-retry.ts`'s `runSerializableWithRetry`, and routed
+both `createBooking` and `rescheduleBooking` through it. Note for later:
+the identical loop is independently duplicated in
+`locker-rental.service.ts`, `match.service.ts`, and
+`equipment-rental.service.ts` — none of those were touched this pass
+(out of scope, and per §0/§15's own rule below, a hardening phase fixes
+findings, it doesn't consolidate working guards).
+
+### Which concurrency pattern, and when (BUILD-SPEC.md §0 process rule)
+
+Four patterns now exist across five services. Picking the wrong one for
+a given situation is itself a bug — write down which applies where, so
+nobody reaches for the nearest one out of habit.
+
+1. **`SELECT ... FOR UPDATE` row lock.** Acquire the lock on the row(s)
+   that own the invariant *before* reading anything the decision depends
+   on, so a concurrent caller blocks and, once it's their turn, re-reads
+   genuinely fresh state instead of acting on a stale snapshot. Use when
+   the decision requires a read-then-decide-then-write sequence against
+   a specific, identifiable row (or a small, enumerable set of rows —
+   see the party lock below), contention is expected to be brief, and
+   blocking (queueing) is an acceptable cost. No retry logic needed —
+   the lock IS the serialization. Every open-play use: `lockSessionRow`
+   (`OpenPlayNightSession`, §5), `completeAssignment`/
+   `cancelAssignmentTx` (`GameAssignment`), `lockAndCheckTabOpen`/
+   `assertSessionNotClosed` (`PlayerTab`, `OpenPlayNightSession`),
+   `proposeNextAssignment` (`QueueEntry`), `checkIn`'s party branch (all
+   of a party's `OpenPlayNightRegistration` rows, in a stable order —
+   see §15's lock-order note below), `releaseRegistration` (session row,
+   plus a fresh re-read of the registration's own row after acquiring
+   it).
+2. **Atomic conditional `UPDATE` (a `WHERE` clause that IS the check).**
+   No lock is taken at all — the check and the write are the same
+   Postgres statement, so there's no gap for anything to land in between.
+   Use when the entire invariant can be expressed as one row's `WHERE`
+   clause (`status = 'OPEN'`, optionally with a `NOT EXISTS` subquery)
+   and nothing else needs to be read as part of the decision. Cheaper
+   than a lock — no blocking, no held connection while other work
+   happens — but only works when the check and the write really are one
+   statement; `closeSession`'s `NOT EXISTS` subquery is the ceiling of
+   what this pattern can express before it needs to become a lock
+   instead. Uses: `closeSession` (conditional `$executeRaw` `UPDATE`),
+   `settleTab`/`writeOffTab` (status-guarded `updateMany`).
+3. **Serializable isolation + retry-on-conflict.** Let Postgres's own
+   Serializable Snapshot Isolation detect a conflict across the whole
+   transaction's read/write set — which can span multiple independent
+   rows read at different points, not just one lockable row — and abort
+   the losing side (P2034, or P2010-wrapping-40001 for a raw query);
+   catch that specific error and retry the whole transaction from
+   scratch. Use when the invariant ("no two active bookings on this
+   court may overlap in time") can't be pinned to a single row's `WHERE`
+   clause or a single row's lock, and genuine conflicts are rare enough
+   that abort-and-retry is cheaper than reasoning about which rows to
+   lock and in what order. Uses: `createBooking`, `rescheduleBooking`
+   (via the shared `runSerializableWithRetry` helper — see above), and
+   independently, `locker-rental.service.ts`, `match.service.ts`,
+   `equipment-rental.service.ts`.
+4. **Named benign-error / duck-typed unique-constraint catch, no-op the
+   loser.** Not actually a concurrency *fix* — a real database unique
+   constraint already prevents the corruption (two rows where one must
+   exist). The only problem is the LOSING side of the race surfaces a
+   raw, confusing DB error instead of the same graceful result a
+   sequential double-tap already gets. Use when a unique constraint
+   already owns the invariant and the remaining work is purely UX: catch
+   the specific error (`AssignmentAlreadyCompletedError`'s status check,
+   or a duck-typed P2002 check), re-read the now-committed row, return
+   it as a no-op. Uses: `completeAssignment` (status-based, not a raw DB
+   error), `checkIn`'s solo path (`QueueEntry`/`PlayerTab` unique
+   constraints), `getOrCreateSessionForDate`
+   (`OpenPlayNightSession.date`).
+
+None of the four is a candidate to eliminate in favor of another —
+they answer different questions (single-row exclusivity, whole-statement
+atomicity, whole-transaction conflict detection, and error-message
+quality on top of a constraint that already works) and each is already
+the cheapest tool that solves its specific case. Pattern 1 could
+technically subsume pattern 3's cases too (lock every row a booking's
+availability check touches instead of trusting SSI) but would be more
+code and more surface for a lock-ordering mistake for no real benefit —
+not worth it during a hardening phase, and not worth it after one
+either, absent a concrete problem with pattern 3 as used today.
+
+### Canonical lock order (new, urgent)
+
+`FOR UPDATE` (pattern 1) now spans five call sites across four tables.
+Nothing previously defined the order in which they may be acquired — a
+path that ever takes two of these locks in the opposite order to another
+path is a deadlock waiting for a busy night, and no correctness test
+would catch it (deadlocks aren't wrong data, they're two transactions
+each waiting on a lock the other holds).
+
+Every lock site, and what (if anything) it acquires afterward in the
+same transaction:
+
+| Method | Locks | Then also locks (same tx) |
+|---|---|---|
+| `registerWalkIn`, `releaseRegistration` (`lockSessionRow`) | `OpenPlayNightSession` | — |
+| `proposeNextAssignment` | `QueueEntry` (all WAITING for the date, `ORDER BY id`) | `GameAssignment` — but only via **INSERT** of a brand-new row, see below |
+| `completeAssignment`, `cancelAssignmentTx` | `GameAssignment` (single row) | `QueueEntry` — via `updateMany` on that assignment's participants |
+| `checkIn` (party branch) | `OpenPlayNightRegistration` (party members, `ORDER BY id`) | — |
+| `addRentalLineItem`, `addAdjustment` (`lockAndCheckTabOpen` → `assertSessionNotClosed`) | `PlayerTab` | `OpenPlayNightSession` |
+
+**The one real multi-table chain:** `addRentalLineItem`/`addAdjustment`
+lock `PlayerTab` *then* `OpenPlayNightSession`. Chosen because the tab is
+the method's primary subject (must confirm it's `OPEN` first) and the
+session check is conditional on the tab even having one (weeknight tabs
+have `sessionId: null` and skip it entirely) — tab-first is the natural
+order for this code path, not an arbitrary choice.
+
+**Canonical order, for any future code that needs more than one of
+these locks on *existing* rows in one transaction** (top acquired
+first):
+
+1. `QueueEntry`
+2. `GameAssignment`
+3. `OpenPlayNightRegistration`
+4. `PlayerTab`
+5. `OpenPlayNightSession`
+
+Ranked by contention breadth and lifetime — `QueueEntry` rows are
+locked broadest (a whole date's WAITING pool) and live shortest;
+`OpenPlayNightSession` is locked narrowest (one row) and lives longest
+(a whole night). The existing chain (`PlayerTab` before
+`OpenPlayNightSession`) matches this order.
+
+**`completeAssignment`/`cancelAssignmentTx` locking `GameAssignment`
+then touching `QueueEntry` looks like it violates the order above
+(`QueueEntry` is ranked first) — verified safe, not just assumed.** A
+`GameAssignment`'s participants are marked `PLAYING` (not `WAITING`) the
+moment the assignment is *proposed* (`createAssignmentTx`, BUILD-SPEC.md
+§7 rotation service), before it can ever reach `ACTIVE` or be
+completed/cancelled. `proposeNextAssignment`'s `QueueEntry` lock query
+is scoped to `status = 'WAITING'` — by construction, it can never select
+a row that `completeAssignment`/`cancelAssignmentTx` might simultaneously
+be touching (those rows are `PLAYING`, structurally excluded from the
+`WHERE` clause). The two operations never contend for the same physical
+row, so the nominal order mismatch cannot form a wait cycle. Similarly,
+`proposeNextAssignment`'s own `GameAssignment` touch is always an
+**INSERT of a brand-new row** — a row that didn't exist a moment ago
+can't already be locked by any other transaction, so creating it is
+exempt from ordering concerns entirely. The rule above governs locks on
+*existing* rows only.
+
+**Proof, not just reasoning:**
+`player-tab.lock-order.concurrency.integration.ts` fires
+`addRentalLineItem` and `addAdjustment` — the two different call paths
+that share the one real two-table chain — concurrently against the same
+tab, wrapped in an explicit timeout guard (10s) and a check for
+Postgres's own deadlock-detection error code (40P01), not just an
+implicit "the test finished." Passes 5/5 clean: neither hangs, neither
+reports a real deadlock, and both charges land. This is a regression
+guard for the *current* paths, not a static analyzer — if a future
+change makes some new path acquire two of these locks in a genuinely
+conflicting order on overlapping rows, it needs its own test in this
+same shape; this one only proves what it exercises.
+
+### Known tradeoff: `proposeNextAssignment` locks broader than the court it's filling
+
+`proposeNextAssignment(date, courtId, ...)` takes a courtId, but the
+lock it acquires — `SELECT ... FROM "QueueEntry" WHERE date = ... AND
+status = 'WAITING' FOR UPDATE` — is scoped to the whole *date*, not the
+court. Two proposals fired for two *different* courts on the same night
+still serialize behind each other: the second blocks until the first's
+transaction commits, even though they were never going to draw from
+disjoint pools.
+
+This is deliberate, not an oversight, and it's the fix that closed the
+double-booking bug this exact test was written for
+(`testProposalsNeverDoubleBook`,
+open-play-rotation.concurrency.integration.ts): the whole reason two
+concurrent proposals for different courts could double-book the same
+player is that BOTH courts draw candidates from the SAME shared waiting
+pool — a player waiting for a court doesn't belong to one court over
+another until an assignment actually claims them. A lock scoped to
+"only the rows this proposal ends up choosing" is exactly the thing that
+can't be known in advance — the whole point of the lock is to make that
+choice safe against a second reader. Narrowing it to per-court would
+mean two concurrent proposals for different courts could once again both
+read the same available player before either commits, reopening the
+original bug.
+
+The cost: on a busy night, a court freeing up cannot get its next
+foursome proposed while a DIFFERENT court's proposal is mid-transaction
+— proposals queue across the whole facility, not just per court. At one
+small venue's scale (a handful of courts, a proposal transaction that's
+a handful of fast local queries) this is very unlikely to be felt as
+real latency. If this venue ever runs enough courts that this becomes a
+measurable bottleneck, the fix is not "lock per court" — it would need
+to be finer-grained pool partitioning that's still provably race-free
+(e.g. only after a candidate foursome is tentatively selected, or by
+skill-window partitioning if that ever becomes a stable enough boundary)
+— not a smaller lock over the same shared pool. Documented here
+specifically so a future optimization pass doesn't narrow this lock
+without re-deriving why it's this wide in the first place.
+
+### Postmortem: `settleTab`'s stale pre-transaction read
+
+The bug: `settleTab` read `totalCents` via `getTabView` *before* its own
+transaction opened, then trusted that value inside the transaction that
+later claimed the row — no lock anywhere could protect a value computed
+before the lock existed. It shipped in Phase 7 through review. The
+general rule: any value a transaction acts on must be *read inside that
+transaction*, not carried in from before it started — this generalizes
+past `settleTab` to every transaction in this codebase.
 
 ---
 
