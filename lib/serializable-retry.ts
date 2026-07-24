@@ -13,6 +13,33 @@ import type { Prisma } from "@/lib/generated/prisma/client";
 
 export const DEFAULT_SERIALIZABLE_RETRY_ATTEMPTS = 5;
 
+// Deploy prep: retries used to fire back-to-back with no delay at all —
+// exactly wrong under real contention. Two requests conflicting once are
+// likely to conflict again immediately on an instant retry, since
+// nothing about the situation that caused the first conflict has
+// changed a microsecond later; on a busy Friday with several concurrent
+// conflicting requests, instant retries synchronize them into repeatedly
+// colliding at the same instant instead of spreading out — a self-
+// inflicted retry storm on top of the contention that was already there.
+// "Full jitter" (AWS's well-known formula: random(0, min(cap, base *
+// 2^attempt))) spreads retries out and backs off the window as attempts
+// increase, so concurrent conflicting callers de-correlate instead of
+// retrying in lockstep. BASE_DELAY_MS=25, MAX_DELAY_MS=400 keeps the
+// worst case (all 4 delays between 5 attempts hitting their cap) under
+// half a second — this runs synchronously inside a web request a
+// customer is waiting on, so bounded is as important as spread out.
+const BASE_DELAY_MS = 25;
+const MAX_DELAY_MS = 400;
+
+function backoffDelayMs(attempt: number): number {
+  const cap = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt);
+  return Math.random() * cap;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // Postgres aborts the losing side of a Serializable transaction conflict
 // with this code — Prisma surfaces it as P2034 for a normal ORM query.
 // v1.1 maintenance (booking.service.ts): nextSequence's atomic counter
@@ -61,6 +88,10 @@ export async function runSerializableWithRetry<T>(
     } catch (error) {
       if (isUniqueConstraintViolation(error) || isSerializationFailure(error)) {
         lastError = error;
+        // No delay after the LAST attempt — nothing left to wait for.
+        if (attempt < maxAttempts - 1) {
+          await sleep(backoffDelayMs(attempt));
+        }
         continue;
       }
       throw error;
