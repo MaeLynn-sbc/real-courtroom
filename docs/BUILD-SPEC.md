@@ -82,8 +82,62 @@ both report under Friday's business date and Friday's totals.
 | Waitlist | No | Yes |
 | Payment | Cash at desk | GCash upfront |
 
-Weeknight open play needs **no** session records, no capacity, no
-waitlist, no prepayment. Do not build that machinery for Mon–Thu.
+Weeknight open play needs **no capacity, no waitlist, no prepayment**.
+Do not build that machinery for Mon–Thu.
+
+That does **not** mean weeknights need no records at all. A weeknight
+still needs a registration (walk-in, created at check-in — see below),
+a check-in, and a queue entry, because tabs, the rotation queue, and
+per-player history all key off those rows regardless of which night it
+is. What weeknights specifically don't have is an
+`OpenPlayNightSession` — there is no capacity to track, so there is
+nothing for one to hold.
+
+**Design consequence**: `OpenPlayNightRegistration.sessionId` is
+nullable, and `date` is the field every query and constraint actually
+keys off — `sessionId` is populated only for Fri/Sat, where it exists
+solely to carry capacity/waitlist state. A Friday/Saturday row must
+have a `sessionId` whose own `date` matches; every other day must have
+`sessionId = null`. Both rules are enforced with database-level
+constraints (a CHECK constraint plus a trigger, since the date-match
+rule reads a second table — see
+`prisma/migrations/11_registration_session_constraints/` and
+`prisma/migrations/12_fix_registration_weekday_check_timezone/`), not
+just in application code. The second migration exists because a naive
+`EXTRACT(DOW FROM date)` check is wrong: see "Timezone: date-only
+values assume `TZ=Asia/Manila`" below.
+
+This same pattern — key off `date`, keep `sessionId` nullable — applies
+to `PlayerTab` too. See §9.
+
+Registration for weeknight open play is walk-in only. An advance
+"register but don't hold anything" flow was considered and rejected —
+weeknight players walk in; a registration that reserves nothing isn't
+worth a form.
+
+### Timezone: date-only values assume `TZ=Asia/Manila`
+
+Every "date-only" value in this app (`OpenPlayNightSession.date`,
+`OpenPlayNightRegistration.date`, `QueueEntry.date`, and any future
+one) is constructed with `new Date(year, month, day)` — JS
+local-timezone midnight. The venue is in Kalibo, Philippines (UTC+8,
+no DST), and the whole app assumes the Node process's local timezone
+*is* Philippine time (`en-PH` locale, ₱ currency, formatting all
+already assume this). `TZ=Asia/Manila` is set explicitly in `.env` /
+`.env.example` for exactly this reason — it must also be set wherever
+the app runs in production (the venue machine, per §14's deployment
+architecture).
+
+This matters for any SQL-level date logic, not just application code.
+Postgres stores these values into naive `timestamp` columns as their
+raw UTC-shifted clock value — "Friday 00:00 PH-local" is stored as
+literally "Thursday 16:00" — and has no timezone context to correct
+for that. `EXTRACT(DOW FROM date)` on such a column reads the wrong
+day. Migration 12 fixes this for the registration/session weekday
+CHECK constraint by extracting from `date + INTERVAL '8 hours'`
+instead — a fixed offset, not `AT TIME ZONE`, since Asia/Manila has no
+DST to account for. Any future SQL touching day-of-week (or any other
+date-part) on one of these columns needs the same adjustment.
 
 ---
 
@@ -390,6 +444,21 @@ marked `no_show`, freeing its slot and promoting the waitlist head.
 Staff can check someone in after a no-show if capacity allows;
 otherwise they go to the waitlist.
 
+**Known limitation — reconciliation is lazy, not scheduled.** This app
+has no cron/scheduler (see `membershipService.reconcileExpiredMemberships`
+for the established pattern this follows). No-show release runs when
+the check-in screen's data is loaded, not on a timer. If staff don't
+have the check-in screen open, a slot that's already free (its holder
+long past `noShowReleaseMinutes`) will not release, and the waitlist
+head keeps waiting for a seat that is, in practice, already available.
+This is accepted as-is — the mitigation is operational, not technical:
+**the check-in screen is what staff are expected to keep open for the
+duration of a session**, the same way it's the one staff screen that
+must tolerate wifi blips without losing state (§14, "Staff screens
+should tolerate blips"). If reconciliation frequency ever becomes a
+real problem, revisit with an actual scheduler — don't paper over it
+with more lazy-check call sites.
+
 ### Parties
 
 A party enters the queue only when **all** members are checked in.
@@ -617,9 +686,28 @@ rentals (paddle ₱20) attach to the same tab.
 
 ### Data model
 
+**Same fork as §0's `OpenPlayNightRegistration`, and for the same
+reason**: weeknight tabs are exactly the ones that carry money (₱35/
+game, a running tab) and weeknights have no `OpenPlayNightSession` to
+key off. `PlayerTab` keys off `date`, with `sessionId` nullable —
+populated for Fri/Sat only, null for Mon–Thu. Apply the same
+database-level guard used for registrations (§0): `sessionId` present
+⇒ `date` matches that session's date; Fri/Sat ⇒ `sessionId` required;
+every other day ⇒ `sessionId` null. This is a decision recorded ahead
+of Phase 7, not yet implemented — do not rediscover the fork when
+building this phase.
+
+One consequence to design for when this is built: "a session cannot
+close while tabs are open" (Correctness #6, below) only makes sense
+for Fri/Sat, which has a session to close. A weeknight has no session
+to close — its equivalent guard is presumably end-of-night / date
+rollover, not session closure. Decide the exact mechanism in Phase 7,
+but don't let the Fri/Sat-shaped rule silently become the only one
+that exists.
+
 ```
 PlayerTab
-  sessionId, registrationId, playerName
+  date, sessionId (nullable), registrationId, playerName
   gamesPlayed (derived), lineItems[], totalCents
   status (open | settled | written_off)
   settledAt, settledByUserId
@@ -882,6 +970,57 @@ shortcut breaks silently.
 
 ## 14. Deployment
 
+### Deployment architecture — the court machine is the single source of truth
+
+Decided, not interim — see below for how this reframes the older
+"local-first for now, droplet later" language that used to follow this
+section. The court machine stays authoritative permanently; it does not
+hand off to a separate droplet deployment once payments land.
+
+**Topology.** App + Postgres run on one machine at the venue, via
+Docker. Staff dashboards, the check-in screen, and the TV display all
+reach it over local wifi by IP or local hostname — they never depend on
+the internet. The public website is the SAME app instance, reached from
+outside through a tunnel bound to thecourtroomkalibo.com.
+
+**What an internet outage breaks.**
+
+| Still works | Stops |
+|---|---|
+| Check-in, queue and rotation, tabs and settlement, cash payments, the TV display, all staff screens | Public booking, online Fri/Sat registration, customer GCash proof submission |
+
+Staff must be able to run an entire live session with zero internet.
+Verify this by unplugging the router and running a full session end to
+end.
+
+**No second writeable copy — ever.** Do not add a cloud database that
+also accepts writes. Two writeable sources cannot both honour capacity
+limits, and no sync strategy fixes that. One database, one lock, one
+truth.
+
+**Degraded public site.** When the tunnel is down, customers see a clear
+"online booking temporarily unavailable, please call 0962 857 2974"
+page — never a browser error.
+
+**Local resilience — matters more under this model, not less.** The
+venue machine holds all booking and payment data, permanently, not just
+during an interim phase.
+
+- Nightly `pg_dump` to DigitalOcean Spaces, 30-day retention
+- A tested restore into a scratch database, documented
+- Backups must run even when the internet is down: dump locally first,
+  upload when connectivity returns
+- Docker restart policy `unless-stopped`, so a power cut recovers
+  unattended
+- UPS on the machine if possible — a hard shutdown mid-write is the
+  realistic way to corrupt Postgres
+
+**Staff screens tolerate blips.** Local wifi drops too. Dashboard
+screens keep the last loaded state and show a "reconnecting" indicator
+rather than an error page — the TV display already has this rule (§12);
+apply the same behaviour to the check-in screen, which staff keep open
+for the whole session.
+
 ### Local-first is viable for the interim
 
 The app and Postgres can run on one machine at the court via Docker.
@@ -889,26 +1028,34 @@ Everything on the local wifi reaches it by IP — staff dashboard on a
 phone or tablet, TV display on the laptop. **Fully functional offline**
 for walk-ins, court bookings taken at the desk, the queue, and the TV.
 
-**What local-first cannot do:** the public website. No booking from
-home, no Fri/Sat registration, no GCash proof submission. That needs a
-real server and the domain.
+**What local-first cannot do without the tunnel above:** the public
+website. No booking from home, no Fri/Sat registration, no GCash proof
+submission until thecourtroomkalibo.com is pointed at the venue machine.
 
-Sensible sequence: run locally for staff and TV now, deploy the public
-side to the droplet when payments land.
+Sensible sequence: run locally for staff and TV now, turn on the public
+tunnel when payments land — the same app instance and database the
+whole time, per the architecture decision above, not a second
+deployment.
 
-Two risks to accept knowingly — the court machine becomes a single
-point of failure holding all booking data, so **offsite nightly backups
-matter from day one**; and moving to the droplet later means migrating
-data, not starting fresh.
+Two risks to accept knowingly — the court machine is permanently the
+single point of failure holding all booking data, so **offsite nightly
+backups matter from day one**; and there is no "moving to a droplet
+later" to fall back on if local hardware fails without those backups.
 
 ### Production target
 
-Existing DigitalOcean account, ~$24/month, likely 4GB. If Semcore is
-using under 1GB there's room to run the Courtroom alongside in its own
-containers. Revisit a second droplet once bookings prove the business.
+**Not where the app runs** — per the architecture decision above, the
+app and its one database stay on the court machine permanently. The
+existing DigitalOcean account (~$24/month, likely 4GB, room alongside
+Semcore under 1GB) is the tunnel endpoint / reverse proxy for
+thecourtroomkalibo.com and the target for offsite `pg_dump` backups
+(Spaces), not a second running copy of the app. Revisit only if the
+tunnel approach itself proves insufficient once bookings prove the
+business — not as a default "move to the droplet" step.
 
-Domain: **thecourtroomkalibo.com**. Point it at the app around Phase 8,
-once payments work and a customer could genuinely use it.
+Domain: **thecourtroomkalibo.com**. Point the tunnel at the venue
+machine around Phase 8, once payments work and a customer could
+genuinely use it.
 
 Non-negotiable: nightly `pg_dump` to Spaces, 30-day retention, and a
 **tested restore** to a scratch database. An untested backup is not a

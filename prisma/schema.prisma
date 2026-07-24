@@ -104,6 +104,7 @@ model User {
   settingsUpdated                   Setting[]
   eventsCreated                     Event[]
   openPlayMatchesCompleted          OpenPlayMatch[]
+  gameAssignmentsCreated            GameAssignment[]
   membershipHistoryChanges          MembershipHistory[]
   equipmentMaintenanceLogsPerformed EquipmentMaintenanceLog[]
   lockerMaintenanceLogsPerformed    LockerMaintenanceLog[]
@@ -381,6 +382,7 @@ model Court {
   openPlayMatches      OpenPlayMatch[]
   openPlayQueueHistory OpenPlayQueueHistory[]
   matches              Match[]
+  gameAssignments      GameAssignment[]
 
   @@index([status])
 }
@@ -784,8 +786,9 @@ model OpenPlayNightSession {
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
 
-  registrations OpenPlayNightRegistration[]
-  queueEntries  QueueEntry[]
+  registrations   OpenPlayNightRegistration[]
+  queueEntries    QueueEntry[]
+  gameAssignments GameAssignment[]
 
   @@unique([date])
   @@index([status])
@@ -816,12 +819,13 @@ enum OpenPlayNightRegistrationSource {
 
 model OpenPlayNightRegistration {
   id           String                          @id @default(cuid())
-  // Nullable — BUILD-SPEC.md §0 "Weeknight open play needs no session
-  // records... Do not build that machinery for Mon-Thu," but §6/§7
-  // explicitly include weeknight drop-in in registration/check-in/queue.
-  // Fri/Sat registrations always have a session (capacity-gated); weeknight
-  // registrations never do (uncapped) — `date` is the field both cases set,
-  // so every read path can group/query by night without a session join.
+  // Nullable — BUILD-SPEC.md §0: weeknight open play needs no capacity, no
+  // waitlist, no prepayment, but still needs registration/check-in/queue
+  // rows like Fri/Sat does. Fri/Sat registrations always have a session
+  // (capacity-gated); weeknight registrations never do (uncapped) — `date`
+  // is the field both cases set, so every read path can group/query by
+  // night without a session join. PlayerTab (§9, Phase 7) follows the same
+  // date-keyed, nullable-sessionId shape for the same reason.
   sessionId    String?
   date         DateTime
   playerId     String?
@@ -845,13 +849,29 @@ model OpenPlayNightRegistration {
   createdAt    DateTime                        @default(now())
   updatedAt    DateTime                        @updatedAt
 
-  session    OpenPlayNightSession? @relation(fields: [sessionId], references: [id])
-  player     Player?               @relation(fields: [playerId], references: [id])
-  queueEntry QueueEntry?
+  session               OpenPlayNightSession?       @relation(fields: [sessionId], references: [id])
+  player                Player?                     @relation(fields: [playerId], references: [id])
+  queueEntry            QueueEntry?
+  gameAssignmentEntries GameAssignmentParticipant[]
 
   @@index([sessionId, status])
   @@index([sessionId, waitlistPos])
   @@index([date])
+  // Not expressible in schema.prisma — Prisma has no CHECK-constraint or
+  // trigger syntax, so these are hand-written into
+  // prisma/migrations/11_registration_session_constraints/migration.sql
+  // (+ a timezone fix in 12_fix_registration_weekday_check_timezone/,
+  // see BUILD-SPEC.md §0 "Timezone: date-only values assume TZ=Asia/Manila")
+  // and invisible to `prisma migrate diff`. Any future migration touching
+  // this table must NOT let a plain `migrate diff` silently drop them —
+  // check the migration.sql by hand. Enforced at write time (INSERT/
+  // UPDATE), not just read time:
+  //   1. A CHECK constraint: Friday/Saturday (date's day-of-week 5 or 6,
+  //      evaluated against date + 8 hours — see migration 12) requires
+  //      sessionId NOT NULL; every other day requires it NULL.
+  //   2. A BEFORE INSERT/UPDATE trigger: when sessionId is set, `date`
+  //      must equal that session's own `date` column (can't be expressed
+  //      as a CHECK constraint — it reads a different table).
 }
 
 enum QueueEntryStatus {
@@ -886,6 +906,97 @@ model QueueEntry {
 
   @@index([date, status])
   @@index([sessionId, status])
+}
+
+// --- Rotation queue and pairing (BUILD-SPEC.md §7) --------------------------
+// Distinctly named from the old, dormant OpenPlayMatch/OpenPlayMatchParticipant
+// above (same reasoning as OpenPlayNightSession vs OpenPlaySession) — this
+// consumes QueueEntry rows from the current (non-dormant) Open Play Nights
+// feature, not the old OpenPlaySession rotation system. GameAssignment /
+// GameAssignmentParticipant mirror OpenPlayMatch / OpenPlayMatchParticipant's
+// join-table shape for referential integrity, without reusing either name.
+
+enum GameAssignmentSource {
+  AUTO
+  MANUAL
+}
+
+enum GameAssignmentStatus {
+  PROPOSED
+  ACTIVE
+  DONE
+  CANCELLED
+}
+
+model GameAssignment {
+  id      String @id @default(cuid())
+  courtId String
+  // Nullable for the same reason as OpenPlayNightRegistration.sessionId —
+  // weeknight rotation has no session to key off. `date` is what every
+  // query groups by; sessionId is populated for Fri/Sat only.
+  sessionId String?
+  date      DateTime
+  // Max skill-level distance among this game's 4 participants at proposal
+  // time (0 = all same level). Informational — not enforced, just shown to
+  // staff and useful for later tuning of skillWindow.
+  skillSpread     Int
+  source          GameAssignmentSource
+  createdByUserId String?
+  proposedAt      DateTime              @default(now())
+  startedAt       DateTime?
+  endedAt         DateTime?
+  status          GameAssignmentStatus  @default(PROPOSED)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  court        Court                       @relation(fields: [courtId], references: [id])
+  session      OpenPlayNightSession?       @relation(fields: [sessionId], references: [id])
+  createdBy    User?                       @relation(fields: [createdByUserId], references: [id])
+  participants GameAssignmentParticipant[]
+
+  @@index([date, status])
+  @@index([courtId, status])
+  @@index([sessionId])
+}
+
+// Always exactly 4 rows per assignment (BUILD-SPEC.md §7 "doubles only —
+// every game assigns exactly 4 players") — enforced in
+// open-play-rotation.service.ts, not at the database level (a CHECK
+// constraint can't count sibling rows; a trigger could, but four
+// application-validated inserts inside one transaction is the same
+// guarantee this codebase already accepts elsewhere, e.g. party size 2-4).
+model GameAssignmentParticipant {
+  id             String   @id @default(cuid())
+  assignmentId   String
+  registrationId String
+  createdAt      DateTime @default(now())
+
+  assignment   GameAssignment             @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  registration OpenPlayNightRegistration  @relation(fields: [registrationId], references: [id])
+
+  @@unique([assignmentId, registrationId])
+  @@index([registrationId])
+}
+
+// Soft repeat-avoidance tiebreak (BUILD-SPEC.md §7 "Never a hard
+// constraint"). Adapted from the spec's playerIdA/playerIdB naming to
+// registrationIdA/registrationIdB — guests (the common case) have no
+// Player.id, but every participant always has an OpenPlayNightRegistration.
+// date-scoped, not sessionId-scoped, so it works for weeknight pairs too.
+// The service is responsible for always storing the pair in a consistent
+// order (e.g. lexicographically smaller id first) so a repeat pairing
+// increments one row instead of creating a mirrored duplicate.
+model RecentPairing {
+  id              String   @id @default(cuid())
+  date            DateTime
+  registrationIdA String
+  registrationIdB String
+  gameCount       Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([date, registrationIdA, registrationIdB])
+  @@index([date])
 }
 
 // --- Tournament System -----------------------------------------------------

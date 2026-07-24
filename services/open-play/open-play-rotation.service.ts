@@ -1,0 +1,651 @@
+import { logger } from "@/lib/logger";
+import { prisma } from "@/lib/prisma";
+import type {
+  Court,
+  GameAssignment,
+  GameAssignmentParticipant,
+  OpenPlayNightRegistration,
+  Prisma,
+  QueueEntry,
+} from "@/lib/generated/prisma/client";
+import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
+import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
+import { settingsService } from "@/services/settings/settings.service";
+import { OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
+
+// BUILD-SPEC.md §7. Distinctly named from the old, dormant
+// services/open-play/rotation-engine.ts (see schema.prisma's comment above
+// GameAssignment for why) — that file belongs to the OpenPlaySession
+// feature (FEATURE_OPEN_PLAY=false), not this one. Do not import from it or
+// reuse its types.
+
+interface AuditLogEntry {
+  actorUserId: string | null;
+  action: string;
+  entityType: string;
+  entityId: string;
+  oldValues?: unknown;
+  newValues?: unknown;
+}
+
+function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function skillOrder(level: OpenPlaySkillLevel): number {
+  return OPEN_PLAY_SKILL_LEVELS[level].order;
+}
+
+// A "unit" is what actually moves through rotation as one piece: a solo
+// waiting player, or a party (2-4 members) that entered the queue together
+// (BUILD-SPEC.md §7 "Parties"). Assignment math (anchor, candidates,
+// skill window) all operates on units, not raw QueueEntry rows, so a party
+// is never split across courts.
+interface QueueUnitMember {
+  queueEntryId: string;
+  registrationId: string;
+  playerName: string;
+  skillLevel: OpenPlaySkillLevel;
+  sessionId: string | null;
+}
+
+interface QueueUnit {
+  partyId: string | null;
+  members: QueueUnitMember[];
+  // BUILD-SPEC.md §7 "Party wait time is the earliest join time among its
+  // members" — deliberately NOT QueueEntry.joinedQueueAt, which §6 sets to
+  // the LAST member's check-in (see schema.prisma's OpenPlayNightRegistration
+  // comment). Both are correct for their own purpose: joinedQueueAt gates
+  // "can this party enter the queue at all," effectiveWaitStart governs
+  // "whose turn is it." For a solo unit the two are identical, since a solo
+  // QueueEntry's joinedQueueAt is set from the same checkedInAt at creation.
+  effectiveWaitStart: Date;
+  // Own skill level for a solo unit; the party's AVERAGE skill order (§7
+  // "Skill matching uses the party's average skill") for a party unit.
+  effectiveSkill: number;
+}
+
+export interface GameAssignmentWithParticipants extends GameAssignment {
+  participants: (GameAssignmentParticipant & { registration: OpenPlayNightRegistration })[];
+}
+
+export interface RotationBoardCourt {
+  court: Court;
+  active: GameAssignmentWithParticipants | null;
+  proposed: GameAssignmentWithParticipants | null;
+}
+
+export interface RotationBoardUnit {
+  partyId: string | null;
+  members: QueueUnitMember[];
+  waitMinutes: number;
+  pastMaxWait: boolean;
+}
+
+export interface RotationBoardRestingPlayer {
+  queueEntryId: string;
+  registrationId: string;
+  playerName: string;
+  skillLevel: OpenPlaySkillLevel;
+}
+
+export interface RotationBoardData {
+  courts: RotationBoardCourt[];
+  waiting: RotationBoardUnit[];
+  // Resting players are deliberately excluded from `waiting` (they skip
+  // rotation, §7) — listed separately so the board can still offer a way
+  // back in (markWaitingAgain), the only reverse path out of RESTING.
+  resting: RotationBoardRestingPlayer[];
+  maxWaitMinutes: number;
+}
+
+async function fetchWaitingUnits(date: Date): Promise<QueueUnit[]> {
+  const entries = await prisma.queueEntry.findMany({
+    where: { date, status: "WAITING" },
+    include: { registration: { select: { checkedInAt: true } } },
+    orderBy: { joinedQueueAt: "asc" },
+  });
+
+  const soloUnits: QueueUnit[] = [];
+  const partyGroups = new Map<string, typeof entries>();
+
+  for (const entry of entries) {
+    if (!entry.partyId) {
+      soloUnits.push({
+        partyId: null,
+        members: [
+          {
+            queueEntryId: entry.id,
+            registrationId: entry.registrationId,
+            playerName: entry.playerName,
+            skillLevel: entry.skillLevel,
+            sessionId: entry.sessionId,
+          },
+        ],
+        effectiveWaitStart: entry.joinedQueueAt,
+        effectiveSkill: skillOrder(entry.skillLevel),
+      });
+      continue;
+    }
+    const group = partyGroups.get(entry.partyId) ?? [];
+    group.push(entry);
+    partyGroups.set(entry.partyId, group);
+  }
+
+  const partyUnits: QueueUnit[] = [];
+  for (const [partyId, group] of partyGroups) {
+    // Defensive — BUILD-SPEC.md §7 "Parties larger than 4 are rejected with
+    // a clear message." Registration-time joins should already prevent
+    // this; a group this large here means state got corrupted upstream, so
+    // this unit is excluded from rotation rather than silently overfilling
+    // a doubles court.
+    if (group.length > 4) {
+      logger.error({ partyId, size: group.length, date }, "Party larger than 4 in rotation queue — excluding from proposals");
+      continue;
+    }
+    const earliestCheckIn = group.reduce<Date>((earliest, entry) => {
+      const checkedInAt = entry.registration.checkedInAt ?? entry.joinedQueueAt;
+      return checkedInAt < earliest ? checkedInAt : earliest;
+    }, group[0].registration.checkedInAt ?? group[0].joinedQueueAt);
+    const averageSkill = group.reduce((sum, entry) => sum + skillOrder(entry.skillLevel), 0) / group.length;
+
+    partyUnits.push({
+      partyId,
+      members: group.map((entry) => ({
+        queueEntryId: entry.id,
+        registrationId: entry.registrationId,
+        playerName: entry.playerName,
+        skillLevel: entry.skillLevel,
+        sessionId: entry.sessionId,
+      })),
+      effectiveWaitStart: earliestCheckIn,
+      effectiveSkill: averageSkill,
+    });
+  }
+
+  return [...soloUnits, ...partyUnits];
+}
+
+function orderedPairKey(idA: string, idB: string): [string, string] {
+  return idA < idB ? [idA, idB] : [idB, idA];
+}
+
+async function fetchRecentPairingCounts(date: Date): Promise<Map<string, number>> {
+  const rows = await prisma.recentPairing.findMany({ where: { date } });
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    map.set(`${row.registrationIdA}:${row.registrationIdB}`, row.gameCount);
+  }
+  return map;
+}
+
+function pairingCountBetweenUnits(
+  a: QueueUnit,
+  b: QueueUnit,
+  pairingCounts: Map<string, number>,
+): number {
+  let total = 0;
+  for (const memberA of a.members) {
+    for (const memberB of b.members) {
+      const [idA, idB] = orderedPairKey(memberA.registrationId, memberB.registrationId);
+      total += pairingCounts.get(`${idA}:${idB}`) ?? 0;
+    }
+  }
+  return total;
+}
+
+export class OpenPlayRotationService {
+  // BUILD-SPEC.md §7 "Auto-pairing." Called when a court frees up. Returns
+  // null if there aren't at least 4 waiting players, or if the available
+  // units can't be packed into exactly 4 seats even after widening to any
+  // skill level (a rare shape mismatch — e.g. 1 seat left, only a party of
+  // 2 remains — documented as a known limitation rather than forcing a
+  // wrong-sized game).
+  async proposeNextAssignment(
+    date: Date,
+    courtId: string,
+    actorUserId: string | null,
+  ): Promise<GameAssignmentWithParticipants | null> {
+    const settings = await settingsService.getOpenPlaySettings();
+    const units = await fetchWaitingUnits(date);
+
+    const totalWaiting = units.reduce((sum, unit) => sum + unit.members.length, 0);
+    if (totalWaiting < 4) {
+      return null;
+    }
+
+    // Step 1: anchor — the unit waiting longest. Never highest skill, never
+    // random (§7). Because this always picks the single oldest
+    // effectiveWaitStart across every waiting unit, on every call, the
+    // starvation guard (§7 step 4: nobody waits past maxWaitMinutes) holds
+    // by construction — whichever player has waited longest is always the
+    // next one anchored, regardless of skill fit. See
+    // open-play-rotation.starvation.integration.ts for the required test.
+    const sortedByWait = [...units].sort(
+      (a, b) => a.effectiveWaitStart.getTime() - b.effectiveWaitStart.getTime(),
+    );
+    const anchor = sortedByWait[0];
+
+    if (anchor.members.length > 4) {
+      throw new Error(`Anchor unit has ${anchor.members.length} members — doubles only, max 4.`);
+    }
+
+    let remainingSeats = 4 - anchor.members.length;
+    const selected: QueueUnit[] = [];
+
+    if (remainingSeats > 0) {
+      const pairingCounts = await fetchRecentPairingCounts(date);
+      let pool = sortedByWait.filter((unit) => unit !== anchor);
+
+      // Step 2/3: candidates within skill distance 1 of the anchor, ranked
+      // by wait time — widen to distance 2, then any level, so a court
+      // never sits idle for a "perfect" match (§7 step 3). Step 5 (repeat
+      // softening) breaks ties within a tier: among units at the same
+      // widening distance, prefer ones without a recent pairing against the
+      // anchor before falling back to wait time — a soft tiebreak only,
+      // never a reason to skip a longer-waiting candidate for a shorter
+      // one it just hasn't recently played.
+      const tiers = [settings.skillWindow, settings.skillWindow + 1, Infinity];
+      for (const maxDistance of tiers) {
+        if (remainingSeats === 0) break;
+
+        const eligible = pool
+          .filter((unit) => Math.abs(unit.effectiveSkill - anchor.effectiveSkill) <= maxDistance)
+          .sort((a, b) => {
+            const pairingA = pairingCountBetweenUnits(anchor, a, pairingCounts);
+            const pairingB = pairingCountBetweenUnits(anchor, b, pairingCounts);
+            if (pairingA !== pairingB) return pairingA - pairingB;
+            return a.effectiveWaitStart.getTime() - b.effectiveWaitStart.getTime();
+          });
+
+        for (const unit of eligible) {
+          if (unit.members.length > remainingSeats) continue;
+          selected.push(unit);
+          remainingSeats -= unit.members.length;
+          pool = pool.filter((u) => u !== unit);
+          if (remainingSeats === 0) break;
+        }
+      }
+    }
+
+    if (remainingSeats > 0) {
+      // Could not pack exactly 4 seats from the available unit sizes —
+      // known limitation, see class doc comment above.
+      return null;
+    }
+
+    const participantUnits = [anchor, ...selected];
+    const participantMembers = participantUnits.flatMap((unit) => unit.members);
+    const skillLevels = participantMembers.map((member) => skillOrder(member.skillLevel));
+    const skillSpread = Math.max(...skillLevels) - Math.min(...skillLevels);
+    const sessionId = participantMembers[0]?.sessionId ?? null;
+
+    return this.createAssignment(
+      { date, courtId, sessionId, skillSpread, source: "AUTO", createdByUserId: null, registrationIds: participantMembers.map((m) => m.registrationId) },
+      actorUserId,
+    );
+  }
+
+  // BUILD-SPEC.md §7 "Manual override — staff can always overrule." Staff
+  // picks exactly 4 waiting players by hand, skill ignored entirely. "When
+  // staff override, the auto-proposal is discarded, not queued behind" —
+  // if any target court, or any of the 4 chosen players, is already part
+  // of a PROPOSED (not yet confirmed) assignment, that proposal is
+  // cancelled and its other participants freed back to WAITING first. A
+  // player already ACTIVE (mid-game) cannot be pulled — that's a real
+  // conflict, not a discardable proposal.
+  async createManualAssignment(
+    date: Date,
+    courtId: string,
+    registrationIds: string[],
+    actorUserId: string,
+  ): Promise<GameAssignmentWithParticipants> {
+    if (registrationIds.length !== 4) {
+      throw new Error("A manual assignment needs exactly 4 players — doubles only.");
+    }
+    if (new Set(registrationIds).size !== 4) {
+      throw new Error("A player can't be picked twice for the same foursome.");
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const entries = await tx.queueEntry.findMany({
+        where: { registrationId: { in: registrationIds }, date },
+      });
+      if (entries.length !== 4) {
+        throw new Error("One or more selected players aren't in today's queue.");
+      }
+      for (const entry of entries) {
+        if (entry.status === "PLAYING") {
+          const existingParticipant = await tx.gameAssignmentParticipant.findFirst({
+            where: { registrationId: entry.registrationId },
+            include: { assignment: true },
+            orderBy: { createdAt: "desc" },
+          });
+          if (existingParticipant?.assignment.status === "ACTIVE") {
+            throw new Error(`${entry.playerName} is already mid-game — finish or cancel that game first.`);
+          }
+          if (existingParticipant?.assignment.status === "PROPOSED") {
+            await this.cancelAssignmentTx(tx, existingParticipant.assignment.id);
+          }
+        } else if (entry.status !== "WAITING") {
+          throw new Error(`${entry.playerName} isn't waiting (status: ${entry.status.toLowerCase()}).`);
+        }
+      }
+
+      const existingCourtProposal = await tx.gameAssignment.findFirst({
+        where: { courtId, date, status: "PROPOSED" },
+      });
+      if (existingCourtProposal) {
+        await this.cancelAssignmentTx(tx, existingCourtProposal.id);
+      }
+
+      const skillLevels = entries.map((entry) => skillOrder(entry.skillLevel));
+      const skillSpread = Math.max(...skillLevels) - Math.min(...skillLevels);
+      const sessionId = entries[0]?.sessionId ?? null;
+
+      return this.createAssignmentTx(
+        tx,
+        { date, courtId, sessionId, skillSpread, source: "MANUAL", createdByUserId: actorUserId, registrationIds },
+        actorUserId,
+      );
+    });
+  }
+
+  async confirmAssignment(assignmentId: string, actorUserId: string): Promise<GameAssignmentWithParticipants> {
+    const assignment = await prisma.gameAssignment.findUniqueOrThrow({ where: { id: assignmentId } });
+    if (assignment.status !== "PROPOSED") {
+      throw new Error(`Only a proposed assignment can be confirmed (current status: ${assignment.status}).`);
+    }
+
+    const updated = await prisma.gameAssignment.update({
+      where: { id: assignmentId },
+      data: { status: "ACTIVE", startedAt: new Date() },
+      include: { participants: { include: { registration: true } } },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "game_assignment.confirmed",
+      entityType: "GameAssignment",
+      entityId: assignmentId,
+    });
+
+    return updated;
+  }
+
+  // Handles both "reject a proposal" and "cancel a game in progress" — in
+  // both cases nobody actually finished a game, so participants return to
+  // WAITING with joinedQueueAt untouched (BUILD-SPEC.md doesn't specify a
+  // wait-time penalty for a voided game, and resetting it would punish
+  // players for a staff-side decision, not their own play).
+  async cancelAssignment(assignmentId: string, actorUserId: string): Promise<GameAssignmentWithParticipants> {
+    const result = await prisma.$transaction((tx) => this.cancelAssignmentTx(tx, assignmentId));
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "game_assignment.cancelled",
+      entityType: "GameAssignment",
+      entityId: assignmentId,
+    });
+
+    return result;
+  }
+
+  private async cancelAssignmentTx(
+    tx: Prisma.TransactionClient,
+    assignmentId: string,
+  ): Promise<GameAssignmentWithParticipants> {
+    const assignment = await tx.gameAssignment.findUniqueOrThrow({
+      where: { id: assignmentId },
+      include: { participants: true },
+    });
+    if (assignment.status !== "PROPOSED" && assignment.status !== "ACTIVE") {
+      throw new Error(`Cannot cancel an assignment with status ${assignment.status}.`);
+    }
+
+    await tx.queueEntry.updateMany({
+      where: { registrationId: { in: assignment.participants.map((p) => p.registrationId) } },
+      data: { status: "WAITING" },
+    });
+
+    return tx.gameAssignment.update({
+      where: { id: assignmentId },
+      data: { status: "CANCELLED" },
+      include: { participants: { include: { registration: true } } },
+    });
+  }
+
+  // BUILD-SPEC.md §7 "After a game — All 4 return to the queue with
+  // joinedQueueAt reset and gamesPlayed incremented." Also records
+  // RecentPairing for every pair among the 4 (§7's soft repeat-avoidance
+  // signal) and never touches capacity/waitlist — that's markDone below.
+  async completeAssignment(assignmentId: string, actorUserId: string): Promise<GameAssignmentWithParticipants> {
+    const result = await prisma.$transaction(async (tx) => {
+      const assignment = await tx.gameAssignment.findUniqueOrThrow({
+        where: { id: assignmentId },
+        include: { participants: true },
+      });
+      if (assignment.status !== "ACTIVE") {
+        throw new Error(`Only an active assignment can be completed (current status: ${assignment.status}).`);
+      }
+
+      const now = new Date();
+      const registrationIds = assignment.participants.map((p) => p.registrationId);
+
+      await tx.queueEntry.updateMany({
+        where: { registrationId: { in: registrationIds } },
+        data: { status: "WAITING", joinedQueueAt: now, lastPlayedAt: now, gamesPlayed: { increment: 1 } },
+      });
+
+      for (let i = 0; i < registrationIds.length; i++) {
+        for (let j = i + 1; j < registrationIds.length; j++) {
+          const [idA, idB] = orderedPairKey(registrationIds[i], registrationIds[j]);
+          await tx.recentPairing.upsert({
+            where: { date_registrationIdA_registrationIdB: { date: assignment.date, registrationIdA: idA, registrationIdB: idB } },
+            update: { gameCount: { increment: 1 } },
+            create: { date: assignment.date, registrationIdA: idA, registrationIdB: idB, gameCount: 1 },
+          });
+        }
+      }
+
+      return tx.gameAssignment.update({
+        where: { id: assignmentId },
+        data: { status: "DONE", endedAt: now },
+        include: { participants: { include: { registration: true } } },
+      });
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "game_assignment.completed",
+      entityType: "GameAssignment",
+      entityId: assignmentId,
+    });
+
+    return result;
+  }
+
+  // BUILD-SPEC.md §7 "Staff can mark a player resting (skips rotations,
+  // stays registered)." Only valid from WAITING — a player mid-game must
+  // have their assignment completed/cancelled first.
+  async markResting(queueEntryId: string, actorUserId: string): Promise<QueueEntry> {
+    const entry = await prisma.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
+    if (entry.status !== "WAITING") {
+      throw new Error(`Can only rest a player who is waiting (current status: ${entry.status.toLowerCase()}).`);
+    }
+    const updated = await prisma.queueEntry.update({ where: { id: queueEntryId }, data: { status: "RESTING" } });
+    await this.writeAuditLog({
+      actorUserId,
+      action: "queue_entry.rested",
+      entityType: "QueueEntry",
+      entityId: queueEntryId,
+    });
+    return updated;
+  }
+
+  // Minimal counterpart to markResting so staff can bring a resting player
+  // back into rotation — not explicitly named in §7, but "resting... stays
+  // registered" implies it's reversible, and there's no other way back in.
+  async markWaitingAgain(queueEntryId: string, actorUserId: string): Promise<QueueEntry> {
+    const entry = await prisma.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
+    if (entry.status !== "RESTING") {
+      throw new Error(`Can only un-rest a resting player (current status: ${entry.status.toLowerCase()}).`);
+    }
+    const updated = await prisma.queueEntry.update({ where: { id: queueEntryId }, data: { status: "WAITING" } });
+    await this.writeAuditLog({
+      actorUserId,
+      action: "queue_entry.waiting_again",
+      entityType: "QueueEntry",
+      entityId: queueEntryId,
+    });
+    return updated;
+  }
+
+  // BUILD-SPEC.md §7 "done (left for the night). done frees a Fri/Sat
+  // capacity slot and triggers waitlist promotion, reusing the existing
+  // openPlayRegistrationService release/promotion logic" — that's exactly
+  // markCheckedOut's job (Phase 5), so this delegates rather than
+  // reimplementing release+promotion here.
+  async markDone(queueEntryId: string, actorUserId: string): Promise<QueueEntry> {
+    const entry = await prisma.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
+    if (entry.status !== "WAITING" && entry.status !== "RESTING") {
+      throw new Error(`Can only mark done a player who isn't mid-game (current status: ${entry.status.toLowerCase()}).`);
+    }
+    const updated = await prisma.queueEntry.update({ where: { id: queueEntryId }, data: { status: "DONE" } });
+    await openPlayRegistrationService.markCheckedOut(entry.registrationId, actorUserId);
+    return updated;
+  }
+
+  // BUILD-SPEC.md §7 "Staff view — Live queue in order, wait times counting
+  // up... Per court: who's on, elapsed time, next proposed foursome."
+  async getRotationBoardData(date: Date): Promise<RotationBoardData> {
+    const [courts, assignments, units, restingEntries, settings] = await Promise.all([
+      prisma.court.findMany({ where: { deletedAt: null }, orderBy: { name: "asc" } }),
+      prisma.gameAssignment.findMany({
+        where: { date, status: { in: ["ACTIVE", "PROPOSED"] } },
+        include: { participants: { include: { registration: true } } },
+      }),
+      fetchWaitingUnits(date),
+      prisma.queueEntry.findMany({ where: { date, status: "RESTING" }, orderBy: { playerName: "asc" } }),
+      settingsService.getOpenPlaySettings(),
+    ]);
+
+    const now = Date.now();
+    const boardCourts: RotationBoardCourt[] = courts.map((court) => ({
+      court,
+      active: assignments.find((a) => a.courtId === court.id && a.status === "ACTIVE") ?? null,
+      proposed: assignments.find((a) => a.courtId === court.id && a.status === "PROPOSED") ?? null,
+    }));
+
+    const waiting: RotationBoardUnit[] = units
+      .sort((a, b) => a.effectiveWaitStart.getTime() - b.effectiveWaitStart.getTime())
+      .map((unit) => {
+        const waitMinutes = Math.floor((now - unit.effectiveWaitStart.getTime()) / 60_000);
+        return {
+          partyId: unit.partyId,
+          members: unit.members,
+          waitMinutes,
+          pastMaxWait: waitMinutes >= settings.maxWaitMinutes,
+        };
+      });
+
+    const resting: RotationBoardRestingPlayer[] = restingEntries.map((entry) => ({
+      queueEntryId: entry.id,
+      registrationId: entry.registrationId,
+      playerName: entry.playerName,
+      skillLevel: entry.skillLevel,
+    }));
+
+    return { courts: boardCourts, waiting, resting, maxWaitMinutes: settings.maxWaitMinutes };
+  }
+
+  private async createAssignment(
+    input: {
+      date: Date;
+      courtId: string;
+      sessionId: string | null;
+      skillSpread: number;
+      source: "AUTO" | "MANUAL";
+      createdByUserId: string | null;
+      registrationIds: string[];
+    },
+    actorUserId: string | null,
+  ): Promise<GameAssignmentWithParticipants> {
+    const result = await prisma.$transaction((tx) => this.createAssignmentTx(tx, input, actorUserId));
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "game_assignment.proposed",
+      entityType: "GameAssignment",
+      entityId: result.id,
+      newValues: { source: input.source, courtId: input.courtId, registrationIds: input.registrationIds },
+    });
+
+    return result;
+  }
+
+  private async createAssignmentTx(
+    tx: Prisma.TransactionClient,
+    input: {
+      date: Date;
+      courtId: string;
+      sessionId: string | null;
+      skillSpread: number;
+      source: "AUTO" | "MANUAL";
+      createdByUserId: string | null;
+      registrationIds: string[];
+    },
+    actorUserId: string | null,
+  ): Promise<GameAssignmentWithParticipants> {
+    const assignment = await tx.gameAssignment.create({
+      data: {
+        courtId: input.courtId,
+        sessionId: input.sessionId,
+        date: input.date,
+        skillSpread: input.skillSpread,
+        source: input.source,
+        createdByUserId: input.createdByUserId,
+        status: "PROPOSED",
+        participants: {
+          create: input.registrationIds.map((registrationId) => ({ registrationId })),
+        },
+      },
+      include: { participants: { include: { registration: true } } },
+    });
+
+    // Marked PLAYING at proposal time, not just at confirm — this is what
+    // makes "pin a foursome so auto-pairing skips those players until
+    // their game runs" (§7) true: getWaitingUnits only ever sees WAITING
+    // entries, so a proposed-but-unconfirmed foursome is already
+    // unavailable to a different court's proposal.
+    await tx.queueEntry.updateMany({
+      where: { registrationId: { in: input.registrationIds } },
+      data: { status: "PLAYING" },
+    });
+
+    void actorUserId; // logged by the caller, not here — see createAssignment/createManualAssignment
+    return assignment;
+  }
+
+  private async writeAuditLog(entry: AuditLogEntry): Promise<void> {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          userId: entry.actorUserId,
+          action: entry.action,
+          entityType: entry.entityType,
+          entityId: entry.entityId,
+          oldValues: toJsonValue(entry.oldValues),
+          newValues: toJsonValue(entry.newValues),
+        },
+      });
+    } catch (error) {
+      logger.error({ err: error, action: entry.action, userId: entry.actorUserId }, "Failed to write audit log entry");
+    }
+  }
+}
+
+export const openPlayRotationService = new OpenPlayRotationService();

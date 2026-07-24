@@ -116,10 +116,9 @@ export class OpenPlayRegistrationService {
     return registration;
   }
 
-  // BUILD-SPEC.md §0 "Weeknight open play needs no session records, no
-  // capacity, no waitlist, no prepayment" — no lock, no capacity check, no
-  // waitlistPos, ever. `date` is the sole grouping key (no session to hang
-  // off of).
+  // BUILD-SPEC.md §0 — weeknight open play has no capacity, no waitlist,
+  // no prepayment, so no lock, no capacity check, no waitlistPos, ever.
+  // `date` is the sole grouping key (no session to hang off of).
   async registerWeeknightWalkIn(
     date: Date,
     input: RegisterWalkInInput,

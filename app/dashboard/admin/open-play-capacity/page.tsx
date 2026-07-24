@@ -60,7 +60,7 @@ export default async function OpenPlayCapacityPage() {
       </div>
 
       <CapacityDefaultsPanel fridayCapacity={fridayCapacity} saturdayCapacity={saturdayCapacity} />
-      <OpenPlaySettingsPanel noShowReleaseMinutes={openPlaySettings.noShowReleaseMinutes} />
+      <OpenPlaySettingsPanel {...openPlaySettings} />
       <UpcomingNightsPanel nights={nights} />
     </div>
   );

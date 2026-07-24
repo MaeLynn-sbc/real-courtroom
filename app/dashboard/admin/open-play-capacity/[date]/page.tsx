@@ -5,10 +5,13 @@ import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { CheckInPanel } from "@/features/open-play-capacity/components/checkin-panel";
 import { RegistrationRosterPanel } from "@/features/open-play-capacity/components/registration-roster-panel";
+import { RotationBoard } from "@/features/open-play-capacity/components/rotation-board";
 import { WalkInRegistrationForm, type RegistrablePlayer } from "@/features/open-play-capacity/components/walk-in-registration-form";
+import type { GameAssignmentWithParticipants, RotationBoardData } from "@/services/open-play/open-play-rotation.service";
 import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { openPlayCheckinService } from "@/services/open-play/open-play-checkin.service";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
+import { openPlayRotationService } from "@/services/open-play/open-play-rotation.service";
 import { playerService } from "@/services/player/player.service";
 
 export const metadata: Metadata = {
@@ -56,9 +59,10 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     // exist) the same way an owner setting a per-date override does —
     // "one per date, created on demand" (BUILD-SPEC.md §5).
     const session = await openPlayCapacityService.getOrCreateSessionForDate(date);
-    const [{ registrations, skillBreakdown }, { expected, checkedIn }] = await Promise.all([
+    const [{ registrations, skillBreakdown }, { expected, checkedIn }, board] = await Promise.all([
       openPlayRegistrationService.getSessionRegistrations(session.id),
       openPlayCheckinService.getCheckInScreenData({ sessionId: session.id }),
+      openPlayRotationService.getRotationBoardData(date),
     ]);
 
     return (
@@ -77,14 +81,18 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
           checkedIn={serializeRegistrations(checkedIn)}
         />
         <RegistrationRosterPanel registrations={registrations} skillBreakdown={skillBreakdown} capacity={session.capacity} />
+        <RotationBoard {...serializeBoard(dateParam, board)} />
       </div>
     );
   }
 
-  // Weeknight — BUILD-SPEC.md §0 "no session records, no capacity, no
-  // waitlist." Registration is optional and uncapped; most players just
+  // Weeknight — BUILD-SPEC.md §0: no capacity, no waitlist, no
+  // prepayment. Registration is optional and uncapped; most players just
   // walk in.
-  const { expected, checkedIn } = await openPlayCheckinService.getCheckInScreenData({ date });
+  const [{ expected, checkedIn }, board] = await Promise.all([
+    openPlayCheckinService.getCheckInScreenData({ date }),
+    openPlayRotationService.getRotationBoardData(date),
+  ]);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -98,8 +106,39 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
 
       <WalkInRegistrationForm target={{ date: dateParam }} players={players} showRegisterOnly={false} />
       <CheckInPanel expected={serializeRegistrations(expected)} checkedIn={serializeRegistrations(checkedIn)} />
+      <RotationBoard {...serializeBoard(dateParam, board)} />
     </div>
   );
+}
+
+function serializeAssignment(assignment: GameAssignmentWithParticipants) {
+  return {
+    id: assignment.id,
+    source: assignment.source,
+    status: assignment.status,
+    skillSpread: assignment.skillSpread,
+    startedAt: assignment.startedAt ? assignment.startedAt.toISOString() : null,
+    participants: assignment.participants.map((p) => ({
+      registrationId: p.registrationId,
+      playerName: p.registration.playerName,
+      skillLevel: p.registration.skillLevel,
+    })),
+  };
+}
+
+function serializeBoard(dateParam: string, board: RotationBoardData) {
+  return {
+    date: dateParam,
+    courts: board.courts.map((c) => ({
+      id: c.court.id,
+      name: c.court.name,
+      active: c.active ? serializeAssignment(c.active) : null,
+      proposed: c.proposed ? serializeAssignment(c.proposed) : null,
+    })),
+    waiting: board.waiting,
+    resting: board.resting,
+    maxWaitMinutes: board.maxWaitMinutes,
+  };
 }
 
 function serializeRegistrations<T extends { checkedInAt: Date | null }>(

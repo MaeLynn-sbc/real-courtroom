@@ -70,15 +70,26 @@ export const courtHoursSchema = z.object({
 
 export type CourtHoursSettings = z.infer<typeof courtHoursSchema>;
 
-// BUILD-SPEC.md §6/§7 owner settings for open play operations. Starting
-// with just noShowReleaseMinutes (Phase 5) — maxWaitMinutes/skillWindow/
-// autoConfirmProposals/targetGameMinutes (§7) are Phase 6's concern, added
-// to this same blob when that phase needs them rather than a second
-// settings key.
+// BUILD-SPEC.md §6/§7 owner settings for open play operations.
 export const openPlaySettingsSchema = z.object({
   // BUILD-SPEC.md §6 "No-shows... default 30." A Fri/Sat registration not
   // checked in within this many minutes of session start is released.
   noShowReleaseMinutes: z.number().int().positive(),
+  // BUILD-SPEC.md §7 "Starvation guard... default 20." Any waiting player
+  // past this many minutes is force-anchored on the next court regardless
+  // of skill fit.
+  maxWaitMinutes: z.number().int().positive(),
+  // BUILD-SPEC.md §7 "skill distance 1 of the anchor" — starting candidate
+  // skill-level distance before widening to 2, then any level.
+  skillWindow: z.number().int().min(0),
+  // BUILD-SPEC.md §7 "An owner setting controls whether proposals
+  // auto-confirm after N seconds." Off by default — this app has no
+  // scheduler, so "after N seconds" isn't implemented; this flag is a
+  // placeholder for when/if that becomes worth building.
+  autoConfirmProposals: z.boolean(),
+  // BUILD-SPEC.md §7 "informational, default 15" — not enforced anywhere,
+  // shown to staff as a rough target only.
+  targetGameMinutes: z.number().int().positive(),
 });
 
 export type OpenPlaySettings = z.infer<typeof openPlaySettingsSchema>;

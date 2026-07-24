@@ -67,9 +67,13 @@ const DEFAULT_COURT_HOURS: CourtHoursSettings = {
   businessDateRolloverHour: 3,
 };
 
-// BUILD-SPEC.md §6 "Owner setting noShowReleaseMinutes, default 30."
+// BUILD-SPEC.md §6/§7 defaults.
 const DEFAULT_OPEN_PLAY_SETTINGS: OpenPlaySettings = {
   noShowReleaseMinutes: 30,
+  maxWaitMinutes: 20,
+  skillWindow: 1,
+  autoConfirmProposals: false,
+  targetGameMinutes: 15,
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never
