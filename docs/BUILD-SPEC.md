@@ -775,6 +775,163 @@ against.
 Staff can still add walk-ins paying ₱150 cash at the desk — method
 `cash`, marked paid immediately, counts toward capacity.
 
+### Cancellation policy — non-refundable, spec only, Phase 8
+
+**Decided ahead of implementation:** the ₱150 is **non-refundable** on
+both customer cancellation and no-show. The fee exists specifically to
+stop no-shows from strangers holding a seat with nothing at stake —
+refunding it on cancellation defeats that purpose the same way
+pay-at-court did. Nothing below this point is built; this is recorded
+so Phase 8 doesn't reopen a policy question that's already answered.
+
+**Four things this policy requires alongside it, so it doesn't create
+worse problems than it solves:**
+
+**1. Preserve the incentive to actually cancel.** Non-refundable with
+zero upside makes "just don't show up" the rational customer choice —
+strictly worse for the business than a cancellation, since a no-show's
+seat never frees and the waitlist never promotes, while a cancellation
+at least gives the freed seat a chance to fill. So: cancelling
+**before a cutoff** converts the ₱150 to **credit toward a future
+night**, never cash. The policy stays non-refundable — no money leaves
+the business either way — but a cancelling customer gets something a
+no-show doesn't, which is the whole incentive this needs to work.
+
+  **Proposed cutoff: at least 4 hours before the session's start
+  time.** Tied to the actual constraint, not a fixed clock time like
+  "noon" that stops making sense if session times ever change: staff
+  need real lead time to reach the next waitlisted person, get them to
+  submit their own prepayment, and have that verified — all manual,
+  no push notifications exist in this app. Less than a few hours and
+  there's no realistic chance of actually filling the seat before the
+  night starts, which is the entire point of encouraging the
+  cancellation in the first place. A cancellation *after* the cutoff
+  (or a no-show) forfeits the fee with no credit — by then the
+  practical outcome is identical to a no-show (the seat can't be
+  refilled in time), so the incentive structure doesn't need to
+  distinguish them.
+
+  **Open questions, flagged rather than decided:**
+  - **Credit expiry** — does it lapse? Proposed default: 90 days from
+    issue, stated on the credit itself so it's not a silent trap.
+  - **Transferability** — usable by anyone, or tied to the phone
+    number that registered? Proposed default: tied to the original
+    phone number, matching how a returning-player lookup already works
+    (`WalkInRegistrationForm`'s phone-based match). Revisit if
+    transferability turns out to matter to real customers.
+  - **Coverage** — does one credit cover exactly one future ₱150
+    registration (since the fee is flat), or could partial credit
+    exist (e.g. from a future variable-priced product)? Proposed
+    default: exactly one registration, in full, no partial/fractional
+    credit — matches the flat-fee shape of what's being credited.
+
+  None of these are decided — Phase 8 needs an explicit answer before
+  building the credit mechanism, not an assumption baked in silently.
+
+  **Shape (spec only, not a schema decision):**
+  ```
+  OpenPlayCredit
+    id, phone, amountCents, reason (e.g. "cancelled registration X")
+    sourceRegistrationId
+    issuedAt, expiresAt
+    usedAt (nullable), usedByRegistrationId (nullable)
+  ```
+
+**2. Staff-initiated refunds must exist, separately.** Non-refundable
+governs *customer* cancellation. It says nothing about the business's
+own errors: a valid payment wrongly rejected, a genuine double
+payment, or a night the business itself cancels (e.g. a facility
+issue). Those need real cash back, not credit — a staff refund action,
+distinct from the customer-facing non-refundable policy:
+- Requires a real **Employee** (no anonymous refunds — same "no
+  anonymous write-offs" reasoning from §9's review, same shape:
+  Employee + a required free-text reason).
+- Surfaced on `/dashboard/sales` as **its own card** — count and
+  total, never folded into net revenue. Same treatment as write-offs,
+  same reasoning: a refund is a real cash outflow that must be
+  visible, not silently netted against gross revenue.
+- **Bulk case:** cancelling a whole session (the business calls off a
+  Friday night) must refund every paid registration on that session in
+  one staff action, not force refunding one registration at a time.
+  Spec: a session-level cancel action that, for every `CONFIRMED`
+  (paid) registration on it, creates a refund with the same
+  session-level reason, in one transaction — not a loop of individually
+  staff-triggered refunds.
+
+**3. "Rejected" and "cancelled" are not the same event, and the
+customer must be told which happened.** Rejecting submitted proof at
+verification is not a cancellation — it's a judgment about whether a
+valid payment ever actually arrived:
+- **No valid payment ever arrived** (blurry screenshot, wrong amount,
+  reference doesn't resolve, fabricated proof) → status `REJECTED`.
+  Nothing to refund — there was never a real payment to return. The
+  slot releases. The customer sees why, and that they're welcome to
+  **resubmit** — a rejection isn't a ban, most rejections are honest
+  mistakes (wrong screenshot, amount off by a few pesos), not fraud.
+- **Payment arrived but was misattributed or wrong** (matched to the
+  wrong booking, a genuine double-payment, an amount that's real money
+  but doesn't reconcile cleanly) → goes to the **staff refund path**
+  above, not `REJECTED`. Real money moved and needs to move back.
+- The customer-facing message must say which of these happened and,
+  for `REJECTED` specifically, that resubmission is possible — "silence
+  after submission" (§8's existing customer-clarity rule) applies
+  exactly as much to a rejection as to a pending review.
+
+**4. Snapshot the terms, don't just state them.** The non-refundable
+policy must be displayed prominently **before payment** (on the
+QR/checkout screen) **and on the confirmation** — not buried in a
+footer link. And the registration row must store **which version of
+the terms text the customer accepted**, not just that they clicked
+something. A dispute six months out needs an answer that isn't "we
+think it said that then." Spec: a `termsVersion` identifier (a stable
+version string or hash, not the live/mutable CMS text itself) plus
+`termsAcceptedAt`, both on the registration row; the terms text itself
+needs an append-only version history somewhere resolvable, so a stored
+version identifier can always be traced back to the exact wording
+shown at that moment — not overwritten in place the way most CMS
+content in this app currently is.
+
+**Same reasoning applies to court bookings' own prepayment flow**
+(§8's "Court bookings" section, above) — verification exists there
+too, so `REJECTED` vs. staff-refund and the terms-snapshot requirement
+both apply symmetrically. The credit-on-cancellation mechanism is
+open-play-specific (tied to the flat ₱150 fee); court bookings' own
+cancellation/refund policy is still an open question (§17) independent
+of this decision.
+
+**Status reconciliation — `OpenPlayNightRegistrationStatus`,
+current vs. implied:**
+
+Current (`prisma/schema.prisma`): `AWAITING_PAYMENT`,
+`PENDING_VERIFICATION`, `CONFIRMED`, `CHECKED_OUT`, `NO_SHOW`,
+`CANCELLED`.
+
+- `AWAITING_PAYMENT`, `PENDING_VERIFICATION`, `CONFIRMED` — unchanged.
+- `CHECKED_OUT` — unchanged, and *not* part of this reconciliation at
+  all: it's an operational "left for the night" state (§7's `markDone`
+  already uses it), orthogonal to payment/refund status. Not a payment
+  concept, doesn't get folded into anything below.
+- `CANCELLED` — status value unchanged, but its meaning now branches:
+  fee **retained** by default, or **credited** if cancelled before the
+  4-hour cutoff (item 1, above). This is *not* two status values — a
+  registration is simply cancelled or it isn't. The fee disposition is
+  a separate fact, carried by whether an `OpenPlayCredit` row with
+  `sourceRegistrationId` pointing at it exists, not by the status enum
+  itself.
+- `NO_SHOW` — unchanged; fee always retained, no credit path (a
+  no-show is definitionally past the cancellation cutoff).
+- `REJECTED` — **new.** Proof submitted, no valid payment behind it,
+  nothing to refund, slot released, resubmission allowed (item 3).
+- `REFUNDED` — **new.** Staff-initiated only (item 2) — a valid
+  payment that needs to be returned in cash, distinct from both
+  `CANCELLED` (customer-initiated, non-refundable-or-credited) and
+  `REJECTED` (no real payment ever existed).
+
+`BookingStatus` needs the same two additions (`REJECTED`, `REFUNDED`)
+for the same reasons once its own verification queue exists — not
+detailed further here since the credit mechanism is open-play-specific,
+but the split itself is not.
+
 ### Fraud check
 
 GCash reference number must be **unique across all payments**. Reject
@@ -1498,8 +1655,9 @@ domain only become necessary at Phase 8.
   paid per game as they go? Tabs are far less desk work but someone
   will walk out owing ₱105. Fine with regulars; riskier with walk-in
   strangers, where prepaid game credits may suit better.
-- **Refund on a Fri/Sat no-show** — the ₱150 is prepaid and the slot
-  was held. Currently flagged for staff, never auto-refunded.
+- **Refund on a Fri/Sat no-show** — **resolved (§8):** non-refundable,
+  no exceptions. A no-show is by definition past the cancel-before-
+  cutoff window, so it never qualifies for credit either.
 - **AVAILABLE vs BOOKED balance on the TV** — nine characters against
   six, so AVAILABLE reads smaller. "FREE" would match BOOKED's weight
   if it looks unbalanced on the real screen.
@@ -1514,15 +1672,15 @@ domain only become necessary at Phase 8.
 - **Auto-confirm proposals** — on a busy Friday, confirming every
   foursome is a tap every few minutes. Decide from real nights whether
   auto-confirm with undo is better. The setting exists either way.
-- **Cancellation and refund policy** — how late can someone cancel a
-  paid ₱150 open play slot and get a refund? Confirmed (Phase 7 review):
-  today, cancelling only releases the seat — no refund logic exists
-  because no payment is tracked at all yet, so this is currently moot.
-  It stops being moot the moment Phase 8 wires the ₱150 fee into
-  revenue, at which point a cancellation needs an explicit accounting
-  answer (still revenue? refunded? something else?). Resolve this
-  **before**, not after, wiring the fee in — see §9's "Analytics: Fri/Sat
-  participation scope."
+- **Cancellation and refund policy** — **resolved (§8):**
+  non-refundable in cash, always. Cancelling at least 4 hours before
+  session start converts the fee to open-play credit instead (never
+  cash); cancelling later, or a no-show, forfeits it entirely. Staff-
+  initiated refunds exist as a separate mechanism for the business's
+  own errors (wrongly-rejected valid payment, double payment, a
+  business-cancelled night) — not reachable through customer
+  cancellation at all. Three sub-questions this raises are newly open,
+  below (credit expiry/transferability/coverage).
 - **No-show-rate baseline, before Phase 8 ships prepayment** — §9's
   Fri/Sat participation KPIs (`registrationsCount` vs. `checkedInCount`
   vs. `noShowCount`) make the no-show rate measurable for the first
@@ -1532,6 +1690,17 @@ domain only become necessary at Phase 8.
   "did this policy actually reduce no-shows" becomes unanswerable.
 - **GCash receiving limits** — a personal wallet has a monthly ceiling.
   Worth watching once volume picks up.
+- **Open-play credit expiry** (§8) — does credit issued from a
+  before-cutoff cancellation lapse? Proposed default: 90 days from
+  issue. Not decided.
+- **Open-play credit transferability** (§8) — usable by anyone, or
+  tied to the phone number that registered? Proposed default: tied to
+  the original phone, matching the existing returning-player lookup.
+  Not decided.
+- **Open-play credit coverage** (§8) — exactly one future ₱150
+  registration in full, or could partial/fractional credit exist?
+  Proposed default: exactly one registration, in full — matches the
+  flat-fee shape of what's being credited. Not decided.
 - **Fri/Sat ₱150 registration fee is real cash with no revenue tracking
   yet** — Phase 7 built tabs/settlement/sales for game and rental
   revenue only; the ₱150 fee is collected today (§8's cash-at-the-desk
