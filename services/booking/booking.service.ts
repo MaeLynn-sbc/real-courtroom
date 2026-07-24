@@ -308,6 +308,15 @@ export class BookingService {
       const courtHours = await settingsService.getCourtHours();
       const isAfterHours = !isWithinCourtBookingWindow(courtHours, court.name, input.startAt, input.endAt);
 
+      // Pre-Phase-8 booking visibility: set once, here, never inferred
+      // later from Sale.source (a separate, nullable-linked row) or
+      // bookedById (a seeded system identity a reader has to know to
+      // check for). Same signal saleContext.source already carries for
+      // the twin Sale row created below — WEBSITE is exclusively passed
+      // by createPublicBookingAction; every staff call site leaves this
+      // undefined, defaulting (like Sale's own source) to the staff case.
+      const source: Prisma.BookingCreateInput["source"] = saleContext.source === "WEBSITE" ? "PUBLIC" : "STAFF";
+
       const created = await tx.booking.create({
         data: {
           bookingReference,
@@ -316,6 +325,7 @@ export class BookingService {
           playerId: input.playerId,
           type: input.type,
           status: "CONFIRMED",
+          source,
           startAt: input.startAt,
           endAt: input.endAt,
           guestName: input.guestName,

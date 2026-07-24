@@ -432,6 +432,24 @@ enum BookingStatus {
   NO_SHOW
 }
 
+// v1.2: an explicit field, not inferred at read time from Sale.source or
+// bookedById. Both are proxies — Sale is a separate, nullable-linked row
+// that may not exist for every booking, and bookedById points at a
+// seeded system identity that requires knowing to check for it. Phase 8
+// makes "staff bookings are exempt from prepayment" a server-side
+// authorization decision, which must read a field on the booking being
+// authorized, not walk a relation that might be missing. Set once, at
+// creation, in createBooking — never updated afterward.
+enum BookingSource {
+  PUBLIC
+  STAFF
+  // Historical rows backfilled where Sale.source and bookedById
+  // disagreed, or neither resolved (no linked Sale, e.g.) — see
+  // scripts/backfill-booking-source.ts. Never set going forward; every
+  // new booking gets PUBLIC or STAFF explicitly at creation.
+  UNKNOWN
+}
+
 // bookingReference (added in Phase 4, a pre-approved exception to the
 // Database freeze) is the human-friendly, stable identifier shown in UI/
 // receipts/communication ("BK-YYYYMMDD-NNNN") — id stays the internal PK.
@@ -444,6 +462,12 @@ model Booking {
   parentBookingId  String?
   type             BookingType
   status           BookingStatus @default(PENDING)
+  // @default(UNKNOWN) exists solely so the migration can add this as a
+  // real NOT NULL column against existing rows — every application-level
+  // write path sets it explicitly (createBooking) or resolves it
+  // deliberately (the one-time backfill script), never relies on this
+  // default going forward.
+  source           BookingSource @default(UNKNOWN)
   startAt          DateTime
   endAt            DateTime
   recurrenceRule   String?
