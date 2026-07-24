@@ -1,6 +1,7 @@
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import type { OpenPlayNightRegistration, Prisma, QueueEntry } from "@/lib/generated/prisma/client";
+import type { RaceHook } from "@/lib/race-test-hooks";
 import { openPlayRegistrationService, type RegisterWalkInInput } from "@/services/open-play/open-play-registration.service";
 import { playerTabService } from "@/services/open-play/player-tab.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -28,6 +29,14 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
+// Matches the duck-typed check already used by booking.service.ts,
+// locker-rental.service.ts, match.service.ts, equipment-rental.service.ts
+// — avoids importing the generated PrismaClientKnownRequestError class
+// just to read one field.
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002";
+}
+
 export interface CheckInResult {
   registration: OpenPlayNightRegistration;
   queueEntriesCreated: QueueEntry[];
@@ -37,6 +46,24 @@ export interface CheckInResult {
 export interface CheckInScreenData {
   expected: OpenPlayNightRegistration[]; // registered, not yet arrived
   checkedIn: OpenPlayNightRegistration[]; // arrived, ordered by checkedInAt (queue order)
+}
+
+// Permanent test-only seam (BUILD-SPEC.md §0/§15) — every field defaults
+// to a no-op and no production call site passes any of these. Two hooks,
+// not one, because they solve different problems:
+//   - beforeRead: fires at the very top of the transaction, before any DB
+//     work. A concurrency test passes a rendezvous barrier here so two
+//     concurrent checkIn calls provably start their DB work at the same
+//     instant — closing out connection-acquisition/scheduling jitter that
+//     otherwise swamps the party path's naturally narrow race window.
+//   - beforePartyDecision: fires right before the party branch decides
+//     "has everyone arrived?". A no-op when the party lock is present
+//     (this transaction already holds it, so a concurrent call is
+//     blocked on the DB, not this hook) — widens the window if that lock
+//     is ever regressed away.
+export interface CheckInTestHooks {
+  beforeRead?: RaceHook;
+  beforePartyDecision?: RaceHook;
 }
 
 export class OpenPlayCheckinService {
@@ -50,12 +77,79 @@ export class OpenPlayCheckinService {
   // deliberately the opposite of §5's waitlist rule, which uses the
   // earliest member (see schema.prisma's OpenPlayNightRegistration
   // comment and BUILD-SPEC.md §6's note contrasting the two).
-  async checkIn(registrationId: string, actorUserId: string): Promise<CheckInResult> {
-    const result = await prisma.$transaction(async (tx) => {
+  async checkIn(registrationId: string, actorUserId: string, testHooks: CheckInTestHooks = {}): Promise<CheckInResult> {
+    let result: CheckInResult;
+    try {
+      result = await this.checkInTx(registrationId, actorUserId, testHooks);
+    } catch (error) {
+      // Hardening phase fix (BUILD-SPEC.md §0 process rule): the
+      // `existing.checkedInAt` guard above only protects a SEQUENTIAL
+      // double-tap. Two concurrent checkIn calls for the SAME
+      // registration both read checkedInAt as null before either
+      // commits, so both proceed — and collide on
+      // QueueEntry.registrationId's or PlayerTab.registrationId's real
+      // unique constraint instead. That constraint is exactly the
+      // guarantee BUILD-SPEC.md §6 correctness #3 depends on, but the
+      // losing side used to surface it as a raw, unhandled DB error
+      // rather than the same graceful no-op the sequential path already
+      // gets. Proven live
+      // (open-play-checkin.concurrency.integration.ts): a concurrent
+      // double-tap threw "Unique constraint failed" 6/6 runs. Same
+      // treatment as AssignmentAlreadyCompletedError — catch the
+      // specific benign case, re-read the now-committed state, no-op.
+      if (isUniqueConstraintViolation(error)) {
+        const current = await prisma.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+        return { registration: current, queueEntriesCreated: [], alreadyCheckedIn: true };
+      }
+      throw error;
+    }
+
+    if (!result.alreadyCheckedIn) {
+      await this.writeAuditLog({
+        actorUserId,
+        action: "open_play_registration.checked_in",
+        entityType: "OpenPlayNightRegistration",
+        entityId: registrationId,
+        newValues: { queueEntriesCreated: result.queueEntriesCreated.length },
+      });
+    }
+
+    return result;
+  }
+
+  private async checkInTx(
+    registrationId: string,
+    actorUserId: string,
+    testHooks: CheckInTestHooks = {},
+  ): Promise<CheckInResult> {
+    return prisma.$transaction(async (tx) => {
+      await testHooks.beforeRead?.();
+
       const existing = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
 
       if (existing.checkedInAt) {
         return { registration: existing, queueEntriesCreated: [] as QueueEntry[], alreadyCheckedIn: true };
+      }
+
+      // Hardening phase fix (BUILD-SPEC.md §0 process rule): the party
+      // branch below used to decide "has everyone arrived?" from a plain,
+      // unlocked findMany. Two members of the same party checking in at
+      // the same moment each run in their OWN transaction — under READ
+      // COMMITTED, neither can see the other's still-uncommitted update,
+      // so both independently conclude "not everyone's here" and the
+      // party never enters the queue at all, silently. Locking every
+      // member of the party (stable id order, to avoid a deadlock cycle
+      // against a concurrent check-in for the same party) BEFORE deciding
+      // forces the two transactions to run one at a time — whichever
+      // commits second then re-reads and correctly sees the first one's
+      // already-committed arrival.
+      if (existing.partyId) {
+        await tx.$queryRaw`
+          SELECT id FROM "OpenPlayNightRegistration"
+          WHERE "partyId" = ${existing.partyId} AND date = ${existing.date} AND status = 'CONFIRMED'
+          ORDER BY id
+          FOR UPDATE
+        `;
       }
 
       const now = new Date();
@@ -83,6 +177,8 @@ export class OpenPlayCheckinService {
         await playerTabService.getOrCreateTab(updated.id, actorUserId, tx);
         return { registration: updated, queueEntriesCreated: [entry], alreadyCheckedIn: false };
       }
+
+      await testHooks.beforePartyDecision?.();
 
       // Party — read AFTER updating `updated` above, so this read sees its
       // own write (same transaction): if this was the last member, every
@@ -118,18 +214,6 @@ export class OpenPlayCheckinService {
       }
       return { registration: updated, queueEntriesCreated: entries, alreadyCheckedIn: false };
     });
-
-    if (!result.alreadyCheckedIn) {
-      await this.writeAuditLog({
-        actorUserId,
-        action: "open_play_registration.checked_in",
-        entityType: "OpenPlayNightRegistration",
-        entityId: registrationId,
-        newValues: { queueEntriesCreated: result.queueEntriesCreated.length },
-      });
-    }
-
-    return result;
   }
 
   // BUILD-SPEC.md §6 "Undo for 60 seconds." Enforced server-side, not
