@@ -158,6 +158,44 @@ export class PlayerTabService {
     });
   }
 
+  // Hardening phase fix (BUILD-SPEC.md §0 process rule): shared by
+  // addRentalLineItem/addAdjustment/voidLineItem below. The tab-is-OPEN
+  // check used to be a plain read, not atomic with settleTab/writeOffTab's
+  // guarded update — a charge added in that window could land after a
+  // racing settlement already computed its total, silently unbilled.
+  // Proven live (player-tab.concurrency.race.integration.ts): a settled
+  // tab ended up with a ₱20 balance and NO corresponding Sale at all,
+  // every run, before this fix. Locking the PlayerTab row first means
+  // this and settleTab/writeOffTab's own atomic update can't both act on
+  // it at once — whichever gets there first, the other waits and then
+  // sees the fresh (already-settled) state.
+  private async lockAndCheckTabOpen(tx: Prisma.TransactionClient, tabId: string): Promise<PlayerTab> {
+    await tx.$queryRaw`SELECT id FROM "PlayerTab" WHERE id = ${tabId} FOR UPDATE`;
+    const tab = await tx.playerTab.findUniqueOrThrow({ where: { id: tabId } });
+    if (tab.status !== "OPEN") {
+      throw new Error(`Cannot add a charge to a tab that is already ${tab.status.toLowerCase()}.`);
+    }
+    return tab;
+  }
+
+  // Hardening phase fix, the other half of closeSession's own fix
+  // (open-play-capacity.service.ts): closeSession's atomic conditional
+  // UPDATE closes the gap between "check" and "write" on ITS side, but
+  // does nothing to stop a NEW charge landing on one of its tabs
+  // immediately AFTER it closes — found via this exact test scenario,
+  // not assumed: fixing closeSession alone left
+  // open-play-capacity.concurrency.integration.ts still failing. Locking
+  // the session row here means a concurrent closeSession (which also
+  // locks that row as part of its own UPDATE) and this call serialize
+  // properly — whichever wins, the other sees the fresh state.
+  private async assertSessionNotClosed(tx: Prisma.TransactionClient, sessionId: string): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM "OpenPlayNightSession" WHERE id = ${sessionId} FOR UPDATE`;
+    const session = await tx.openPlayNightSession.findUniqueOrThrow({ where: { id: sessionId } });
+    if (session.status !== "OPEN") {
+      throw new Error("Cannot add a charge — this session has already closed.");
+    }
+  }
+
   // "Equipment rentals (paddle ₱20) attach to the same tab" — reads the
   // current price from the Equipment record (never hardcoded), same
   // precedent as the public site's paddle-rental price.
@@ -168,25 +206,28 @@ export class PlayerTabService {
     qty: number,
     actorUserId: string,
   ): Promise<TabLineItem> {
-    const tab = await prisma.playerTab.findUniqueOrThrow({ where: { id: tabId } });
-    if (tab.status !== "OPEN") {
-      throw new Error(`Cannot add a charge to a tab that is already ${tab.status.toLowerCase()}.`);
-    }
     const unitPriceCents = await equipmentService.getRentalRateCentsByKey(equipmentKey);
     if (unitPriceCents === null) {
       throw new Error(`Equipment "${equipmentKey}" not found.`);
     }
 
-    const lineItem = await prisma.tabLineItem.create({
-      data: {
-        tabId,
-        type: "RENTAL",
-        description,
-        qtyOrGames: qty,
-        unitPriceCents,
-        amountCents: unitPriceCents * qty,
-        createdByUserId: actorUserId,
-      },
+    const lineItem = await prisma.$transaction(async (tx) => {
+      const tab = await this.lockAndCheckTabOpen(tx, tabId);
+      if (tab.sessionId) {
+        await this.assertSessionNotClosed(tx, tab.sessionId);
+      }
+
+      return tx.tabLineItem.create({
+        data: {
+          tabId,
+          type: "RENTAL",
+          description,
+          qtyOrGames: qty,
+          unitPriceCents,
+          amountCents: unitPriceCents * qty,
+          createdByUserId: actorUserId,
+        },
+      });
     });
 
     await this.writeAuditLog({
@@ -207,22 +248,25 @@ export class PlayerTabService {
     if (!reason.trim()) {
       throw new Error("A reason is required for an adjustment.");
     }
-    const tab = await prisma.playerTab.findUniqueOrThrow({ where: { id: tabId } });
-    if (tab.status !== "OPEN") {
-      throw new Error(`Cannot adjust a tab that is already ${tab.status.toLowerCase()}.`);
-    }
 
-    const lineItem = await prisma.tabLineItem.create({
-      data: {
-        tabId,
-        type: "ADJUSTMENT",
-        description,
-        qtyOrGames: 1,
-        unitPriceCents: amountCents,
-        amountCents,
-        reason,
-        createdByUserId: actorUserId,
-      },
+    const lineItem = await prisma.$transaction(async (tx) => {
+      const tab = await this.lockAndCheckTabOpen(tx, tabId);
+      if (tab.sessionId) {
+        await this.assertSessionNotClosed(tx, tab.sessionId);
+      }
+
+      return tx.tabLineItem.create({
+        data: {
+          tabId,
+          type: "ADJUSTMENT",
+          description,
+          qtyOrGames: 1,
+          unitPriceCents: amountCents,
+          amountCents,
+          reason,
+          createdByUserId: actorUserId,
+        },
+      });
     });
 
     await this.writeAuditLog({
@@ -238,38 +282,42 @@ export class PlayerTabService {
 
   // "Never edit or delete an existing line item" — voiding a charge (e.g.
   // a mis-credited game) is a new, offsetting ADJUSTMENT row, not a
-  // mutation or deletion of the original.
+  // mutation or deletion of the original. Only needs the tab-lock, not
+  // the session-not-closed check — a void only ever reduces a tab's
+  // balance, which can never be the thing that makes closeSession wrongly
+  // let a session through with money outstanding.
   async voidLineItem(tabId: string, lineItemId: string, reason: string, actorUserId: string): Promise<TabLineItem> {
     if (!reason.trim()) {
       throw new Error("A reason is required to void a charge.");
     }
-    const original = await prisma.tabLineItem.findUniqueOrThrow({
-      where: { id: lineItemId },
-      include: { voidedByItems: true },
-    });
-    if (original.tabId !== tabId) {
-      throw new Error("That line item doesn't belong to this tab.");
-    }
-    if (original.voidedByItems.length > 0) {
-      throw new Error("That charge has already been voided.");
-    }
-    const tab = await prisma.playerTab.findUniqueOrThrow({ where: { id: tabId } });
-    if (tab.status !== "OPEN") {
-      throw new Error(`Cannot void a charge on a tab that is already ${tab.status.toLowerCase()}.`);
-    }
 
-    const lineItem = await prisma.tabLineItem.create({
-      data: {
-        tabId,
-        type: "ADJUSTMENT",
-        description: `Void: ${original.description}`,
-        qtyOrGames: 1,
-        unitPriceCents: -original.amountCents,
-        amountCents: -original.amountCents,
-        reason,
-        createdByUserId: actorUserId,
-        voidsLineItemId: lineItemId,
-      },
+    const lineItem = await prisma.$transaction(async (tx) => {
+      await this.lockAndCheckTabOpen(tx, tabId);
+
+      const original = await tx.tabLineItem.findUniqueOrThrow({
+        where: { id: lineItemId },
+        include: { voidedByItems: true },
+      });
+      if (original.tabId !== tabId) {
+        throw new Error("That line item doesn't belong to this tab.");
+      }
+      if (original.voidedByItems.length > 0) {
+        throw new Error("That charge has already been voided.");
+      }
+
+      return tx.tabLineItem.create({
+        data: {
+          tabId,
+          type: "ADJUSTMENT",
+          description: `Void: ${original.description}`,
+          qtyOrGames: 1,
+          unitPriceCents: -original.amountCents,
+          amountCents: -original.amountCents,
+          reason,
+          createdByUserId: actorUserId,
+          voidsLineItemId: lineItemId,
+        },
+      });
     });
 
     await this.writeAuditLog({
@@ -277,7 +325,7 @@ export class PlayerTabService {
       action: "player_tab.line_item_voided",
       entityType: "PlayerTab",
       entityId: tabId,
-      oldValues: { voidedLineItemId: lineItemId, originalAmountCents: original.amountCents },
+      oldValues: { voidedLineItemId: lineItemId },
     });
 
     return lineItem;

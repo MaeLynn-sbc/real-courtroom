@@ -160,22 +160,67 @@ export class OpenPlayCapacityService {
   // to close. See BUILD-SPEC.md §9's "closing out the night" note for the
   // weeknight equivalent (there's no status to flip; the Unsettled tab
   // list itself, surfaced in the UI, is the whole mechanism).
+  // Hardening phase fix (BUILD-SPEC.md §0 process rule): the "no open
+  // tabs" check and the status write used to be two separate steps — a
+  // tab could go from zero to non-zero (a game completing, a rental being
+  // added) in the gap between them, closing a session with real money
+  // still outstanding. This is the guard Phase 7 built specifically to
+  // stop that (§9 correctness #6) — and the guard was itself check-then-
+  // act, the clearest example in this whole audit of why it was needed.
+  // Proven live before this fix (open-play-capacity.concurrency
+  // .integration.ts): a session closed with a ₱20 open tab balance, 8/8
+  // runs, no forced delay needed — the natural window is wide (the old
+  // check does several round trips per tab).
+  //
+  // Fixed with one atomic conditional UPDATE, not a lock: locking would
+  // need every tab-mutating method (creditGame, addRentalLineItem, ...)
+  // to also acquire and respect the same lock to close the gap, a
+  // cross-cutting change to methods this fix isn't scoped to touch.
+  // Instead, the "still OPEN" and "no open tab has a balance" checks are
+  // both evaluated by Postgres as part of the SAME statement, atomically
+  // — there is no gap between "check" and "write" because they are the
+  // same operation. If a charge commits a moment before this statement
+  // runs, the subquery sees it and zero rows update. If a charge commits
+  // a moment after, this statement already committed CLOSED first — the
+  // race is resolved by whichever actually wins at the database, not by
+  // a stale read in application code.
   async closeSession(sessionId: string, actorUserId: string): Promise<OpenPlayNightSession> {
     const session = await prisma.openPlayNightSession.findUniqueOrThrow({ where: { id: sessionId } });
     if (session.status !== "OPEN") {
       throw new Error(`Session is already ${session.status.toLowerCase()}.`);
     }
 
-    const unsettled = await playerTabService.listUnsettledForDate(session.date);
-    if (unsettled.length > 0) {
+    const claimed = await prisma.$executeRaw`
+      UPDATE "OpenPlayNightSession"
+      SET status = 'CLOSED'
+      WHERE id = ${sessionId}
+        AND status = 'OPEN'
+        AND NOT EXISTS (
+          SELECT 1 FROM "PlayerTab" pt
+          WHERE pt."sessionId" = ${sessionId}
+            AND pt.status = 'OPEN'
+            AND (
+              SELECT COALESCE(SUM(li."amountCents"), 0)
+              FROM "TabLineItem" li
+              WHERE li."tabId" = pt.id
+            ) > 0
+        )
+    `;
+
+    if (claimed === 0) {
+      // Distinguish the two reasons this can fail, for a useful error —
+      // both reads happen AFTER the atomic attempt, so they can't
+      // themselves race with what already happened.
+      const current = await prisma.openPlayNightSession.findUniqueOrThrow({ where: { id: sessionId } });
+      if (current.status !== "OPEN") {
+        throw new Error(`Session is already ${current.status.toLowerCase()}.`);
+      }
+      const unsettled = await playerTabService.listUnsettledForDate(session.date);
       const names = unsettled.map((tab) => tab.playerName).join(", ");
       throw new Error(`Cannot close — ${unsettled.length} open tab(s) with a balance: ${names}.`);
     }
 
-    const updated = await prisma.openPlayNightSession.update({
-      where: { id: sessionId },
-      data: { status: "CLOSED" },
-    });
+    const updated = await prisma.openPlayNightSession.findUniqueOrThrow({ where: { id: sessionId } });
 
     await this.writeAuditLog({
       actorUserId,
