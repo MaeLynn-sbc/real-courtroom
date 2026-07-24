@@ -27,7 +27,6 @@ export function PlayerList({ players }: PlayerListProps) {
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
-          <TableHead>Email</TableHead>
           <TableHead>Skill Level</TableHead>
         </TableRow>
       </TableHeader>
@@ -39,7 +38,6 @@ export function PlayerList({ players }: PlayerListProps) {
                 {player.user.name ?? player.user.email}
               </Link>
             </TableCell>
-            <TableCell>{player.user.email}</TableCell>
             <TableCell>
               {player.skillLevel ? (
                 <Badge variant="outline">{SKILL_LEVEL_LABELS[player.skillLevel]}</Badge>
