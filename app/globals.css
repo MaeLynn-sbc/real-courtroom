@@ -165,8 +165,21 @@
   --accent: oklch(0.33 0.05 260);
   --accent-foreground: oklch(0.96 0.01 260);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
+  /* Pinned to the same opaque light values as :root, not a translucent
+     white — same reasoning as --card/--card-foreground/--popover above:
+     Card is always white in both themes (the brand's dark navy is the
+     page/sidebar shell, not its content surfaces), but --border/--input
+     stayed theme-conditional. Their dark-theme values (white at 12%/15%
+     opacity) are calibrated for sitting directly on the dark page — on
+     an always-white Card they're functionally invisible. Confirmed live
+     (Playwright, computed styles): an Input's border rendered at
+     oklch(1 0 0 / 15%) on an oklch(1 0 0) card background — no visible
+     stroke at all. The one place this token is used directly on the
+     dark chrome (dashboard-sidebar.tsx's aside border,
+     dashboard-header.tsx's header border) still reads fine as an opaque
+     light hairline on dark — checked, not assumed. */
+  --border: oklch(0.9 0.01 260);
+  --input: oklch(0.9 0.01 260);
   --ring: oklch(0.62 0.17 135 / 60%);
   --chart-1: oklch(0.62 0.17 135);
   --chart-2: oklch(0.58 0.1 250);
