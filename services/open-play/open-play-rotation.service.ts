@@ -323,6 +323,21 @@ export class OpenPlayRotationService {
   // — before reading them, so a concurrent call for the same date blocks
   // until this transaction commits, then re-reads and correctly excludes
   // whoever this call already selected.
+  //
+  // LOCK-ORDER WARNING (BUILD-SPEC.md §15 "canonical lock order"): this
+  // method locks QueueEntry, then INSERTs a new GameAssignment via
+  // createAssignmentTx — the opposite of completeAssignment/
+  // cancelAssignmentTx's GameAssignment-then-QueueEntry order. That's
+  // only safe because createAssignmentTx flips every participant's
+  // QueueEntry.status to PLAYING in the SAME transaction that creates
+  // the GameAssignment row (see that method's own comment) — a WAITING
+  // row this method could lock can never be the same row an active
+  // assignment is touching. If proposal is ever split into two
+  // transactions (e.g. "tentatively select, then create the
+  // GameAssignment later"), that atomicity breaks and this becomes a
+  // real deadlock risk under contention, not just a nominal one. Do not
+  // split this into two transactions without re-deriving §15's
+  // lock-order exception first.
   async proposeNextAssignment(
     date: Date,
     courtId: string,
@@ -797,6 +812,15 @@ export class OpenPlayRotationService {
     // their game runs" (§7) true: getWaitingUnits only ever sees WAITING
     // entries, so a proposed-but-unconfirmed foursome is already
     // unavailable to a different court's proposal.
+    //
+    // LOCK-ORDER WARNING (BUILD-SPEC.md §15): this update MUST stay in
+    // the same transaction as the GameAssignment INSERT above. §15's
+    // lock-order exception for proposeNextAssignment's QueueEntry-then-
+    // GameAssignment order depends on this atomicity — a WAITING row can
+    // never overlap with a row an active assignment is touching only
+    // because this flip and that INSERT commit together. Splitting them
+    // across transactions reopens a real deadlock risk between this
+    // method and completeAssignment/cancelAssignmentTx's opposite order.
     await tx.queueEntry.updateMany({
       where: { registrationId: { in: input.registrationIds } },
       data: { status: "PLAYING" },

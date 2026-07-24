@@ -207,6 +207,16 @@ export class OpenPlayRegistrationService {
       // interleave), closes the gap: the second transaction sees the
       // first one's already-committed status and knows there's nothing
       // left to release.
+      //
+      // LOCK-ORDER NOTE (BUILD-SPEC.md §15 "canonical lock order"): this
+      // is deliberately a PLAIN read, not FOR UPDATE. The session lock
+      // above already serializes every concurrent releaseRegistration
+      // call for this session, so there's nothing left for a second lock
+      // to protect against — do not wrap this in FOR UPDATE. Doing so
+      // would create a real OpenPlayNightSession-before-
+      // OpenPlayNightRegistration lock order, violating §15's canonical
+      // order (Registration ranks before Session), for zero behavioral
+      // gain.
       const current = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
       if (current.status !== "CONFIRMED") {
         // Already released by a concurrent (or earlier) call — idempotent

@@ -1748,6 +1748,23 @@ session check is conditional on the tab even having one (weeknight tabs
 have `sessionId: null` and skip it entirely) — tab-first is the natural
 order for this code path, not an arbitrary choice.
 
+**`releaseRegistration` locks `OpenPlayNightSession` first, then reads
+the registration's own row — confirmed a plain read, not `FOR UPDATE`,
+so this is not a second lock and not an ordering conflict.** The
+canonical order below ranks `OpenPlayNightRegistration` before
+`OpenPlayNightSession`, and at a glance `releaseRegistration` looks like
+it does the opposite. It doesn't: the re-read
+(`open-play-registration.service.ts`, right after `lockSessionRow`) is a
+plain `findUniqueOrThrow`, no `FOR UPDATE`. It's race-free without being
+a lock because the session lock already serializes every concurrent
+`releaseRegistration` call for that session — by the time this read
+runs, no other transaction touching this registration can be
+interleaved, so there's nothing for a second lock to protect against.
+**Do not "fix" this into a `FOR UPDATE`** — that would turn a
+non-conflict into a real `OpenPlayNightSession`-before-
+`OpenPlayNightRegistration` violation of the order below, for no
+behavioral gain (the read is already correct).
+
 **Canonical order, for any future code that needs more than one of
 these locks on *existing* rows in one transaction** (top acquired
 first):
@@ -1781,6 +1798,26 @@ row, so the nominal order mismatch cannot form a wait cycle. Similarly,
 can't already be locked by any other transaction, so creating it is
 exempt from ordering concerns entirely. The rule above governs locks on
 *existing* rows only.
+
+**This exception has a single load-bearing dependency — name it so it
+can't be silently broken:** the safety of the order above rests entirely
+on `createAssignmentTx` (private, called by `proposeNextAssignment`)
+marking every participant's `QueueEntry.status` `PLAYING` **inside the
+same transaction** that creates the `GameAssignment` row and inserts
+those participants. If a future change ever splits proposal into two
+phases — e.g. "tentatively select candidates in one transaction, create
+the `GameAssignment` in a second, later one" — the `WAITING`→`PLAYING`
+transition and the `GameAssignment` INSERT stop being atomic with each
+other. That reopens the exact race this exception depends on being
+closed: a `QueueEntry` could sit in an ambiguous state where a second
+`proposeNextAssignment` call (still scoped to `WAITING`) and a
+`completeAssignment`/`cancelAssignmentTx` call (already holding a
+`GameAssignment` lock) end up contending for the same row after all —
+at that point the nominal `GameAssignment`-before-`QueueEntry` order
+becomes real and needs an actual lock, not this argument. The same
+warning is repeated as a code comment directly on `proposeNextAssignment`
+(BUILD-SPEC.md §7 rotation service) — §15 is not where someone
+refactoring that method will be looking.
 
 **Proof, not just reasoning:**
 `player-tab.lock-order.concurrency.integration.ts` fires

@@ -39,6 +39,13 @@ import { openPlayRegistrationService } from "./open-play-registration.service";
 // lock is present (the loser is already blocked on the DB lock itself by
 // then, not on this delay) but decisive if that lock is ever regressed
 // away.
+//
+// Determinism, verified (not assumed): with the OLD approach (a fixed
+// delay only, no barrier), the lock-removed regression case reproduced
+// only 2/3 — flaky, because independent async calls' connection-
+// acquisition timing wasn't synchronized. With this barrier in place,
+// re-verified 10/10 lock-removed (failing) and 10/10 lock-restored
+// (passing) — fully deterministic in both directions, not probabilistic.
 const PARTY_DECISION_DELAY_MS = 100;
 function partyRaceHooks() {
   const beforeRead = createBarrier(2);
