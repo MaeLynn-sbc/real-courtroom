@@ -6,7 +6,7 @@ import type {
   BookingHistory,
   Prisma,
 } from "@/lib/generated/prisma/client";
-import type { BookingStatus, CourtStatus, SaleSource } from "@/lib/generated/prisma/enums";
+import type { BookingSource, BookingStatus, CourtStatus, SaleSource } from "@/lib/generated/prisma/enums";
 import { getBusinessDateRange } from "@/lib/business-date";
 import { isWithinCourtBookingWindow } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
@@ -103,6 +103,12 @@ interface ListBookingsFilters {
   courtId?: string;
   status?: BookingStatus;
   date?: Date;
+  source?: BookingSource;
+  // Default stays startAt — the daily schedule view staff use is built
+  // around reservation time, not when the booking came in. createdAt is
+  // an additional way to look (e.g. "what came in most recently"), not
+  // a replacement.
+  sortBy?: "startAt" | "createdAt";
 }
 
 export class BookingService {
@@ -124,6 +130,9 @@ export class BookingService {
       const { start, end } = getBusinessDateRange(filters.date, businessDateRolloverHour);
       where.startAt = { gte: start, lt: end };
     }
+    if (filters?.source) {
+      where.source = filters.source;
+    }
 
     return prisma.booking.findMany({
       where,
@@ -131,7 +140,7 @@ export class BookingService {
         court: true,
         player: { include: { user: { select: { id: true, name: true, email: true } } } },
       },
-      orderBy: { startAt: "asc" },
+      orderBy: filters?.sortBy === "createdAt" ? { createdAt: "desc" } : { startAt: "asc" },
       // Defensive cap — most calls already narrow by date/court/status;
       // this is a backstop against an unfiltered call on a large table,
       // not real pagination (no UI page controls exist for this list).
