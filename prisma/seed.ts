@@ -4,6 +4,8 @@
 // process.env directly.
 import "dotenv/config";
 
+import { randomBytes } from "node:crypto";
+
 import bcrypt from "bcryptjs";
 
 import { env } from "../lib/env";
@@ -395,7 +397,23 @@ async function main(): Promise<void> {
   // known value. The password is set ONLY in `create`, i.e. only on a
   // database that has never had this Owner row before.
   const ownerExistedAlready = Boolean(await prisma.user.findUnique({ where: { email: OWNER_SEED_EMAIL } }));
-  const passwordHash = await bcrypt.hash(OWNER_SEED_PASSWORD, 12);
+
+  // Deploy prep: the fixed OWNER_SEED_PASSWORD ("Owner123!") is a real,
+  // documented dev convenience (see docs/INSTALLATION.md) — kept as-is
+  // outside production, where the account is always the same throwaway
+  // one and predictability matters more than secrecy. In production,
+  // now that the password is set exactly once and never reset (above),
+  // a hardcoded default would become a PERMANENT weak credential unless
+  // an operator remembers to change it — no longer just a convenience,
+  // a standing vulnerability. Resolved in order: an explicit
+  // OWNER_INITIAL_PASSWORD env var (for an operator who wants a specific
+  // value, e.g. matching their password manager), else a fresh random
+  // one, generated here and never hardcoded, printed exactly once below.
+  const ownerPassword =
+    env.NODE_ENV === "production"
+      ? (process.env.OWNER_INITIAL_PASSWORD ?? randomBytes(16).toString("hex"))
+      : OWNER_SEED_PASSWORD;
+  const passwordHash = await bcrypt.hash(ownerPassword, 12);
 
   const ownerUser = await prisma.user.upsert({
     where: { email: OWNER_SEED_EMAIL },
@@ -440,7 +458,7 @@ async function main(): Promise<void> {
     );
   } else {
     logger.info(
-      { username: OWNER_SEED_USERNAME, password: OWNER_SEED_PASSWORD },
+      { username: OWNER_SEED_USERNAME, password: ownerPassword },
       "Seeded Owner login — change this password immediately after first login",
     );
   }
