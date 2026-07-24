@@ -192,14 +192,36 @@ export class OpenPlayRegistrationService {
 
       await lockSessionRow(tx, existing.sessionId);
 
-      const releasedHadSeat = existing.status === "CONFIRMED" && existing.waitlistPos === null;
-      const releasedWaitlistPos = existing.waitlistPos;
+      // Hardening phase fix (BUILD-SPEC.md §0 process rule): releasedHadSeat
+      // / releasedWaitlistPos used to be computed from `existing`, read
+      // BEFORE the session lock above. Two concurrent releases of the SAME
+      // registration (a cancel button double-tapped, or a cancel racing an
+      // auto no-show) both read the row as CONFIRMED before either had
+      // acquired the lock — the lock only serializes their commits, it
+      // doesn't retroactively invalidate what each had already decided to
+      // do. Whichever one actually runs second still "frees a seat" from
+      // data that's stale by the time it runs, and promotes a second
+      // waitlist entry for a seat that was already given away once — one
+      // real freed seat, two promotions. Re-reading the registration's own
+      // row fresh, AFTER the session lock is held (so nothing else can
+      // interleave), closes the gap: the second transaction sees the
+      // first one's already-committed status and knows there's nothing
+      // left to release.
+      const current = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+      if (current.status !== "CONFIRMED") {
+        // Already released by a concurrent (or earlier) call — idempotent
+        // no-op, same treatment as check-in's double-tap.
+        return current;
+      }
+
+      const releasedHadSeat = current.waitlistPos === null;
+      const releasedWaitlistPos = current.waitlistPos;
 
       const updated = await tx.openPlayNightRegistration.update({
         where: { id: registrationId },
         data: {
           status,
-          checkedOutAt: status === "CHECKED_OUT" ? new Date() : existing.checkedOutAt,
+          checkedOutAt: status === "CHECKED_OUT" ? new Date() : current.checkedOutAt,
         },
       });
 
