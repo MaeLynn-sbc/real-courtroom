@@ -12,8 +12,32 @@ import { execFileSync } from "node:child_process";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { env } from "../lib/env";
+
 const ROOT = join(__dirname, "..");
 const IGNORED_DIRS = new Set(["node_modules", ".next", ".git"]);
+
+// Deploy prep (BUILD-SPEC.md §0 process rule): every *.integration.ts
+// script is destructive by design — each one creates fixture rows and
+// deletes them (or anything matching its cleanup query) as part of its
+// own test lifecycle. Unlike prisma/seed.ts's ALLOW_PROD_SEED, there is
+// no legitimate reason to ever run this against a real database, so
+// there's no override flag — just refuse. Guards the documented,
+// scripted entry point (`npm run test:integration`); a developer
+// directly invoking a single `npx tsx some.integration.ts` file is
+// using their own local .env by choice, a different risk than a
+// CI/CD pipeline or automation accidentally pointing this at production.
+function assertNotProduction(): void {
+  if (env.NODE_ENV === "production") {
+    console.error(
+      "Refusing to run integration tests: NODE_ENV=production. These scripts create and " +
+        "delete real rows as part of their own cleanup — never point them at a production " +
+        "database. If this really is a non-production database that happens to have " +
+        "NODE_ENV=production set, fix the environment, not this check.",
+    );
+    process.exit(1);
+  }
+}
 
 function findIntegrationTests(dir: string): string[] {
   const results: string[] = [];
@@ -33,6 +57,8 @@ function findIntegrationTests(dir: string): string[] {
 }
 
 function main(): void {
+  assertNotProduction();
+
   const tests = findIntegrationTests(ROOT).sort();
 
   if (tests.length === 0) {
