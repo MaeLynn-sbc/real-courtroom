@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Courtroom — Indoor Pickleball Courts</title>
+<meta name="description" content="Book indoor pickleball courts at The Courtroom. Three covered courts, open play sessions, coaching. Everyone welcome.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;700;800;900&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   THE COURTROOM — design tokens
+   Palette is pulled from the venue itself: the navy playing
+   surface, the coral kitchen, the white court lines, and a
+   softened version of the logo green.
+   ============================================================ */
+:root{
+  --navy-900:#0E1424;   /* page base — court navy, darkened */
+  --navy-800:#151D33;   /* panels */
+  --navy-700:#1E2842;   /* raised cards */
+  --navy-600:#2C3E63;   /* the actual court blue */
+  --coral:#E88A9A;      /* the kitchen / non-volley zone */
+  --green:#8FC24F;      /* logo green, toned down */
+  --green-soft:rgba(143,194,79,.45);
+  --bone:#F3F1EA;       /* court line white */
+  --slate:#8894B0;      /* muted copy */
+  --line:rgba(243,241,234,.10);
+
+  --display:"Saira Condensed",system-ui,sans-serif;
+  --body:"Manrope",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
+
+  /* Logo, embedded so this stays one self-contained file.
+     To swap it: replace everything between url(" and ") with a new
+     base64 PNG, or just use  --logo:url("assets/logo.png");  */
+  --logo:url("data:image/png;base64,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");
+
+  --pad:clamp(20px,5vw,64px);
+  --r:14px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--navy-900);
+  color:var(--bone);
+  font-family:var(--body);
+  font-size:16px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+:focus-visible{outline:2px solid var(--green);outline-offset:3px;border-radius:4px}
+
+.wrap{max-width:1240px;margin:0 auto;padding-inline:var(--pad)}
+
+/* --- shared type ------------------------------------------- */
+.eyebrow{
+  font-family:var(--mono);font-size:11px;font-weight:700;
+  letter-spacing:.22em;text-transform:uppercase;color:var(--green);
+}
+.h2{
+  font-family:var(--display);font-weight:800;
+  font-size:clamp(30px,4.4vw,52px);line-height:.94;
+  letter-spacing:-.01em;text-transform:uppercase;
+}
+.lede{color:var(--slate);max-width:52ch}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.hdr{
+  position:sticky;top:0;z-index:60;
+  background:rgba(14,20,36,.82);
+  backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--line);
+}
+.hdr-in{display:flex;align-items:center;gap:28px;height:70px}
+.brand{display:flex;align-items:center;gap:11px;flex-shrink:0}
+/* Swap this for your real logo: <img src="assets/logo.png" alt="The Courtroom" style="width:38px"> */
+.brand-mark{
+  height:44px;aspect-ratio:360/312;flex-shrink:0;
+  background:var(--logo) center/contain no-repeat;
+}
+.ftr-logo{
+  height:96px;aspect-ratio:360/312;margin-bottom:14px;
+  background:var(--logo) left center/contain no-repeat;
+}
+.brand-name{
+  font-family:var(--display);font-weight:900;font-size:19px;
+  letter-spacing:.03em;text-transform:uppercase;line-height:1;
+}
+.brand-name span{color:var(--green)}
+
+.nav{display:flex;gap:26px;margin-left:auto}
+.nav a{font-size:14px;font-weight:600;color:var(--slate);transition:color .18s}
+.nav a:hover{color:var(--bone)}
+
+/* live status pill — reads the clock, flips at closing time */
+.status{
+  display:flex;align-items:center;gap:8px;
+  font-family:var(--mono);font-size:11px;font-weight:700;
+  letter-spacing:.14em;text-transform:uppercase;
+  padding:7px 13px;border-radius:99px;border:1px solid var(--line);
+}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+.status.open .dot{animation:pulse 2.4s ease-in-out infinite}
+.status.shut{color:var(--slate)}
+.status.shut .dot{background:var(--slate)}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.75)}}
+
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  background:var(--green);color:#0C1508;
+  font-weight:800;font-size:14px;
+  padding:11px 20px;border-radius:99px;
+  transition:transform .16s,box-shadow .16s;
+}
+.btn:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(143,194,79,.25)}
+.btn-ghost{background:none;color:var(--bone);border:1px solid var(--line);font-weight:600}
+.btn-ghost:hover{border-color:var(--green);box-shadow:none}
+
+/* ============================================================
+   HERO — deliberately short so the docket sits high on the page
+   ============================================================ */
+.hero{position:relative;overflow:hidden;padding:clamp(48px,7vw,84px) 0 clamp(36px,5vw,56px)}
+.hero::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+    linear-gradient(180deg,transparent 55%,var(--navy-900) 100%),
+    repeating-linear-gradient(90deg,transparent 0 118px,var(--line) 118px 119px);
+  opacity:.55;
+}
+.hero-in{position:relative;display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(28px,5vw,64px);align-items:end}
+
+.hero h1{
+  font-family:var(--display);font-weight:900;
+  font-size:clamp(52px,9.4vw,124px);line-height:.82;
+  letter-spacing:-.022em;text-transform:uppercase;
+  margin:16px 0 18px;
+}
+.hero h1 em{font-style:normal;color:var(--green);display:block}
+.hero p{color:var(--slate);font-size:clamp(15px,1.5vw,17px);max-width:44ch}
+.hero-cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
+
+.facts{display:flex;flex-wrap:wrap;gap:26px;padding-top:24px;margin-top:26px;border-top:1px solid var(--line)}
+.fact b{display:block;font-family:var(--display);font-weight:800;font-size:32px;line-height:1;letter-spacing:.01em}
+.fact span{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--slate)}
+
+/* mini court diagram — the venue's own geometry as the hero image */
+.court-art{border:1px solid var(--line);border-radius:var(--r);background:var(--navy-800);padding:18px}
+.court-art svg{width:100%;height:auto;display:block}
+.court-cap{
+  display:flex;justify-content:space-between;align-items:center;margin-top:14px;
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--slate);
+}
+
+/* ============================================================
+   THE DOCKET — the booking grid. This is the page's centrepiece.
+   ============================================================ */
+.docket{padding:clamp(40px,5vw,64px) 0 clamp(80px,8vw,120px)}
+.docket-head{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end;justify-content:space-between;margin-bottom:26px}
+
+.days{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:18px;scrollbar-width:none}
+.days::-webkit-scrollbar{display:none}
+.day{
+  flex-shrink:0;min-width:70px;text-align:center;padding:10px 14px;border-radius:11px;
+  border:1px solid var(--line);background:var(--navy-800);
+  transition:border-color .18s,background .18s;
+}
+.day small{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--slate)}
+.day b{display:block;font-family:var(--display);font-size:22px;font-weight:800;line-height:1.15}
+.day:hover{border-color:var(--green-soft)}
+.day[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:#0C1508}
+.day[aria-pressed="true"] small{color:rgba(12,21,8,.7)}
+
+.rates{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px;font-family:var(--mono);font-size:11.5px}
+.rate{padding:8px 13px;border-radius:9px;background:var(--navy-800);border:1px solid var(--line)}
+.rate b{color:var(--green);font-weight:700}
+.rate span{color:var(--slate);margin-left:7px}
+
+/* the grid itself */
+.board{border:1px solid var(--line);border-radius:var(--r);background:var(--navy-800);overflow:hidden}
+.board-scroll{overflow-x:auto}
+.grid{width:100%;min-width:560px;border-collapse:collapse}
+.grid th,.grid td{padding:0;text-align:center}
+.grid thead th{
+  position:sticky;top:70px;z-index:5;background:var(--navy-700);padding:13px 8px;
+  font-family:var(--display);font-weight:800;font-size:15px;
+  letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--line);
+}
+.grid thead th small{
+  display:block;font-family:var(--mono);font-size:9.5px;font-weight:400;
+  letter-spacing:.16em;color:var(--slate);margin-top:2px;
+}
+.grid tbody td{border-top:1px solid var(--line);padding:5px}
+.t-col{
+  width:112px;text-align:left !important;padding-left:16px !important;
+  font-family:var(--mono);font-size:12px;font-weight:500;
+  background:var(--navy-700);white-space:nowrap;
+}
+.t-col em{display:block;font-style:normal;font-size:10px;color:var(--slate);margin-top:1px}
+
+/* one slot = one miniature court: navy body, coral kitchen stripe */
+.slot{
+  position:relative;width:100%;min-height:46px;border-radius:8px;overflow:hidden;
+  background:var(--navy-600);border:1px solid transparent;
+  font-family:var(--mono);font-size:11px;font-weight:500;color:rgba(243,241,234,.55);
+  display:flex;align-items:center;justify-content:center;
+  transition:background .16s,border-color .16s,color .16s,transform .12s;
+}
+.slot::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--coral);opacity:.75}
+.slot:hover{background:var(--navy-700);border-color:var(--green);color:var(--bone);transform:translateY(-1px)}
+.slot:hover::after{opacity:1}
+.slot.taken{background:rgba(30,40,66,.4);color:rgba(136,148,176,.5);cursor:not-allowed;transform:none;border-color:transparent}
+.slot.taken::after{background:var(--slate);opacity:.2}
+.slot.picked{background:var(--green);color:#0C1508;font-weight:700;border-color:var(--green)}
+.slot.picked::after{background:#0C1508;opacity:.3}
+/* open-play band: not bookable, shown in the coral of the kitchen */
+.slot.op{
+  background:rgba(232,138,154,.13);border-color:rgba(232,138,154,.3);
+  color:var(--coral);cursor:default;transform:none;
+  font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
+}
+.slot.op::after{background:var(--coral);opacity:.6}
+.slot.op:hover{background:rgba(232,138,154,.13);border-color:rgba(232,138,154,.3);color:var(--coral);transform:none}
+
+.legend{
+  display:flex;flex-wrap:wrap;gap:18px;margin-top:16px;
+  font-family:var(--mono);font-size:11px;color:var(--slate);
+}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:4px;margin-right:7px;vertical-align:-3px}
+.lg-open{background:var(--navy-600)}
+.lg-taken{background:rgba(30,40,66,.55);border:1px solid var(--line)}
+.lg-op{background:rgba(232,138,154,.28)}
+
+/* selection tray — docks to the bottom once you pick anything */
+.tray{
+  position:fixed;left:50%;bottom:20px;transform:translate(-50%,140%);
+  z-index:70;width:min(620px,calc(100% - 32px));
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:14px 16px;border-radius:var(--r);
+  background:var(--navy-700);border:1px solid var(--green-soft);
+  box-shadow:0 20px 50px rgba(0,0,0,.55);
+  transition:transform .32s cubic-bezier(.22,1,.36,1);
+}
+.tray.up{transform:translate(-50%,0)}
+.tray-txt{flex:1;min-width:180px}
+.tray-txt b{font-family:var(--display);font-size:20px;font-weight:800;letter-spacing:.02em}
+.tray-txt span{display:block;font-family:var(--mono);font-size:11px;color:var(--slate);margin-top:2px}
+.tray-clear{font-family:var(--mono);font-size:11px;color:var(--slate);text-decoration:underline}
+.tray-clear:hover{color:var(--bone)}
+
+/* ============================================================
+   SESSIONS + RULES
+   ============================================================ */
+.sessions{padding:clamp(56px,7vw,90px) 0;border-top:1px solid var(--line)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-top:32px}
+.card{padding:26px 22px;border-radius:var(--r);background:var(--navy-800);border:1px solid var(--line);transition:border-color .2s,transform .2s}
+.card:hover{border-color:var(--green-soft);transform:translateY(-3px)}
+.card h3{font-family:var(--display);font-size:26px;font-weight:800;text-transform:uppercase;letter-spacing:.01em;margin:12px 0 8px}
+.card p{color:var(--slate);font-size:14.5px}
+.card .price{
+  display:block;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);
+  font-family:var(--mono);font-size:13px;font-weight:700;color:var(--green);
+}
+.card-tag{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--coral)}
+
+.rules{padding:clamp(56px,7vw,90px) 0;border-top:1px solid var(--line)}
+.rules-in{display:grid;grid-template-columns:.85fr 1.15fr;gap:clamp(28px,5vw,64px)}
+.rule-list{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.rule{display:flex;gap:18px;padding:20px 22px;background:var(--navy-800)}
+.rule-n{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--green);padding-top:3px}
+.rule b{display:block;font-weight:700;margin-bottom:3px}
+.rule p{color:var(--slate);font-size:14px}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.ftr{border-top:1px solid var(--line);padding:clamp(44px,5vw,64px) 0 32px}
+.ftr-in{display:flex;flex-wrap:wrap;gap:32px;justify-content:space-between;align-items:flex-start}
+.ftr-col h4{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--slate);margin-bottom:12px}
+.ftr-col a,.ftr-col p{display:block;font-size:14.5px;color:var(--bone);margin-bottom:7px}
+.ftr-col a:hover{color:var(--green)}
+.ftr-btm{
+  margin-top:40px;padding-top:22px;border-top:1px solid var(--line);
+  font-family:var(--mono);font-size:11px;color:var(--slate);
+  display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media(max-width:900px){
+  .hero-in,.rules-in{grid-template-columns:1fr}
+  .court-art{display:none}
+  .nav{display:none}
+}
+@media(max-width:620px){
+  .hdr .btn{display:none}
+  .status{display:none}
+  .brand{margin-right:auto}
+  .t-col{width:84px;padding-left:10px !important;font-size:11px}
+  .tray{bottom:12px;padding:12px}
+}
+
+@media(prefers-reduced-motion:reduce){
+  *{animation:none !important;transition:none !important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<!-- ============================ HEADER ============================ -->
+<header class="hdr">
+  <div class="wrap hdr-in">
+    <a class="brand" href="#top">
+      <span class="brand-mark" role="img" aria-label="The Courtroom logo"></span>
+      <span class="brand-name">The <span>Courtroom</span></span>
+    </a>
+
+    <nav class="nav">
+      <a href="#docket">Book a court</a>
+      <a href="#sessions">Open play</a>
+      <a href="#rules">House rules</a>
+      <a href="#visit">Visit</a>
+    </nav>
+
+    <span class="status open" id="status"><span class="dot"></span><span id="statusTxt">In session</span></span>
+    <a class="btn" href="#docket">Book now</a>
+  </div>
+</header>
+
+<!-- ============================ HERO ============================ -->
+<section class="hero" id="top">
+  <div class="wrap hero-in">
+    <div>
+      <span class="eyebrow">Indoor courts · Everyone welcome</span>
+      <h1>Court is<em>in session</em></h1>
+      <p>Three covered courts, proper cushioned surface, and lights that don't quit at sundown. Never played before? Rent a paddle at the desk and we'll show you the rest.</p>
+
+      <div class="hero-cta">
+        <a class="btn" href="#docket">See today's open slots</a>
+        <a class="btn btn-ghost" href="#sessions">Join open play</a>
+      </div>
+
+      <div class="facts">
+        <div class="fact"><b>3</b><span>Indoor courts</span></div>
+        <div class="fact"><b>7AM–11PM</b><span>Open daily</span></div>
+        <div class="fact"><b>All levels</b><span>First-timers welcome</span></div>
+      </div>
+    </div>
+
+    <!-- the venue's own geometry, drawn to scale -->
+    <div class="court-art">
+      <svg viewBox="0 0 320 180" role="img" aria-label="Court layout: three navy playing surfaces with coral non-volley zones">
+        <rect width="320" height="180" fill="#0E1424"/>
+        <g>
+          <rect x="30" y="16" width="260" height="42" fill="#2C3E63"/>
+          <rect x="130" y="16" width="60" height="42" fill="#E88A9A"/>
+          <rect x="30" y="70" width="260" height="42" fill="#2C3E63"/>
+          <rect x="130" y="70" width="60" height="42" fill="#E88A9A"/>
+          <rect x="30" y="124" width="260" height="42" fill="#2C3E63"/>
+          <rect x="130" y="124" width="60" height="42" fill="#E88A9A"/>
+        </g>
+        <g stroke="#F3F1EA" stroke-width="1" opacity=".7">
+          <path d="M30 37h100M190 37h100M30 91h100M190 91h100M30 145h100M190 145h100"/>
+        </g>
+        <g stroke="#F3F1EA" stroke-width="2" opacity=".9" stroke-dasharray="3 3">
+          <path d="M160 10v54M160 64v54M160 118v54"/>
+        </g>
+      </svg>
+      <div class="court-cap"><span>Courts 1–3</span><span>20 × 44 ft each</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ THE DOCKET ============================ -->
+<section class="docket" id="docket">
+  <div class="wrap">
+    <div class="docket-head">
+      <div>
+        <span class="eyebrow">The docket</span>
+        <h2 class="h2" style="margin-top:10px">Today's open slots</h2>
+      </div>
+      <p class="lede" style="font-size:14.5px">Tap any open slot to hold it. Courts run ₱350 an hour, flat. Once a court switches to open play you don't book it — just walk in.</p>
+    </div>
+
+    <!-- day picker (populated by JS) -->
+    <div class="days" id="days" role="group" aria-label="Choose a date"></div>
+
+    <!-- EDIT YOUR RATES HERE and in the RATES object in the script below -->
+    <div class="rates">
+      <span class="rate"><b>₱350 / hour</b><span>Court rental, flat rate</span></span>
+      <span class="rate"><b>₱35 / game</b><span>Open play</span></span>
+      <span class="rate"><b>₱20</b><span>Paddle rental</span></span>
+    </div>
+
+    <div class="board">
+      <div class="board-scroll">
+        <table class="grid">
+          <thead>
+            <tr>
+              <th class="t-col" scope="col" style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--slate);font-weight:400">Time</th>
+              <th scope="col">Court 1<small>Indoor</small></th>
+              <th scope="col">Court 2<small>Indoor</small></th>
+              <th scope="col">Court 3<small>Indoor</small></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><i class="lg-open"></i>Open — tap to hold</span>
+      <span><i class="lg-taken"></i>Already booked</span>
+      <span><i class="lg-op"></i>Open play — walk in, ₱35 a game</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ SESSIONS ============================ -->
+<section class="sessions" id="sessions">
+  <div class="wrap">
+    <span class="eyebrow">No partner, no problem</span>
+    <h2 class="h2" style="margin-top:10px">Open play</h2>
+    <p class="lede" style="margin-top:14px">Courts switch over to open play in the evening. Show up on your own, pay per game, and rotate in. Everyone's welcome — all levels, first-timers included.</p>
+
+    <div class="cards">
+      <div class="card">
+        <span class="card-tag">Mon – Thu</span>
+        <h3>Weeknight rotation</h3>
+        <p>Court 1 opens up at 6PM and Court 2 at 8PM. Court 3 stays bookable right through to 11PM.</p>
+        <span class="price">₱35 per game</span>
+      </div>
+      <div class="card">
+        <span class="card-tag">Fri &amp; Sat · from 6PM</span>
+        <h3>All three courts</h3>
+        <p>Every court goes to open play at 6PM, so the whole floor is rotating. Book before 6PM if you want a court to yourselves.</p>
+        <span class="price">₱35 per game</span>
+      </div>
+      <div class="card">
+        <span class="card-tag">Fri &amp; Sat</span>
+        <h3>Unli pass</h3>
+        <p>Register once and play as many games as you like across both nights. Sign up at the desk.</p>
+        <span class="price">Ask at the desk</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ RULES ============================ -->
+<section class="rules" id="rules">
+  <div class="wrap rules-in">
+    <div>
+      <span class="eyebrow">Order in the court</span>
+      <h2 class="h2" style="margin-top:10px">House rules</h2>
+      <p class="lede" style="margin-top:14px">Short list. It keeps the courts fast and the surface in good shape.</p>
+    </div>
+    <div class="rule-list">
+      <div class="rule">
+        <span class="rule-n">01</span>
+        <div><b>Non-marking shoes only</b><p>Court shoes or clean trainers. Dark-soled running shoes leave streaks we can't lift.</p></div>
+      </div>
+      <div class="rule">
+        <span class="rule-n">02</span>
+        <div><b>Your hour ends on the hour</b><p>Clear the court on time so the next booking starts clean. Fifteen-minute grace before we release a no-show.</p></div>
+      </div>
+      <div class="rule">
+        <span class="rule-n">03</span>
+        <div><b>Water only on court</b><p>Everything else stays at the benches.</p></div>
+      </div>
+      <div class="rule">
+        <span class="rule-n">04</span>
+        <div><b>Paddle rentals — ₱20 each</b><p>Ask at the desk before you head on court. Balls are on us. Bring your own paddle and there's nothing to pay.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FOOTER ============================ -->
+<footer class="ftr" id="visit">
+  <div class="wrap">
+    <div class="ftr-in">
+      <div class="ftr-col" style="max-width:280px">
+        <div class="ftr-logo" role="img" aria-label="The Courtroom"></div>
+        <p style="color:var(--slate);margin-top:12px">Indoor pickleball. Book a court, join a session, or just come watch. Everyone's welcome.</p>
+      </div>
+      <div class="ftr-col">
+        <h4>Visit</h4>
+        <!-- EDIT: your address -->
+        <p>Your street address here</p>
+        <p>Philippines</p>
+      </div>
+      <div class="ftr-col">
+        <h4>Get in touch</h4>
+        <a href="tel:+639628572974">0962 857 2974</a>
+        <a href="https://facebook.com" target="_blank" rel="noopener">Facebook</a>
+      </div>
+      <div class="ftr-col">
+        <h4>Hours</h4>
+        <p>Monday – Sunday</p>
+        <p>7:00 AM – 11:00 PM</p>
+      </div>
+    </div>
+    <div class="ftr-btm">
+      <span>© <span id="yr"></span> The Courtroom</span>
+      <span>Order in the court.</span>
+    </div>
+  </div>
+</footer>
+
+<!-- selection tray -->
+<div class="tray" id="tray" role="status" aria-live="polite">
+  <div class="tray-txt">
+    <b id="trayCount">0 hours held</b>
+    <span id="trayDetail"></span>
+  </div>
+  <button class="tray-clear" id="trayClear">Clear</button>
+  <a class="btn" href="tel:+639628572974">Reserve — call</a>
+</div>
+
+<script>
+/* ============================================================
+   CONFIG — edit these and the whole board updates
+   ============================================================ */
+const COURTS    = 3;
+const OPEN_HR   = 7;    // 7 AM
+const CLOSE_HR  = 23;   // 11 PM
+const RATE      = 350;  // flat, per hour, per court
+const GAME_RATE = 35;   // open play, per game
+
+/* ------------------------------------------------------------
+   OPEN PLAY SCHEDULE
+   Returns the last hour a court can still be BOOKED.
+   Anything after it is open play — walk in, no reservation.
+
+     Mon–Thu (+ Sun)   Court 1  book until 6PM
+                       Court 2  book until 8PM
+                       Court 3  book until 11PM
+     Fri & Sat         All courts open play from 6PM
+   ------------------------------------------------------------ */
+function lastBookableHour(dow, court){
+  if (dow === 5 || dow === 6) return 17;        // Fri, Sat: last slot 5–6PM
+  if (court === 1) return 17;                   // until 6PM
+  if (court === 2) return 19;                   // until 8PM
+  return 22;                                    // Court 3: until 11PM
+}
+const isOpenPlay = (dow, hour, court) => hour > lastBookableHour(dow, court);
+
+/* Demo occupancy. Swap this for real data from your booking system —
+   the shape is: bookedFor(dateKey) => Set of "hour-court" strings. */
+function bookedFor(key){
+  const set = new Set();
+  let seed = 0; for (const c of key) seed = (seed * 31 + c.charCodeAt(0)) >>> 0;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296;
+  for (let h = OPEN_HR; h < CLOSE_HR; h++)
+    for (let c = 1; c <= COURTS; c++)
+      if (rnd() < (h >= 16 ? .55 : .22)) set.add(h + '-' + c);
+  return set;
+}
+
+/* ---------- helpers ---------- */
+const pad   = n => String(n).padStart(2,'0');
+const label = h => `${((h+11)%12)+1}:00 ${h<12?'AM':'PM'}`;
+const key   = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+
+let active = new Date();
+let picked = new Set();   // "dateKey|hour|court"
+
+/* ---------- day picker ---------- */
+const daysEl = document.getElementById('days');
+(function buildDays(){
+  const today = new Date();
+  for (let i = 0; i < 7; i++){
+    const d = new Date(today); d.setDate(today.getDate() + i);
+    const b = document.createElement('button');
+    b.className = 'day';
+    b.setAttribute('aria-pressed', i === 0);
+    b.innerHTML = `<small>${i===0?'Today':d.toLocaleDateString('en-US',{weekday:'short'})}</small><b>${d.getDate()}</b>`;
+    b.addEventListener('click', () => {
+      active = d;
+      daysEl.querySelectorAll('.day').forEach(x => x.setAttribute('aria-pressed','false'));
+      b.setAttribute('aria-pressed','true');
+      buildBoard();
+    });
+    daysEl.appendChild(b);
+  }
+})();
+
+/* ---------- the board ---------- */
+const rowsEl = document.getElementById('rows');
+function buildBoard(){
+  const k     = key(active);
+  const dow   = active.getDay();
+  const taken = bookedFor(k);
+  rowsEl.innerHTML = '';
+
+  for (let h = OPEN_HR; h < CLOSE_HR; h++){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="t-col">${label(h)}</td>`;
+
+    for (let c = 1; c <= COURTS; c++){
+      const td  = document.createElement('td');
+      const id  = `${k}|${h}|${c}`;
+      const btn = document.createElement('button');
+
+      if (isOpenPlay(dow, h, c)){
+        btn.className = 'slot op';
+        btn.textContent = 'Open play';
+        btn.disabled = true;
+        btn.setAttribute('aria-label', `Court ${c}, ${label(h)}, open play — no booking needed`);
+      } else if (taken.has(h + '-' + c)){
+        btn.className = 'slot taken';
+        btn.textContent = 'Booked';
+        btn.disabled = true;
+        btn.setAttribute('aria-label', `Court ${c}, ${label(h)}, already booked`);
+      } else {
+        const held = picked.has(id);
+        btn.className = 'slot' + (held ? ' picked' : '');
+        btn.textContent = held ? 'Held' : 'Open';
+        btn.setAttribute('aria-label', `Court ${c}, ${label(h)}, available, ₱${RATE}`);
+        btn.addEventListener('click', () => {
+          if (picked.has(id)){ picked.delete(id); btn.classList.remove('picked'); btn.textContent = 'Open'; }
+          else { picked.add(id); btn.classList.add('picked'); btn.textContent = 'Held'; }
+          updateTray();
+        });
+      }
+
+      td.appendChild(btn);
+      tr.appendChild(td);
+    }
+    rowsEl.appendChild(tr);
+  }
+}
+buildBoard();
+
+/* ---------- selection tray ---------- */
+const tray = document.getElementById('tray');
+function updateTray(){
+  const n = picked.size;
+  tray.classList.toggle('up', n > 0);
+  document.getElementById('trayCount').textContent =
+    `${n} ${n === 1 ? 'hour' : 'hours'} held · ₱${(n * RATE).toLocaleString()}`;
+  const first = [...picked][0];
+  document.getElementById('trayDetail').textContent = first
+    ? `${new Date(first.split('|')[0]).toLocaleDateString('en-US',{weekday:'long', month:'short', day:'numeric'})} · from ${label(+first.split('|')[1])}`
+    : '';
+}
+document.getElementById('trayClear').addEventListener('click', () => {
+  picked.clear(); buildBoard(); updateTray();
+});
+
+/* ---------- live open/closed status ---------- */
+(function status(){
+  const h = new Date().getHours();
+  const open = h >= OPEN_HR && h < CLOSE_HR;
+  const el = document.getElementById('status');
+  el.className = 'status ' + (open ? 'open' : 'shut');
+  document.getElementById('statusTxt').textContent = open ? 'In session' : 'Adjourned';
+})();
+
+document.getElementById('yr').textContent = new Date().getFullYear();
+
+/* favicon — reuses the --logo token so there's only one copy of the image */
+(function favicon(){
+  const url = getComputedStyle(document.documentElement)
+                .getPropertyValue('--logo').trim().slice(4,-1).replace(/["']/g,'');
+  const link = document.createElement('link');
+  link.rel = 'icon'; link.href = url;
+  document.head.appendChild(link);
+})();
+</script>
+</body>
+</html>
