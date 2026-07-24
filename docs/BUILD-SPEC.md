@@ -1636,16 +1636,28 @@ Findings:
   like "no two active bookings on one court may overlap" to catch this
   at the write, unlike a simple duplicate-row case. Reproduced 3/3 under
   the same downgrade; fixed by routing through the same helper
-  `createBooking` uses. Now proven live, 5/5 clean.
+  `createBooking` uses. Proven live, 5/5 clean — then deleted (see
+  below): it had zero callers and no committed phase to wire it in, so
+  it didn't ship. The fix and its proof are preserved here and in git
+  history, not in the running code.
 
 The fix extracted the inline Serializable+retry loop `createBooking` had
-into `lib/serializable-retry.ts`'s `runSerializableWithRetry`, and routed
-both `createBooking` and `rescheduleBooking` through it. Note for later:
-the identical loop is independently duplicated in
+into `lib/serializable-retry.ts`'s `runSerializableWithRetry`. Note for
+later: the identical loop is independently duplicated in
 `locker-rental.service.ts`, `match.service.ts`, and
 `equipment-rental.service.ts` — none of those were touched this pass
 (out of scope, and per §0/§15's own rule below, a hardening phase fixes
 findings, it doesn't consolidate working guards).
+
+`rescheduleBooking` itself was removed after this audit landed: zero
+callers anywhere outside its own test (no action, no route, no
+component), and the build order (§16) names nothing for the phase after
+Phase 8 (Phase 9 is payment settings) that would wire it in. Per this
+session's own rule against fixed-but-unreachable paths, it was deleted
+rather than kept "pending a wiring pass" with no phase attached —
+recoverable from git (`git log -- services/booking/booking.service.ts`)
+along with `testRescheduleBookingNeverDoubleBooks` whenever a real
+caller exists.
 
 ### Which concurrency pattern, and when (BUILD-SPEC.md §0 process rule)
 
@@ -1692,9 +1704,9 @@ nobody reaches for the nearest one out of habit.
    court may overlap in time") can't be pinned to a single row's `WHERE`
    clause or a single row's lock, and genuine conflicts are rare enough
    that abort-and-retry is cheaper than reasoning about which rows to
-   lock and in what order. Uses: `createBooking`, `rescheduleBooking`
-   (via the shared `runSerializableWithRetry` helper — see above), and
-   independently, `locker-rental.service.ts`, `match.service.ts`,
+   lock and in what order. Uses: `createBooking` (via the shared
+   `runSerializableWithRetry` helper — see above), and independently,
+   `locker-rental.service.ts`, `match.service.ts`,
    `equipment-rental.service.ts`.
 4. **Named benign-error / duck-typed unique-constraint catch, no-op the
    loser.** Not actually a concurrency *fix* — a real database unique

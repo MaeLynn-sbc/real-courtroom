@@ -391,69 +391,6 @@ export class BookingService {
     return booking;
   }
 
-  // Staff-only (no saleContext/source, same as updateBookingStatus) — a
-  // reschedule never blocks on operating hours, it just recomputes
-  // isAfterHours for the new time, same rule as creating a staff booking
-  // in the first place. Not yet wired to any dashboard action/UI; this
-  // exists so the flag is provably correct across a booking's lifecycle,
-  // not just at creation (see lib/court-hours.ts's isWithinCourtBookingWindow
-  // and booking.service.test.ts).
-  //
-  // Hardening phase fix (BUILD-SPEC.md §0/§15 audit): this used to run in
-  // a plain (READ COMMITTED, no retry) transaction — the exact gap Phase
-  // 10 already closed for createBooking, just left open here. Two
-  // concurrent reschedules onto overlapping times on the same court could
-  // each read "available" from their own snapshot before either wrote,
-  // and Postgres has no unique constraint shaped like "no two active
-  // bookings on one court may overlap" to catch it at the write. Now
-  // routed through the same runSerializableWithRetry helper createBooking
-  // uses — Postgres's SSI conflict detection covers the read/write set
-  // this method touches the same way it already covered createBooking's.
-  async rescheduleBooking(
-    bookingId: string,
-    newStartAt: Date,
-    newEndAt: Date,
-    actorUserId: string,
-  ): Promise<Booking> {
-    const booking = await runSerializableWithRetry(async (tx) => {
-      const existing = await tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
-
-      const availability = await this.checkAvailabilityWithClient(
-        tx,
-        existing.courtId,
-        newStartAt,
-        newEndAt,
-        existing.id,
-      );
-      if (!availability.available && availability.conflict) {
-        throw new BookingConflictError(availability.conflict);
-      }
-
-      const court = await tx.court.findUniqueOrThrow({
-        where: { id: existing.courtId },
-        select: { name: true },
-      });
-      const courtHours = await settingsService.getCourtHours();
-      const isAfterHours = !isWithinCourtBookingWindow(courtHours, court.name, newStartAt, newEndAt);
-
-      return tx.booking.update({
-        where: { id: bookingId },
-        data: { startAt: newStartAt, endAt: newEndAt, isAfterHours },
-      });
-    });
-
-    await this.writeBookingHistory(booking.id, booking.status, actorUserId, "Rescheduled");
-    await this.writeAuditLog({
-      actorUserId,
-      action: "booking.rescheduled",
-      entityType: "Booking",
-      entityId: booking.id,
-      newValues: { startAt: booking.startAt, endAt: booking.endAt, isAfterHours: booking.isAfterHours },
-    });
-
-    return booking;
-  }
-
   async checkInByToken(token: string, actorUserId: string): Promise<Booking> {
     const booking = await prisma.booking.findUnique({ where: { qrCodeToken: token } });
     if (!booking) {

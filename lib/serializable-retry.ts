@@ -8,8 +8,8 @@ import type { Prisma } from "@/lib/generated/prisma/client";
 // immediately — is independently duplicated in locker-rental.service.ts,
 // match.service.ts, and equipment-rental.service.ts. Only
 // booking.service.ts is routed through this shared version for now
-// (createBooking and the newly-fixed rescheduleBooking); those other
-// three are out of scope for this pass and untouched.
+// (createBooking); those other three are out of scope for this pass and
+// untouched.
 
 export const DEFAULT_SERIALIZABLE_RETRY_ATTEMPTS = 5;
 

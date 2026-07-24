@@ -5,19 +5,11 @@
  * excluded from the original six-item audit as "already reviewed" — but
  * that review predated every concurrency bug found this session.
  *
- *   1. createBooking — already used a Serializable transaction + retry
- *      (Phase 10), but that protection had never been proven under a real
- *      concurrent-request test, only reasoned about. Proven here: two
- *      concurrent createBooking calls for the same court/overlapping time
- *      never both succeed.
- *   2. rescheduleBooking — did NOT have the same protection. A plain
- *      (READ COMMITTED, no retry) transaction let two concurrent
- *      reschedules onto overlapping times each read "available" from
- *      their own snapshot before either wrote — no unique constraint
- *      shaped like "no two active bookings on one court may overlap"
- *      exists to catch it at the write. Now routed through the same
- *      runSerializableWithRetry helper createBooking uses
- *      (lib/serializable-retry.ts).
+ * createBooking already used a Serializable transaction + retry
+ * (Phase 10), but that protection had never been proven under a real
+ * concurrent-request test, only reasoned about. Proven here: two
+ * concurrent createBooking calls for the same court/overlapping time
+ * never both succeed.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -85,48 +77,6 @@ async function testCreateBookingNeverDoubleBooks(courtId: string, actorUserId: s
   console.log("PASS: concurrent createBooking calls for the same court/time never both succeed");
 }
 
-// Fixture: two existing, non-overlapping bookings (A at 10-11am, B at
-// 1-2pm) on the same court. Fires two concurrent rescheduleBooking calls,
-// each moving a DIFFERENT booking onto the SAME target slot (3-4pm). The
-// corruption is BOTH succeeding — two active bookings overlapping at
-// 3-4pm on one court.
-async function testRescheduleBookingNeverDoubleBooks(courtId: string, actorUserId: string, saleContext: CreateBookingSaleContext): Promise<void> {
-  await cleanUp(courtId);
-
-  const bookingA = await bookingService.createBooking(
-    { courtId, type: "HOURLY", startAt: slot(10), endAt: slot(11), guestName: "Reschedule Race A", paymentMethodId: saleContext.paymentMethodId },
-    actorUserId,
-    saleContext,
-  );
-  const bookingB = await bookingService.createBooking(
-    { courtId, type: "HOURLY", startAt: slot(13), endAt: slot(14), guestName: "Reschedule Race B", paymentMethodId: saleContext.paymentMethodId },
-    actorUserId,
-    saleContext,
-  );
-
-  const targetStart = slot(15);
-  const targetEnd = slot(16);
-
-  console.log("  Firing 2 concurrent rescheduleBooking calls onto the same target slot...");
-  await Promise.allSettled([
-    bookingService.rescheduleBooking(bookingA.id, targetStart, targetEnd, actorUserId),
-    bookingService.rescheduleBooking(bookingB.id, targetStart, targetEnd, actorUserId),
-  ]);
-
-  const active = await prisma.booking.findMany({
-    where: { courtId, status: { notIn: ["CANCELLED", "NO_SHOW"] }, startAt: { gte: slot(0), lt: slot(23, 59) } },
-  });
-  const onTarget = active.filter((b) => overlaps(b.startAt, b.endAt, targetStart, targetEnd));
-  console.log(`  Bookings ending up on the target slot: ${onTarget.length}`);
-  assert(onTarget.length <= 1, `expected at most 1 booking to have won the reschedule race onto the target slot, found ${onTarget.length}`);
-
-  const overlapping = active.some((a, i) => active.some((b, j) => i !== j && overlaps(a.startAt, a.endAt, b.startAt, b.endAt)));
-  assert(!overlapping, "two active bookings ended up overlapping on the same court after a concurrent reschedule");
-
-  await cleanUp(courtId);
-  console.log("PASS: concurrent rescheduleBooking calls onto the same target slot never both succeed");
-}
-
 async function main(): Promise<void> {
   const owner = await prisma.user.findFirstOrThrow({ where: { username: "owner" } });
   const court = await prisma.court.findFirstOrThrow({ where: { deletedAt: null } });
@@ -140,7 +90,6 @@ async function main(): Promise<void> {
 
   try {
     await testCreateBookingNeverDoubleBooks(court.id, owner.id, saleContext);
-    await testRescheduleBookingNeverDoubleBooks(court.id, owner.id, saleContext);
   } finally {
     await cleanUp(court.id);
   }
