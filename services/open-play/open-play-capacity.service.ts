@@ -51,6 +51,13 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
+// Matches the duck-typed check already used by booking.service.ts,
+// locker-rental.service.ts, match.service.ts, equipment-rental.service.ts,
+// and open-play-checkin.service.ts's own copy.
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002";
+}
+
 export interface UpcomingOpenPlayNight {
   date: Date;
   dayOfWeek: OpenPlayDayOfWeek;
@@ -122,9 +129,28 @@ export class OpenPlayCapacityService {
     const startAt = atMinutesOfDay(date, parseTimeToMinutes(courtHours.fridaySaturdayCloseTime));
     const endAt = atMinutesOfDay(date, getFacilityCloseMinutes(courtHours, date));
 
-    return prisma.openPlayNightSession.create({
-      data: { date, startAt, endAt, capacity: capacityDefault.capacity },
-    });
+    try {
+      return await prisma.openPlayNightSession.create({
+        data: { date, startAt, endAt, capacity: capacityDefault.capacity },
+      });
+    } catch (error) {
+      // Hardening phase fix (BUILD-SPEC.md §0 process rule): the
+      // `existing` check above only protects a SEQUENTIAL race — two
+      // concurrent calls for the same date both read `existing` as null
+      // before either commits, so both attempt to create, and the loser
+      // collides on OpenPlayNightSession.date's real unique constraint
+      // instead of getting a graceful result. Owner-only and rare to
+      // trigger concurrently, but same treatment as every other
+      // benign-double-tap case in this audit: catch the specific case,
+      // return the row the winner just created, don't surface a raw DB
+      // error. Proven live
+      // (open-play-capacity.concurrency.integration.ts): a concurrent
+      // race threw "Unique constraint failed" 6/6 runs.
+      if (isUniqueConstraintViolation(error)) {
+        return prisma.openPlayNightSession.findUniqueOrThrow({ where: { date } });
+      }
+      throw error;
+    }
   }
 
   // Sets (creating the row on demand if needed) a specific date's capacity
