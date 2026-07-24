@@ -104,8 +104,13 @@ function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
   return (
     <SheetPrimitive.Title
       data-slot="sheet-title"
+      // No explicit text-foreground — same fix as alert-dialog.tsx's
+      // title and badge.tsx's outline variant. SheetContent already
+      // sets text-popover-foreground (correct, --popover is pinned
+      // light in both themes); this override replaced that with the
+      // dark-theme's globally light --foreground instead.
       className={cn(
-        "font-heading text-base font-medium text-foreground",
+        "font-heading text-base font-medium",
         className
       )}
       {...props}

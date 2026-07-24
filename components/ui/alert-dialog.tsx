@@ -71,7 +71,12 @@ function AlertDialogTitle({ className, ...props }: AlertDialogPrimitive.Title.Pr
   return (
     <AlertDialogPrimitive.Title
       data-slot="alert-dialog-title"
-      className={cn("font-heading text-base font-medium text-foreground", className)}
+      // No explicit text-foreground — same fix as badge.tsx's outline
+      // variant. AlertDialogContent already sets text-popover-foreground
+      // (correct, --popover is pinned light in both themes); this
+      // unconditional override was replacing that correct inherited
+      // color with the dark-theme's globally light --foreground instead.
+      className={cn("font-heading text-base font-medium", className)}
       {...props}
     />
   )

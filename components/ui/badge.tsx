@@ -14,8 +14,19 @@ const badgeVariants = cva(
           "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
         destructive:
           "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
-        outline:
-          "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
+        // No explicit rest-state text color — same reasoning as Button's
+        // outline variant (components/ui/button.tsx): this renders on
+        // whatever surface it's placed on (a white Card, a light
+        // Popover, or directly on the dark page), and those surfaces
+        // already set their own correct foreground color for their
+        // theme/context. An unconditional `text-foreground` here used to
+        // override that correct inheritance with the dark-theme's
+        // globally light value — confirmed live: a skill-level badge on
+        // a white player-list row rendered at oklch(0.96 ...),
+        // functionally invisible, while Button's equivalent variant
+        // (which never set an unconditional text-foreground) rendered
+        // correctly by inheriting from the same ancestor.
+        outline: "border-border [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
