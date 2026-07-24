@@ -112,20 +112,54 @@ export class AnalyticsService {
   // Phase 7 review: previously read the old, dormant OpenPlaySession model
   // via reportingService.getOpenPlayReport (removed — see that method's
   // former location and features/reports/schemas/report.schema.ts's
-  // comment). Rewired here to the real Open Play Nights feature —
-  // OpenPlayNightSession/OpenPlayNightRegistration — rather than deleting
-  // this KPI outright.
-  async getOpenPlayParticipation(
-    range: DateRange,
-  ): Promise<{ sessionsCount: number; registrationsCount: number; checkedInCount: number }> {
-    const [sessionsCount, registrationsCount, checkedInCount] = await Promise.all([
-      prisma.openPlayNightSession.count({ where: { date: { gte: range.from, lte: range.to } } }),
-      prisma.openPlayNightRegistration.count({ where: { date: { gte: range.from, lte: range.to } } }),
-      prisma.openPlayNightRegistration.count({
-        where: { date: { gte: range.from, lte: range.to }, checkedInAt: { not: null } },
-      }),
-    ]);
-    return { sessionsCount, registrationsCount, checkedInCount };
+  // comment). Rewired to the real Open Play Nights feature — see
+  // BUILD-SPEC.md §9 "Analytics: Fri/Sat participation scope" for the
+  // scope and status-filter decisions this method encodes (recorded there
+  // deliberately, not just here, so they aren't re-litigated silently):
+  //
+  //   - Fri/Sat only. sessionsCount only has rows for Fri/Sat (weeknights
+  //     have no OpenPlayNightSession), so registrations/checked-in are
+  //     scoped to sessionId != null too — otherwise "registrations per
+  //     session" is incoherent (weeknight signups have no session to
+  //     divide by). Weeknight activity is NOT dropped — it's exposed
+  //     separately as weeknightCheckedInCount, explicitly labeled.
+  //   - CANCELLED registrations are excluded (a genuine opt-out before
+  //     the night, not participation). NO_SHOW registrations ARE
+  //     included in registrationsCount — a no-show is a real, usually
+  //     paid, commitment that failed, and the gap between
+  //     registrationsCount and checkedInCount is exactly the no-show
+  //     rate: the metric that will show whether Phase 8's GCash
+  //     prepayment actually reduces no-shows. noShowCount is exposed as
+  //     its own explicit field rather than left as an implied
+  //     subtraction, since AWAITING_PAYMENT/PENDING_VERIFICATION rows
+  //     (not yet reachable from any service method, but real enum
+  //     values) would otherwise silently pollute that subtraction once
+  //     Phase 8 makes them reachable.
+  async getOpenPlayParticipation(range: DateRange): Promise<{
+    friSatSessionsCount: number;
+    friSatRegistrationsCount: number;
+    friSatCheckedInCount: number;
+    friSatNoShowCount: number;
+    weeknightCheckedInCount: number;
+  }> {
+    const dateFilter = { date: { gte: range.from, lte: range.to } };
+    const [friSatSessionsCount, friSatRegistrationsCount, friSatCheckedInCount, friSatNoShowCount, weeknightCheckedInCount] =
+      await Promise.all([
+        prisma.openPlayNightSession.count({ where: dateFilter }),
+        prisma.openPlayNightRegistration.count({
+          where: { ...dateFilter, sessionId: { not: null }, status: { not: "CANCELLED" } },
+        }),
+        prisma.openPlayNightRegistration.count({
+          where: { ...dateFilter, sessionId: { not: null }, status: { not: "CANCELLED" }, checkedInAt: { not: null } },
+        }),
+        prisma.openPlayNightRegistration.count({
+          where: { ...dateFilter, sessionId: { not: null }, status: "NO_SHOW" },
+        }),
+        prisma.openPlayNightRegistration.count({
+          where: { ...dateFilter, sessionId: null, checkedInAt: { not: null } },
+        }),
+      ]);
+    return { friSatSessionsCount, friSatRegistrationsCount, friSatCheckedInCount, friSatNoShowCount, weeknightCheckedInCount };
   }
 
   async getTournamentParticipation(
@@ -199,7 +233,7 @@ export class AnalyticsService {
       billableAmountCents: revenueReport.totalAmountCents,
       activeMemberships,
       newEnrollments: membershipGrowth.reduce((sum, point) => sum + point.value, 0),
-      openPlaySessions: openPlayParticipation.sessionsCount,
+      openPlaySessions: openPlayParticipation.friSatSessionsCount,
       tournamentsInRange: tournamentReport.length,
       equipmentRentalsActive: equipmentSummary.rentedCount,
       lockersOccupied: lockerUtilization.occupiedCount,

@@ -120,6 +120,22 @@ export class PlayerTabService {
     // here (the old row "exists"), and the player would play for free
     // with no error. The original row is never touched either way — see
     // voidsLineItemId's comment in schema.prisma.
+    //
+    // This check is application-level, not database-enforced (there's no
+    // unique constraint on tabId+gameAssignmentId — see the same comment
+    // for why one can't express "unique among non-voided rows"). That's
+    // only safe because the ONLY caller, completeAssignment, takes a
+    // `SELECT ... FOR UPDATE` lock on the GameAssignment row before ever
+    // reaching this method — see that method's comment. Two concurrent
+    // completeAssignment calls for the same assignment can't both be
+    // "inside" this method at once; the second blocks on the lock, then
+    // sees status=DONE and never calls creditGame at all. Proven live:
+    // player-tab.concurrency.integration.ts fires 10 concurrent
+    // completeAssignment calls against one assignment and asserts exactly
+    // one ₱35 credit lands — failed 10/10 before the lock existed. If
+    // creditGame ever gets a second caller that doesn't hold that same
+    // lock, this idempotency check stops being safe under concurrency and
+    // needs revisiting alongside that caller.
     const existingCredits = await tx.tabLineItem.findMany({
       where: { tabId: tab.id, gameAssignmentId, type: "GAME" },
       include: { voidedByItems: true },

@@ -846,6 +846,60 @@ Grouped by `businessDate`, so an 11:30PM game lands on the right night.
 **Reconciliation** — expected cash for the day so staff can count the
 drawer against it. Flag variance. Date range picker, CSV export.
 
+### Analytics: Fri/Sat participation scope (resolved, Phase 7 review)
+
+`analyticsService.getOpenPlayParticipation` (the `/dashboard/analytics`
+and `/dashboard`'s "Open Play sessions" KPIs) previously read the old,
+dormant `OpenPlaySession` model and rendered plausible but wrong
+numbers — the same class of problem as the deleted `/dashboard/reports`
+"Open Play report" (§9's Correctness section). Rewired to the real
+`OpenPlayNightSession`/`OpenPlayNightRegistration` data, with two scope
+decisions recorded here so they aren't silently re-litigated:
+
+**Fri/Sat only, not weeknight.** `sessionsCount` only ever has rows for
+Fri/Sat — weeknights have no `OpenPlayNightSession`. Scoping
+`registrationsCount`/`checkedInCount` to `sessionId != null` keeps the
+three numbers coherent as a set ("registrations per session" is a
+real ratio); including weeknight signups (which have no session to
+divide by) would make that ratio meaningless. Every field name and every
+place this renders says "(Fri/Sat)" explicitly — a silently-scoped
+number is exactly the stale-report failure this section exists to
+prevent. Weeknight activity is not dropped: `weeknightCheckedInCount`
+exposes it separately, its own explicitly-labeled figure.
+
+**CANCELLED excluded, NO_SHOW included.** A cancellation is a genuine
+opt-out before the night — not participation. A no-show is a real,
+usually-paid commitment that failed to show up — a materially different
+thing. This matters beyond semantics: **the gap between
+`registrationsCount` and `checkedInCount` is the no-show rate**, and
+that rate is exactly the metric that will show whether Phase 8's GCash
+prepayment (§8) actually reduces no-shows from strangers. Collapsing
+that gap by excluding no-shows from the count would delete the ability
+to measure the policy's own effect. `noShowCount` is exposed as its own
+explicit field rather than left as an implied subtraction, since
+`AWAITING_PAYMENT`/`PENDING_VERIFICATION` registrations (not reachable
+from any service method yet, but real enum values Phase 8 will make
+reachable) would otherwise silently pollute that subtraction later.
+
+**Operational note, not yet actioned:** record a no-show-rate baseline
+from real data before Phase 8's prepayment requirement ships — once
+prepayment is live, the pre-prepayment comparison point is gone. See
+§17.
+
+**Cancellation and the ₱150 fee — confirmed current behavior:**
+`OpenPlayRegistrationService.cancelRegistration` only flips status to
+`CANCELLED` and releases the seat/promotes the waitlist — there is no
+refund logic anywhere in that path, because there is no payment logic
+anywhere in that path. The ₱150 fee isn't tracked as a real payment yet
+at all (§9's Fri/Sat-fee gap, above), so today a cancellation is not a
+"paid opt-out" in any accounting sense — there's nothing recorded to
+refund. This changes the moment Phase 8 wires the fee into a real
+payment: at that point, "does cancelling a Fri/Sat registration refund
+the ₱150" stops being moot and becomes a real accounting question
+(still revenue? refunded? something else?) — see §17's existing
+"Cancellation and refund policy" open question, which Phase 8 must
+resolve before, not after, wiring the fee into revenue.
+
 ### Correctness
 
 1. Game counts derive from assignments, never a stored counter
@@ -855,10 +909,39 @@ drawer against it. Flag variance. Date range picker, CSV export.
 5. Write-offs never count as revenue
 6. A session cannot close while tabs are open — warn and list them
 7. All money in integer centavos
+8. Crediting a game is safe under concurrency — never a double credit
+9. Settling or writing off a tab twice has exactly one effect, not two
+10. A write-off always has an attributed employee and a reason
+11. A rental line item's amount is fixed at creation — repricing the
+    underlying equipment must never rewrite an already-added charge
+
+**On #8, stated plainly (review requirement):** `creditGame`'s
+idempotency check (does an active, non-voided GAME credit already
+exist for this tabId+gameAssignmentId?) is application-level, not a
+database constraint — a database-level unique index can't express
+"unique among non-voided rows" here, because voids are separate,
+append-only rows (`TabLineItem.voidsLineItemId`), not a flag on the
+original, and a partial index's predicate can only see the row being
+inserted's own columns. This is safe **only because** its one caller,
+`completeAssignment`, takes a `SELECT ... FOR UPDATE` lock on the
+`GameAssignment` row before ever reaching it — two concurrent
+`completeAssignment` calls for the same assignment cannot both be
+"inside" `creditGame` at once. This is an invariant held by a
+*different* method than the one relying on it — documented here and in
+both methods' code comments specifically so it doesn't get silently
+invalidated by a future second caller of `creditGame` that doesn't
+take the same lock. Proven live, not just reasoned about: it failed
+10/10 (every concurrent call succeeded, minting 10 credits) before the
+lock existed, and passes after
+(`player-tab.concurrency.integration.ts`).
 
 Tests: 3 games + 1 paddle == ₱125; a voided game reduces the tab; a
 Fri/Sat player with 6 games owes ₱0; closing a session with an open
-tab is blocked.
+tab is blocked; N concurrent completeAssignment calls against one
+assignment yield exactly one credit; settling or writing off the same
+tab twice is rejected the second time, not duplicated; a write-off
+with no reason or no employee is rejected; repricing equipment after a
+rental line item was added doesn't change that tab's total.
 
 ### Not in scope
 
@@ -1250,7 +1333,21 @@ domain only become necessary at Phase 8.
   foursome is a tap every few minutes. Decide from real nights whether
   auto-confirm with undo is better. The setting exists either way.
 - **Cancellation and refund policy** — how late can someone cancel a
-  paid ₱150 open play slot and get a refund?
+  paid ₱150 open play slot and get a refund? Confirmed (Phase 7 review):
+  today, cancelling only releases the seat — no refund logic exists
+  because no payment is tracked at all yet, so this is currently moot.
+  It stops being moot the moment Phase 8 wires the ₱150 fee into
+  revenue, at which point a cancellation needs an explicit accounting
+  answer (still revenue? refunded? something else?). Resolve this
+  **before**, not after, wiring the fee in — see §9's "Analytics: Fri/Sat
+  participation scope."
+- **No-show-rate baseline, before Phase 8 ships prepayment** — §9's
+  Fri/Sat participation KPIs (`registrationsCount` vs. `checkedInCount`
+  vs. `noShowCount`) make the no-show rate measurable for the first
+  time. Record a real baseline from actual nights before Phase 8's
+  GCash-prepayment requirement goes live — once prepayment is
+  mandatory, the pre-prepayment comparison point is gone for good, and
+  "did this policy actually reduce no-shows" becomes unanswerable.
 - **GCash receiving limits** — a personal wallet has a monthly ceiling.
   Worth watching once volume picks up.
 - **Fri/Sat ₱150 registration fee is real cash with no revenue tracking

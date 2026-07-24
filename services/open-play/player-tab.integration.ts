@@ -325,8 +325,18 @@ async function testWriteOffRequiresEmployeeAndIsVisibleSeparately(courtId: strin
   }
   assert(missingEmployeeThrew, "writeOffTab must reject a missing employeeId — no anonymous write-offs");
 
-  const written = await playerTabService.writeOffTab(tab!.tab.id, "Player never returned", employeeId, actorUserId);
+  let missingReasonThrew = false;
+  try {
+    await playerTabService.writeOffTab(tab!.tab.id, "   ", employeeId, actorUserId);
+  } catch {
+    missingReasonThrew = true;
+  }
+  assert(missingReasonThrew, "writeOffTab must reject a blank reason");
+
+  const REASON = "Player never returned";
+  const written = await playerTabService.writeOffTab(tab!.tab.id, REASON, employeeId, actorUserId);
   assert(written.writeOffEmployeeId === employeeId, "the write-off must record which employee attributed it");
+  assert(written.writeOffReason === REASON, "the write-off must record the reason");
 
   const summary = await openPlaySalesService.getSummary(WRITE_OFF_VISIBILITY_DATE, WRITE_OFF_VISIBILITY_DATE);
   assert(summary.writeOffCents === 3500, `expected write-off total to include this ₱35 tab, got ${summary.writeOffCents}`);
@@ -336,7 +346,17 @@ async function testWriteOffRequiresEmployeeAndIsVisibleSeparately(courtId: strin
     `a written-off tab's game charge must not appear in net revenue — got ${summary.weeknightGameRevenueCents}`,
   );
 
-  console.log("PASS: write-offs require an employee, and are visible separately from revenue (contribute ₱0 to net revenue)");
+  const detail = summary.writeOffs.find((w) => w.tabId === tab!.tab.id);
+  assert(detail, "the write-off summary must include a per-tab detail entry, not just an aggregate");
+  assert(detail!.reason === REASON, `expected the summary detail's reason to be "${REASON}", got "${detail!.reason}"`);
+  assert(
+    detail!.employeeName.length > 0 && detail!.employeeName !== "Unknown",
+    `expected the summary detail's employeeName to be resolved, got "${detail!.employeeName}"`,
+  );
+
+  console.log(
+    "PASS: write-offs require an employee and a reason, and both are visible in the sales summary detail — separate from revenue",
+  );
 }
 
 // Review follow-up #5: confirm rental line items snapshot their amount at

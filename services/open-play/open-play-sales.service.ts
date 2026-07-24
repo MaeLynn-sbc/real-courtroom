@@ -28,6 +28,17 @@ export interface OpenPlaySalesSummary {
   netRevenueCents: number;
   writeOffCents: number;
   writeOffCount: number;
+  // Per-write-off detail — BUILD-SPEC.md §9 review: "no anonymous
+  // write-offs" isn't just a write-time check, it must be visible after
+  // the fact too. Employee name and reason shown together so staff/owner
+  // can actually audit who wrote off what and why, not just a total.
+  writeOffs: {
+    tabId: string;
+    playerName: string;
+    amountCents: number;
+    reason: string;
+    employeeName: string;
+  }[];
   byPaymentMethod: { paymentMethodId: string; label: string; amountCents: number; count: number }[];
   unsettledCount: number;
   unsettledTotalCents: number;
@@ -47,7 +58,7 @@ export class OpenPlaySalesService {
   async getSummary(from: Date, to: Date): Promise<OpenPlaySalesSummary> {
     const tabs = await prisma.playerTab.findMany({
       where: { date: { gte: from, lte: to } },
-      include: { lineItems: true },
+      include: { lineItems: true, writeOffEmployee: true },
     });
 
     let weeknightGameRevenueCents = 0;
@@ -59,6 +70,7 @@ export class OpenPlaySalesService {
     let unsettledCount = 0;
     let unsettledTotalCents = 0;
     const settledTabIds: string[] = [];
+    const writeOffs: OpenPlaySalesSummary["writeOffs"] = [];
 
     for (const tab of tabs) {
       const totalCents = tab.lineItems.reduce((sum, item) => sum + item.amountCents, 0);
@@ -78,6 +90,13 @@ export class OpenPlaySalesService {
       } else if (tab.status === "WRITTEN_OFF") {
         writeOffCents += totalCents;
         writeOffCount += 1;
+        writeOffs.push({
+          tabId: tab.id,
+          playerName: tab.playerName,
+          amountCents: totalCents,
+          reason: tab.writeOffReason ?? "",
+          employeeName: tab.writeOffEmployee ? `${tab.writeOffEmployee.firstName} ${tab.writeOffEmployee.lastName}` : "Unknown",
+        });
       } else if (tab.status === "OPEN" && totalCents > 0) {
         unsettledCount += 1;
         unsettledTotalCents += totalCents;
@@ -114,6 +133,7 @@ export class OpenPlaySalesService {
       netRevenueCents: weeknightGameRevenueCents + equipmentRentalRevenueCents + adjustmentsCents,
       writeOffCents,
       writeOffCount,
+      writeOffs,
       byPaymentMethod: Array.from(byPaymentMethodMap.values()).sort((a, b) => b.amountCents - a.amountCents),
       unsettledCount,
       unsettledTotalCents,

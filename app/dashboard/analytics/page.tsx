@@ -58,8 +58,11 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
         <KpiCard label="Booked court hours" value={totalBookedHours.toFixed(1)} />
         <KpiCard label="New enrollments" value={totalNewMembers} />
         <KpiCard label="Active players" value={playerActivity.activePlayers} />
-        <KpiCard label="Open Play sessions" value={openPlayParticipation.sessionsCount} />
-        <KpiCard label="Open Play registrations" value={openPlayParticipation.registrationsCount} />
+        <KpiCard label="Open Play sessions (Fri/Sat)" value={openPlayParticipation.friSatSessionsCount} />
+        <KpiCard label="Open Play registrations (Fri/Sat)" value={openPlayParticipation.friSatRegistrationsCount} />
+        <KpiCard label="Open Play checked in (Fri/Sat)" value={openPlayParticipation.friSatCheckedInCount} />
+        <KpiCard label="Open Play no-shows (Fri/Sat)" value={openPlayParticipation.friSatNoShowCount} />
+        <KpiCard label="Weeknight open play checked in" value={openPlayParticipation.weeknightCheckedInCount} />
         <KpiCard label="Tournaments" value={tournamentParticipation.tournamentsCount} />
         <KpiCard label="Tournament registrations" value={tournamentParticipation.registrationsCount} />
         <KpiCard label="Lockers occupied" value={`${lockerUtilization.occupiedCount}/${lockerUtilization.totalLockers}`} />

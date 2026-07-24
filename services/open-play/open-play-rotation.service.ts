@@ -447,6 +447,29 @@ export class OpenPlayRotationService {
   // signal) and never touches capacity/waitlist — that's markDone below.
   async completeAssignment(assignmentId: string, actorUserId: string): Promise<GameAssignmentWithParticipants> {
     const result = await prisma.$transaction(async (tx) => {
+      // Row lock BEFORE reading status — closes a real race: two
+      // concurrent completeAssignment calls for the same assignment can
+      // both read status=ACTIVE before either commits (proven live —
+      // player-tab.concurrency.integration.ts failed with 10/10 calls
+      // succeeding and a 10x credit before this lock existed). Same
+      // established technique as open-play-registration.service.ts's
+      // lockSessionRow — the row that owns the invariant being protected
+      // (here, "DONE happens at most once") gets locked before the check.
+      //
+      // A database-level uniqueness constraint can't do this job instead:
+      // creditGame's idempotency check needs to distinguish an active GAME
+      // credit from a voided one, and voids are separate, append-only
+      // ADJUSTMENT rows (TabLineItem.voidsLineItemId), not a flag on the
+      // original — see that field's schema.prisma comment. A partial
+      // unique index's WHERE predicate can only see the row being
+      // inserted's own columns, not whether some OTHER row later
+      // references it as voided, so "unique among non-voided credits"
+      // isn't expressible as an index at all. Serializing at the true
+      // point of contention — the ACTIVE-to-DONE transition itself, which
+      // only ever happens once per assignment by construction — is what
+      // makes creditGame's application-level check sufficient.
+      await tx.$queryRaw`SELECT id FROM "GameAssignment" WHERE id = ${assignmentId} FOR UPDATE`;
+
       const assignment = await tx.gameAssignment.findUniqueOrThrow({
         where: { id: assignmentId },
         include: { participants: true },

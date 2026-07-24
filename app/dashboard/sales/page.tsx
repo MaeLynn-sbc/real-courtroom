@@ -125,6 +125,28 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
         </CardContent>
       </Card>
 
+      {summary.writeOffs.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Write-offs ({summary.writeOffs.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {summary.writeOffs.map((writeOff) => (
+              <div key={writeOff.tabId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                <div>
+                  <span className="font-medium">{writeOff.playerName}</span>
+                  <span className="text-muted-foreground"> — {writeOff.reason}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">{writeOff.employeeName}</Badge>
+                  <span className="text-muted-foreground">{formatCurrency(writeOff.amountCents)}</span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>By payment method</CardTitle>

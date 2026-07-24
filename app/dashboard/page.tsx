@@ -87,7 +87,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <KpiCard label="Billable amount" value={formatCurrency(kpis.billableAmountCents)} />
           <KpiCard label="Active memberships" value={kpis.activeMemberships} />
           <KpiCard label="New enrollments" value={kpis.newEnrollments} />
-          <KpiCard label="Open Play sessions" value={kpis.openPlaySessions} />
+          <KpiCard label="Open Play sessions (Fri/Sat)" value={kpis.openPlaySessions} />
           <KpiCard label="Tournaments" value={kpis.tournamentsInRange} />
           <KpiCard label="Active equipment rentals" value={kpis.equipmentRentalsActive} />
           <KpiCard label="Lockers occupied" value={kpis.lockersOccupied} />

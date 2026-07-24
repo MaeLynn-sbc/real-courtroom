@@ -15,6 +15,16 @@ export type DateRangeInput = z.infer<typeof dateRangeSchema>;
 // reading real PlayerTab/Sale data. Not repaired and not re-added under
 // this key — a correct open-play report belongs at /dashboard/sales, not
 // back in this switch.
+//
+// This is a Zod (application-level) enum only, not a Prisma/database one
+// — `reportType` is never a persisted column anywhere (confirmed against
+// schema.prisma), just a URL route param and action input. Removing
+// "openPlay" here needed no migration and put no existing row at risk —
+// confirmed live against the dev database: no Setting row and no
+// AuditLog entry references it anywhere. A stale link to
+// /dashboard/reports/openPlay now 404s cleanly (app/dashboard/reports/
+// [reportType]/page.tsx's existing safeParse + notFound()), it doesn't
+// crash or silently render wrong data.
 export const reportTypeSchema = z.enum([
   "booking",
   "courtUtilization",
