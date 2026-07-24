@@ -7,6 +7,7 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 
 import { env } from "../lib/env";
+import { EQUIPMENT_KEYS } from "../lib/equipment-keys";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { dailyScope, nextSequence } from "../lib/reference-counter";
@@ -234,6 +235,13 @@ const MEMBERSHIP_PLAN_DEFINITIONS: Record<string, MembershipPlanDefinition> = {
 const COURT_COUNT = 3;
 const COURT_HOURLY_RATE_CENTS = 35000;
 
+// BUILD-SPEC.md §4: owner-editable from here on — this is only the
+// starting default. dayOfWeek follows Date#getDay() (5 = Friday, 6 = Saturday).
+const OPEN_PLAY_CAPACITY_DEFAULTS: Array<{ dayOfWeek: number; capacity: number }> = [
+  { dayOfWeek: 5, capacity: 32 },
+  { dayOfWeek: 6, capacity: 40 },
+];
+
 // v1.1: the two retail items The Courtroom actually sells outright today
 // (SaleCategory.PRODUCT — see services/products/product.service.ts).
 // Placeholder prices, intentionally rough — the whole point of the
@@ -246,6 +254,7 @@ const PRODUCT_DEFINITIONS: Array<{ name: string; priceCents: number; sortOrder: 
 const LOCKER_COUNT = 20;
 
 interface EquipmentDefinition {
+  key?: string;
   type: EquipmentType;
   quantity: number;
   depositCents: number;
@@ -253,7 +262,13 @@ interface EquipmentDefinition {
 }
 
 const EQUIPMENT_DEFINITIONS: Record<string, EquipmentDefinition> = {
-  "House Paddle": { type: "PADDLE", quantity: 15, depositCents: 50000, rentalRateCents: 2000 },
+  "House Paddle": {
+    key: EQUIPMENT_KEYS.HOUSE_PADDLE,
+    type: "PADDLE",
+    quantity: 15,
+    depositCents: 50000,
+    rentalRateCents: 2000,
+  },
   "Premium Paddle": { type: "PADDLE", quantity: 6, depositCents: 100000, rentalRateCents: 20000 },
   "Ball Sleeve (4-pack)": { type: "BALL", quantity: 30, depositCents: 0, rentalRateCents: 5000 },
   "Ball Machine": { type: "BALL_MACHINE", quantity: 2, depositCents: 500000, rentalRateCents: 50000 },
@@ -552,6 +567,15 @@ async function main(): Promise<void> {
     });
   }
   logger.info({ count: Object.keys(EQUIPMENT_DEFINITIONS).length }, "Seeded equipment catalog");
+
+  for (const definition of OPEN_PLAY_CAPACITY_DEFAULTS) {
+    await prisma.openPlayCapacityDefault.upsert({
+      where: { dayOfWeek: definition.dayOfWeek },
+      update: { capacity: definition.capacity },
+      create: definition,
+    });
+  }
+  logger.info({ count: OPEN_PLAY_CAPACITY_DEFAULTS.length }, "Seeded open play capacity defaults");
 
   for (const definition of SAMPLE_PLAYER_DEFINITIONS) {
     const user = await prisma.user.upsert({

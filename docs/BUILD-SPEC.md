@@ -194,7 +194,93 @@ Responsive to mobile. Visible keyboard focus. Respect
 
 ---
 
-## 4. Open play capacity and waitlist
+## 4. Players, contact details, and skill level
+
+### Court bookings — name and phone only
+
+No email on the public court booking form. Phone is **required** — it
+is the only way staff can reach someone about their slot.
+
+Keep the email column, make it nullable, and keep it visible on the
+staff booking detail page where historical values exist. This does not
+affect staff/owner login accounts.
+
+### Skill level — open play only
+
+Required for **every** open play registration: Fri/Sat ₱150 nights and
+weeknight walk-ins alike. Not collected for court bookings — a private
+group's mix is nobody's business.
+
+| Order | Level | Description shown in the dropdown |
+|---|---|---|
+| 1 | Beginner | New to the sport |
+| 2 | Novice | Knows the rules, still learning placement |
+| 3 | Intermediate | Consistent rallies, understands kitchen strategy |
+| 4 | Advanced | Competitive play |
+
+Store the ordering **explicitly as 1–4**. Alphabetical sorting would
+put Advanced first and Novice second.
+
+Always show the descriptions, not just the labels. People self-rate
+badly without them, and a mis-rated player is the main thing that
+ruins a rotation.
+
+**Where it lives.** On the registration record always, so we know what
+someone was on a given night. Also on the user profile when they have
+an account, to prefill next time — prefilled but still editable. Staff
+adding a walk-in get the same required dropdown.
+
+**Staff can correct it**, logged with who and when. Correcting a level
+must never alter past registrations.
+
+**Display.** Beside each name in the staff open play list and waitlist,
+plus a count by level on the session view ("8 beginner · 12
+intermediate · 4 advanced") so staff can see the mix before the night.
+
+### Two skill enums exist — deliberately, not synced
+
+The Player Profiles / Tournament seeding system already had a skill
+rating before this phase: `SkillLevel` (Beginner/Intermediate/Advanced/
+**Pro**), admin-assigned, used for tournament bracket seeding. The scale
+above (Beginner/**Novice**/Intermediate/Advanced) is a *different* field
+— `OpenPlaySkillLevel` on `Player`, plus its own required value on every
+`OpenPlayNightRegistration` row — added for this phase.
+
+They were kept separate on purpose: different values (Novice vs. Pro),
+different collection method (self-rated for rotation fairness vs.
+admin-assigned for seeding), different audience. A player can hold both,
+and they can legitimately disagree — a tournament-seeded "Advanced"
+player might rate themselves "Intermediate" for a casual Friday night,
+or vice versa. **Nothing reconciles them, and nothing should.**
+
+**The rotation queue reads `OpenPlaySkillLevel` only** (via
+`OpenPlayNightRegistration.skillLevel`, snapshotted per registration —
+never `Player.SkillLevel`). Tournament seeding continues to read the
+original `SkillLevel` only. If a future phase wants one scale to inform
+the other (e.g. defaulting a new player's open-play rating from their
+tournament rating on first registration), that's a deliberate product
+decision to make then — not something to "clean up" by merging the two
+enums, which would silently corrupt tournament seeding data.
+
+### Skill level is STAFF-ONLY
+
+| Surface | Shows skill level |
+|---|---|
+| Staff dashboard | Yes — everywhere |
+| TV display | **Never** |
+| Public website | Never shows other players at all |
+
+Enforce at the **API layer**, not the component. `/api/display` must
+not include `skillLevel` in its response at all — a field that never
+leaves the server cannot leak into the DOM when someone adds a card
+field six months from now.
+
+Test: the `/api/display` response contains no `skillLevel` key for any
+player.
+
+---
+
+## 5. Open play capacity and waitlist
 
 Applies to **Friday and Saturday only**.
 
@@ -255,7 +341,195 @@ exactly 5 confirmed, 5 waitlisted.
 
 ---
 
-## 5. Payments — manual GCash
+## 6. Registration and check-in
+
+**Check-in is what enters a player into the queue — not registration.**
+Registering at 3PM must never outrank someone who arrived at 7.
+
+### Registration (staff, in advance)
+
+Name, phone, skill level, optional `partyId`.
+
+- **Fri/Sat** — holds a capacity slot, requires ₱150 prepayment.
+  Unpaid registrations do not count toward capacity.
+- **Weeknight** — optional. Most players just walk in. No capacity,
+  no prepayment.
+
+```
+registered -> checked_in -> playing/waiting -> done
+           \-> no_show
+```
+
+### Check-in (on arrival)
+
+Sets `checkedInAt`, creates the `QueueEntry` with
+`joinedQueueAt = checkedInAt`, and opens a `PlayerTab` (weeknight) or
+marks the prepaid session used (Fri/Sat).
+
+**Queue order is by check-in time.** Registering early buys a capacity
+slot, never a better place in line. Late arrivals join the back —
+no special handling.
+
+### Check-in screen
+
+Used at a busy desk, so speed wins over polish. Live name search, big
+tap targets, one tap to check in. Two lists: *Expected* (registered,
+not arrived) and *Checked in* with arrival times. Undo for 60 seconds.
+A **walk-in button** that registers and checks in as one action —
+that's how most weeknight players arrive.
+
+Skill level shows here. Staff-only screen.
+
+### No-shows
+
+Owner setting `noShowReleaseMinutes`, default 30. A Fri/Sat
+registration not checked in within that window after session start is
+marked `no_show`, freeing its slot and promoting the waitlist head.
+**Never auto-refund** — flag it for staff instead.
+
+Staff can check someone in after a no-show if capacity allows;
+otherwise they go to the waitlist.
+
+### Parties
+
+A party enters the queue only when **all** members are checked in.
+Party join time is the **last** member's check-in — you cannot play a
+foursome with two people still outside.
+
+> Note this differs deliberately from the waitlist rule in §5, where
+> party wait time uses the *earliest* member. Signing up early
+> shouldn't be penalised by slow friends; playing requires everyone
+> present.
+
+Show partially-arrived parties on the check-in screen. Staff can split
+a party if someone isn't coming.
+
+### Leaving
+
+`done` removes them from the queue, frees a Fri/Sat slot, and surfaces
+their tab for settlement if unpaid. `resting` keeps them registered
+but skips rotations.
+
+### Correctness
+
+1. Queue position derives from `checkedInAt`, never `registeredAt`
+2. A registered player who never checks in never enters the queue
+3. Check-in is idempotent — double-tapping creates one entry
+4. Party queue join uses the last member's check-in
+5. No-show release and waitlist promotion happen in one transaction
+
+Tests: register at 3PM, walk-in at 7PM, check the 3PM one in at 8PM —
+walk-in is ahead. Double-tap yields one entry. A party of 3 with 2
+arrived does not enter the queue.
+
+---
+
+## 7. Rotation queue and pairing
+
+Applies to weeknight drop-in **and** Fri/Sat unlimited nights.
+**Doubles only** — every game assigns exactly 4 players.
+
+### Data model
+
+```
+QueueEntry
+  sessionId, registrationId, playerName, skillLevel (1-4)
+  joinedQueueAt, status (waiting|playing|resting|done)
+  gamesPlayed, lastPlayedAt, partyId (nullable)
+
+GameAssignment
+  courtId, sessionId, playerIds (4), skillSpread
+  source (auto|manual), createdByUserId (null when auto)
+  proposedAt, startedAt, endedAt
+  status (proposed|active|done|cancelled)
+
+RecentPairing
+  sessionId, playerIdA, playerIdB, gameCount
+  Discourages repeats. Never a hard constraint.
+```
+
+### Auto-pairing
+
+Triggered when a court frees up.
+
+1. **Anchor** — the player waiting longest. Never highest skill, never
+   random. Longest wait always anchors.
+2. **Candidates** — waiting players within skill distance 1 of the
+   anchor, ranked by wait time. Take the 3 longest waiting.
+3. **Widen if short** — go to distance 2, then any level. Never leave a
+   court idle for a perfect match. A mismatched game beats an empty court.
+4. **Starvation guard** — any player waiting longer than
+   `maxWaitMinutes` (default 20) is force-anchored on the next court
+   regardless of fit. Without this, the only advanced player on a
+   beginner-heavy night waits all evening and stops coming back.
+5. **Repeat softening** — among equal candidates, prefer players not
+   recently paired with the anchor. Soft tiebreak only; never delay a
+   game to avoid a repeat.
+
+Output is a **proposed** assignment. Staff confirms. An owner setting
+controls whether proposals auto-confirm after N seconds.
+
+### Parties — players who want to play together
+
+Registrations can share a `partyId`, set at signup or by staff. A party
+of 2–4 moves through the queue as a unit. Skill matching uses the
+party's **average** skill to find the remaining players. Parties larger
+than 4 are rejected with a clear message — split them.
+
+Party wait time is the **earliest** join time among its members, so
+grouping never costs anyone their place.
+
+### Manual override — staff can always overrule
+
+Staff can build a foursome by hand from the waiting list, ignoring
+skill entirely. Marked `source='manual'` with the staff member logged.
+Staff can also pin an upcoming foursome so auto-pairing skips those
+players until their game runs.
+
+When staff override, the auto-proposal is **discarded, not queued
+behind**. The screen must never silently reshuffle after a manual
+choice — staff need to trust what they're looking at.
+
+### After a game
+
+All 4 return to the queue with `joinedQueueAt` reset and `gamesPlayed`
+incremented. Staff can mark a player `resting` (skips rotations, stays
+registered) or `done` (left for the night). `done` frees a Fri/Sat
+capacity slot and triggers waitlist promotion.
+
+### Staff view
+
+Live queue in order, wait times counting up. Skill level and games
+played beside each name. Anyone past `maxWaitMinutes` highlights coral.
+Per court: who's on, elapsed time, next proposed foursome with confirm
+and override.
+
+### Settings (owner)
+
+```
+maxWaitMinutes        default 20
+skillWindow           starting distance, default 1
+autoConfirmProposals  off by default
+targetGameMinutes     informational, default 15
+```
+
+### Tests
+
+- Nobody waits past `maxWaitMinutes` while others play repeat games
+- A party of 3 stays together, matched on average skill
+- Manual override is never overwritten by a later auto-proposal
+- One advanced player among 20 beginners still plays within
+  `maxWaitMinutes`
+- A court never sits idle while 4+ players wait
+
+### Not in scope
+
+Scoring, win/loss tracking, or auto-adjusting skill from results.
+Collect and rotate only.
+
+---
+
+## 8. Payments — manual GCash
 
 No payment gateway. Customers scan a GCash QR and submit proof;
 staff verifies manually.
@@ -322,7 +596,92 @@ release automatically.
 
 ---
 
-## 6. Staff dashboard — `/dashboard`
+## 9. Player tabs, settlement, and sales
+
+### Game tally
+
+Every `GameAssignment` reaching status `done` credits one game to each
+of its 4 players. **Derive the count from assignment rows** — never a
+manually incremented counter, which drifts the first time staff
+correct something. Cancelled or voided assignments credit nobody.
+
+### Billing differs by night type
+
+| | Charge | Games |
+|---|---|---|
+| Weeknight (Mon–Thu) | ₱35 × games played, a running tab | Billed |
+| Fri/Sat unlimited | ₱150 prepaid | Counted for rotation fairness, billed at ₱0 |
+
+Snapshot `gameRateCents` onto the session at creation. Equipment
+rentals (paddle ₱20) attach to the same tab.
+
+### Data model
+
+```
+PlayerTab
+  sessionId, registrationId, playerName
+  gamesPlayed (derived), lineItems[], totalCents
+  status (open | settled | written_off)
+  settledAt, settledByUserId
+
+TabLineItem
+  tabId, type (game | rental | adjustment)
+  description, qtyOrGames, unitPriceCents, amountCents, createdAt
+```
+
+Staff can add an adjustment (discount, correction) with a **required
+reason**, logged with who made it. Never edit or delete an existing
+line item.
+
+### Settlement
+
+Per player: games played, line items, total owed. "Settle" asks for
+method — cash or GCash — then marks paid. GCash uses the manual
+verification already built (unique reference required; screenshot
+optional at the desk since staff can see the phone). Cash is immediate.
+
+**A player marked `done` with an open non-zero tab must not close
+silently.** They appear in an *Unsettled* list on the session view and
+the daily summary until resolved. Staff can write off a tab with a
+required reason — reported separately from real revenue.
+
+### Sales summary — `/dashboard/sales`
+
+Grouped by `businessDate`, so an 11:30PM game lands on the right night.
+
+**Breakdown**
+- Court bookings — subtotal **per court** (1 / 2 / 3), plus total
+- Open play — weeknight per-game revenue and Fri/Sat ₱150
+  registrations, shown separately
+- Equipment rentals
+- Adjustments — discounts and write-offs, as negatives
+
+**By payment method** — cash, GCash, unpaid-on-site, outstanding tabs.
+
+**Reconciliation** — expected cash for the day so staff can count the
+drawer against it. Flag variance. Date range picker, CSV export.
+
+### Correctness
+
+1. Game counts derive from assignments, never a stored counter
+2. Prices snapshot at transaction time
+3. Every tab reconciles: sum of line items == `totalCents`
+4. Voided assignments credit no games and bill nothing
+5. Write-offs never count as revenue
+6. A session cannot close while tabs are open — warn and list them
+7. All money in integer centavos
+
+Tests: 3 games + 1 paddle == ₱125; a voided game reduces the tab; a
+Fri/Sat player with 6 games owes ₱0; closing a session with an open
+tab is blocked.
+
+### Not in scope
+
+Payroll, expenses, profit reporting. Revenue only.
+
+---
+
+## 10. Staff dashboard — `/dashboard`
 
 - **Pending verification queue** — oldest first, count badge. Shows
   name, what was booked, amount due, reference number, screenshot
@@ -338,7 +697,7 @@ release automatically.
 
 ---
 
-## 7. Payment settings — `/dashboard/admin/payments`
+## 11. Payment settings — `/dashboard/admin/payments`
 
 **Owner role only.** Whoever edits this can redirect all incoming
 payments. Enforce the role check server-side in the action, not just
@@ -371,12 +730,52 @@ Nothing about the QR or account details is hardcoded anywhere.
 
 ---
 
-## 8. TV display — `/display/<slug>`
+## 12. TV display — `/display/<slug>`
 
 Reference: `docs/tv-display.html`.
 
 Read-only. No clicks, no forms, no navigation. Must fit 1920×1080
 with **no scrolling** — size in `vh` units.
+
+### Approved design — locked
+
+Three states, one word each. **"Open" only ever means open play.**
+
+| State | Colour | Card treatment |
+|---|---|---|
+| **Booked** | Bone | The word BOOKED huge and centred, booker name beneath in coral, then the scheduled hour |
+| **Open play** | Coral | Four player names, one per line, each in a raised box with a coloured left edge |
+| **Available** | Green | The word AVAILABLE centred, next booking beneath |
+
+**Sizing is container-relative, not viewport-relative.** Each card is a
+`container-type: inline-size`; BOOKED is `33cqw`, AVAILABLE `24cqw`.
+This keeps the words filling the card on a small TV, where `vh` units
+would shrink them. The venue TV is not large — this matters.
+
+**Name colour cycle** — bone, coral, sky `#8FB8DE`, green — applied in
+rotation so adjacent names never blur together. Used for open play
+player boxes and for every name in the queue bar, including the
+"Next up" four.
+
+**Countdown sizing by context.** Open play games run 15 minutes, so
+the countdown is the live number that matters: `4vh`. Booked courts run
+a full hour, so theirs is reference only: `2.4vh`. Both turn coral and
+pulse under two minutes; on booked courts the word BOOKED turns coral too.
+
+**Bookings are on the hour.** Never 7:30. Open play games land on the
+quarter hour.
+
+**No per-court "next" line on open play courts.** The queue is a single
+pool assigned to whichever court frees first — tying the next four to a
+specific court would be wrong. Booked courts do show their next
+booking, since a reservation belongs to that court at that hour.
+
+Minor corrections expected once it's tested on the actual screen.
+
+**Never rendered here:** skill level, games played, wait times, phone
+numbers, emails, payment status. Names appear as first name + last
+initial only. Enforce by excluding the fields from `/api/display`
+entirely, not by omitting them in the template.
 
 - **Header** — logo, "COURT STATUS", live clock and date
 - **Middle** — three large court cards:
@@ -396,7 +795,112 @@ Show a "last updated" indicator.
 
 ---
 
-## 9. Correctness requirements
+## 13. Running the TV
+
+### Setup page — `/dashboard/admin/tv-display`
+
+Staff can view, owner can edit.
+
+- Full display URL in large monospace, with Copy
+- **QR code** for the URL — scan on a phone, open on the TV
+- "Open display in new tab", for when the dashboard is on the TV machine
+- Live iframe preview so staff can confirm it works without walking out
+- Short setup steps
+
+**Security.** The URL carries an unguessable slug. Owner-only
+"Regenerate URL" issues a new slug and invalidates the old one — for
+when staff leave or the URL gets shared. Warn that the TV needs the new
+URL first.
+
+### On the display page itself
+
+- **"Start display" button on first load only.** Tapping enters
+  fullscreen and requests a wake lock — neither can fire without a user
+  gesture. Hides afterwards.
+- **`navigator.wakeLock`** so the TV never sleeps. Re-acquire on
+  `visibilitychange`; the lock drops when a screen turns off and does
+  not return on its own.
+- **Never blank on error.** If a poll fails, keep the last good data and
+  show a small "reconnecting" indicator. A connection error on the lobby
+  wall for three hours is worse than slightly stale data.
+- Auto-reload once every 6 hours to pick up deploys, but only when no
+  game is within 60 seconds of ending.
+
+### Config (owner)
+
+Refresh interval (default 30s). Toggle the queue bar off for quiet days.
+
+### Hardware — decided
+
+**Windows laptop, HDMI cable, not wireless.** Wireless mirroring
+degrades exactly when it matters: forty people on the wifi on a Friday
+night. HDMI also auto-recovers after a power cut; a cast does not.
+
+Kiosk shortcut, placed in `shell:startup`:
+
+```
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --kiosk
+  --noerrdialogs --disable-session-crashed-bubble --disable-infobars
+  "http://<host>/display/<slug>"
+```
+
+Machine settings that actually prevent failures: never sleep, display
+never off, lid close does nothing, auto-login on, Windows Update active
+hours covering all opening hours, and always plugged in. Give the app
+host a static IP or DHCP reservation — if its address changes, the TV
+shortcut breaks silently.
+
+---
+
+## 14. Deployment
+
+### Local-first is viable for the interim
+
+The app and Postgres can run on one machine at the court via Docker.
+Everything on the local wifi reaches it by IP — staff dashboard on a
+phone or tablet, TV display on the laptop. **Fully functional offline**
+for walk-ins, court bookings taken at the desk, the queue, and the TV.
+
+**What local-first cannot do:** the public website. No booking from
+home, no Fri/Sat registration, no GCash proof submission. That needs a
+real server and the domain.
+
+Sensible sequence: run locally for staff and TV now, deploy the public
+side to the droplet when payments land.
+
+Two risks to accept knowingly — the court machine becomes a single
+point of failure holding all booking data, so **offsite nightly backups
+matter from day one**; and moving to the droplet later means migrating
+data, not starting fresh.
+
+### Production target
+
+Existing DigitalOcean account, ~$24/month, likely 4GB. If Semcore is
+using under 1GB there's room to run the Courtroom alongside in its own
+containers. Revisit a second droplet once bookings prove the business.
+
+Domain: **thecourtroomkalibo.com**. Point it at the app around Phase 8,
+once payments work and a customer could genuinely use it.
+
+Non-negotiable: nightly `pg_dump` to Spaces, 30-day retention, and a
+**tested restore** to a scratch database. An untested backup is not a
+backup.
+
+### PWA, not native
+
+Installable from the browser on both iOS and Android — home screen
+icon, fullscreen, no app stores, no fees, same codebase. Native means
+₱5,500/year to Apple, review cycles, a second codebase, and likely
+rejection under guideline 4.2 for a single-venue booking wrapper.
+
+Install path that fits Kalibo: a **printed QR tarpaulin at the court**
+(you own a signage business), plus links from the Facebook page.
+Android prompts to install automatically; iOS needs a one-time
+dismissible "Add to Home Screen" hint.
+
+---
+
+## 15. Correctness requirements
 
 These are the things that will break in production if skipped.
 
@@ -410,28 +914,64 @@ These are the things that will break in production if skipped.
 6. **Owner-only payment settings** — enforced server-side.
 7. **Held slots expire** — orphaned holds must not block a court forever.
 8. **No PII on the TV display** — first name and last initial only.
+   Skill level excluded at the API layer, not the template.
+9. **Nobody starves in the queue** — the `maxWaitMinutes` guard must
+   force-anchor long waiters regardless of skill fit.
+10. **Manual pairing sticks** — a staff-chosen foursome is never
+    overwritten by a later auto-proposal.
+11. **Party wait time uses the earliest member's join time** — grouping
+    with friends must never cost someone their place in line.
 
 ---
 
-## 10. Build order
+## 16. Build order
 
 Do not do these in parallel. Commit after each.
 
-1. ~~Design port — tokens, fonts, hero, availability grid, selection tray~~ **DONE**
-2. Court hours settings — editable cutoffs and facility close per weekday,
-   staff after-hours booking, `businessDate` rollover, paddle price fix
-3. Open play sessions, capacity defaults, per-date overrides
-4. Registration, waitlist, auto-promotion (+ the concurrency test)
-5. Manual GCash payments and the verification queue
-6. Payment settings page with audit log
-7. TV display and `/api/display`
-8. PWA — installable on iOS and Android, home screen icon, fullscreen
+1. ~~Design port~~ **DONE**
+2. ~~Court hours settings — cutoffs, facility close, after-hours flag,
+   `businessDate`, paddle price~~ **DONE**
+3. ~~Open play sessions, capacity defaults, per-date overrides~~ **DONE**
+4. Registration, waitlist, auto-promotion — plus skill levels, removing
+   email from court bookings, and **the concurrency test**
+5. Check-in — the queue-entry trigger, check-in screen, no-shows, parties
+6. Rotation queue and pairing — anchor by wait time, skill window,
+   starvation guard, manual override
+7. Player tabs, settlement, and the sales summary
+8. Manual GCash payments and the verification queue
+   *(snapshot `businessDate` onto Payment rows here)*
+9. Payment settings page with audit log
+10. TV display, `/api/display`, and the TV setup page
+11. PWA — installable on iOS and Android
+
+Phases 4–7 can run against a local deployment. The public website and
+domain only become necessary at Phase 8.
 
 ---
 
-## 11. Open questions
+## 17. Open questions
 
 - **Address and Facebook URL** — needed for the footer.
+- **Weeknight settlement model** — tabs settled on departure, or ₱35
+  paid per game as they go? Tabs are far less desk work but someone
+  will walk out owing ₱105. Fine with regulars; riskier with walk-in
+  strangers, where prepaid game credits may suit better.
+- **Refund on a Fri/Sat no-show** — the ₱150 is prepaid and the slot
+  was held. Currently flagged for staff, never auto-refunded.
+- **AVAILABLE vs BOOKED balance on the TV** — nine characters against
+  six, so AVAILABLE reads smaller. "FREE" would match BOOKED's weight
+  if it looks unbalanced on the real screen.
+- **Two open play systems** — confirm the existing rotation queue and
+  the new `OpenPlayNightSession` are complementary, not duplicates.
+  Working assumption: the old system tracks *who plays next*, the new
+  one tracks *who paid to attend a Fri/Sat night*. Both are needed. If
+  the old one is dead code, say so and plan its removal.
+- **Beginner vs Novice** — players may not distinguish these. If
+  everyone defaults to Novice, collapsing to three levels later is easy;
+  expanding from three to four after collecting data is not.
+- **Auto-confirm proposals** — on a busy Friday, confirming every
+  foursome is a tap every few minutes. Decide from real nights whether
+  auto-confirm with undo is better. The setting exists either way.
 - **Cancellation and refund policy** — how late can someone cancel a
   paid ₱150 open play slot and get a refund?
 - **GCash receiving limits** — a personal wallet has a monthly ceiling.

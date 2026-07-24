@@ -160,6 +160,23 @@ enum SkillLevel {
   PRO
 }
 
+// BUILD-SPEC.md §4 — a different, distinctly-named concept from SkillLevel
+// above: SkillLevel is the Player-Profiles/Tournament seeding rating
+// (admin-assigned, includes PRO for competitive seeding). This is a
+// self-rated, casual level collected for every open play registration to
+// keep rotations fair, with its own 4-value scale (Novice, not Pro) and
+// its own required onscreen descriptions (see
+// types/open-play-skill-levels.ts). Declared in this exact order — 1-4,
+// not alphabetical — since Postgres/Prisma enums sort by declaration
+// order, and BUILD-SPEC.md is explicit that alphabetical would be wrong
+// (Advanced first, Novice second).
+enum OpenPlaySkillLevel {
+  BEGINNER
+  NOVICE
+  INTERMEDIATE
+  ADVANCED
+}
+
 enum DominantHand {
   LEFT
   RIGHT
@@ -178,31 +195,38 @@ enum StreakType {
 }
 
 model Player {
-  id           String          @id @default(cuid())
-  userId       String          @unique
-  photoUrl     String?
-  bio          String?
-  phone        String?
-  dateOfBirth  DateTime?
-  skillLevel   SkillLevel?
-  dominantHand DominantHand?
-  position     PlayerPosition?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  deletedAt    DateTime?
+  id                 String              @id @default(cuid())
+  userId             String              @unique
+  photoUrl           String?
+  bio                String?
+  phone              String?
+  dateOfBirth        DateTime?
+  skillLevel         SkillLevel?
+  // Open-play self-rating (BUILD-SPEC.md §4), prefilled into the
+  // registration form next time and still editable there — separate from
+  // the tournament-seeding `skillLevel` above. Staff corrections here are
+  // audit-logged (see PlayerService) and never rewrite past
+  // OpenPlayNightRegistration rows, which snapshot their own value.
+  openPlaySkillLevel OpenPlaySkillLevel?
+  dominantHand       DominantHand?
+  position           PlayerPosition?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  deletedAt          DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  rating                PlayerRating?
-  statistics            PlayerStatistics?
-  teamsAsPlayer1        Team[]                 @relation("TeamPlayer1")
-  teamsAsPlayer2        Team[]                 @relation("TeamPlayer2")
-  memberships           Membership[]
-  openPlayRegistrations OpenPlayRegistration[]
-  bookings              Booking[]
-  equipmentRentals      EquipmentRental[]
-  lockerRentals         LockerRental[]
-  sales                 Sale[]
+  rating                     PlayerRating?
+  statistics                 PlayerStatistics?
+  teamsAsPlayer1             Team[]                      @relation("TeamPlayer1")
+  teamsAsPlayer2             Team[]                      @relation("TeamPlayer2")
+  memberships                Membership[]
+  openPlayRegistrations      OpenPlayRegistration[]
+  openPlayNightRegistrations OpenPlayNightRegistration[]
+  bookings                   Booking[]
+  equipmentRentals           EquipmentRental[]
+  lockerRentals              LockerRental[]
+  sales                      Sale[]
 
   @@index([deletedAt])
 }
@@ -714,6 +738,108 @@ model OpenPlayMatchParticipant {
   @@unique([matchId, registrationId])
 }
 
+// --- Open Play Nights (BUILD-SPEC.md §4) -----------------------------------
+// Deliberately separate from OpenPlaySession/OpenPlayRegistration above,
+// which power a different feature entirely (a live, same-day drop-in
+// rotation queue — register, waitlist, check in, get called to a match,
+// rest, repeat; currently off behind FEATURE_OPEN_PLAY). This is a
+// recurring Friday/Saturday capacity-limited, prepaid, waitlisted night —
+// different lifecycle, different status vocabulary, no rotation/queue/
+// match concept at all. Reusing the existing models would mean overloading
+// their status enums with unrelated meanings; two clearly-named, separate
+// models is the safer path against a schema with a "changes need
+// precedent" convention.
+
+enum OpenPlayNightStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+// Seed: Friday(5) 32, Saturday(6) 40 — owner-editable, no upper cap
+// enforced (BUILD-SPEC.md §4 "Accept any positive integer").
+model OpenPlayCapacityDefault {
+  id        String   @id @default(cuid())
+  dayOfWeek Int
+  capacity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([dayOfWeek])
+}
+
+// One row per calendar date, created on demand from the weekday default
+// (see OpenPlayCapacityService.getOrCreateSessionForDate) — not
+// pre-populated for every future Friday/Saturday. capacity is copied from
+// the default at creation time (or set directly via an owner override) and
+// is authoritative for that date from then on; it does not track later
+// changes to the weekday default.
+model OpenPlayNightSession {
+  id        String              @id @default(cuid())
+  date      DateTime
+  startAt   DateTime
+  endAt     DateTime
+  capacity  Int
+  status    OpenPlayNightStatus @default(OPEN)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  registrations OpenPlayNightRegistration[]
+
+  @@unique([date])
+  @@index([status])
+}
+
+// BUILD-SPEC.md §5/§6. Phase 4 only builds the staff walk-in path — cash
+// paid immediately, so status lands on CONFIRMED directly (no
+// AWAITING_PAYMENT/PENDING_VERIFICATION hold). Those two values exist now
+// for Phase 8's public GCash flow to use, not yet reachable from any
+// service method. "Confirmed but no seat" (paid, waiting for capacity) is
+// waitlistPos being non-null, independent of status — a waitlisted
+// walk-in still has status=CONFIRMED (they paid), just no seat yet. See
+// services/open-play/open-play-registration.service.ts for the exact
+// capacity-counting predicate.
+enum OpenPlayNightRegistrationStatus {
+  AWAITING_PAYMENT
+  PENDING_VERIFICATION
+  CONFIRMED
+  CHECKED_OUT
+  NO_SHOW
+  CANCELLED
+}
+
+enum OpenPlayNightRegistrationSource {
+  WALK_IN
+  WEBSITE
+}
+
+model OpenPlayNightRegistration {
+  id           String                          @id @default(cuid())
+  sessionId    String
+  playerId     String?
+  playerName   String
+  phone        String
+  skillLevel   OpenPlaySkillLevel
+  source       OpenPlayNightRegistrationSource
+  status       OpenPlayNightRegistrationStatus @default(CONFIRMED)
+  // Non-null means "on the waitlist, this position" — null means "has a
+  // seat." Independent of `status` (see enum comment above).
+  waitlistPos  Int?
+  // Optional group tag (BUILD-SPEC.md §7) — grouping/queue semantics for
+  // parties are Phase 5/6 concern; Phase 4 only captures the value.
+  partyId      String?
+  registeredAt DateTime                        @default(now())
+  checkedOutAt DateTime?
+  createdAt    DateTime                        @default(now())
+  updatedAt    DateTime                        @updatedAt
+
+  session OpenPlayNightSession @relation(fields: [sessionId], references: [id])
+  player  Player?              @relation(fields: [playerId], references: [id])
+
+  @@index([sessionId, status])
+  @@index([sessionId, waitlistPos])
+}
+
 // --- Tournament System -----------------------------------------------------
 // TournamentCategory separates the bracket `format` (how matches are
 // structured) from `division` (who's eligible) so e.g. "Mixed Doubles,
@@ -918,6 +1044,12 @@ enum MaintenanceLogType {
 model Equipment {
   id              String          @id @default(cuid())
   name            String          @unique
+  // Stable identifier for equipment the app references programmatically
+  // (e.g. the public site's paddle-rental price) — nullable because most
+  // equipment rows are just admin-managed inventory nothing looks up by
+  // identity. Renaming `name` in the admin UI must never break a lookup
+  // by `key`, which is the whole point of having both.
+  key             String?         @unique
   type            EquipmentType
   status          EquipmentStatus @default(AVAILABLE)
   condition       String?

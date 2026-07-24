@@ -73,7 +73,6 @@ export async function createPublicBookingAction(
       endAt,
       guestName: parsedPublic.data.guestName,
       guestPhone: parsedPublic.data.guestPhone,
-      guestEmail: parsedPublic.data.guestEmail || undefined,
       paymentMethodId: context.paymentMethodId,
     };
 

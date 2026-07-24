@@ -5,6 +5,7 @@ import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { CourtAvailabilityGrid } from "@/features/bookings/components/court-availability-grid";
 import { getCourtBookingWindow, getFacilityCloseMinutes } from "@/lib/court-hours";
+import { EQUIPMENT_KEYS } from "@/lib/equipment-keys";
 import { formatCurrency } from "@/lib/utils";
 import { equipmentService } from "@/services/equipment/equipment.service";
 import { announcementService } from "@/services/notifications/announcement.service";
@@ -58,7 +59,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       settingsService.getGalleryImages(),
       announcementService.listPublished(),
       settingsService.getCourtHours(),
-      equipmentService.getRentalRateCentsByName("House Paddle"),
+      equipmentService.getRentalRateCentsByKey(EQUIPMENT_KEYS.HOUSE_PADDLE),
     ]);
   const latestAnnouncement = announcements[0];
   const date = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();

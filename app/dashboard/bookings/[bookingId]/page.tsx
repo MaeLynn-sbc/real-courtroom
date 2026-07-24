@@ -68,6 +68,12 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
                 <dd>{booking.guestPhone}</dd>
               </div>
             ) : null}
+            {booking.guestEmail ? (
+              <div className="flex justify-between py-1">
+                <dt className="text-muted-foreground">Email</dt>
+                <dd>{booking.guestEmail}</dd>
+              </div>
+            ) : null}
             {booking.notes ? (
               <div className="flex justify-between py-1">
                 <dt className="text-muted-foreground">Notes</dt>

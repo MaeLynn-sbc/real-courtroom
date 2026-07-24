@@ -4,6 +4,7 @@ import type {
   ResolveMaintenanceInput,
   UpdateEquipmentInput,
 } from "@/features/equipment/schemas/equipment.schema";
+import { env } from "@/lib/env";
 import type { Equipment, EquipmentMaintenanceLog, Prisma } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
@@ -61,9 +62,21 @@ export class EquipmentService {
   // Public site (House Rules copy) needs the real paddle-rental price
   // without the rest of listEquipment()'s rental/damage-count queries —
   // BUILD-SPEC.md §0 "read from the Equipment record, never hardcoded."
-  async getRentalRateCentsByName(name: string): Promise<number | null> {
-    const equipment = await prisma.equipment.findUnique({ where: { name }, select: { rentalRateCents: true } });
-    return equipment?.rentalRateCents ?? null;
+  // Looks up by the stable `key`, not `name` — renaming the display name
+  // in the admin UI must never break this. A missing key means the seed
+  // data is broken or the row was deleted: fail loudly in dev so it's
+  // caught immediately, but never crash the public homepage in
+  // production over it — omit the price line instead (see app/page.tsx).
+  async getRentalRateCentsByKey(key: string): Promise<number | null> {
+    const equipment = await prisma.equipment.findUnique({ where: { key }, select: { rentalRateCents: true } });
+    if (!equipment) {
+      if (env.NODE_ENV !== "production") {
+        throw new Error(`Equipment with key "${key}" not found — check prisma/seed.ts.`);
+      }
+      logger.error({ key }, "Equipment record missing for a key the public site depends on");
+      return null;
+    }
+    return equipment.rentalRateCents;
   }
 
   // Phase 10: batched, not per-item — the previous version called

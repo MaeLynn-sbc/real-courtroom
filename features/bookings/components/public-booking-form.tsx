@@ -26,7 +26,6 @@ interface PublicBookingFormCourt {
 interface PublicBookingFormValues {
   guestName: string;
   guestPhone: string;
-  guestEmail: string;
   courtId: string;
   date: string;
   time: string;
@@ -75,7 +74,6 @@ export function PublicBookingForm({
     defaultValues: {
       guestName: "",
       guestPhone: "",
-      guestEmail: "",
       courtId: initialCourtId ?? courts[0]?.id ?? "",
       date: initialDate ?? toLocalDateValue(new Date()),
       time: initialTime ?? "09:00",
@@ -90,7 +88,6 @@ export function PublicBookingForm({
       const result = await createPublicBookingAction({
         guestName: values.guestName,
         guestPhone: values.guestPhone,
-        guestEmail: values.guestEmail || undefined,
         courtId: values.courtId,
         date: values.date,
         time: values.time,
@@ -163,11 +160,6 @@ export function PublicBookingForm({
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="guestPhone">Phone number</Label>
         <Input id="guestPhone" type="tel" {...register("guestPhone", { required: true })} />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="guestEmail">Email (optional)</Label>
-        <Input id="guestEmail" type="email" {...register("guestEmail")} />
       </div>
 
       <div className="flex flex-col gap-1.5">

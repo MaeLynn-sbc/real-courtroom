@@ -1,0 +1,18 @@
+import { z } from "zod";
+
+export const registerWalkInInputSchema = z.object({
+  sessionId: z.string().min(1),
+  playerName: z.string().min(1, "Enter a name.").max(200),
+  phone: z.string().min(1, "Enter a phone number.").max(50),
+  // BUILD-SPEC.md §4: required for every open play registration.
+  skillLevel: z.enum(["BEGINNER", "NOVICE", "INTERMEDIATE", "ADVANCED"]),
+  partyId: z.string().max(100).optional(),
+});
+
+export type RegisterWalkInInput = z.infer<typeof registerWalkInInputSchema>;
+
+export const releaseRegistrationInputSchema = z.object({
+  registrationId: z.string().min(1),
+});
+
+export type ReleaseRegistrationInput = z.infer<typeof releaseRegistrationInputSchema>;
