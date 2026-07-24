@@ -12,6 +12,7 @@ import { isWithinCourtBookingWindow } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
+import { runSerializableWithRetry } from "@/lib/serializable-retry";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import { formatBookingReference } from "@/services/booking/booking-reference";
 import { canTransitionBookingStatus } from "@/services/booking/booking-status";
@@ -79,41 +80,6 @@ export class BookingConflictError extends Error {
   }
 }
 
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
-
-// Phase 10: Postgres aborts the losing side of a Serializable transaction
-// conflict with this code (Prisma surfaces it as P2034 for a normal ORM
-// query) — worth a retry, unlike a genuine BookingConflictError which
-// should propagate immediately since retrying an already-booked slot will
-// only fail again. v1.1 maintenance: nextSequence's atomic counter
-// increment (lib/reference-counter.ts) is a raw query, and the identical
-// underlying Postgres conflict surfaces through *that* path as P2010
-// ("raw query failed") wrapping SQLSTATE 40001, not P2034 — found live
-// while verifying the reference-counter fix under concurrent bookings.
-// Both are the same Postgres-level condition, just reported through two
-// different Prisma error shapes depending on which query layer hit it.
-function isSerializationFailure(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return false;
-  }
-  const code = (error as { code?: unknown }).code;
-  if (code === "P2034") {
-    return true;
-  }
-  if (code === "P2010") {
-    const meta = (error as { meta?: { driverAdapterError?: { cause?: { originalCode?: unknown } } } }).meta;
-    return meta?.driverAdapterError?.cause?.originalCode === "40001";
-  }
-  return false;
-}
-
 function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
   if (value === undefined) {
     return undefined;
@@ -138,8 +104,6 @@ interface ListBookingsFilters {
   status?: BookingStatus;
   date?: Date;
 }
-
-const MAX_REFERENCE_ATTEMPTS = 5;
 
 export class BookingService {
   async listBookings(filters?: ListBookingsFilters) {
@@ -292,123 +256,106 @@ export class BookingService {
   // Serializable transaction — previously two separate awaited calls with
   // a gap between them, so two concurrent requests for the same
   // court/time could both read "available" before either wrote. Postgres
-  // now aborts the losing side (P2034), caught below and retried. v1.1
-  // maintenance: bookingReference now comes from the shared atomic
-  // counter (lib/reference-counter.ts) generated inside this same
-  // transaction, so it can no longer collide — the retry loop exists
+  // now aborts the losing side (P2034), caught by runSerializableWithRetry
+  // and retried. v1.1 maintenance: bookingReference now comes from the
+  // shared atomic counter (lib/reference-counter.ts) generated inside this
+  // same transaction, so it can no longer collide — the retry exists
   // solely for genuine availability races now (P2034), though the P2002
-  // catch stays as a defensive backstop for the unrelated qrCodeToken
-  // unique column.
+  // retry stays as a defensive backstop for the unrelated qrCodeToken
+  // unique column. Hardening phase (BUILD-SPEC.md §0/§15): confirmed live
+  // under real concurrent load
+  // (services/booking/booking.concurrency.integration.ts) — two
+  // concurrent createBooking calls for the same court/overlapping time
+  // never both succeed.
   async createBooking(
     input: CreateBookingInput,
     actorUserId: string,
     saleContext: CreateBookingSaleContext,
   ): Promise<Booking> {
     const qrCodeToken = randomUUID();
-    let lastError: unknown;
 
-    for (let attempt = 0; attempt < MAX_REFERENCE_ATTEMPTS; attempt += 1) {
-      try {
-        const booking = await prisma.$transaction(
-          async (tx) => {
-            const availability = await this.checkAvailabilityWithClient(
-              tx,
-              input.courtId,
-              input.startAt,
-              input.endAt,
-              undefined,
-              saleContext.source === "WEBSITE",
-            );
-            if (!availability.available && availability.conflict) {
-              throw new BookingConflictError(availability.conflict);
-            }
-
-            const now = new Date();
-            const sequence = await nextSequence(dailyScope("BOOKING", now), tx);
-            const bookingReference = formatBookingReference(now, sequence);
-
-            const court = await tx.court.findUniqueOrThrow({
-              where: { id: input.courtId },
-              select: { name: true, hourlyRateCents: true },
-            });
-            const durationHours = (input.endAt.getTime() - input.startAt.getTime()) / 3_600_000;
-            const totalAmountCents = Math.round((court.hourlyRateCents ?? 0) * durationHours);
-
-            // Staff/owner bookings outside the effective operating window
-            // are allowed (unlike WEBSITE, which checkAvailabilityWithClient
-            // already blocked above) but flagged for reporting —
-            // BUILD-SPEC.md §0 "Facility close is a PUBLIC limit, not a
-            // data limit." A WEBSITE booking that reached this point already
-            // passed the operating-hours check, so this always resolves to
-            // false for it.
-            const courtHours = await settingsService.getCourtHours();
-            const isAfterHours = !isWithinCourtBookingWindow(courtHours, court.name, input.startAt, input.endAt);
-
-            const created = await tx.booking.create({
-              data: {
-                bookingReference,
-                courtId: input.courtId,
-                bookedById: actorUserId,
-                playerId: input.playerId,
-                type: input.type,
-                status: "CONFIRMED",
-                startAt: input.startAt,
-                endAt: input.endAt,
-                guestName: input.guestName,
-                guestPhone: input.guestPhone,
-                guestEmail: input.guestEmail,
-                totalAmountCents,
-                notes: input.notes,
-                qrCodeToken,
-                isAfterHours,
-              },
-            });
-
-            const sale = await saleService.createSale(
-              {
-                category: "BOOKING",
-                source: saleContext.source,
-                amountCents: totalAmountCents,
-                paymentMethodId: saleContext.paymentMethodId,
-                employeeId: saleContext.employeeId,
-                shiftId: saleContext.shiftId,
-                playerId: input.playerId,
-                bookingId: created.id,
-              },
-              tx,
-            );
-
-            return { booking: created, sale };
-          },
-          { isolationLevel: "Serializable" },
-        );
-
-        await this.writeBookingHistory(booking.booking.id, "CONFIRMED", actorUserId);
-        await this.writeAuditLog({
-          actorUserId,
-          action: "booking.created",
-          entityType: "Booking",
-          entityId: booking.booking.id,
-          newValues: booking.booking,
-        });
-        await saleService.logSaleCreated(booking.sale, actorUserId);
-
-        return booking.booking;
-      } catch (error) {
-        if (error instanceof BookingConflictError) {
-          throw error;
-        }
-        if (isUniqueConstraintViolation(error) || isSerializationFailure(error)) {
-          lastError = error;
-          continue;
-        }
-        throw error;
+    const booking = await runSerializableWithRetry(async (tx) => {
+      const availability = await this.checkAvailabilityWithClient(
+        tx,
+        input.courtId,
+        input.startAt,
+        input.endAt,
+        undefined,
+        saleContext.source === "WEBSITE",
+      );
+      if (!availability.available && availability.conflict) {
+        throw new BookingConflictError(availability.conflict);
       }
-    }
 
-    throw lastError instanceof Error
-      ? lastError
-      : new Error("Failed to create this booking after several attempts.");
+      const now = new Date();
+      const sequence = await nextSequence(dailyScope("BOOKING", now), tx);
+      const bookingReference = formatBookingReference(now, sequence);
+
+      const court = await tx.court.findUniqueOrThrow({
+        where: { id: input.courtId },
+        select: { name: true, hourlyRateCents: true },
+      });
+      const durationHours = (input.endAt.getTime() - input.startAt.getTime()) / 3_600_000;
+      const totalAmountCents = Math.round((court.hourlyRateCents ?? 0) * durationHours);
+
+      // Staff/owner bookings outside the effective operating window
+      // are allowed (unlike WEBSITE, which checkAvailabilityWithClient
+      // already blocked above) but flagged for reporting —
+      // BUILD-SPEC.md §0 "Facility close is a PUBLIC limit, not a
+      // data limit." A WEBSITE booking that reached this point already
+      // passed the operating-hours check, so this always resolves to
+      // false for it.
+      const courtHours = await settingsService.getCourtHours();
+      const isAfterHours = !isWithinCourtBookingWindow(courtHours, court.name, input.startAt, input.endAt);
+
+      const created = await tx.booking.create({
+        data: {
+          bookingReference,
+          courtId: input.courtId,
+          bookedById: actorUserId,
+          playerId: input.playerId,
+          type: input.type,
+          status: "CONFIRMED",
+          startAt: input.startAt,
+          endAt: input.endAt,
+          guestName: input.guestName,
+          guestPhone: input.guestPhone,
+          guestEmail: input.guestEmail,
+          totalAmountCents,
+          notes: input.notes,
+          qrCodeToken,
+          isAfterHours,
+        },
+      });
+
+      const sale = await saleService.createSale(
+        {
+          category: "BOOKING",
+          source: saleContext.source,
+          amountCents: totalAmountCents,
+          paymentMethodId: saleContext.paymentMethodId,
+          employeeId: saleContext.employeeId,
+          shiftId: saleContext.shiftId,
+          playerId: input.playerId,
+          bookingId: created.id,
+        },
+        tx,
+      );
+
+      return { booking: created, sale };
+    });
+
+    await this.writeBookingHistory(booking.booking.id, "CONFIRMED", actorUserId);
+    await this.writeAuditLog({
+      actorUserId,
+      action: "booking.created",
+      entityType: "Booking",
+      entityId: booking.booking.id,
+      newValues: booking.booking,
+    });
+    await saleService.logSaleCreated(booking.sale, actorUserId);
+
+    return booking.booking;
   }
 
   async updateBookingStatus(
@@ -451,13 +398,24 @@ export class BookingService {
   // exists so the flag is provably correct across a booking's lifecycle,
   // not just at creation (see lib/court-hours.ts's isWithinCourtBookingWindow
   // and booking.service.test.ts).
+  //
+  // Hardening phase fix (BUILD-SPEC.md §0/§15 audit): this used to run in
+  // a plain (READ COMMITTED, no retry) transaction — the exact gap Phase
+  // 10 already closed for createBooking, just left open here. Two
+  // concurrent reschedules onto overlapping times on the same court could
+  // each read "available" from their own snapshot before either wrote,
+  // and Postgres has no unique constraint shaped like "no two active
+  // bookings on one court may overlap" to catch it at the write. Now
+  // routed through the same runSerializableWithRetry helper createBooking
+  // uses — Postgres's SSI conflict detection covers the read/write set
+  // this method touches the same way it already covered createBooking's.
   async rescheduleBooking(
     bookingId: string,
     newStartAt: Date,
     newEndAt: Date,
     actorUserId: string,
   ): Promise<Booking> {
-    const booking = await prisma.$transaction(async (tx) => {
+    const booking = await runSerializableWithRetry(async (tx) => {
       const existing = await tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
 
       const availability = await this.checkAvailabilityWithClient(
