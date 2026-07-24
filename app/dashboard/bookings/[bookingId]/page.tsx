@@ -4,9 +4,11 @@ import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { BookingHistoryList } from "@/features/bookings/components/booking-history-list";
 import { BookingQrCode } from "@/features/bookings/components/booking-qr-code";
+import { BookingSourceBadge } from "@/features/bookings/components/booking-source-badge";
 import { BookingStatusActions } from "@/features/bookings/components/booking-status-actions";
 import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
 import { RegenerateQrButton } from "@/features/bookings/components/regenerate-qr-button";
+import { formatRelativeTime } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
@@ -43,8 +45,15 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
             {booking.court.name} · {dateTimeFormatter.format(booking.startAt)} –{" "}
             {dateTimeFormatter.format(booking.endAt)}
           </p>
+          <p className="text-muted-foreground text-sm">
+            Booked{" "}
+            <span title={dateTimeFormatter.format(booking.createdAt)}>
+              {formatRelativeTime(booking.createdAt)}
+            </span>
+          </p>
         </div>
         <div className="flex items-center gap-1.5">
+          <BookingSourceBadge source={booking.source} />
           <BookingStatusBadge status={booking.status} />
           {booking.isAfterHours ? <Badge variant="warning">After Hours</Badge> : null}
         </div>
@@ -62,6 +71,16 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
               <dt className="text-muted-foreground">Guest / Player</dt>
               <dd>{guestOrPlayerName ?? "—"}</dd>
             </div>
+            {booking.source === "STAFF" ? (
+              // Only shown for STAFF bookings — for PUBLIC ones, bookedBy
+              // is the seeded Website system identity, not a real
+              // employee, so "who booked this" isn't a meaningful
+              // question to answer here.
+              <div className="flex justify-between py-1">
+                <dt className="text-muted-foreground">Booked by</dt>
+                <dd>{booking.bookedBy.name ?? booking.bookedBy.email}</dd>
+              </div>
+            ) : null}
             {booking.guestPhone ? (
               <div className="flex justify-between py-1">
                 <dt className="text-muted-foreground">Phone</dt>

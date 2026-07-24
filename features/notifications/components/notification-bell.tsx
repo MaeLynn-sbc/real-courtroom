@@ -20,19 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
-
-function formatRelativeTime(date: Date): string {
-  const diffMs = Date.now() - new Date(date).getTime();
-  const diffMinutes = Math.round(diffMs / 60_000);
-
-  if (diffMinutes < 1) return "just now";
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.round(diffHours / 24);
-  return `${diffDays}d ago`;
-}
+import { cn, formatRelativeTime } from "@/lib/utils";
 
 export function NotificationBell() {
   const [data, setData] = useState<NotificationCenterData | null>(null);
