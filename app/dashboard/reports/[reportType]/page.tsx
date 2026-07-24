@@ -6,7 +6,6 @@ import { BookingStatusBadge } from "@/features/bookings/components/booking-statu
 import { EquipmentRentalStatusBadge } from "@/features/equipment/components/equipment-rental-status-badge";
 import { LockerRentalStatusBadge } from "@/features/lockers/components/locker-rental-status-badge";
 import { MembershipStatusBadge } from "@/features/memberships/components/membership-status-badge";
-import { SessionStatusBadge } from "@/features/open-play/components/session-status-badge";
 import { ExportCsvButton } from "@/features/reports/components/export-csv-button";
 import { ReportTable, type ReportTableColumn } from "@/features/reports/components/report-table";
 import {
@@ -20,7 +19,6 @@ import type {
   BookingStatus,
   LockerRentalStatus,
   MembershipStatus,
-  OpenPlaySessionStatus,
   RentalStatus,
   TournamentStatus,
 } from "@/lib/generated/prisma/enums";
@@ -33,7 +31,6 @@ import {
   type EquipmentRentalReportRow,
   type LockerRentalReportRow,
   type MembershipReportRow,
-  type OpenPlayReportRow,
   type SalesByCategoryRow,
   type SalesByPaymentMethodRow,
   type TournamentReportRow,
@@ -43,7 +40,6 @@ const dateFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", ti
 const REPORT_TITLES: Record<string, string> = {
   booking: "Booking report",
   courtUtilization: "Court utilization report",
-  openPlay: "Open Play report",
   tournament: "Tournament report",
   membership: "Membership report",
   equipmentRental: "Equipment rental report",
@@ -124,19 +120,6 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
         { header: "Booked hours", render: (r) => r.bookedHours.toFixed(1) },
       ];
       return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.courtId} />;
-    }
-    case "openPlay": {
-      const rows = await reportingService.getOpenPlayReport(range);
-      const columns: ReportTableColumn<OpenPlayReportRow>[] = [
-        { header: "Reference", render: (r) => r.sessionReference },
-        { header: "Title", render: (r) => r.title ?? "—" },
-        { header: "Start", render: (r) => dateFormatter.format(r.startAt) },
-        { header: "Status", render: (r) => <SessionStatusBadge status={r.status as OpenPlaySessionStatus} /> },
-        { header: "Registrations", render: (r) => r.registrationsCount },
-        { header: "Checked in", render: (r) => r.checkedInCount },
-        { header: "Matches", render: (r) => r.matchesPlayed },
-      ];
-      return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.id} />;
     }
     case "tournament": {
       const rows = await reportingService.getTournamentReport(range);

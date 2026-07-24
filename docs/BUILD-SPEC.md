@@ -123,10 +123,7 @@ one) is constructed with `new Date(year, month, day)` — JS
 local-timezone midnight. The venue is in Kalibo, Philippines (UTC+8,
 no DST), and the whole app assumes the Node process's local timezone
 *is* Philippine time (`en-PH` locale, ₱ currency, formatting all
-already assume this). `TZ=Asia/Manila` is set explicitly in `.env` /
-`.env.example` for exactly this reason — it must also be set wherever
-the app runs in production (the venue machine, per §14's deployment
-architecture).
+already assume this).
 
 This matters for any SQL-level date logic, not just application code.
 Postgres stores these values into naive `timestamp` columns as their
@@ -135,9 +132,35 @@ literally "Thursday 16:00" — and has no timezone context to correct
 for that. `EXTRACT(DOW FROM date)` on such a column reads the wrong
 day. Migration 12 fixes this for the registration/session weekday
 CHECK constraint by extracting from `date + INTERVAL '8 hours'`
-instead — a fixed offset, not `AT TIME ZONE`, since Asia/Manila has no
-DST to account for. Any future SQL touching day-of-week (or any other
-date-part) on one of these columns needs the same adjustment.
+instead. **This fixed +8 hardcode is safe only because the Philippines
+has never observed DST** — a flat offset is exact year-round precisely
+because there's no seasonal shift to account for. If this app is ever
+deployed somewhere that isn't Asia/Manila (or, implausibly, the
+Philippines starts observing DST), both this constraint and every
+`new Date(y, m, d)` call in the app need to be revisited together —
+they're one coupled assumption, not two independent ones. Any future
+SQL touching day-of-week (or any other date-part) on one of these
+columns needs the same `+ INTERVAL '8 hours'` adjustment.
+
+This is now enforced, not just documented, at two layers so it can't
+quietly drift on a real deployment:
+1. `TZ=Asia/Manila` in `.env` / `.env.example` for local dev, and baked
+   into the `Dockerfile` as an image-level default (correct even
+   without an external `.env`) for whenever this app is actually
+   containerized. `docker-compose.yml` deliberately has no `app`
+   service yet — this dev setup runs the app via `npm run dev` on the
+   host; wire one in against real deployment requirements when Phase 8
+   needs it, not as an unwired placeholder that goes stale unnoticed.
+2. `lib/env.ts` asserts the *actual* process UTC offset is -480 minutes
+   at boot — checking the numeric offset rather than the `TZ` string,
+   since what actually matters is the offset, not the zone name — and
+   throws before the app serves any request if it's wrong. Audited to
+   confirm every real entry point (web server, `npm run db:seed`, every
+   integration test) actually reaches this module — an assertion that
+   isn't reached is not an assertion. A live regression test
+   (`lib/timezone.integration.ts`) constructs a Friday date, writes it,
+   and asserts the database agrees it's a Friday when read back through
+   the exact expression migration 12 uses.
 
 ---
 
@@ -535,6 +558,16 @@ Triggered when a court frees up.
    recently paired with the anchor. Soft tiebreak only; never delay a
    game to avoid a repeat.
 
+**Unfillable queue — a real deadlock, not just "not enough people yet."**
+Parties never split, so two parties of 3 with no solos waiting cannot
+combine into a foursome no matter how far skill widens — 6 people
+waiting, a free court, and no valid group of exactly 4. This is
+different from simply having fewer than 4 people waiting, which needs
+no explanation. When a court is free and 4+ players are waiting but no
+group can be assembled, the staff board must name the reason and
+prompt a manual override or splitting a party — never sit idle with no
+explanation.
+
 Output is a **proposed** assignment. Staff confirms. An owner setting
 controls whether proposals auto-confirm after N seconds.
 
@@ -545,8 +578,16 @@ of 2–4 moves through the queue as a unit. Skill matching uses the
 party's **average** skill to find the remaining players. Parties larger
 than 4 are rejected with a clear message — split them.
 
-Party wait time is the **earliest** join time among its members, so
-grouping never costs anyone their place.
+**Rotation queue order uses `joinedQueueAt` directly — the LAST
+member's check-in, same as §6.** A party isn't playable until everyone
+has arrived; using the earliest member's join time would let a party
+still assembling leapfrog a solo player who was playable the whole
+time it waited. This is deliberately different from the Fri/Sat
+waitlist rule (§5), which uses the *earliest* member — that's about
+claiming a capacity seat, a different question from "whose turn is it
+to play," and grouping shouldn't cost anyone their waitlist place even
+though it does mean the party's rotation clock starts later, when the
+group actually becomes playable.
 
 ### Manual override — staff can always overrule
 
@@ -614,17 +655,65 @@ to the current price. Otherwise changing a price silently rewrites
 historical totals and reconciliation quietly stops matching. Applies to
 the court rate, the open play fee, and equipment rentals alike.
 
-### Court bookings — prepayment OPTIONAL
+### Court bookings — prepayment REQUIRED on the public site, Phase 8
 
-Customer chooses at checkout:
+**Policy change, recorded here ahead of implementation — nothing below
+this point in this subsection is built yet.** The public booking form
+no longer offers pay-at-court. Every online booking now requires GCash
+prepayment before it holds a confirmed slot:
 
-- **Pay at the court** → `confirmed` immediately, Payment row `unpaid`,
-  method `cash_on_site`. Staff collects on arrival.
-- **Pay now via GCash** → show QR, amount, and a generated reference
-  code (e.g. `TCR-4821`). Customer submits GCash reference number and
-  screenshot. Status `pending_verification`.
+- Customer sees the QR, the amount, and a generated reference code
+  (e.g. `TCR-4821`) at checkout.
+- Customer submits their GCash reference number and a confirmation
+  receipt screenshot. Status `pending_verification`.
+- The slot is held 30 minutes from the start of checkout. No proof
+  submitted in that window → the hold expires and the slot returns to
+  available.
+- **Nothing confirms until a human checks.** Staff verify each payment
+  actually landed in the GCash account before a booking becomes
+  `confirmed` — this is unchanged from the existing Fri/Sat open play
+  verification flow below, just now also the only path for public
+  court bookings.
 
-GCash path: no proof within 30 minutes → release the slot.
+**Staff bookings are unaffected.** `cash_on_site`, `cash`, and
+`gcash_manual` all remain available when staff create a booking from
+the dashboard. Prepayment exists to stop no-shows from strangers
+booking online, not to inconvenience someone standing at the desk —
+this distinction must hold regardless of how the public form changes.
+
+### Verification queue — every online booking now blocks on staff
+
+Because prepayment is now mandatory for the public path, the
+verification queue becomes a load-bearing, can't-miss piece of the
+staff UI, not an occasional side task:
+
+- A **pending-verification count badge** must appear on every dashboard
+  page (not just a dedicated verification screen) — staff working
+  anywhere in the app need to know work is waiting.
+- The queue itself is sorted **oldest first**, shows elapsed time since
+  submission, and **highlights anything waiting over 30 minutes**.
+- Show the affected slot's time next to each pending item, so staff can
+  prioritize a booking starting in an hour over one for next week —
+  submission order and urgency aren't the same thing.
+
+**Verification screen requirements:**
+- The GCash reference number renders **large and selectable**, with
+  tap-to-copy — staff paste it into the GCash app to search for the
+  transaction, they shouldn't have to retype it from a screenshot.
+- The screenshot is viewable **full size**, not just a thumbnail —
+  staff need to actually read the amount and timestamp on it.
+- The **expected amount** shows beside the submitted proof.
+- **Flag when the submitted amount doesn't match what's owed** — don't
+  make staff eyeball two numbers to catch a shortfall.
+
+### Customer-side clarity
+
+After submitting proof, the booking page shows "Waiting for
+confirmation" with their reference number, and updates live once staff
+approve. On rejection, show why and release the slot back to
+available. **Never leave the customer guessing whether they have a
+court** — silence after submission is the failure mode to design
+against.
 
 ### Fri/Sat open play — prepayment REQUIRED
 
@@ -697,13 +786,21 @@ every other day ⇒ `sessionId` null. This is a decision recorded ahead
 of Phase 7, not yet implemented — do not rediscover the fork when
 building this phase.
 
-One consequence to design for when this is built: "a session cannot
-close while tabs are open" (Correctness #6, below) only makes sense
-for Fri/Sat, which has a session to close. A weeknight has no session
-to close — its equivalent guard is presumably end-of-night / date
-rollover, not session closure. Decide the exact mechanism in Phase 7,
-but don't let the Fri/Sat-shaped rule silently become the only one
-that exists.
+**Resolved (Phase 7): what "closing out the night" means per night type.**
+"A session cannot close while tabs are open" (Correctness #6, below)
+only makes sense for Fri/Sat, which has a session with a `status` to
+flip OPEN → CLOSED (`OpenPlayCapacityService.closeSession`). A weeknight
+has no `OpenPlayNightSession` row at all — there is no status field to
+guard, and building one just to have somewhere to hang this check would
+resurrect the exact fork §0 already resolved the other way. So for a
+weeknight, "closing out the night" is **not a status transition** —
+it's purely the Unsettled tab list (`PlayerTabService.listUnsettledForDate`)
+being empty. There is no "close weeknight" action for staff to click;
+the Unsettled list on the check-in screen is the entire mechanism, for
+both night types — Fri/Sat additionally gets a "Close session" button
+gated on that same list being empty. Don't add a weeknight status field
+later just to make this symmetrical with Fri/Sat; the asymmetry is the
+correct reflection of one night type having a session and the other not.
 
 ```
 PlayerTab
@@ -1094,8 +1191,13 @@ These are the things that will break in production if skipped.
    force-anchor long waiters regardless of skill fit.
 10. **Manual pairing sticks** — a staff-chosen foursome is never
     overwritten by a later auto-proposal.
-11. **Party wait time uses the earliest member's join time** — grouping
-    with friends must never cost someone their place in line.
+11. **Party rotation order uses the last member's join time
+    (`joinedQueueAt`)** — the moment the party actually became
+    playable, not the earliest member's arrival. Using the earliest
+    member here would let a still-assembling party leapfrog a solo
+    player who was playable the whole time. (The Fri/Sat *waitlist*
+    seat order, §5, is the opposite — earliest member — because that's
+    about claiming a seat, not turn order in a live rotation.)
 
 ---
 
@@ -1151,3 +1253,11 @@ domain only become necessary at Phase 8.
   paid ₱150 open play slot and get a refund?
 - **GCash receiving limits** — a personal wallet has a monthly ceiling.
   Worth watching once volume picks up.
+- **Fri/Sat ₱150 registration fee is real cash with no revenue tracking
+  yet** — Phase 7 built tabs/settlement/sales for game and rental
+  revenue only; the ₱150 fee is collected today (§8's cash-at-the-desk
+  walk-in path) but doesn't appear on /dashboard/sales at all. A banner
+  on that page says so. **Phase 8 must close this gap** as part of
+  building the payment flow §8 already specifies — don't let the
+  banner quietly become permanent. Remove the banner only once Phase 8
+  actually records this revenue somewhere.

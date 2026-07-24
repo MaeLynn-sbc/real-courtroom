@@ -12,6 +12,9 @@ export const metadata: Metadata = {
   title: "Reports",
 };
 
+// Open play revenue lives at /dashboard/sales, not here — see
+// features/reports/schemas/report.schema.ts's comment on why "openPlay"
+// was removed from this list rather than repaired.
 const REPORT_LINKS: { reportType: string; title: string; description: string }[] = [
   { reportType: "booking", title: "Booking report", description: "All bookings in the selected range." },
   {
@@ -19,7 +22,6 @@ const REPORT_LINKS: { reportType: string; title: string; description: string }[]
     title: "Court utilization",
     description: "Booked hours and booking counts per court.",
   },
-  { reportType: "openPlay", title: "Open Play report", description: "Sessions, registrations, and check-ins." },
   { reportType: "tournament", title: "Tournament report", description: "Tournaments, registrations, and matches." },
   { reportType: "membership", title: "Membership report", description: "Memberships, enrollments, and renewals." },
   {

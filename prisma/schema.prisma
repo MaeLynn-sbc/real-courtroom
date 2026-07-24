@@ -304,9 +304,10 @@ model Employee {
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shifts Shift[]
-  sales  Sale[]
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shifts         Shift[]
+  sales          Sale[]
+  writtenOffTabs PlayerTab[]
 
   @@index([deletedAt])
 }
@@ -789,6 +790,7 @@ model OpenPlayNightSession {
   registrations   OpenPlayNightRegistration[]
   queueEntries    QueueEntry[]
   gameAssignments GameAssignment[]
+  tabs            PlayerTab[]
 
   @@unique([date])
   @@index([status])
@@ -853,6 +855,7 @@ model OpenPlayNightRegistration {
   player                Player?                     @relation(fields: [playerId], references: [id])
   queueEntry            QueueEntry?
   gameAssignmentEntries GameAssignmentParticipant[]
+  tab                   PlayerTab?
 
   @@index([sessionId, status])
   @@index([sessionId, waitlistPos])
@@ -953,6 +956,7 @@ model GameAssignment {
   session      OpenPlayNightSession?       @relation(fields: [sessionId], references: [id])
   createdBy    User?                       @relation(fields: [createdByUserId], references: [id])
   participants GameAssignmentParticipant[]
+  tabLineItems TabLineItem[]
 
   @@index([date, status])
   @@index([courtId, status])
@@ -997,6 +1001,116 @@ model RecentPairing {
 
   @@unique([date, registrationIdA, registrationIdB])
   @@index([date])
+}
+
+// --- Player tabs, settlement (BUILD-SPEC.md §9) -----------------------------
+// Same date-keyed, nullable-sessionId fork as OpenPlayNightRegistration and
+// GameAssignment, and for the same reason — weeknight tabs are exactly the
+// ones that carry money and weeknights have no session to key off. One tab
+// per registration (a player's whole night), created on demand the first
+// time it's needed (checkIn, or a game/rental credit if check-in somehow
+// didn't). Settlement creates a Sale row (SaleCategory.OPEN_PLAY) through
+// the existing SaleService — same Employee+Shift-backed revenue path every
+// other module uses, not a parallel one.
+
+enum PlayerTabStatus {
+  OPEN
+  SETTLED
+  WRITTEN_OFF
+}
+
+enum TabLineItemType {
+  GAME
+  RENTAL
+  ADJUSTMENT
+}
+
+enum TabSettlementMethod {
+  CASH
+  GCASH
+}
+
+model PlayerTab {
+  id             String  @id @default(cuid())
+  date           DateTime
+  sessionId      String? // nullable — Fri/Sat only, same fork as OpenPlayNightRegistration.sessionId
+  registrationId String  @unique
+  playerName     String
+  // Snapshotted at tab creation (BUILD-SPEC.md §9 "Prices snapshot at
+  // transaction time"): the current weeknightGameRateCents setting for a
+  // weeknight tab, or 0 for Fri/Sat (games "counted for rotation fairness,
+  // billed at ₱0" — the flat ₱150 fee is a separate, not-yet-built §8
+  // payment, not a tab line item).
+  gameRateCents  Int
+  status         PlayerTabStatus @default(OPEN)
+  settledAt      DateTime?
+  settledByUserId String?
+  settledVia     TabSettlementMethod?
+  // Required when settledVia = GCASH — same "unique across all payments"
+  // fraud check §8 already specifies, enforced at the service layer since
+  // it's conditionally required, not a plain column constraint.
+  gcashReference String?
+  writeOffReason String?
+  // Required at the service layer for every write-off (BUILD-SPEC.md §9
+  // review: "no anonymous write-offs") — nullable here only because
+  // Prisma has no way to make a column conditionally required based on
+  // another column's value (status = WRITTEN_OFF); enforced in
+  // player-tab.service.ts's writeOffTab, same pattern as writeOffReason.
+  writeOffEmployeeId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  registration   OpenPlayNightRegistration @relation(fields: [registrationId], references: [id])
+  session        OpenPlayNightSession?     @relation(fields: [sessionId], references: [id])
+  writeOffEmployee Employee?               @relation(fields: [writeOffEmployeeId], references: [id])
+  lineItems      TabLineItem[]
+  sale           Sale?
+
+  @@index([date, status])
+  @@index([sessionId])
+}
+
+// Append-only (BUILD-SPEC.md §9 "Never edit or delete an existing line
+// item") — a correction is a new ADJUSTMENT row, a voided charge is a new
+// negative-amount row that offsets the original, never a mutation.
+model TabLineItem {
+  id             String          @id @default(cuid())
+  tabId          String
+  type           TabLineItemType
+  description    String
+  qtyOrGames     Int
+  unitPriceCents Int
+  amountCents    Int
+  // Traceability for GAME items back to the completed game that generated
+  // them. NOT database-unique on (tabId, gameAssignmentId) — see
+  // voidsLineItemId below for why: a voided GAME credit must not
+  // permanently block a legitimate later credit for the same assignment.
+  // creditGame enforces "don't double-credit an still-active game"
+  // itself, at the application level, by checking for an existing,
+  // non-voided GAME row before inserting.
+  gameAssignmentId String?
+  // Required for ADJUSTMENT (§9 "a required reason, logged with who made
+  // it"); null for GAME/RENTAL, which are self-explanatory.
+  reason          String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  // Set only on a void adjustment (type=ADJUSTMENT) — points back to the
+  // line item it offsets. Purely additive: the original row is never
+  // touched, so "never edit or delete an existing line item" (§9) stays
+  // literally true. This is what lets creditGame tell "already credited,
+  // still active" apart from "credited, then fully voided — free to
+  // credit again."
+  voidsLineItemId String?
+  voidsLineItem   TabLineItem?  @relation("LineItemVoids", fields: [voidsLineItemId], references: [id])
+  voidedByItems   TabLineItem[] @relation("LineItemVoids")
+
+  tab            PlayerTab       @relation(fields: [tabId], references: [id], onDelete: Cascade)
+  gameAssignment GameAssignment? @relation(fields: [gameAssignmentId], references: [id])
+
+  @@index([tabId])
+  @@index([tabId, gameAssignmentId])
+  @@index([voidsLineItemId])
 }
 
 // --- Tournament System -----------------------------------------------------
@@ -1477,6 +1591,11 @@ enum SaleCategory {
   LOCKER_RENTAL
   TOURNAMENT_REGISTRATION
   PRODUCT
+  // BUILD-SPEC.md §9 — a settled PlayerTab (games + rentals + adjustments,
+  // net of write-offs, which are never revenue). The Fri/Sat ₱150
+  // registration fee is NOT included here — that's §8's payment flow,
+  // Phase 8, not yet built; see open-play-sales.service.ts's comment.
+  OPEN_PLAY
   OTHER
 }
 
@@ -1520,6 +1639,7 @@ model Sale {
   lockerRentalId           String? @unique
   tournamentRegistrationId String? @unique
   productId                String? @unique
+  playerTabId              String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1534,6 +1654,7 @@ model Sale {
   lockerRental           LockerRental?           @relation(fields: [lockerRentalId], references: [id])
   tournamentRegistration TournamentRegistration? @relation(fields: [tournamentRegistrationId], references: [id])
   product                Product?                @relation(fields: [productId], references: [id])
+  playerTab              PlayerTab?              @relation(fields: [playerTabId], references: [id])
 
   @@index([category])
   @@index([createdAt])

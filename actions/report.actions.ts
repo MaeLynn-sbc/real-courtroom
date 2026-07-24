@@ -38,10 +38,6 @@ async function buildReportCsv(reportType: ExportReportInput["reportType"], range
       const rows = await reportingService.getCourtUtilizationReport(range);
       return toCsv(rows, REPORT_CSV_COLUMNS.courtUtilization);
     }
-    case "openPlay": {
-      const rows = await reportingService.getOpenPlayReport(range);
-      return toCsv(rows, REPORT_CSV_COLUMNS.openPlay);
-    }
     case "tournament": {
       const rows = await reportingService.getTournamentReport(range);
       return toCsv(rows, REPORT_CSV_COLUMNS.tournament);

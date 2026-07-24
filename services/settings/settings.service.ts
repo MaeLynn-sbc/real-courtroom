@@ -74,6 +74,7 @@ const DEFAULT_OPEN_PLAY_SETTINGS: OpenPlaySettings = {
   skillWindow: 1,
   autoConfirmProposals: false,
   targetGameMinutes: 15,
+  weeknightGameRateCents: 3500,
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never

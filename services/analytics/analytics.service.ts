@@ -109,15 +109,23 @@ export class AnalyticsService {
     return { activePlayers: activePlayerIds.size };
   }
 
+  // Phase 7 review: previously read the old, dormant OpenPlaySession model
+  // via reportingService.getOpenPlayReport (removed — see that method's
+  // former location and features/reports/schemas/report.schema.ts's
+  // comment). Rewired here to the real Open Play Nights feature —
+  // OpenPlayNightSession/OpenPlayNightRegistration — rather than deleting
+  // this KPI outright.
   async getOpenPlayParticipation(
     range: DateRange,
   ): Promise<{ sessionsCount: number; registrationsCount: number; checkedInCount: number }> {
-    const sessions = await reportingService.getOpenPlayReport(range);
-    return {
-      sessionsCount: sessions.length,
-      registrationsCount: sessions.reduce((sum, s) => sum + s.registrationsCount, 0),
-      checkedInCount: sessions.reduce((sum, s) => sum + s.checkedInCount, 0),
-    };
+    const [sessionsCount, registrationsCount, checkedInCount] = await Promise.all([
+      prisma.openPlayNightSession.count({ where: { date: { gte: range.from, lte: range.to } } }),
+      prisma.openPlayNightRegistration.count({ where: { date: { gte: range.from, lte: range.to } } }),
+      prisma.openPlayNightRegistration.count({
+        where: { date: { gte: range.from, lte: range.to }, checkedInAt: { not: null } },
+      }),
+    ]);
+    return { sessionsCount, registrationsCount, checkedInCount };
   }
 
   async getTournamentParticipation(

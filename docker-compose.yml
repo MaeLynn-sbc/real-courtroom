@@ -1,4 +1,15 @@
 services:
+  # No `app` service — this dev setup runs the app via `npm run dev` on
+  # the host (see docs/INSTALLATION.md), only Postgres/Adminer are
+  # containerized here. An earlier version of this file added an unwired
+  # `app` service ahead of BUILD-SPEC.md §14's "court machine" deployment
+  # (Phase 8+) — removed on review: config nobody runs goes stale
+  # unnoticed. TZ correctness for the app process is enforced by the
+  # Dockerfile's `ENV TZ=Asia/Manila` (baked into the image whenever it's
+  # eventually built/run) plus lib/env.ts's boot-time assertion, which
+  # together don't depend on this compose file at all. Wire a real `app`
+  # service back in when Phase 8 actually needs one — build it against
+  # the real deployment requirements at that point, not this placeholder.
   postgres:
     image: postgres:16-alpine
     container_name: tcpms-postgres

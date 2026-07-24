@@ -38,6 +38,7 @@ const SALE_CATEGORY_LABELS: Record<SaleCategory, string> = {
   LOCKER_RENTAL: "Locker rental",
   TOURNAMENT_REGISTRATION: "Tournament registration",
   PRODUCT: "Product",
+  OPEN_PLAY: "Open play",
   OTHER: "Other",
 };
 

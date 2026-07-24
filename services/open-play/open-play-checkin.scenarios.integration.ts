@@ -34,6 +34,12 @@ async function cleanUp(): Promise<void> {
     select: { id: true },
   });
   const ids = registrations.map((r) => r.id);
+  // Phase 7: checkIn now also opens a PlayerTab (BUILD-SPEC.md §6/§9) —
+  // must be cleared before the registration it references.
+  const tabs = await prisma.playerTab.findMany({ where: { registrationId: { in: ids } }, select: { id: true } });
+  const tabIds = tabs.map((t) => t.id);
+  await prisma.tabLineItem.deleteMany({ where: { tabId: { in: tabIds } } });
+  await prisma.playerTab.deleteMany({ where: { id: { in: tabIds } } });
   await prisma.queueEntry.deleteMany({ where: { registrationId: { in: ids } } });
   await prisma.openPlayNightRegistration.deleteMany({ where: { date: TEST_DATE } });
 }

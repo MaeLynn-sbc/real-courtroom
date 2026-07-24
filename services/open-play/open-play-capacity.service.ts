@@ -2,6 +2,7 @@ import { getFacilityCloseMinutes } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import type { OpenPlayCapacityDefault, OpenPlayNightSession, Prisma } from "@/lib/generated/prisma/client";
+import { playerTabService } from "@/services/open-play/player-tab.service";
 import { settingsService } from "@/services/settings/settings.service";
 
 // BUILD-SPEC.md §4 — Friday/Saturday only. See prisma/schema.prisma's
@@ -149,6 +150,40 @@ export class OpenPlayCapacityService {
       entityId: updated.id,
       oldValues: { capacity: session.capacity },
       newValues: { date: updated.date, capacity },
+    });
+
+    return updated;
+  }
+
+  // BUILD-SPEC.md §9 correctness #6 "A session cannot close while tabs are
+  // open — warn and list them." Fri/Sat only — a weeknight has no session
+  // to close. See BUILD-SPEC.md §9's "closing out the night" note for the
+  // weeknight equivalent (there's no status to flip; the Unsettled tab
+  // list itself, surfaced in the UI, is the whole mechanism).
+  async closeSession(sessionId: string, actorUserId: string): Promise<OpenPlayNightSession> {
+    const session = await prisma.openPlayNightSession.findUniqueOrThrow({ where: { id: sessionId } });
+    if (session.status !== "OPEN") {
+      throw new Error(`Session is already ${session.status.toLowerCase()}.`);
+    }
+
+    const unsettled = await playerTabService.listUnsettledForDate(session.date);
+    if (unsettled.length > 0) {
+      const names = unsettled.map((tab) => tab.playerName).join(", ");
+      throw new Error(`Cannot close — ${unsettled.length} open tab(s) with a balance: ${names}.`);
+    }
+
+    const updated = await prisma.openPlayNightSession.update({
+      where: { id: sessionId },
+      data: { status: "CLOSED" },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_session.closed",
+      entityType: "OpenPlayNightSession",
+      entityId: sessionId,
+      oldValues: { status: session.status },
+      newValues: { status: "CLOSED" },
     });
 
     return updated;

@@ -2,6 +2,7 @@ import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import type { OpenPlayNightRegistration, Prisma, QueueEntry } from "@/lib/generated/prisma/client";
 import { openPlayRegistrationService, type RegisterWalkInInput } from "@/services/open-play/open-play-registration.service";
+import { playerTabService } from "@/services/open-play/player-tab.service";
 import { settingsService } from "@/services/settings/settings.service";
 
 // BUILD-SPEC.md §6 "Registration and check-in" — check-in is what enters
@@ -75,6 +76,11 @@ export class OpenPlayCheckinService {
             joinedQueueAt: now,
           },
         });
+        // BUILD-SPEC.md §6 "opens a PlayerTab (weeknight) or marks the
+        // prepaid session used (Fri/Sat)" — every checked-in player gets a
+        // tab ready to receive game/rental charges, regardless of night
+        // type (Fri/Sat tabs just snapshot gameRateCents=0).
+        await playerTabService.getOrCreateTab(updated.id, actorUserId, tx);
         return { registration: updated, queueEntriesCreated: [entry], alreadyCheckedIn: false };
       }
 
@@ -105,6 +111,11 @@ export class OpenPlayCheckinService {
           }),
         ),
       );
+      // Every party member gets a tab too, the moment the group completes
+      // — not just the member whose check-in happened to be the last one.
+      for (const member of partyMembers) {
+        await playerTabService.getOrCreateTab(member.id, actorUserId, tx);
+      }
       return { registration: updated, queueEntriesCreated: entries, alreadyCheckedIn: false };
     });
 

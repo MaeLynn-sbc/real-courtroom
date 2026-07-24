@@ -22,6 +22,7 @@ const PROTECTED_ROUTES: RouteRule[] = [
   { prefix: "/dashboard/products", permission: PERMISSIONS.EQUIPMENT_MANAGE },
   { prefix: "/dashboard/reports", permission: PERMISSIONS.REPORTS_MANAGE },
   { prefix: "/dashboard/analytics", permission: PERMISSIONS.REPORTS_MANAGE },
+  { prefix: "/dashboard/sales", permission: PERMISSIONS.REPORTS_MANAGE },
   { prefix: "/dashboard/announcements/new", permission: PERMISSIONS.SYSTEM_ADMIN },
   { prefix: "/dashboard/admin", permission: PERMISSIONS.SYSTEM_ADMIN },
   // v1.1: Employee/Role management is Owner-only (USERS_MANAGE), a

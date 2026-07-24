@@ -64,13 +64,14 @@ export interface RotationBoardProps {
   waiting: BoardUnit[];
   resting: BoardRestingPlayer[];
   maxWaitMinutes: number;
+  unfillableQueueReason: string | null;
 }
 
 function skillLabel(level: OpenPlaySkillLevel): string {
   return OPEN_PLAY_SKILL_LEVELS[level].label;
 }
 
-export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes }: RotationBoardProps) {
+export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, unfillableQueueReason }: RotationBoardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [manualPicks, setManualPicks] = useState<string[]>([]);
@@ -100,6 +101,14 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes }
 
   return (
     <div className="flex flex-col gap-4">
+      {unfillableQueueReason ? (
+        <div className="border-coral/40 bg-coral/[0.08] text-coral flex items-start gap-2 rounded-lg border px-4 py-3 text-sm font-medium">
+          <span aria-hidden="true">⚠</span>
+          <span>
+            Queue can&apos;t be filled right now — {unfillableQueueReason}
+          </span>
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {courts.map((court) => (
           <Card key={court.id}>

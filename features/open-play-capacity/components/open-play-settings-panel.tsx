@@ -84,6 +84,23 @@ export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
         </div>
 
         <div className="flex flex-col gap-1.5">
+          <Label htmlFor="weeknightGameRateCents">Weeknight game rate (₱, per game)</Label>
+          <p className="text-muted-foreground text-xs">
+            Snapshotted onto each weeknight player&apos;s tab as they check in — changing this never rewrites
+            an already-open tab.
+          </p>
+          <Input
+            id="weeknightGameRateCents"
+            type="number"
+            min={0}
+            step={0.01}
+            className="w-24"
+            value={settings.weeknightGameRateCents / 100}
+            onChange={(event) => setSettings((s) => ({ ...s, weeknightGameRateCents: Math.round(Number(event.target.value) * 100) }))}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
           <Label htmlFor="targetGameMinutes">Target game length (minutes, informational)</Label>
           <Input
             id="targetGameMinutes"

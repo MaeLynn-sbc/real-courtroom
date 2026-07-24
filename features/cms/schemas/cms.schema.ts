@@ -90,6 +90,10 @@ export const openPlaySettingsSchema = z.object({
   // BUILD-SPEC.md §7 "informational, default 15" — not enforced anywhere,
   // shown to staff as a rough target only.
   targetGameMinutes: z.number().int().positive(),
+  // BUILD-SPEC.md §9 "Weeknight (Mon-Thu): ₱35 x games played." Snapshotted
+  // onto each weeknight PlayerTab at creation — a price change here never
+  // rewrites an already-open tab's rate.
+  weeknightGameRateCents: z.number().int().nonnegative(),
 });
 
 export type OpenPlaySettings = z.infer<typeof openPlaySettingsSchema>;

@@ -11,6 +11,16 @@
  *   3. "Manual override is never overwritten by a later auto-proposal."
  *   4. "A court never sits idle while 4+ players wait" (and, conversely,
  *      correctly stays idle with only 3).
+ *   5. A party's rotation turn starts when it becomes playable (last
+ *      member's check-in), not when it started assembling (first
+ *      member's check-in) — a solo who was playable the whole time must
+ *      anchor before a party that finished checking in later, even if
+ *      the party's first member arrived earlier. Fixes a leapfrog bug
+ *      from an earlier "earliest member" version of this rule.
+ *   6. "Two parties of 3, no solos, one free court" — a real deadlock
+ *      (parties never split, so 3+3 can't combine into 4), not covered
+ *      by the plain idle-at-3 case. The board must surface a named
+ *      reason, not sit idle with no explanation.
  *
  * Run via `npm run test:integration` (see run-integration-tests.ts). Uses
  * weeknight registrations throughout (no session/capacity needed) — the
@@ -36,10 +46,33 @@ const STARVATION_DATE = new Date(2031, 0, 9); // Thursday
 const PARTY_DATE = new Date(2031, 0, 13); // Monday
 const MANUAL_OVERRIDE_DATE = new Date(2031, 0, 14); // Tuesday
 const COURT_IDLE_DATE = new Date(2031, 0, 15); // Wednesday
+const PARTY_LEAPFROG_DATE = new Date(2031, 0, 20); // Monday
+const UNFILLABLE_DATE = new Date(2031, 0, 21); // Tuesday
 
-const ALL_DATES = [STARVATION_DATE, PARTY_DATE, MANUAL_OVERRIDE_DATE, COURT_IDLE_DATE];
+const ALL_DATES = [
+  STARVATION_DATE,
+  PARTY_DATE,
+  MANUAL_OVERRIDE_DATE,
+  COURT_IDLE_DATE,
+  PARTY_LEAPFROG_DATE,
+  UNFILLABLE_DATE,
+];
 
 async function cleanUp(): Promise<void> {
+  // Phase 7: checkIn now also opens a PlayerTab (BUILD-SPEC.md §6/§9), and
+  // completeAssignment credits GAME line items referencing GameAssignment
+  // — must be cleared, in this order, before their referenced rows.
+  const registrations = await prisma.openPlayNightRegistration.findMany({
+    where: { date: { in: ALL_DATES } },
+    select: { id: true },
+  });
+  const registrationIds = registrations.map((r) => r.id);
+  const tabs = await prisma.playerTab.findMany({ where: { registrationId: { in: registrationIds } }, select: { id: true } });
+  const tabIds = tabs.map((t) => t.id);
+  await prisma.sale.deleteMany({ where: { playerTabId: { in: tabIds } } });
+  await prisma.tabLineItem.deleteMany({ where: { tabId: { in: tabIds } } });
+  await prisma.playerTab.deleteMany({ where: { id: { in: tabIds } } });
+  await prisma.gameAssignmentParticipant.deleteMany({ where: { registrationId: { in: registrationIds } } });
   await prisma.gameAssignment.deleteMany({ where: { date: { in: ALL_DATES } } });
   await prisma.recentPairing.deleteMany({ where: { date: { in: ALL_DATES } } });
   await prisma.queueEntry.deleteMany({ where: { date: { in: ALL_DATES } } });
@@ -227,6 +260,102 @@ async function testCourtNeverIdleWithFourWaiting(courtId: string, actorUserId: s
   console.log("PASS: a court never sits idle while 4+ players wait (and correctly stays idle at only 3)");
 }
 
+// BUILD-SPEC.md §7 "Rotation queue order uses joinedQueueAt directly — the
+// last member's check-in." Regression test for the leapfrog bug: an
+// earlier version used the EARLIEST member's check-in as a party's
+// rotation wait start, which let a party still assembling jump ahead of a
+// solo player who was playable the whole time it waited.
+//
+// Skill levels are deliberately engineered (not just "party of 3 + 1
+// solo," which would sum to the same 4 participants regardless of which
+// unit anchors) so a wrong anchor choice produces an observably different,
+// wrong outcome: if the party wrongly anchored, its skill-window search
+// would reach for the skill-close Solo B and stop (seats filled) before
+// ever widening to the skill-distant Solo A — silently excluding the
+// longest-waiting player. Solo A must anchor first.
+async function testPartyDoesNotLeapfrogSolo(courtId: string, actorUserId: string): Promise<void> {
+  // "A solo who checked in at 7:10" — playable the whole time, waiting
+  // longest. ADVANCED and far in skill from the party below, so a wrong
+  // anchor choice would exclude rather than just reorder this player.
+  const soloAId = await checkInBackdated(PARTY_LEAPFROG_DATE, "Solo A (checked in first)", "ADVANCED", actorUserId, 50);
+
+  // "A party of 3 completes check-in at 8:00" — became playable much more
+  // recently than Solo A, even though its first member may have arrived
+  // earlier (irrelevant now — only the completing check-in counts).
+  const partyId = `party-leapfrog-${Date.now()}`;
+  const partyMemberIds = await registerAndCheckInParty(
+    PARTY_LEAPFROG_DATE,
+    partyId,
+    [
+      { playerName: "Party Member 1", skillLevel: "BEGINNER" },
+      { playerName: "Party Member 2", skillLevel: "BEGINNER" },
+      { playerName: "Party Member 3", skillLevel: "BEGINNER" },
+    ],
+    actorUserId,
+    10,
+  );
+
+  // Skill-close bait: if the party wrongly anchored, this player would
+  // get pulled in ahead of Solo A and the search would stop there.
+  const soloBId = await checkInBackdated(PARTY_LEAPFROG_DATE, "Solo B (skill-close bait)", "BEGINNER", actorUserId, 2);
+
+  const assignment = await openPlayRotationService.proposeNextAssignment(PARTY_LEAPFROG_DATE, courtId, actorUserId);
+  assert(assignment, "expected a proposed assignment for Solo A + the party");
+
+  const participantIds = assignment!.participants.map((p) => p.registrationId);
+  assert(
+    participantIds.includes(soloAId),
+    "Solo A checked in first and was playable the whole time — must anchor, not be leapfrogged by a party that completed later",
+  );
+  for (const id of partyMemberIds) {
+    assert(participantIds.includes(id), "the whole party must be in the assignment — never split");
+  }
+  assert(!participantIds.includes(soloBId), "Solo B (skill-close bait) should not have been reached — Solo A + the party already fill the court");
+  assert(assignment!.skillSpread === 3, `expected skillSpread 3 (advanced=4 minus beginner=1), got ${assignment!.skillSpread}`);
+
+  console.log("PASS: a party's rotation turn starts when it becomes playable, not when it started assembling — no leapfrog");
+}
+
+async function testUnfillableQueueIsSurfaced(courtId: string, actorUserId: string): Promise<void> {
+  await registerAndCheckInParty(
+    UNFILLABLE_DATE,
+    `party-unfillable-a-${Date.now()}`,
+    [
+      { playerName: "Deadlock A1", skillLevel: "INTERMEDIATE" },
+      { playerName: "Deadlock A2", skillLevel: "INTERMEDIATE" },
+      { playerName: "Deadlock A3", skillLevel: "INTERMEDIATE" },
+    ],
+    actorUserId,
+    20,
+  );
+  await registerAndCheckInParty(
+    UNFILLABLE_DATE,
+    `party-unfillable-b-${Date.now()}`,
+    [
+      { playerName: "Deadlock B1", skillLevel: "INTERMEDIATE" },
+      { playerName: "Deadlock B2", skillLevel: "INTERMEDIATE" },
+      { playerName: "Deadlock B3", skillLevel: "INTERMEDIATE" },
+    ],
+    actorUserId,
+    10,
+  );
+
+  const proposal = await openPlayRotationService.proposeNextAssignment(UNFILLABLE_DATE, courtId, actorUserId);
+  assert(proposal === null, "two parties of 3 with no solos cannot form a valid foursome — propose must return null");
+
+  const board = await openPlayRotationService.getRotationBoardData(UNFILLABLE_DATE);
+  assert(
+    board.unfillableQueueReason !== null,
+    "with a free court and 6 players waiting in two unsplittable parties, the board must surface a named reason instead of sitting idle silently",
+  );
+  assert(
+    board.unfillableQueueReason!.includes("6 players"),
+    `expected the reason to name the waiting count, got: ${board.unfillableQueueReason}`,
+  );
+
+  console.log("PASS: an unfillable queue (two parties of 3, no solos) is surfaced on the board, not silently idle");
+}
+
 async function main() {
   await cleanUp();
 
@@ -239,6 +368,8 @@ async function main() {
     await testPartyAverageSkill(courts[0].id, owner.id);
     await testManualOverrideNeverOverwritten(courts[0].id, courts[1].id, owner.id);
     await testCourtNeverIdleWithFourWaiting(courts[0].id, owner.id);
+    await testPartyDoesNotLeapfrogSolo(courts[0].id, owner.id);
+    await testUnfillableQueueIsSurfaced(courts[0].id, owner.id);
   } finally {
     await cleanUp();
   }

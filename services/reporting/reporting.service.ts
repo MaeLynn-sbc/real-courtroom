@@ -45,18 +45,14 @@ export interface CourtUtilizationRow {
   bookedHours: number;
 }
 
-// --- Open Play report --------------------------------------------------------
-
-export interface OpenPlayReportRow {
-  id: string;
-  sessionReference: string;
-  title: string | null;
-  startAt: Date;
-  status: string;
-  registrationsCount: number;
-  checkedInCount: number;
-  matchesPlayed: number;
-}
+// "Open Play report" removed here (Phase 7 review) — it read from the old,
+// dormant OpenPlaySession model (a different, inactive rotation feature —
+// see prisma/schema.prisma's comment above OpenPlayNightSession) and
+// rendered plausible-looking but wrong numbers for the current Open Play
+// Nights feature. Not repaired: a correct open-play report now lives at
+// /dashboard/sales (services/open-play/open-play-sales.service.ts), which
+// reads the real PlayerTab/GameAssignment/Sale data this feature actually
+// produces.
 
 // --- Tournament report -------------------------------------------------------
 
@@ -209,29 +205,6 @@ export class ReportingService {
     }
 
     return Array.from(byCourt.values()).sort((a, b) => b.bookedHours - a.bookedHours);
-  }
-
-  async getOpenPlayReport(range: DateRange): Promise<OpenPlayReportRow[]> {
-    const sessions = await prisma.openPlaySession.findMany({
-      where: { startAt: { gte: range.from, lte: range.to } },
-      include: {
-        registrations: { select: { status: true } },
-        matches: { select: { id: true } },
-      },
-      orderBy: { startAt: "desc" },
-      take: 500,
-    });
-
-    return sessions.map((session) => ({
-      id: session.id,
-      sessionReference: session.sessionReference,
-      title: session.title,
-      startAt: session.startAt,
-      status: session.status,
-      registrationsCount: session.registrations.length,
-      checkedInCount: session.registrations.filter((r) => r.status === "CHECKED_IN").length,
-      matchesPlayed: session.matches.length,
-    }));
   }
 
   async getTournamentReport(range: DateRange): Promise<TournamentReportRow[]> {

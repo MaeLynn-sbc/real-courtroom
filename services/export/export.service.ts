@@ -4,7 +4,6 @@ import type {
   EquipmentRentalReportRow,
   LockerRentalReportRow,
   MembershipReportRow,
-  OpenPlayReportRow,
   SalesByCategoryRow,
   SalesByPaymentMethodRow,
   TournamentReportRow,
@@ -65,15 +64,9 @@ export const REPORT_CSV_COLUMNS = {
     { header: "Bookings", value: (r: CourtUtilizationRow) => r.bookingsCount },
     { header: "Booked Hours", value: (r: CourtUtilizationRow) => r.bookedHours.toFixed(2) },
   ] satisfies CsvColumn<CourtUtilizationRow>[],
-  openPlay: [
-    { header: "Session Reference", value: (r: OpenPlayReportRow) => r.sessionReference },
-    { header: "Title", value: (r: OpenPlayReportRow) => r.title },
-    { header: "Start", value: (r: OpenPlayReportRow) => r.startAt },
-    { header: "Status", value: (r: OpenPlayReportRow) => r.status },
-    { header: "Registrations", value: (r: OpenPlayReportRow) => r.registrationsCount },
-    { header: "Checked In", value: (r: OpenPlayReportRow) => r.checkedInCount },
-    { header: "Matches Played", value: (r: OpenPlayReportRow) => r.matchesPlayed },
-  ] satisfies CsvColumn<OpenPlayReportRow>[],
+  // "openPlay" removed here (Phase 7 review) — see report.schema.ts's
+  // comment. Open play revenue exports would belong at /dashboard/sales,
+  // not this report switch.
   tournament: [
     { header: "Tournament", value: (r: TournamentReportRow) => r.name },
     { header: "Status", value: (r: TournamentReportRow) => r.status },

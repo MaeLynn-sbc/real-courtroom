@@ -8,10 +8,16 @@ export const dateRangeSchema = z.object({
 
 export type DateRangeInput = z.infer<typeof dateRangeSchema>;
 
+// "openPlay" was removed here (Phase 7 review) — it read from the old,
+// dormant OpenPlaySession model and rendered plausible-looking but wrong
+// numbers for the current Open Play Nights feature. Open play revenue now
+// lives at /dashboard/sales (services/open-play/open-play-sales.service.ts),
+// reading real PlayerTab/Sale data. Not repaired and not re-added under
+// this key — a correct open-play report belongs at /dashboard/sales, not
+// back in this switch.
 export const reportTypeSchema = z.enum([
   "booking",
   "courtUtilization",
-  "openPlay",
   "tournament",
   "membership",
   "equipmentRental",

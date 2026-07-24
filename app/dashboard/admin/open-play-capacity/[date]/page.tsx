@@ -4,15 +4,20 @@ import { notFound } from "next/navigation";
 
 import { buttonVariants } from "@/components/ui/button";
 import { CheckInPanel } from "@/features/open-play-capacity/components/checkin-panel";
+import { CloseSessionButton } from "@/features/open-play-capacity/components/close-session-button";
 import { RegistrationRosterPanel } from "@/features/open-play-capacity/components/registration-roster-panel";
 import { RotationBoard } from "@/features/open-play-capacity/components/rotation-board";
+import { TabsPanel } from "@/features/open-play-capacity/components/tabs-panel";
 import { WalkInRegistrationForm, type RegistrablePlayer } from "@/features/open-play-capacity/components/walk-in-registration-form";
+import type { PlayerTab } from "@/lib/generated/prisma/client";
 import type { GameAssignmentWithParticipants, RotationBoardData } from "@/services/open-play/open-play-rotation.service";
 import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { openPlayCheckinService } from "@/services/open-play/open-play-checkin.service";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
 import { openPlayRotationService } from "@/services/open-play/open-play-rotation.service";
+import { playerTabService } from "@/services/open-play/player-tab.service";
 import { playerService } from "@/services/player/player.service";
+import { saleService } from "@/services/sales/sale.service";
 
 export const metadata: Metadata = {
   title: "Open Play Night",
@@ -59,20 +64,30 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     // exist) the same way an owner setting a per-date override does —
     // "one per date, created on demand" (BUILD-SPEC.md §5).
     const session = await openPlayCapacityService.getOrCreateSessionForDate(date);
-    const [{ registrations, skillBreakdown }, { expected, checkedIn }, board] = await Promise.all([
+    const [{ registrations, skillBreakdown }, { expected, checkedIn }, board, tabs, paymentMethods] = await Promise.all([
       openPlayRegistrationService.getSessionRegistrations(session.id),
       openPlayCheckinService.getCheckInScreenData({ sessionId: session.id }),
       openPlayRotationService.getRotationBoardData(date),
+      playerTabService.listTabsForDate(date),
+      saleService.listPaymentMethods(),
     ]);
+    const hasUnsettledTabs = tabs.some((t) => t.status === "OPEN" && t.totalCents > 0);
 
     return (
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
-        <div>
-          <Link href="/dashboard/admin/open-play-capacity" className={buttonVariants({ variant: "ghost", size: "sm" })}>
-            ‹ Open Play Capacity
-          </Link>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">{labelFormatter.format(session.date)}</h1>
-          <p className="text-muted-foreground text-sm">Capacity {session.capacity}.</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <Link href="/dashboard/admin/open-play-capacity" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+              ‹ Open Play Capacity
+            </Link>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight">{labelFormatter.format(session.date)}</h1>
+            <p className="text-muted-foreground text-sm">
+              Capacity {session.capacity}. Status: {session.status}.
+            </p>
+          </div>
+          {session.status === "OPEN" ? (
+            <CloseSessionButton sessionId={session.id} disabled={hasUnsettledTabs} />
+          ) : null}
         </div>
 
         <WalkInRegistrationForm target={{ sessionId: session.id }} players={players} />
@@ -82,6 +97,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
         />
         <RegistrationRosterPanel registrations={registrations} skillBreakdown={skillBreakdown} capacity={session.capacity} />
         <RotationBoard {...serializeBoard(dateParam, board)} />
+        <TabsPanel tabs={serializeTabs(tabs)} paymentMethods={paymentMethods.map((pm) => ({ id: pm.id, label: pm.label }))} />
       </div>
     );
   }
@@ -89,9 +105,11 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
   // Weeknight — BUILD-SPEC.md §0: no capacity, no waitlist, no
   // prepayment. Registration is optional and uncapped; most players just
   // walk in.
-  const [{ expected, checkedIn }, board] = await Promise.all([
+  const [{ expected, checkedIn }, board, tabs, paymentMethods] = await Promise.all([
     openPlayCheckinService.getCheckInScreenData({ date }),
     openPlayRotationService.getRotationBoardData(date),
+    playerTabService.listTabsForDate(date),
+    saleService.listPaymentMethods(),
   ]);
 
   return (
@@ -107,8 +125,20 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
       <WalkInRegistrationForm target={{ date: dateParam }} players={players} showRegisterOnly={false} />
       <CheckInPanel expected={serializeRegistrations(expected)} checkedIn={serializeRegistrations(checkedIn)} />
       <RotationBoard {...serializeBoard(dateParam, board)} />
+      <TabsPanel tabs={serializeTabs(tabs)} paymentMethods={paymentMethods.map((pm) => ({ id: pm.id, label: pm.label }))} />
     </div>
   );
+}
+
+function serializeTabs(tabs: (PlayerTab & { totalCents: number; gamesPlayed: number })[]) {
+  return tabs.map((tab) => ({
+    id: tab.id,
+    playerName: tab.playerName,
+    status: tab.status,
+    totalCents: tab.totalCents,
+    gamesPlayed: tab.gamesPlayed,
+    settledVia: tab.settledVia,
+  }));
 }
 
 function serializeAssignment(assignment: GameAssignmentWithParticipants) {
@@ -138,6 +168,7 @@ function serializeBoard(dateParam: string, board: RotationBoardData) {
     waiting: board.waiting,
     resting: board.resting,
     maxWaitMinutes: board.maxWaitMinutes,
+    unfillableQueueReason: board.unfillableQueueReason,
   };
 }
 

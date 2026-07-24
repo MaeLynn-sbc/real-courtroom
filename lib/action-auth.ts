@@ -77,3 +77,29 @@ export async function requireEmployeeWithOpenShift(
 
   return { ok: true, userId: authz.userId, employeeId: employee.id, shiftId: openShift.id };
 }
+
+export type EmployeeAuthorizationResult =
+  | { ok: true; userId: string; employeeId: string }
+  | { ok: false; error: string };
+
+// Same Employee-lookup half as requireEmployeeWithOpenShift, without the
+// open-Shift requirement — for actions that need a real, attributable
+// employee (no anonymous action) but don't create a Sale, so there's no
+// technical reason to require a clocked-in shift (e.g. writing off a
+// tab — BUILD-SPEC.md §9's "no anonymous write-offs").
+export async function requireEmployee(
+  permission: PermissionKey,
+  deniedMessage: string,
+): Promise<EmployeeAuthorizationResult> {
+  const authz = await requirePermission(permission, deniedMessage);
+  if (!authz.ok) {
+    return authz;
+  }
+
+  const employee = await prisma.employee.findUnique({ where: { userId: authz.userId } });
+  if (!employee) {
+    return { ok: false, error: "No employee profile is linked to this account." };
+  }
+
+  return { ok: true, userId: authz.userId, employeeId: employee.id };
+}

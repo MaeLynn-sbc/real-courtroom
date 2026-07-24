@@ -36,6 +36,7 @@ export interface CreateSaleInput {
   lockerRentalId?: string;
   tournamentRegistrationId?: string;
   productId?: string;
+  playerTabId?: string;
   description?: string;
   notes?: string;
 }
@@ -114,6 +115,7 @@ export class SaleService {
         lockerRentalId: input.lockerRentalId,
         tournamentRegistrationId: input.tournamentRegistrationId,
         productId: input.productId,
+        playerTabId: input.playerTabId,
         description: input.description,
         notes: input.notes,
       },

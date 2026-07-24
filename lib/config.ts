@@ -57,6 +57,7 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Audit Logs", href: "/dashboard/admin/audit-logs" },
       { title: "Settings", href: "/dashboard/admin/settings" },
       { title: "Reports", href: "/dashboard/reports" },
+      { title: "Sales", href: "/dashboard/sales" },
       { title: "Analytics", href: "/dashboard/analytics" },
       { title: "Announcements", href: "/dashboard/announcements" },
       { title: "Diagnostics", href: "/dashboard/admin/diagnostics" },

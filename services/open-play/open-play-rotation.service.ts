@@ -10,6 +10,7 @@ import type {
 } from "@/lib/generated/prisma/client";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
+import { playerTabService } from "@/services/open-play/player-tab.service";
 import { settingsService } from "@/services/settings/settings.service";
 import { OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 
@@ -55,13 +56,15 @@ interface QueueUnitMember {
 interface QueueUnit {
   partyId: string | null;
   members: QueueUnitMember[];
-  // BUILD-SPEC.md §7 "Party wait time is the earliest join time among its
-  // members" — deliberately NOT QueueEntry.joinedQueueAt, which §6 sets to
-  // the LAST member's check-in (see schema.prisma's OpenPlayNightRegistration
-  // comment). Both are correct for their own purpose: joinedQueueAt gates
-  // "can this party enter the queue at all," effectiveWaitStart governs
-  // "whose turn is it." For a solo unit the two are identical, since a solo
-  // QueueEntry's joinedQueueAt is set from the same checkedInAt at creation.
+  // QueueEntry.joinedQueueAt directly — the LAST member's check-in for a
+  // party (§6), i.e. the moment the party actually became playable. An
+  // earlier "earliest member" version of this used to leapfrog solos who
+  // were playable the whole time a party was still assembling: a party
+  // isn't playable until everyone's arrived, so it can't have been
+  // "waiting to play" before then. §5's waitlist rule (earliest member)
+  // answers a different question — claiming a capacity seat, not turn
+  // order in a live rotation — and stays separate; see BUILD-SPEC.md §7.
+  // For a solo unit this is simply its own check-in time.
   effectiveWaitStart: Date;
   // Own skill level for a solo unit; the party's AVERAGE skill order (§7
   // "Skill matching uses the party's average skill") for a party unit.
@@ -100,12 +103,17 @@ export interface RotationBoardData {
   // back in (markWaitingAgain), the only reverse path out of RESTING.
   resting: RotationBoardRestingPlayer[];
   maxWaitMinutes: number;
+  // Non-null only when a court is actually free AND 4+ players are
+  // waiting AND no valid foursome can currently be assembled from them —
+  // e.g. two parties of 3 with no solos. Parties never split, so this is
+  // a real deadlock, not "not enough people yet" (which is simply not
+  // reported here — that's the normal, unremarkable idle state).
+  unfillableQueueReason: string | null;
 }
 
 async function fetchWaitingUnits(date: Date): Promise<QueueUnit[]> {
   const entries = await prisma.queueEntry.findMany({
     where: { date, status: "WAITING" },
-    include: { registration: { select: { checkedInAt: true } } },
     orderBy: { joinedQueueAt: "asc" },
   });
 
@@ -146,10 +154,9 @@ async function fetchWaitingUnits(date: Date): Promise<QueueUnit[]> {
       logger.error({ partyId, size: group.length, date }, "Party larger than 4 in rotation queue — excluding from proposals");
       continue;
     }
-    const earliestCheckIn = group.reduce<Date>((earliest, entry) => {
-      const checkedInAt = entry.registration.checkedInAt ?? entry.joinedQueueAt;
-      return checkedInAt < earliest ? checkedInAt : earliest;
-    }, group[0].registration.checkedInAt ?? group[0].joinedQueueAt);
+    // All members of a party share the same joinedQueueAt — created
+    // together, in the same transaction, the moment the last member
+    // checked in (§6) — so any member's value is the party's.
     const averageSkill = group.reduce((sum, entry) => sum + skillOrder(entry.skillLevel), 0) / group.length;
 
     partyUnits.push({
@@ -161,7 +168,7 @@ async function fetchWaitingUnits(date: Date): Promise<QueueUnit[]> {
         skillLevel: entry.skillLevel,
         sessionId: entry.sessionId,
       })),
-      effectiveWaitStart: earliestCheckIn,
+      effectiveWaitStart: group[0].joinedQueueAt,
       effectiveSkill: averageSkill,
     });
   }
@@ -197,13 +204,89 @@ function pairingCountBetweenUnits(
   return total;
 }
 
+// Pure assembly logic shared by proposeNextAssignment (which then persists
+// the result) and checkQueueFillability (which only needs to know whether
+// it *would* succeed, to warn staff before they even try). Returns null if
+// there aren't 4 waiting players, or if the available units can't be
+// packed into exactly 4 seats even after widening to any skill level —
+// e.g. two parties of 3 and no solos: 6 people waiting, but neither party
+// fits into the other's single remaining seat, and parties are never
+// split. That specific shape is a real deadlock, not a rare edge case —
+// see checkQueueFillability, which is what surfaces it to staff.
+async function assembleFoursome(
+  units: QueueUnit[],
+  settings: { skillWindow: number },
+  date: Date,
+): Promise<{ anchor: QueueUnit; selected: QueueUnit[] } | null> {
+  const totalWaiting = units.reduce((sum, unit) => sum + unit.members.length, 0);
+  if (totalWaiting < 4) {
+    return null;
+  }
+
+  // Step 1: anchor — the unit waiting longest. Never highest skill, never
+  // random (§7). Because this always picks the single oldest
+  // effectiveWaitStart across every waiting unit, on every call, the
+  // starvation guard (§7 step 4: nobody waits past maxWaitMinutes) holds
+  // by construction — whichever player has waited longest is always the
+  // next one anchored, regardless of skill fit. See
+  // open-play-rotation.integration.ts for the required test.
+  const sortedByWait = [...units].sort(
+    (a, b) => a.effectiveWaitStart.getTime() - b.effectiveWaitStart.getTime(),
+  );
+  const anchor = sortedByWait[0];
+
+  if (anchor.members.length > 4) {
+    throw new Error(`Anchor unit has ${anchor.members.length} members — doubles only, max 4.`);
+  }
+
+  let remainingSeats = 4 - anchor.members.length;
+  const selected: QueueUnit[] = [];
+
+  if (remainingSeats > 0) {
+    const pairingCounts = await fetchRecentPairingCounts(date);
+    let pool = sortedByWait.filter((unit) => unit !== anchor);
+
+    // Step 2/3: candidates within skill distance 1 of the anchor, ranked
+    // by wait time — widen to distance 2, then any level, so a court
+    // never sits idle for a "perfect" match (§7 step 3). Step 5 (repeat
+    // softening) breaks ties within a tier: among units at the same
+    // widening distance, prefer ones without a recent pairing against the
+    // anchor before falling back to wait time — a soft tiebreak only,
+    // never a reason to skip a longer-waiting candidate for a shorter
+    // one it just hasn't recently played.
+    const tiers = [settings.skillWindow, settings.skillWindow + 1, Infinity];
+    for (const maxDistance of tiers) {
+      if (remainingSeats === 0) break;
+
+      const eligible = pool
+        .filter((unit) => Math.abs(unit.effectiveSkill - anchor.effectiveSkill) <= maxDistance)
+        .sort((a, b) => {
+          const pairingA = pairingCountBetweenUnits(anchor, a, pairingCounts);
+          const pairingB = pairingCountBetweenUnits(anchor, b, pairingCounts);
+          if (pairingA !== pairingB) return pairingA - pairingB;
+          return a.effectiveWaitStart.getTime() - b.effectiveWaitStart.getTime();
+        });
+
+      for (const unit of eligible) {
+        if (unit.members.length > remainingSeats) continue;
+        selected.push(unit);
+        remainingSeats -= unit.members.length;
+        pool = pool.filter((u) => u !== unit);
+        if (remainingSeats === 0) break;
+      }
+    }
+  }
+
+  if (remainingSeats > 0) {
+    // Could not pack exactly 4 seats from the available unit shapes.
+    return null;
+  }
+
+  return { anchor, selected };
+}
+
 export class OpenPlayRotationService {
-  // BUILD-SPEC.md §7 "Auto-pairing." Called when a court frees up. Returns
-  // null if there aren't at least 4 waiting players, or if the available
-  // units can't be packed into exactly 4 seats even after widening to any
-  // skill level (a rare shape mismatch — e.g. 1 seat left, only a party of
-  // 2 remains — documented as a known limitation rather than forcing a
-  // wrong-sized game).
+  // BUILD-SPEC.md §7 "Auto-pairing." Called when a court frees up.
   async proposeNextAssignment(
     date: Date,
     courtId: string,
@@ -212,72 +295,12 @@ export class OpenPlayRotationService {
     const settings = await settingsService.getOpenPlaySettings();
     const units = await fetchWaitingUnits(date);
 
-    const totalWaiting = units.reduce((sum, unit) => sum + unit.members.length, 0);
-    if (totalWaiting < 4) {
+    const result = await assembleFoursome(units, settings, date);
+    if (!result) {
       return null;
     }
 
-    // Step 1: anchor — the unit waiting longest. Never highest skill, never
-    // random (§7). Because this always picks the single oldest
-    // effectiveWaitStart across every waiting unit, on every call, the
-    // starvation guard (§7 step 4: nobody waits past maxWaitMinutes) holds
-    // by construction — whichever player has waited longest is always the
-    // next one anchored, regardless of skill fit. See
-    // open-play-rotation.starvation.integration.ts for the required test.
-    const sortedByWait = [...units].sort(
-      (a, b) => a.effectiveWaitStart.getTime() - b.effectiveWaitStart.getTime(),
-    );
-    const anchor = sortedByWait[0];
-
-    if (anchor.members.length > 4) {
-      throw new Error(`Anchor unit has ${anchor.members.length} members — doubles only, max 4.`);
-    }
-
-    let remainingSeats = 4 - anchor.members.length;
-    const selected: QueueUnit[] = [];
-
-    if (remainingSeats > 0) {
-      const pairingCounts = await fetchRecentPairingCounts(date);
-      let pool = sortedByWait.filter((unit) => unit !== anchor);
-
-      // Step 2/3: candidates within skill distance 1 of the anchor, ranked
-      // by wait time — widen to distance 2, then any level, so a court
-      // never sits idle for a "perfect" match (§7 step 3). Step 5 (repeat
-      // softening) breaks ties within a tier: among units at the same
-      // widening distance, prefer ones without a recent pairing against the
-      // anchor before falling back to wait time — a soft tiebreak only,
-      // never a reason to skip a longer-waiting candidate for a shorter
-      // one it just hasn't recently played.
-      const tiers = [settings.skillWindow, settings.skillWindow + 1, Infinity];
-      for (const maxDistance of tiers) {
-        if (remainingSeats === 0) break;
-
-        const eligible = pool
-          .filter((unit) => Math.abs(unit.effectiveSkill - anchor.effectiveSkill) <= maxDistance)
-          .sort((a, b) => {
-            const pairingA = pairingCountBetweenUnits(anchor, a, pairingCounts);
-            const pairingB = pairingCountBetweenUnits(anchor, b, pairingCounts);
-            if (pairingA !== pairingB) return pairingA - pairingB;
-            return a.effectiveWaitStart.getTime() - b.effectiveWaitStart.getTime();
-          });
-
-        for (const unit of eligible) {
-          if (unit.members.length > remainingSeats) continue;
-          selected.push(unit);
-          remainingSeats -= unit.members.length;
-          pool = pool.filter((u) => u !== unit);
-          if (remainingSeats === 0) break;
-        }
-      }
-    }
-
-    if (remainingSeats > 0) {
-      // Could not pack exactly 4 seats from the available unit sizes —
-      // known limitation, see class doc comment above.
-      return null;
-    }
-
-    const participantUnits = [anchor, ...selected];
+    const participantUnits = [result.anchor, ...result.selected];
     const participantMembers = participantUnits.flatMap((unit) => unit.members);
     const skillLevels = participantMembers.map((member) => skillOrder(member.skillLevel));
     const skillSpread = Math.max(...skillLevels) - Math.min(...skillLevels);
@@ -451,6 +474,16 @@ export class OpenPlayRotationService {
         }
       }
 
+      // BUILD-SPEC.md §9 "Every GameAssignment reaching status done credits
+      // one game to each of its 4 players" — billed here, in the same
+      // transaction as the DONE transition, so a game can't be marked done
+      // without being billed (or vice versa). A cancelled assignment never
+      // reaches this code, satisfying §9 correctness #4 ("voided
+      // assignments credit no games and bill nothing") by construction.
+      for (const registrationId of registrationIds) {
+        await playerTabService.creditGame(registrationId, assignmentId, tx);
+      }
+
       return tx.gameAssignment.update({
         where: { id: assignmentId },
         data: { status: "DONE", endedAt: now },
@@ -559,7 +592,21 @@ export class OpenPlayRotationService {
       skillLevel: entry.skillLevel,
     }));
 
-    return { courts: boardCourts, waiting, resting, maxWaitMinutes: settings.maxWaitMinutes };
+    const hasIdleCourt = boardCourts.some((c) => !c.active && !c.proposed);
+    const totalWaiting = units.reduce((sum, unit) => sum + unit.members.length, 0);
+    let unfillableQueueReason: string | null = null;
+    if (hasIdleCourt && totalWaiting >= 4) {
+      const assembled = await assembleFoursome(units, settings, date);
+      if (!assembled) {
+        const partyCount = units.filter((u) => u.partyId !== null).length;
+        unfillableQueueReason =
+          partyCount > 0
+            ? `${totalWaiting} players waiting, but they don't combine into a group of exactly 4 — parties are never split. Use manual override, or ask a party to split.`
+            : `${totalWaiting} players waiting, but no group of exactly 4 could be assembled.`;
+      }
+    }
+
+    return { courts: boardCourts, waiting, resting, maxWaitMinutes: settings.maxWaitMinutes, unfillableQueueReason };
   }
 
   private async createAssignment(
