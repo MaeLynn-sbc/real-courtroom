@@ -162,6 +162,30 @@ quietly drift on a real deployment:
    and asserts the database agrees it's a Friday when read back through
    the exact expression migration 12 uses.
 
+### Process rule: dropping a database guarantee requires its proof, same commit
+
+A database-level guarantee (a unique constraint, a foreign key, a CHECK)
+may not be dropped in a commit that does not **also** contain the
+passing, failure-proven test for whatever replaces it. "Failure-proven"
+means the test was run against the code *without* the replacement and
+observed to fail, before being run against the code *with* it and
+observed to pass — not just written and immediately green.
+
+This is not a hypothetical precaution. `2d6e6c6` dropped
+`TabLineItem`'s unique constraint on `(tabId, gameAssignmentId)` (to let
+a voided game credit be re-credited — see §9's `voidsLineItemId`) and
+replaced it with an application-level check inside `creditGame`,
+without a concurrency test proving that check was still safe. It
+wasn't: the very next review round found `completeAssignment` could run
+10 times concurrently for one assignment with nothing serializing the
+calls, credit the game repeatedly, and only luck in that one test run
+kept the credit itself from actually duplicating (two *other* side
+effects — `QueueEntry.gamesPlayed` and `RecentPairing.gameCount` — did
+duplicate, 10x, every run). The fix (`open-play-rotation.service.ts`'s
+`FOR UPDATE` lock) and its test (`player-tab.concurrency.integration.ts`)
+landed a full commit later, only because the review process caught it.
+Under this rule, they would have been required in `2d6e6c6` itself.
+
 ---
 
 ## 1. Three displays
@@ -558,6 +582,29 @@ Triggered when a court frees up.
    recently paired with the anchor. Soft tiebreak only; never delay a
    game to avoid a repeat.
 
+**Which of these depends on serialized writes — checked precisely, not
+assumed (review correction):** step 4's starvation guard reads only
+`joinedQueueAt`/wait time — it does not read `RecentPairing` or
+`QueueEntry.gamesPlayed` at all, so corrupting either does **not**
+defeat the no-starvation guarantee. What step 5's repeat-softening
+*does* depend on is `RecentPairing.gameCount` — confirmed a real
+algorithm input (`fetchRecentPairingCounts`/`pairingCountBetweenUnits`
+in `open-play-rotation.service.ts`). The concurrency bug found in this
+session's review (unserialized `completeAssignment` calls incrementing
+it 10x instead of once) would silently bias which candidate gets
+preferred in a tie, not cause starvation. `QueueEntry.gamesPlayed`,
+also found inflated 10x by the same bug, is currently **write-only** —
+grepped, not assumed: nothing reads it, not the pairing algorithm, not
+the RotationBoard, not the Tabs panel (which independently derives its
+own "games played" from `GameAssignmentParticipant` DONE counts, a
+different and correctly-derived value — see §9). Its corruption has no
+functional consequence today. It's still worth keeping correct, since
+`completeAssignment`'s `FOR UPDATE` lock protects it for free in the
+same transaction as `RecentPairing` — there's no reason to leave it
+wrong just because nothing currently reads it, since that's exactly
+the kind of latent trap that bites whoever adds a read path later
+without knowing the field was never trustworthy.
+
 **Unfillable queue — a real deadlock, not just "not enough people yet."**
 Parties never split, so two parties of 3 with no solos waiting cannot
 combine into a foursome no matter how far skill widens — 6 people
@@ -930,10 +977,58 @@ inserted's own columns. This is safe **only because** its one caller,
 *different* method than the one relying on it — documented here and in
 both methods' code comments specifically so it doesn't get silently
 invalidated by a future second caller of `creditGame` that doesn't
-take the same lock. Proven live, not just reasoned about: it failed
-10/10 (every concurrent call succeeded, minting 10 credits) before the
-lock existed, and passes after
-(`player-tab.concurrency.integration.ts`).
+take the same lock.
+
+**Full blast radius, investigated (not just the credit) — the lock
+fixed three confirmed corruptions, not one.** With the lock disabled,
+10 concurrent `completeAssignment` calls against one `ACTIVE`
+assignment: all 10 "succeeded" (the core invariant — DONE happens
+exactly once — was already broken). Checking every side effect that
+transaction body performs, not just the one the original test happened
+to assert on:
+- `QueueEntry.gamesPlayed` — incremented **10 times per player**
+  instead of once (confirmed: landed at 10, not 1).
+- `RecentPairing.gameCount` — incremented **10 times per pair**
+  instead of once (confirmed: landed at 10, not 1, for all 6 pairs).
+- `TabLineItem` GAME credits — did **not** actually double in this
+  specific investigation (landed at 1 per participant, correctly,
+  across three repeated runs) — likely because `completeAssignment`
+  does substantial sequential DB work (`queueEntry.updateMany`, six
+  `recentPairing.upsert` calls) *before* reaching `creditGame`, giving
+  the 10 concurrent transactions time to commit and become visible to
+  each other's check-then-insert before most of them got there. **This
+  is not a safety guarantee** — it's this test harness's timing, not a
+  property of the code, and the code as it stood was genuinely
+  vulnerable to a duplicate credit by the same reasoning that produced
+  the other two confirmed duplications. Treat it as "didn't reproduce
+  this run," not "wasn't a bug."
+- `GameAssignment.status` — ends at `DONE` correctly either way (10
+  redundant writes to the same row, but the final value happens to be
+  right), so this one is invisible from final-state inspection alone.
+
+With the lock restored: all three (gamesPlayed, RecentPairing,
+credits) land at exactly 1, every time, confirmed by re-running the
+same investigation. See `player-tab.concurrency.integration.ts` for the
+committed regression test (asserts the credit and the fulfilled/
+rejected split; the gamesPlayed/RecentPairing inflation was confirmed
+via a throwaway investigation script, not a permanent test, since the
+lock protects the entire transaction body identically — a second,
+narrower test would not catch anything the first doesn't already
+guard against).
+
+**What the losing calls return.** Before this fix, a losing concurrent
+`completeAssignment` call threw a plain `Error`, which surfaced to
+staff as an error toast — including for the ordinary case of a
+double-tap on a slow connection, which is not actually an error. Fixed
+with a distinct `AssignmentAlreadyCompletedError` (same named-error
+precedent as `shift.service.ts`'s `ShiftAlreadyOpenError`), thrown only
+when the assignment is already `DONE` — `completeAssignmentAction`
+catches this one specifically and returns a benign no-op (`{error:
+null}`, logged server-side, no toast) instead of routing it through the
+generic error path. A `PROPOSED` or `CANCELLED` assignment still throws
+a real error — that's genuine misuse, not a benign race. Verified live:
+a rapid double-click on "Complete game" in a real browser produces no
+error toast.
 
 Tests: 3 games + 1 paddle == ₱125; a voided game reduces the tab; a
 Fri/Sat player with 6 games owes ₱0; closing a session with an open
@@ -1281,6 +1376,93 @@ These are the things that will break in production if skipped.
     player who was playable the whole time. (The Fri/Sat *waitlist*
     seat order, §5, is the opposite — earliest member — because that's
     about claiming a seat, not turn order in a live rotation.)
+
+### Concurrency audit (Phase 7 review — mapped, not yet patched)
+
+Three guards existed by this point — `lockSessionRow` (§5),
+settlement's status-guarded `updateMany` (§9), `completeAssignment`'s
+row lock (§9) — each found one at a time, by accident, after something
+broke. This audit covers every open-play service method that
+transitions a status, moves money, or mutates the rotation queue,
+checked against the actual code, not assumed. **Findings below are
+mapped only — none are fixed yet.** Ranked by real-world severity for
+Phase 8 triage:
+
+**Serious — plausible in normal staff use, real corruption or data loss:**
+- `proposeNextAssignment` — the waiting-players read and the
+  assignment-creating write run in *separate* transactions. Two
+  concurrent proposals (even for two different courts) can read the
+  same waiting pool before either writes; nothing stops the same
+  registration from becoming a participant in two simultaneous
+  `GameAssignment`s. No constraint prevents a registration appearing in
+  more than one non-terminal assignment.
+- `cancelAssignment` — does not take the same `FOR UPDATE` lock
+  `completeAssignment` does. A `cancelAssignment` call can block on
+  that lock, then — once unblocked — write `CANCELLED` over a
+  freshly-committed `DONE` using its own stale pre-lock read, even
+  though the game was already credited and billed. The historical
+  record ends up mislabeled despite being paid and completed.
+- `releaseRegistration` (backs `cancelRegistration`/`markNoShow`/
+  `markCheckedOut`, so also `markDone`) — locks the *session* row, but
+  the registration's own `status`/`waitlistPos` (used to decide whether
+  to promote the waitlist) are read *before* that lock and never
+  re-validated after acquiring it. Two concurrent releases of the
+  *same* registration can each compute "this freed a seat" from stale
+  data and both run the promotion block — over-promoting the waitlist
+  for one freed seat.
+- `closeSession` — the "no open tabs" check and the status write are
+  not atomic. A tab can become non-zero in the gap between them,
+  letting a session close with real money still outstanding.
+- `checkIn` (party path) — two members of the same party checking in
+  at the same instant can each read a `partyMembers` snapshot that
+  doesn't yet include the other's uncommitted arrival. Both conclude
+  "not everyone's here" and neither creates queue entries — the party
+  silently never enters the queue, with no error and no retry.
+- `addRentalLineItem` / `addAdjustment` / `voidLineItem` — the
+  tab-is-`OPEN` check is a plain read, not inside `settleTab`'s atomic
+  update. A charge added in that window can land after a racing
+  settlement already computed its total — recorded as a line item, but
+  never billed, silently.
+
+**Lower severity — throws instead of corrupting, or genuinely
+low-likelihood:**
+- `checkIn` (solo path) / `getOrCreateTab` — protected against
+  duplicate rows by real unique constraints
+  (`QueueEntry.registrationId`, `PlayerTab.registrationId`), but the
+  losing concurrent call gets an unhandled database error, not the
+  graceful "already checked in" no-op the sequential double-tap path
+  already provides.
+- `getOrCreateSessionForDate` — same shape: protected by
+  `OpenPlayNightSession.date`'s unique constraint, loser throws
+  unhandled. Owner-only and rare to trigger concurrently.
+
+**Unprotected but effectively harmless — no corruption results:**
+- `confirmAssignment`, `cancelAssignmentTx` (racing only against
+  another cancel, not against `completeAssignment`), `markResting`,
+  `markWaitingAgain` — each ends at the same status regardless of how
+  many concurrent callers race, and none duplicates a side effect (no
+  money, no queue-position, no credit). A double-call is redundant
+  work, not wrong data.
+
+**Not applicable — no shared invariant to protect:**
+- `registerWeeknightWalkIn` (uncapped by design, no capacity to race
+  over), `setCapacityDefault`/`setSessionCapacityOverride` (settings
+  values — last-write-wins is the expected behavior for an admin
+  field, not corruption).
+
+**Protected, confirmed:**
+- `registerWalkIn`, `releaseRegistration`'s session-level serialization
+  — `lockSessionRow` (§5's named technique).
+- `completeAssignment`, and `creditGame` by extension (only because its
+  one caller holds the same lock — see that method's comment) — `FOR
+  UPDATE` on `GameAssignment` (§9, this review round).
+- `settleTab`, `writeOffTab` — status-guarded `updateMany` (§9, prior
+  review round).
+
+**Out of scope for this audit:** `booking.service.ts` and other
+pre-Phase-4 modules use their own, already-reviewed pattern
+(Serializable isolation + P2034 retry) — not re-audited here since this
+pass is scoped to the open-play services this session's phases built.
 
 ---
 

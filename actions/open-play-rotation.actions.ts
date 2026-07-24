@@ -14,7 +14,8 @@ import {
 } from "@/features/open-play-capacity/schemas/open-play-rotation.schema";
 import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
-import { openPlayRotationService } from "@/services/open-play/open-play-rotation.service";
+import { logger } from "@/lib/logger";
+import { AssignmentAlreadyCompletedError, openPlayRotationService } from "@/services/open-play/open-play-rotation.service";
 import { PERMISSIONS } from "@/types/permissions";
 
 export interface OpenPlayRotationActionState {
@@ -141,6 +142,16 @@ export async function completeAssignmentAction(input: AssignmentIdInput): Promis
     revalidateRotation();
     return { error: null };
   } catch (error) {
+    // A double-tap or a losing concurrent call must be benign at the UI
+    // boundary — the game genuinely did get completed, just not by this
+    // exact call. Logged (not silently swallowed) so it's still visible
+    // server-side, but the staff member sees a normal refresh, not an
+    // error toast for something that isn't actually wrong.
+    if (error instanceof AssignmentAlreadyCompletedError) {
+      logger.info({ assignmentId: parsed.data.assignmentId, userId: authz.userId }, "completeAssignmentAction: already completed, no-op");
+      revalidateRotation();
+      return { error: null };
+    }
     return { error: toActionError(error, { action: "completeAssignmentAction", userId: authz.userId }) };
   }
 }

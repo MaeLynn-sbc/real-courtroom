@@ -285,6 +285,19 @@ async function assembleFoursome(
   return { anchor, selected };
 }
 
+// Distinct from a generic "invalid state" error — a staff member
+// double-tapping "complete" (or a slow connection retrying) is expected
+// to hit this, not a real bug. Same named-error precedent as
+// shift.service.ts's ShiftAlreadyOpenError. The action layer catches this
+// specifically and returns a benign no-op instead of an error toast — see
+// completeAssignmentAction.
+export class AssignmentAlreadyCompletedError extends Error {
+  constructor(assignmentId: string) {
+    super(`Assignment ${assignmentId} was already completed.`);
+    this.name = "AssignmentAlreadyCompletedError";
+  }
+}
+
 export class OpenPlayRotationService {
   // BUILD-SPEC.md §7 "Auto-pairing." Called when a court frees up.
   async proposeNextAssignment(
@@ -474,6 +487,13 @@ export class OpenPlayRotationService {
         where: { id: assignmentId },
         include: { participants: true },
       });
+      // DONE specifically is the benign case — a double-tap or a losing
+      // concurrent call after the lock above forces the rest to wait and
+      // re-read. PROPOSED/CANCELLED are genuine misuse (completing a game
+      // that was never confirmed, or was called off) and stay a real error.
+      if (assignment.status === "DONE") {
+        throw new AssignmentAlreadyCompletedError(assignmentId);
+      }
       if (assignment.status !== "ACTIVE") {
         throw new Error(`Only an active assignment can be completed (current status: ${assignment.status}).`);
       }

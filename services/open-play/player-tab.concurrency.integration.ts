@@ -45,6 +45,12 @@ async function cleanUp(): Promise<void> {
   await prisma.sale.deleteMany({ where: { playerTabId: { in: tabIds } } });
   await prisma.tabLineItem.deleteMany({ where: { tabId: { in: tabIds } } });
   await prisma.playerTab.deleteMany({ where: { id: { in: tabIds } } });
+  // Was missing (review finding) — completeAssignment writes RecentPairing
+  // too, so every run of this test (including the original unlocked run
+  // that produced 10x-inflated gameCount rows) left them behind
+  // permanently, since each run uses fresh registrationIds that never
+  // collide with earlier rows via the upsert's composite key.
+  await prisma.recentPairing.deleteMany({ where: { date: TEST_DATE } });
   await prisma.gameAssignmentParticipant.deleteMany({ where: { registrationId: { in: ids } } });
   await prisma.gameAssignment.deleteMany({ where: { date: TEST_DATE } });
   await prisma.queueEntry.deleteMany({ where: { date: TEST_DATE } });
