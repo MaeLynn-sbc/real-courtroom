@@ -383,11 +383,23 @@ async function main(): Promise<void> {
     throw new Error("Member role was not seeded.");
   }
 
+  // Deploy prep (BUILD-SPEC.md §0 process rule): `update` must NEVER
+  // include `passwordHash`. This upsert runs on every seed invocation —
+  // that's what makes the rest of this script safely idempotent — but a
+  // credential is not like a role assignment or a catalog row. If an
+  // operator bootstraps production with this well-known password, logs
+  // in, and changes it (as DEPLOYMENT.md instructs), a second seed run
+  // — deliberate or accidental, e.g. a redeploy pipeline that re-runs
+  // this script with ALLOW_PROD_SEED still set from the bootstrap run —
+  // would silently revert the real password back to this public,
+  // known value. The password is set ONLY in `create`, i.e. only on a
+  // database that has never had this Owner row before.
+  const ownerExistedAlready = Boolean(await prisma.user.findUnique({ where: { email: OWNER_SEED_EMAIL } }));
   const passwordHash = await bcrypt.hash(OWNER_SEED_PASSWORD, 12);
 
   const ownerUser = await prisma.user.upsert({
     where: { email: OWNER_SEED_EMAIL },
-    update: { passwordHash, roleId: ownerRole.id, username: OWNER_SEED_USERNAME },
+    update: { roleId: ownerRole.id },
     create: {
       email: OWNER_SEED_EMAIL,
       name: "Courtroom Owner",
@@ -421,52 +433,72 @@ async function main(): Promise<void> {
     create: { scope: "EMPLOYEE", value: 1 },
   });
 
-  logger.info(
-    { username: OWNER_SEED_USERNAME, password: OWNER_SEED_PASSWORD },
-    "Seeded Owner login for local development — change this password before going to production",
-  );
-
-  const receptionistRole = roleByName.get(SYSTEM_ROLES.RECEPTIONIST);
-  if (!receptionistRole) {
-    throw new Error("Receptionist role was not seeded.");
+  if (ownerExistedAlready) {
+    logger.info(
+      { username: OWNER_SEED_USERNAME },
+      "Owner account already exists — password left untouched",
+    );
+  } else {
+    logger.info(
+      { username: OWNER_SEED_USERNAME, password: OWNER_SEED_PASSWORD },
+      "Seeded Owner login — change this password immediately after first login",
+    );
   }
 
-  const staffPasswordHash = await bcrypt.hash(STAFF_SEED_PASSWORD, 12);
+  // Deploy prep (BUILD-SPEC.md §0 process rule): this is dev/test fixture
+  // data — a known-password login and (further below) a pile of fake
+  // players — never data a real production database should carry.
+  // ALLOW_PROD_SEED only opts into the Owner bootstrap above; it was
+  // never meant to also opt into a second, undocumented known-password
+  // account. Gated on NODE_ENV directly, independent of ALLOW_PROD_SEED,
+  // so there is no flag combination that lets this reach production —
+  // the equivalent of this session's dev-database pairing-history
+  // poisoning incident, but for a real credential instead of test data.
+  if (env.NODE_ENV !== "production") {
+    const receptionistRole = roleByName.get(SYSTEM_ROLES.RECEPTIONIST);
+    if (!receptionistRole) {
+      throw new Error("Receptionist role was not seeded.");
+    }
 
-  const staffUser = await prisma.user.upsert({
-    where: { email: STAFF_SEED_EMAIL },
-    update: { passwordHash: staffPasswordHash, roleId: receptionistRole.id, username: STAFF_SEED_USERNAME },
-    create: {
-      email: STAFF_SEED_EMAIL,
-      name: "Test Receptionist",
-      username: STAFF_SEED_USERNAME,
-      passwordHash: staffPasswordHash,
-      roleId: receptionistRole.id,
-    },
-  });
+    const staffPasswordHash = await bcrypt.hash(STAFF_SEED_PASSWORD, 12);
 
-  const existingStaffEmployee = await prisma.employee.findUnique({
-    where: { userId: staffUser.id },
-  });
-  if (!existingStaffEmployee) {
-    // Same shared atomic counter employeeService.createEmployee() uses —
-    // avoids colliding with employeeNumbers already assigned to real
-    // employees created live through the Employees admin workspace.
-    const sequence = await nextSequence("EMPLOYEE");
-    await prisma.employee.create({
-      data: {
-        userId: staffUser.id,
-        employeeNumber: formatEmployeeNumber(sequence),
-        firstName: "Test",
-        lastName: "Receptionist",
+    const staffUser = await prisma.user.upsert({
+      where: { email: STAFF_SEED_EMAIL },
+      update: { passwordHash: staffPasswordHash, roleId: receptionistRole.id, username: STAFF_SEED_USERNAME },
+      create: {
+        email: STAFF_SEED_EMAIL,
+        name: "Test Receptionist",
+        username: STAFF_SEED_USERNAME,
+        passwordHash: staffPasswordHash,
+        roleId: receptionistRole.id,
       },
     });
-  }
 
-  logger.info(
-    { username: STAFF_SEED_USERNAME, password: STAFF_SEED_PASSWORD },
-    "Seeded Receptionist login for local development — change this password before going to production",
-  );
+    const existingStaffEmployee = await prisma.employee.findUnique({
+      where: { userId: staffUser.id },
+    });
+    if (!existingStaffEmployee) {
+      // Same shared atomic counter employeeService.createEmployee() uses —
+      // avoids colliding with employeeNumbers already assigned to real
+      // employees created live through the Employees admin workspace.
+      const sequence = await nextSequence("EMPLOYEE");
+      await prisma.employee.create({
+        data: {
+          userId: staffUser.id,
+          employeeNumber: formatEmployeeNumber(sequence),
+          firstName: "Test",
+          lastName: "Receptionist",
+        },
+      });
+    }
+
+    logger.info(
+      { username: STAFF_SEED_USERNAME, password: STAFF_SEED_PASSWORD },
+      "Seeded Receptionist login for local development — never created in production",
+    );
+  } else {
+    logger.info("Skipping dev-only Test Receptionist login — NODE_ENV=production");
+  }
 
   const websiteUser = await prisma.user.upsert({
     where: { email: WEBSITE_SYSTEM_USER_EMAIL },
@@ -577,20 +609,27 @@ async function main(): Promise<void> {
   }
   logger.info({ count: OPEN_PLAY_CAPACITY_DEFAULTS.length }, "Seeded open play capacity defaults");
 
-  for (const definition of SAMPLE_PLAYER_DEFINITIONS) {
-    const user = await prisma.user.upsert({
-      where: { email: definition.email },
-      update: { name: definition.name, roleId: memberRole.id },
-      create: { email: definition.email, name: definition.name, roleId: memberRole.id },
-    });
+  // Deploy prep: same dev-only gating as the Test Receptionist above —
+  // fake players with fake @players.thecourtroom.local emails have no
+  // place in a real production player list.
+  if (env.NODE_ENV !== "production") {
+    for (const definition of SAMPLE_PLAYER_DEFINITIONS) {
+      const user = await prisma.user.upsert({
+        where: { email: definition.email },
+        update: { name: definition.name, roleId: memberRole.id },
+        create: { email: definition.email, name: definition.name, roleId: memberRole.id },
+      });
 
-    await prisma.player.upsert({
-      where: { userId: user.id },
-      update: { skillLevel: definition.skillLevel },
-      create: { userId: user.id, skillLevel: definition.skillLevel },
-    });
+      await prisma.player.upsert({
+        where: { userId: user.id },
+        update: { skillLevel: definition.skillLevel },
+        create: { userId: user.id, skillLevel: definition.skillLevel },
+      });
+    }
+    logger.info({ count: SAMPLE_PLAYER_DEFINITIONS.length }, "Seeded sample players");
+  } else {
+    logger.info("Skipping dev-only sample players — NODE_ENV=production");
   }
-  logger.info({ count: SAMPLE_PLAYER_DEFINITIONS.length }, "Seeded sample players");
 }
 
 main()
