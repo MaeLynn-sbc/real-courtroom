@@ -728,6 +728,45 @@ the dashboard. Prepayment exists to stop no-shows from strangers
 booking online, not to inconvenience someone standing at the desk —
 this distinction must hold regardless of how the public form changes.
 
+**Addendum — the exemption's authorization mechanism.** The staff
+exemption above is gated by a **named permission**, checked through
+`requireEmployee` (`lib/action-auth.ts`) — not "user has a session"
+and not "user has any role." Following the existing `resource:action`
+key convention (`BOOKINGS_MANAGE: "bookings:manage"` in
+`types/permissions.ts`), this is `BOOKINGS_PAY_AT_VENUE:
+"bookings:pay_at_venue"`.
+
+This is deliberately a **separate** permission from `bookings:manage`,
+which already gates booking creation itself (`actions/booking.actions.ts`).
+A role can hold `bookings:manage` without `bookings:pay_at_venue` — e.g.
+a future limited front-desk role that can create bookings but must
+still collect prepayment like the public site does. Roles will grow
+over time, and a new role must not inherit the prepayment bypass by
+default just because it can manage bookings — granting
+`bookings:pay_at_venue` has to be an explicit, separate decision each
+time a role is defined.
+
+**At launch**, confirmed against the current seed
+(`prisma/seed.ts`'s `ROLE_PERMISSION_GRANTS`) rather than invented:
+the three roles that already hold `bookings:manage` get
+`bookings:pay_at_venue` too —
+
+- Owner
+- Manager
+- Receptionist
+
+Tournament Director, Cafe Staff, and Member don't hold `bookings:manage`
+today and can't create bookings at all, so the new permission is moot
+for them unless a later phase changes that.
+
+*Implementation note for Phase 8 (not done now):* add
+`BOOKINGS_PAY_AT_VENUE` to `PERMISSIONS` in `types/permissions.ts`,
+seed it onto Owner/Manager/Receptionist in `ROLE_PERMISSION_GRANTS`,
+and gate the staff booking action's `cash_on_site`/`cash`/`gcash_manual`
+payment-method options on it via
+`requireEmployee(PERMISSIONS.BOOKINGS_PAY_AT_VENUE, ...)` — a
+dedicated check, not folded into the existing `BOOKINGS_MANAGE` gate.
+
 ### Verification queue — every online booking now blocks on staff
 
 Because prepayment is now mandatory for the public path, the
