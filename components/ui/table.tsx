@@ -10,7 +10,14 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
     <div
       data-slot="table-container"
-      className="bg-card w-full overflow-x-auto rounded-xl shadow-sm ring-1 ring-foreground/10"
+      // text-card-foreground alongside bg-card — same fix as
+      // product-catalog.tsx's ProductRow and gallery-panel.tsx, this
+      // time in the shared primitive itself: every table in the app
+      // inherited invisible text from the page's --foreground (light,
+      // dark theme) instead of the correct light-card value, since
+      // nothing here set the card's own text color. Confirmed live —
+      // this is what surfaced it (bookings list table, fully washed out).
+      className="bg-card text-card-foreground w-full overflow-x-auto rounded-xl shadow-sm ring-1 ring-foreground/10"
     >
       <table
         data-slot="table"
