@@ -18,7 +18,10 @@ import { OPEN_PLAY_SKILL_LEVEL_ORDER } from "@/types/open-play-skill-levels";
 // needed, transactions just queue.
 
 interface AuditLogEntry {
-  actorUserId: string;
+  // null = system-driven (e.g. no-show auto-release), no human actor —
+  // same precedent as membershipService.reconcileExpiredMemberships'
+  // changedById: null, not a resolved "system user" identity.
+  actorUserId: string | null;
   action: string;
   entityType: string;
   entityId: string;
@@ -48,9 +51,12 @@ export interface SessionRegistrations {
   skillBreakdown: Record<OpenPlaySkillLevel, number>;
 }
 
-async function lockSessionRow(tx: Prisma.TransactionClient, sessionId: string): Promise<{ id: string; capacity: number } | null> {
-  const rows = await tx.$queryRaw<{ id: string; capacity: number }[]>`
-    SELECT id, capacity FROM "OpenPlayNightSession" WHERE id = ${sessionId} FOR UPDATE
+async function lockSessionRow(
+  tx: Prisma.TransactionClient,
+  sessionId: string,
+): Promise<{ id: string; date: Date; capacity: number } | null> {
+  const rows = await tx.$queryRaw<{ id: string; date: Date; capacity: number }[]>`
+    SELECT id, date, capacity FROM "OpenPlayNightSession" WHERE id = ${sessionId} FOR UPDATE
   `;
   return rows[0] ?? null;
 }
@@ -86,6 +92,7 @@ export class OpenPlayRegistrationService {
       return tx.openPlayNightRegistration.create({
         data: {
           sessionId,
+          date: session.date,
           playerId: input.playerId,
           playerName: input.playerName,
           phone: input.phone,
@@ -109,11 +116,49 @@ export class OpenPlayRegistrationService {
     return registration;
   }
 
+  // BUILD-SPEC.md §0 "Weeknight open play needs no session records, no
+  // capacity, no waitlist, no prepayment" — no lock, no capacity check, no
+  // waitlistPos, ever. `date` is the sole grouping key (no session to hang
+  // off of).
+  async registerWeeknightWalkIn(
+    date: Date,
+    input: RegisterWalkInInput,
+    actorUserId: string,
+  ): Promise<OpenPlayNightRegistration> {
+    const registration = await prisma.openPlayNightRegistration.create({
+      data: {
+        sessionId: null,
+        date,
+        playerId: input.playerId,
+        playerName: input.playerName,
+        phone: input.phone,
+        skillLevel: input.skillLevel,
+        partyId: input.partyId,
+        source: "WALK_IN" satisfies OpenPlayNightRegistrationSource,
+        status: "CONFIRMED",
+        waitlistPos: null,
+      },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_registration.created",
+      entityType: "OpenPlayNightRegistration",
+      entityId: registration.id,
+      newValues: { date, skillLevel: registration.skillLevel },
+    });
+
+    return registration;
+  }
+
   async cancelRegistration(registrationId: string, actorUserId: string): Promise<OpenPlayNightRegistration> {
     return this.releaseRegistration(registrationId, "CANCELLED", actorUserId);
   }
 
-  async markNoShow(registrationId: string, actorUserId: string): Promise<OpenPlayNightRegistration> {
+  // actorUserId is nullable here specifically for reconcileNoShows'
+  // system-driven auto-release (BUILD-SPEC.md §6 "No-shows") — every
+  // staff-initiated call site still passes a real user id.
+  async markNoShow(registrationId: string, actorUserId: string | null): Promise<OpenPlayNightRegistration> {
     return this.releaseRegistration(registrationId, "NO_SHOW", actorUserId);
   }
 
@@ -129,10 +174,23 @@ export class OpenPlayRegistrationService {
   private async releaseRegistration(
     registrationId: string,
     status: ReleaseStatus,
-    actorUserId: string,
+    actorUserId: string | null,
   ): Promise<OpenPlayNightRegistration> {
     const released = await prisma.$transaction(async (tx) => {
       const existing = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+
+      // Weeknight (sessionId null) has no capacity/waitlist at all — just
+      // flip the status, nothing to lock or promote.
+      if (!existing.sessionId) {
+        return tx.openPlayNightRegistration.update({
+          where: { id: registrationId },
+          data: {
+            status,
+            checkedOutAt: status === "CHECKED_OUT" ? new Date() : existing.checkedOutAt,
+          },
+        });
+      }
+
       await lockSessionRow(tx, existing.sessionId);
 
       const releasedHadSeat = existing.status === "CONFIRMED" && existing.waitlistPos === null;

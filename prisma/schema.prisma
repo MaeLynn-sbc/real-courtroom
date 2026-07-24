@@ -785,6 +785,7 @@ model OpenPlayNightSession {
   updatedAt DateTime            @updatedAt
 
   registrations OpenPlayNightRegistration[]
+  queueEntries  QueueEntry[]
 
   @@unique([date])
   @@index([status])
@@ -815,7 +816,14 @@ enum OpenPlayNightRegistrationSource {
 
 model OpenPlayNightRegistration {
   id           String                          @id @default(cuid())
-  sessionId    String
+  // Nullable — BUILD-SPEC.md §0 "Weeknight open play needs no session
+  // records... Do not build that machinery for Mon-Thu," but §6/§7
+  // explicitly include weeknight drop-in in registration/check-in/queue.
+  // Fri/Sat registrations always have a session (capacity-gated); weeknight
+  // registrations never do (uncapped) — `date` is the field both cases set,
+  // so every read path can group/query by night without a session join.
+  sessionId    String?
+  date         DateTime
   playerId     String?
   playerName   String
   phone        String
@@ -823,21 +831,61 @@ model OpenPlayNightRegistration {
   source       OpenPlayNightRegistrationSource
   status       OpenPlayNightRegistrationStatus @default(CONFIRMED)
   // Non-null means "on the waitlist, this position" — null means "has a
-  // seat." Independent of `status` (see enum comment above).
+  // seat." Independent of `status` (see enum comment above). Always null
+  // for weeknight (uncapped, never waitlisted).
   waitlistPos  Int?
-  // Optional group tag (BUILD-SPEC.md §7) — grouping/queue semantics for
-  // parties are Phase 5/6 concern; Phase 4 only captures the value.
+  // Optional group tag (BUILD-SPEC.md §7) — a party enters the queue only
+  // once every member with this partyId has checked in (§6).
   partyId      String?
   registeredAt DateTime                        @default(now())
+  // BUILD-SPEC.md §6 "Check-in... sets checkedInAt" — null until check-in.
+  // Queue position derives from this, never registeredAt.
+  checkedInAt  DateTime?
   checkedOutAt DateTime?
   createdAt    DateTime                        @default(now())
   updatedAt    DateTime                        @updatedAt
 
-  session OpenPlayNightSession @relation(fields: [sessionId], references: [id])
-  player  Player?              @relation(fields: [playerId], references: [id])
+  session    OpenPlayNightSession? @relation(fields: [sessionId], references: [id])
+  player     Player?               @relation(fields: [playerId], references: [id])
+  queueEntry QueueEntry?
 
   @@index([sessionId, status])
   @@index([sessionId, waitlistPos])
+  @@index([date])
+}
+
+enum QueueEntryStatus {
+  WAITING
+  PLAYING
+  RESTING
+  DONE
+}
+
+// Created at check-in, not at registration (BUILD-SPEC.md §6 "Check-in is
+// what enters a player into the queue — not registration"). One per
+// registration (@@unique below makes check-in naturally idempotent — see
+// OpenPlayCheckinService.checkIn). Populated here in Phase 5; consumed by
+// auto-pairing/GameAssignment in Phase 6, not built yet.
+model QueueEntry {
+  id             String             @id @default(cuid())
+  registrationId String             @unique
+  sessionId      String?
+  date           DateTime
+  playerName     String
+  skillLevel     OpenPlaySkillLevel
+  partyId        String?
+  joinedQueueAt  DateTime
+  status         QueueEntryStatus   @default(WAITING)
+  gamesPlayed    Int                @default(0)
+  lastPlayedAt   DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  registration OpenPlayNightRegistration @relation(fields: [registrationId], references: [id])
+  session      OpenPlayNightSession?     @relation(fields: [sessionId], references: [id])
+
+  @@index([date, status])
+  @@index([sessionId, status])
 }
 
 // --- Tournament System -----------------------------------------------------

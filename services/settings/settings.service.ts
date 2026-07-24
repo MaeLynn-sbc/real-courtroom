@@ -3,6 +3,7 @@ import type {
   CourtHoursSettings,
   GalleryImage,
   HomepageHero,
+  OpenPlaySettings,
   OtherRateLine,
 } from "@/features/cms/schemas/cms.schema";
 import type { UpsertSettingInput } from "@/features/settings/schemas/settings.schema";
@@ -64,6 +65,11 @@ const DEFAULT_COURT_HOURS: CourtHoursSettings = {
     "Court 3": "00:00",
   },
   businessDateRolloverHour: 3,
+};
+
+// BUILD-SPEC.md §6 "Owner setting noShowReleaseMinutes, default 30."
+const DEFAULT_OPEN_PLAY_SETTINGS: OpenPlaySettings = {
+  noShowReleaseMinutes: 30,
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never
@@ -211,6 +217,14 @@ export class SettingsService {
 
   async setCourtHours(value: CourtHoursSettings, actorUserId: string) {
     return this.setJsonValue(CMS_KEYS.COURT_HOURS, value, actorUserId);
+  }
+
+  async getOpenPlaySettings(): Promise<OpenPlaySettings> {
+    return this.getJsonValue(CMS_KEYS.OPEN_PLAY_SETTINGS, DEFAULT_OPEN_PLAY_SETTINGS);
+  }
+
+  async setOpenPlaySettings(value: OpenPlaySettings, actorUserId: string) {
+    return this.setJsonValue(CMS_KEYS.OPEN_PLAY_SETTINGS, value, actorUserId);
   }
 
   private async getJsonValue<T>(key: string, fallback: T): Promise<T> {

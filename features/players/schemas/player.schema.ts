@@ -10,6 +10,10 @@ const playerProfileSchema = z.object({
   bio: z.string().max(1000).optional(),
   dateOfBirth: z.coerce.date().optional(),
   skillLevel: z.enum(["BEGINNER", "INTERMEDIATE", "ADVANCED", "PRO"]).optional(),
+  // BUILD-SPEC.md §4 — separate from skillLevel above (tournament
+  // seeding); this is the open-play self-rating, prefilled into the
+  // registration/check-in form next time.
+  openPlaySkillLevel: z.enum(["BEGINNER", "NOVICE", "INTERMEDIATE", "ADVANCED"]).optional(),
   dominantHand: z.enum(["LEFT", "RIGHT", "AMBIDEXTROUS"]).optional(),
   position: z.enum(["LEFT", "RIGHT", "BOTH"]).optional(),
 });

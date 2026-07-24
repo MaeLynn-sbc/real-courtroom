@@ -770,6 +770,34 @@ pool assigned to whichever court frees first — tying the next four to a
 specific court would be wrong. Booked courts do show their next
 booking, since a reservation belongs to that court at that hour.
 
+### Queue bar — approved layout
+
+Two rows, roughly 23vh tall, sitting under the three court cards.
+
+**Top row, three blocks:**
+
+| Block | Content |
+|---|---|
+| Label | OPEN / PLAY stacked on two lines, `scaleX(1.22)` to stretch the condensed face across the block, with the waiting count and "WAITING" beneath it |
+| Next up | Four names in a 2×2 grid, green left edge, using the colour cycle |
+| After that | The following four, same 2×2 shape but grey edge, grey label, grey names |
+
+Both name boxes are `flex: 1` so they split the remaining width evenly
+with no gap at the right.
+
+**Bottom row:** exactly **8 names** in an even 8-column grid, numbered
+from 9, all in bone — a single colour, so the eye reads it as a list
+rather than a rainbow. If more than 8 remain, the last cell shows
+"+N more" rather than silently dropping people.
+
+**The colour cycle now means something.** It appears in exactly two
+places: players currently on court, and the next four going on. Used
+everywhere it was decoration; restricted, it signals "about to play."
+
+**Long names shrink, never truncate.** A `fitNames()` pass steps the
+font size down until each name fits its cell, floored at half size, and
+re-runs on resize and on every queue render.
+
 Minor corrections expected once it's tested on the actual screen.
 
 **Never rendered here:** skill level, games played, wait times, phone

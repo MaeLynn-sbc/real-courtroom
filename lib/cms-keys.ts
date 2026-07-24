@@ -8,4 +8,5 @@ export const CMS_KEYS = {
   OTHER_RATES: "cms.rates.other",
   GALLERY_IMAGES: "cms.gallery.images",
   COURT_HOURS: "cms.courtHours",
+  OPEN_PLAY_SETTINGS: "cms.openPlaySettings",
 } as const;

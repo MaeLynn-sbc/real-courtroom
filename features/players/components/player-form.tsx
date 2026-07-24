@@ -19,6 +19,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { createPlayerSchema } from "@/features/players/schemas/player.schema";
 import type { Player, User } from "@/lib/generated/prisma/client";
+import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 
 const NONE_VALUE = "__none__";
 
@@ -56,6 +57,7 @@ interface PlayerFormValues {
   bio: string;
   dateOfBirth: string;
   skillLevel: string | undefined;
+  openPlaySkillLevel: string | undefined;
   dominantHand: string | undefined;
   position: string | undefined;
 }
@@ -77,6 +79,7 @@ export function PlayerForm({ player }: PlayerFormProps) {
       bio: player?.bio ?? "",
       dateOfBirth: toDateInputValue(player?.dateOfBirth),
       skillLevel: player?.skillLevel ?? undefined,
+      openPlaySkillLevel: player?.openPlaySkillLevel ?? undefined,
       dominantHand: player?.dominantHand ?? undefined,
       position: player?.position ?? undefined,
     },
@@ -92,6 +95,7 @@ export function PlayerForm({ player }: PlayerFormProps) {
       bio: values.bio.trim() || undefined,
       dateOfBirth: values.dateOfBirth ? new Date(`${values.dateOfBirth}T00:00:00`) : undefined,
       skillLevel: values.skillLevel,
+      openPlaySkillLevel: values.openPlaySkillLevel,
       dominantHand: values.dominantHand,
       position: values.position,
     });
@@ -176,6 +180,42 @@ export function PlayerForm({ player }: PlayerFormProps) {
             </Select>
           )}
         />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="openPlaySkillLevel">Open play skill level</Label>
+        <Controller
+          control={control}
+          name="openPlaySkillLevel"
+          render={({ field }) => (
+            <Select
+              value={field.value ?? NONE_VALUE}
+              onValueChange={(value) => field.onChange(value === NONE_VALUE ? undefined : value)}
+            >
+              <SelectTrigger id="openPlaySkillLevel" className="w-full">
+                <SelectValue placeholder="Not set">
+                  {(value: string) =>
+                    value === NONE_VALUE || !(value in OPEN_PLAY_SKILL_LEVELS)
+                      ? "Not set"
+                      : OPEN_PLAY_SKILL_LEVELS[value as keyof typeof OPEN_PLAY_SKILL_LEVELS].label
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE_VALUE}>Not set</SelectItem>
+                {OPEN_PLAY_SKILL_LEVEL_ORDER.map((level) => (
+                  <SelectItem key={level} value={level}>
+                    {OPEN_PLAY_SKILL_LEVELS[level].label} — {OPEN_PLAY_SKILL_LEVELS[level].description}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+        <p className="text-muted-foreground text-xs">
+          Self-rated, for open play rotation fairness — separate from the tournament skill level above and
+          prefilled into the registration form next time.
+        </p>
       </div>
 
       <div className="flex flex-col gap-1.5">

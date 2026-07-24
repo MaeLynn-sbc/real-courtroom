@@ -77,9 +77,9 @@ body{
 }
 .pname{
   display:flex;align-items:center;justify-content:center;
-  padding:1.8vh .5vw;border-radius:1vh;
+  padding:1.3vh .5vw;border-radius:1vh;
   background:var(--navy-700);border:1px solid var(--line);
-  font-family:var(--display);font-weight:700;font-size:5.6vh;
+  font-family:var(--display);font-weight:700;font-size:4.6vh;
   line-height:1;text-transform:uppercase;letter-spacing:.005em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
@@ -166,17 +166,38 @@ body{
 
 /* ---------------- open play queue ---------------- */
 .queue{
-  flex-shrink:0;border-radius:1.4vh;background:var(--navy-800);
-  border:1px solid var(--line);padding:2vh 1.5vw;
-  display:flex;align-items:center;gap:1.6vw;
+  flex-shrink:0;min-height:23vh;border-radius:1.4vh;
+  background:var(--navy-800);border:1px solid var(--line);
+  padding:2vh 1.5vw;display:flex;flex-direction:column;gap:1.6vh;
+}
+.q-row{display:flex;align-items:stretch;gap:1.2vw}
+.q-row.rest{
+  flex:1;align-items:center;width:100%;
+  padding-top:1.6vh;border-top:1px solid var(--line);
 }
 .q-label{flex-shrink:0}
-.q-label b{display:block;font-family:var(--display);font-weight:800;font-size:3.2vh;line-height:1;text-transform:uppercase}
-.q-label span{font-family:var(--mono);font-size:1.3vh;letter-spacing:.2em;text-transform:uppercase;color:var(--slate)}
+.q-label{flex-shrink:0;align-self:center;min-width:15vw;padding-right:.6vw}
+.q-label b{
+  display:block;font-family:var(--display);font-weight:900;
+  font-size:6vh;line-height:.86;text-transform:uppercase;
+  /* the display face is condensed — stretch it back out so the two
+     words span the whole label block */
+  transform:scaleX(1.22);transform-origin:left center;
+}
+.q-label .count-n{
+  display:block;font-family:var(--display);font-weight:900;
+  font-size:5vh;line-height:1;margin-top:1.8vh;color:var(--green);
+  transform:scaleX(1.22);transform-origin:left center;
+}
+.q-label span{
+  display:block;font-family:var(--mono);font-size:1.3vh;
+  letter-spacing:.2em;text-transform:uppercase;color:var(--slate);
+}
 
 .next-up{
-  display:flex;align-items:center;gap:1vw;flex-shrink:0;
-  padding:1.3vh 1.2vw;border-radius:1vh;
+  flex:1;min-width:0;
+  display:flex;align-items:center;gap:1vw;
+  padding:1.6vh 1.2vw;border-radius:1vh;
   background:var(--navy-700);
   border:1px solid var(--green);border-left:.5vw solid var(--green);
 }
@@ -185,18 +206,36 @@ body{
   letter-spacing:.18em;text-transform:uppercase;color:var(--green);
   writing-mode:vertical-rl;transform:rotate(180deg);
 }
-.next-up .names{display:flex;gap:.9vw;align-items:baseline}
+.next-up .names{
+  flex:1;min-width:0;
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:1vh 1.2vw;align-items:center;
+}
 .next-up .names .n{
-  font-family:var(--display);font-weight:800;font-size:2.9vh;
-  text-transform:uppercase;white-space:nowrap;
+  font-family:var(--display);font-weight:800;font-size:4vh;
+  text-transform:uppercase;white-space:nowrap;overflow:hidden;
 }
 
-.waiting{display:flex;flex-wrap:wrap;gap:.6vh .9vw;align-items:center;overflow:hidden}
-.waiting .w{font-family:var(--display);font-weight:700;font-size:2.5vh;text-transform:uppercase;white-space:nowrap}
-.waiting .w i{font-family:var(--mono);font-style:normal;font-size:1.4vh;color:var(--slate);margin-right:.3vw}
+.next-up.later{border-color:var(--line);border-left-color:var(--slate)}
+.next-up.later .tag{color:var(--slate)}
+.next-up.later .names .n{color:var(--slate)}
+
+.waiting{
+  flex:1;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));
+  align-items:center;gap:0 1vw;overflow:hidden;
+}
+.waiting .w{
+  display:flex;align-items:baseline;gap:.3vw;min-width:0;
+  font-family:var(--display);font-weight:700;font-size:3vh;
+  line-height:1;text-transform:uppercase;white-space:nowrap;
+  overflow:hidden;color:var(--bone);
+}
+.waiting .w i{font-family:var(--mono);font-style:normal;font-size:1.6vh;color:var(--slate);flex-shrink:0}
+.waiting .w.more{color:var(--slate);font-family:var(--mono);font-size:1.8vh;font-weight:400}
 
 .q-count{margin-left:auto;flex-shrink:0;text-align:right}
-.q-count b{display:block;font-family:var(--display);font-weight:900;font-size:4.6vh;line-height:.9}
+.q-row.rest .waiting:empty::before{content:'Nobody else in the queue';font-family:var(--mono);font-size:1.6vh;color:var(--slate)}
+.q-count b{display:block;font-family:var(--display);font-weight:900;font-size:6.4vh;line-height:.9}
 .q-count span{font-family:var(--mono);font-size:1.3vh;letter-spacing:.2em;text-transform:uppercase;color:var(--slate)}
 
 .live{
@@ -223,13 +262,24 @@ body{
 <div class="courts" id="courts"></div>
 
 <div class="queue">
-  <div class="q-label"><b>Open play</b><span>Queue</span></div>
-  <div class="next-up">
-    <span class="tag">Next up</span>
-    <span class="names" id="nextUp">—</span>
+  <div class="q-row">
+    <div class="q-label">
+      <b>Open<br>play</b>
+      <em class="count-n" id="qCount">0</em>
+      <span>Waiting</span>
+    </div>
+    <div class="next-up">
+      <span class="tag">Next up</span>
+      <span class="names" id="nextUp">—</span>
+    </div>
+    <div class="next-up later">
+      <span class="tag">After that</span>
+      <span class="names" id="thenUp">—</span>
+    </div>
   </div>
-  <div class="waiting" id="waiting"></div>
-  <div class="q-count"><b id="qCount">0</b><span>Waiting</span></div>
+  <div class="q-row rest">
+    <div class="waiting" id="waiting"></div>
+  </div>
 </div>
 
 <div class="live"><i></i><span id="ago">Just updated</span></div>
@@ -276,8 +326,11 @@ const DATA = {
       start:hourStart, end:hourEnd,
       next:{ name:'Ana Villanueva', at:hhmm(nextHour) } }
   ],
-  queue:['Jenny Tan','Mark Uy','Carla Flores','Dino Ramos',
-         'Lito Chua','Grace Yu','Ben Alvarez','Ria Mendoza','Sam Ocampo']
+  queue:['Bernadette Villanueva','Mark Uy','Carla Flores','Dino Ramos',
+         'Lito Chua','Grace Yu','Ben Alvarez','Ria Mendoza','Sam Ocampo',
+         'Tonio Reyes','Bea Salazar','Chino Aguilar','Divine Lopez',
+         'Emman Trinidad','Faye Gutierrez','Gil Panganiban','Hazel Cruz',
+         'Ivan Morales','Joy Escobar','Kevin Sy']
 };
 
 /* ---------- clock ---------- */
@@ -351,22 +404,49 @@ function renderCourts(){
 /* ---------- queue ---------- */
 function renderQueue(){
   const q = DATA.queue.map(shortName);
-  const up = q.slice(0,4);
+  const up   = q.slice(0,4);
+  const then = q.slice(4,8);
+
   document.getElementById('nextUp').innerHTML = up.length
     ? up.map((n,i) => `<span class="n c${i%4}">${n}</span>`).join('')
     : '<span class="n c0">Nobody waiting</span>';
+
+  document.getElementById('thenUp').innerHTML = then.length
+    ? then.map(n => `<span class="n">${n}</span>`).join('')
+    : '<span class="n">—</span>';
+
+  const rest  = q.slice(8);
+  const shown = rest.slice(0, 8);
+  const extra = rest.length - shown.length;
+
   document.getElementById('waiting').innerHTML =
-    q.slice(4).map((n,i) => `<span class="w c${i%4}"><i>${i+5}</i>${n}</span>`).join('');
+    shown.map((n,i) => `<span class="w"><i>${i+9}</i>${n}</span>`).join('')
+    + (extra > 0 ? `<span class="w more">+${extra} more</span>` : '');
   document.getElementById('qCount').textContent = q.length;
 }
 
-tick(); renderCourts(); renderQueue();
+/* Long names shrink to fit their cell rather than truncating.
+   Runs after every queue render and on resize. */
+function fitNames(){
+  document.querySelectorAll('.next-up .names .n, .waiting .w').forEach(el => {
+    el.style.fontSize = '';
+    const base = parseFloat(getComputedStyle(el).fontSize);
+    let size = base;
+    while (el.scrollWidth > el.clientWidth + 1 && size > base * 0.5){
+      size -= base * 0.04;
+      el.style.fontSize = size + 'px';
+    }
+  });
+}
+
+tick(); renderCourts(); renderQueue(); fitNames();
+window.addEventListener('resize', () => { renderQueue(); fitNames(); });
 setInterval(() => { tick(); renderCourts(); }, 1000);   // countdown ticks every second
 
 /* ---------- data refresh ---------- */
 /* Swap for: const r = await fetch('/api/display'); Object.assign(DATA, await r.json()); */
 let last = Date.now();
-setInterval(() => { renderQueue(); last = Date.now(); }, 30000);
+setInterval(() => { renderQueue(); fitNames(); last = Date.now(); }, 30000);
 setInterval(() => {
   const s = Math.round((Date.now()-last)/1000);
   document.getElementById('ago').textContent = s < 5 ? 'Just updated' : `Updated ${s}s ago`;

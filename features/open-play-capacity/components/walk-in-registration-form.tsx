@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { registerAndCheckInAction } from "@/actions/open-play-checkin.actions";
 import { registerWalkInAction } from "@/actions/open-play-registration.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,29 +14,83 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 
-export function WalkInRegistrationForm({ sessionId }: { sessionId: string }) {
+export interface RegistrablePlayer {
+  id: string;
+  name: string;
+  phone: string;
+  openPlaySkillLevel: OpenPlaySkillLevel | null;
+}
+
+type NightTarget = { sessionId: string } | { date: string };
+
+interface WalkInRegistrationFormProps {
+  target: NightTarget;
+  players: RegistrablePlayer[];
+  // Weeknight has no capacity/waitlist, so the "Register only" (in-advance,
+  // no check-in) button doesn't make much sense there — most weeknight
+  // players just walk in (BUILD-SPEC.md §6). Fri/Sat shows both actions.
+  showRegisterOnly?: boolean;
+}
+
+export function WalkInRegistrationForm({ target, players, showRegisterOnly = true }: WalkInRegistrationFormProps) {
   const router = useRouter();
   const [playerName, setPlayerName] = useState("");
   const [phone, setPhone] = useState("");
   const [skillLevel, setSkillLevel] = useState<OpenPlaySkillLevel>("BEGINNER");
+  const [matchedPlayerId, setMatchedPlayerId] = useState<string | undefined>(undefined);
   const [isPending, startTransition] = useTransition();
 
-  function handleSubmit() {
+  const playersByName = useMemo(() => new Map(players.map((player) => [player.name.toLowerCase(), player])), [players]);
+
+  function handleNameChange(value: string) {
+    setPlayerName(value);
+    const match = playersByName.get(value.trim().toLowerCase());
+    if (match) {
+      setMatchedPlayerId(match.id);
+      setPhone(match.phone);
+      if (match.openPlaySkillLevel) {
+        setSkillLevel(match.openPlaySkillLevel);
+      }
+    } else {
+      setMatchedPlayerId(undefined);
+    }
+  }
+
+  function reset() {
+    setPlayerName("");
+    setPhone("");
+    setSkillLevel("BEGINNER");
+    setMatchedPlayerId(undefined);
+  }
+
+  function submit(action: "register" | "walkin") {
     if (!playerName.trim() || !phone.trim()) {
       toast.error("Enter a name and phone number.");
       return;
     }
 
     startTransition(async () => {
-      const result = await registerWalkInAction({ sessionId, playerName: playerName.trim(), phone: phone.trim(), skillLevel });
+      const base = {
+        playerName: playerName.trim(),
+        phone: phone.trim(),
+        skillLevel,
+        playerId: matchedPlayerId,
+      };
+
+      const result =
+        action === "register" && "sessionId" in target
+          ? await registerWalkInAction({ sessionId: target.sessionId, ...base })
+          : await registerAndCheckInAction({
+              ...("sessionId" in target ? { sessionId: target.sessionId } : { date: target.date }),
+              ...base,
+            });
+
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      toast.success(`${playerName.trim()} registered.`);
-      setPlayerName("");
-      setPhone("");
-      setSkillLevel("BEGINNER");
+      toast.success(action === "register" ? `${playerName.trim()} registered.` : `${playerName.trim()} checked in.`);
+      reset();
       router.refresh();
     });
   }
@@ -47,13 +102,23 @@ export function WalkInRegistrationForm({ sessionId }: { sessionId: string }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <p className="text-muted-foreground text-sm">
-          Cash paid at the desk — marked confirmed immediately. If the night is full, they&apos;re added to
-          the waitlist.
+          Cash paid at the desk — marked confirmed immediately. Start typing a name to find a returning
+          player and prefill their details.
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="walkInName">Name</Label>
-            <Input id="walkInName" value={playerName} onChange={(event) => setPlayerName(event.target.value)} />
+            <Input
+              id="walkInName"
+              list="registrable-players"
+              value={playerName}
+              onChange={(event) => handleNameChange(event.target.value)}
+            />
+            <datalist id="registrable-players">
+              {players.map((player) => (
+                <option key={player.id} value={player.name} />
+              ))}
+            </datalist>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="walkInPhone">Phone</Label>
@@ -75,9 +140,16 @@ export function WalkInRegistrationForm({ sessionId }: { sessionId: string }) {
             </Select>
           </div>
         </div>
-        <Button type="button" disabled={isPending} onClick={handleSubmit} className="self-start">
-          {isPending ? "Registering…" : "Register"}
-        </Button>
+        <div className="flex gap-2">
+          <Button type="button" disabled={isPending} onClick={() => submit("walkin")}>
+            {isPending ? "Working…" : "Walk-in (register & check in)"}
+          </Button>
+          {showRegisterOnly && "sessionId" in target ? (
+            <Button type="button" variant="outline" disabled={isPending} onClick={() => submit("register")}>
+              Register only (arriving later)
+            </Button>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );

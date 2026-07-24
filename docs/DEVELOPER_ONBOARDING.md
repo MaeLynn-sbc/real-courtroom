@@ -129,23 +129,29 @@ permission, and the v1.1 addendum for what changed on top of it.
   (bracket generation, status machines, condition/availability
   calculators) — these have no Prisma dependency, so they're fast and
   don't need a database.
-- **Integration tests (`*.integration.test.ts` naming convention, but run
-  via `tsx`, not Jest — see below)** exercise real concurrency/locking
-  behavior against the real dev Postgres database, real transactions, no
-  mocks. `npm run test:integration` runs them. **Jest cannot run these**:
-  Prisma 7's WASM query compiler is loaded via a dynamic `import()` of a
-  `.mjs` file from inside Prisma's own generated client code, and Jest's
-  CJS-based module system fails to parse it — confirmed with multiple
-  `transformIgnorePatterns` configs, all failing identically deep inside
-  `WasmQueryCompilerLoader.ts`, not in app code. Until that's fixed
-  upstream (or this app moves off the WASM query compiler), a new
-  integration test is a `tsx`-executed script with manual `assert()`
-  calls and a non-zero exit on failure (see
+- **Integration tests (`*.integration.ts` naming convention — deliberately
+  not `*.integration.test.ts`, see why below)** exercise real concurrency/
+  locking behavior against the real dev Postgres database, real
+  transactions, no mocks. `npm run test:integration` runs
+  `scripts/run-integration-tests.ts`, which auto-discovers and runs every
+  `*.integration.ts` file in the repo — name a new one that way and it's
+  picked up automatically, nothing to wire in by hand. **Jest cannot run
+  these**: Prisma 7's WASM query compiler is loaded via a dynamic
+  `import()` of a `.mjs` file from inside Prisma's own generated client
+  code, and Jest's CJS-based module system fails to parse it — confirmed
+  with multiple `transformIgnorePatterns` configs, all failing identically
+  deep inside `WasmQueryCompilerLoader.ts`, not in app code. The naming
+  convention avoids `.test.ts` specifically so Jest's default `testMatch`
+  never even attempts to load one during a plain `npm test`. Until this is
+  fixed upstream (or the app moves off the WASM query compiler), a new
+  integration test is a `tsx`-executed script with manual `assert()` calls
+  and a non-zero exit on failure — see
   `services/open-play/open-play-registration.concurrency.integration.ts`
-  for the reference shape: create fixtures, run the real scenario, assert
+  and `services/open-play/open-play-checkin.scenarios.integration.ts` for
+  the reference shape: create fixtures, run the real scenario, assert
   against the database directly — not just return values — clean up in
   both the success and failure path, `process.exit(1)` on any failed
-  assertion). Requires the dev database up (`docker compose up -d`).
+  assertion. Requires the dev database up (`docker compose up -d`).
 - **`npm run verify` is the required pre-commit check** — typecheck, lint,
   unit tests, and integration tests, in that order, matching what a CI
   pipeline would run once one exists (there is no CI yet — this is the

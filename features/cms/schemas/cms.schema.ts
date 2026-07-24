@@ -69,3 +69,16 @@ export const courtHoursSchema = z.object({
 });
 
 export type CourtHoursSettings = z.infer<typeof courtHoursSchema>;
+
+// BUILD-SPEC.md §6/§7 owner settings for open play operations. Starting
+// with just noShowReleaseMinutes (Phase 5) — maxWaitMinutes/skillWindow/
+// autoConfirmProposals/targetGameMinutes (§7) are Phase 6's concern, added
+// to this same blob when that phase needs them rather than a second
+// settings key.
+export const openPlaySettingsSchema = z.object({
+  // BUILD-SPEC.md §6 "No-shows... default 30." A Fri/Sat registration not
+  // checked in within this many minutes of session start is released.
+  noShowReleaseMinutes: z.number().int().positive(),
+});
+
+export type OpenPlaySettings = z.infer<typeof openPlaySettingsSchema>;
