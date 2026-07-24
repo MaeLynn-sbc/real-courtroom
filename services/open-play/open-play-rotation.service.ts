@@ -9,6 +9,7 @@ import type {
   QueueEntry,
 } from "@/lib/generated/prisma/client";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
+import { noopRaceHook, type RaceHook } from "@/lib/race-test-hooks";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
 import { playerTabService } from "@/services/open-play/player-tab.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -111,8 +112,11 @@ export interface RotationBoardData {
   unfillableQueueReason: string | null;
 }
 
-async function fetchWaitingUnits(date: Date): Promise<QueueUnit[]> {
-  const entries = await prisma.queueEntry.findMany({
+async function fetchWaitingUnits(
+  date: Date,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<QueueUnit[]> {
+  const entries = await client.queueEntry.findMany({
     where: { date, status: "WAITING" },
     orderBy: { joinedQueueAt: "asc" },
   });
@@ -180,8 +184,11 @@ function orderedPairKey(idA: string, idB: string): [string, string] {
   return idA < idB ? [idA, idB] : [idB, idA];
 }
 
-async function fetchRecentPairingCounts(date: Date): Promise<Map<string, number>> {
-  const rows = await prisma.recentPairing.findMany({ where: { date } });
+async function fetchRecentPairingCounts(
+  date: Date,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<Map<string, number>> {
+  const rows = await client.recentPairing.findMany({ where: { date } });
   const map = new Map<string, number>();
   for (const row of rows) {
     map.set(`${row.registrationIdA}:${row.registrationIdB}`, row.gameCount);
@@ -217,6 +224,7 @@ async function assembleFoursome(
   units: QueueUnit[],
   settings: { skillWindow: number },
   date: Date,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<{ anchor: QueueUnit; selected: QueueUnit[] } | null> {
   const totalWaiting = units.reduce((sum, unit) => sum + unit.members.length, 0);
   if (totalWaiting < 4) {
@@ -243,7 +251,7 @@ async function assembleFoursome(
   const selected: QueueUnit[] = [];
 
   if (remainingSeats > 0) {
-    const pairingCounts = await fetchRecentPairingCounts(date);
+    const pairingCounts = await fetchRecentPairingCounts(date, client);
     let pool = sortedByWait.filter((unit) => unit !== anchor);
 
     // Step 2/3: candidates within skill distance 1 of the anchor, ranked
@@ -300,29 +308,75 @@ export class AssignmentAlreadyCompletedError extends Error {
 
 export class OpenPlayRotationService {
   // BUILD-SPEC.md §7 "Auto-pairing." Called when a court frees up.
+  //
+  // Hardening phase fix (BUILD-SPEC.md §0 process rule): the waiting-
+  // players read and the assignment-creating write used to run in
+  // separate transactions/queries. Two concurrent proposals — even for
+  // two different courts — could both read the same waiting pool before
+  // either wrote, letting the same registration end up a participant in
+  // two simultaneous GameAssignments. Proven live before this fix
+  // (open-play-rotation.concurrency.integration.ts): 2 concurrent calls
+  // for 2 different courts, pool of 5 waiting players, both "succeeded"
+  // with the identical 4 players double-booked onto both courts, every
+  // run. Fixed the same way as completeAssignment: lock the rows that
+  // own the invariant — every currently-WAITING QueueEntry for this date
+  // — before reading them, so a concurrent call for the same date blocks
+  // until this transaction commits, then re-reads and correctly excludes
+  // whoever this call already selected.
   async proposeNextAssignment(
     date: Date,
     courtId: string,
     actorUserId: string | null,
   ): Promise<GameAssignmentWithParticipants | null> {
     const settings = await settingsService.getOpenPlaySettings();
-    const units = await fetchWaitingUnits(date);
 
-    const result = await assembleFoursome(units, settings, date);
-    if (!result) {
-      return null;
+    const created = await prisma.$transaction(async (tx) => {
+      // ORDER BY id (BUILD-SPEC.md §15 "canonical lock order"): two
+      // concurrent proposals for the same date lock this identical row
+      // set: without a stable order, differing query plans could in
+      // principle lock them in different sequences and deadlock instead
+      // of one simply queueing behind the other. Same defensive pattern
+      // as checkIn's party-member lock.
+      await tx.$queryRaw`SELECT id FROM "QueueEntry" WHERE date = ${date} AND status = 'WAITING' ORDER BY id FOR UPDATE`;
+
+      const units = await fetchWaitingUnits(date, tx);
+      const result = await assembleFoursome(units, settings, date, tx);
+      if (!result) {
+        return null;
+      }
+
+      const participantUnits = [result.anchor, ...result.selected];
+      const participantMembers = participantUnits.flatMap((unit) => unit.members);
+      const skillLevels = participantMembers.map((member) => skillOrder(member.skillLevel));
+      const skillSpread = Math.max(...skillLevels) - Math.min(...skillLevels);
+      const sessionId = participantMembers[0]?.sessionId ?? null;
+
+      return this.createAssignmentTx(
+        tx,
+        {
+          date,
+          courtId,
+          sessionId,
+          skillSpread,
+          source: "AUTO",
+          createdByUserId: null,
+          registrationIds: participantMembers.map((m) => m.registrationId),
+        },
+        actorUserId,
+      );
+    });
+
+    if (created) {
+      await this.writeAuditLog({
+        actorUserId,
+        action: "game_assignment.proposed",
+        entityType: "GameAssignment",
+        entityId: created.id,
+        newValues: { source: "AUTO", courtId, registrationIds: created.participants.map((p) => p.registrationId) },
+      });
     }
 
-    const participantUnits = [result.anchor, ...result.selected];
-    const participantMembers = participantUnits.flatMap((unit) => unit.members);
-    const skillLevels = participantMembers.map((member) => skillOrder(member.skillLevel));
-    const skillSpread = Math.max(...skillLevels) - Math.min(...skillLevels);
-    const sessionId = participantMembers[0]?.sessionId ?? null;
-
-    return this.createAssignment(
-      { date, courtId, sessionId, skillSpread, source: "AUTO", createdByUserId: null, registrationIds: participantMembers.map((m) => m.registrationId) },
-      actorUserId,
-    );
+    return created;
   }
 
   // BUILD-SPEC.md §7 "Manual override — staff can always overrule." Staff
@@ -417,8 +471,17 @@ export class OpenPlayRotationService {
   // WAITING with joinedQueueAt untouched (BUILD-SPEC.md doesn't specify a
   // wait-time penalty for a voided game, and resetting it would punish
   // players for a staff-side decision, not their own play).
-  async cancelAssignment(assignmentId: string, actorUserId: string): Promise<GameAssignmentWithParticipants> {
-    const result = await prisma.$transaction((tx) => this.cancelAssignmentTx(tx, assignmentId));
+  // `testOnlyRaceHook` is the permanent seam BUILD-SPEC.md §15 requires:
+  // never passed by any real caller (every production call site omits it,
+  // defaulting to a no-op), invoked only by
+  // open-play-rotation.concurrency.integration.ts to prove the FOR UPDATE
+  // lock below is load-bearing rather than merely present.
+  async cancelAssignment(
+    assignmentId: string,
+    actorUserId: string,
+    testOnlyRaceHook: RaceHook = noopRaceHook,
+  ): Promise<GameAssignmentWithParticipants> {
+    const result = await prisma.$transaction((tx) => this.cancelAssignmentTx(tx, assignmentId, testOnlyRaceHook));
 
     await this.writeAuditLog({
       actorUserId,
@@ -430,10 +493,23 @@ export class OpenPlayRotationService {
     return result;
   }
 
+  // Hardening phase fix (BUILD-SPEC.md §0 process rule): did not take the
+  // same FOR UPDATE lock completeAssignment does. A concurrent
+  // cancelAssignment could read status=ACTIVE, then block on
+  // completeAssignment's lock while completeAssignment finished crediting
+  // and committed DONE, then unblock and blindly overwrite DONE back to
+  // CANCELLED — with the games already billed. Same fix as
+  // completeAssignment — lock the row that owns the invariant before
+  // reading it, so a concurrent completeAssignment and cancelAssignment for
+  // the same assignment can't both act on a stale read of the other's
+  // in-flight change.
   private async cancelAssignmentTx(
     tx: Prisma.TransactionClient,
     assignmentId: string,
+    testOnlyRaceHook: RaceHook = noopRaceHook,
   ): Promise<GameAssignmentWithParticipants> {
+    await tx.$queryRaw`SELECT id FROM "GameAssignment" WHERE id = ${assignmentId} FOR UPDATE`;
+
     const assignment = await tx.gameAssignment.findUniqueOrThrow({
       where: { id: assignmentId },
       include: { participants: true },
@@ -441,6 +517,16 @@ export class OpenPlayRotationService {
     if (assignment.status !== "PROPOSED" && assignment.status !== "ACTIVE") {
       throw new Error(`Cannot cancel an assignment with status ${assignment.status}.`);
     }
+
+    // Widens the gap between the status check above and the write below —
+    // a no-op when the FOR UPDATE lock above is present (this transaction
+    // already holds exclusive access to the row, so a concurrent
+    // completeAssignment is blocked at lock acquisition, not waiting on
+    // this hook). If that lock line is ever removed, this hook gives a
+    // concurrent completeAssignment real wall-clock time to run to
+    // completion in the gap, reproducing the corruption instead of relying
+    // on independent async calls happening to line up.
+    await testOnlyRaceHook();
 
     await tx.queueEntry.updateMany({
       where: { registrationId: { in: assignment.participants.map((p) => p.registrationId) } },
