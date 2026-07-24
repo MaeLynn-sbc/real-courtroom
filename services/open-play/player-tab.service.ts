@@ -360,6 +360,24 @@ export class PlayerTabService {
   // Employee+Shift-backed revenue path every other module uses — never
   // `prisma.sale.create` directly. A ₱0 tab (checked in, nothing charged)
   // settles with no Sale row — there's nothing to record as revenue.
+  //
+  // Hardening phase fix (BUILD-SPEC.md §0 process rule): the amount being
+  // settled used to be computed by getTabView BEFORE this transaction
+  // even started, then trusted inside it. The `status: "OPEN"`-guarded
+  // updateMany protected against a double-settle, but did nothing to
+  // protect against a charge landing between that pre-transaction read
+  // and the transaction itself — addRentalLineItem/addAdjustment's own
+  // new row lock (see lockAndCheckTabOpen) forces them to wait for THIS
+  // transaction to finish, but that alone doesn't help if this
+  // transaction is working from a stale total it already captured before
+  // either of them ran. Proven live
+  // (player-tab.concurrency.race.integration.ts): a tab settled with a
+  // ₱20 balance and NO Sale row at all — the stale pre-transaction read
+  // saw ₱0 and skipped creating one. Fixed by computing the total INSIDE
+  // this transaction, after the row is claimed — whichever of this or a
+  // concurrent addRentalLineItem/addAdjustment wins the row lock first,
+  // the other blocks and then sees the fully up-to-date state, so this
+  // read is never stale relative to what actually got billed.
   async settleTab(
     tabId: string,
     method: "CASH" | "GCASH",
@@ -371,25 +389,15 @@ export class PlayerTabService {
       throw new Error("A GCash reference number is required.");
     }
 
-    const view = await this.getTabView(tabId);
-    if (view.tab.status !== "OPEN") {
-      throw new Error(`Tab is already ${view.tab.status.toLowerCase()}.`);
+    // Fast, friendly rejection for the common (non-racing) case only —
+    // not load-bearing. The updateMany inside the transaction below is
+    // what actually enforces "settle at most once."
+    const precheck = await prisma.playerTab.findUniqueOrThrow({ where: { id: tabId } });
+    if (precheck.status !== "OPEN") {
+      throw new Error(`Tab is already ${precheck.status.toLowerCase()}.`);
     }
 
-    const registration = await prisma.openPlayNightRegistration.findUniqueOrThrow({
-      where: { id: view.tab.registrationId },
-    });
-
-    // Idempotent under concurrent/duplicate calls — the button is not the
-    // only caller. The pre-check above is a fast, friendly rejection for
-    // the common case; this conditional update is what's actually load-
-    // bearing: `updateMany` with a `status: "OPEN"` guard only matches (and
-    // flips) the row if it's still open, atomically, inside the
-    // transaction. A second concurrent caller's updateMany matches zero
-    // rows and this whole transaction throws before ever creating a Sale
-    // — Sale.playerTabId's @unique is a second, DB-level backstop on top
-    // of that, not the primary guard.
-    const settled = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const claim = await tx.playerTab.updateMany({
         where: { id: tabId, status: "OPEN" },
         data: {
@@ -405,23 +413,32 @@ export class PlayerTabService {
       }
       const updated = await tx.playerTab.findUniqueOrThrow({ where: { id: tabId } });
 
-      if (view.totalCents > 0) {
+      // Computed here, not before the transaction — see the fix comment
+      // above for why that distinction is load-bearing.
+      const lineItems = await tx.tabLineItem.findMany({ where: { tabId } });
+      const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
+
+      const registration = await tx.openPlayNightRegistration.findUniqueOrThrow({
+        where: { id: updated.registrationId },
+      });
+
+      if (totalCents > 0) {
         await saleService.createSale(
           {
             category: "OPEN_PLAY",
-            amountCents: view.totalCents,
+            amountCents: totalCents,
             paymentMethodId: saleContext.paymentMethodId,
             employeeId: saleContext.employeeId,
             shiftId: saleContext.shiftId,
             playerId: registration.playerId ?? undefined,
             playerTabId: tabId,
-            description: `Open play tab — ${view.tab.playerName}`,
+            description: `Open play tab — ${updated.playerName}`,
           },
           tx,
         );
       }
 
-      return updated;
+      return { tab: updated, totalCents };
     });
 
     await this.writeAuditLog({
@@ -429,10 +446,10 @@ export class PlayerTabService {
       action: "player_tab.settled",
       entityType: "PlayerTab",
       entityId: tabId,
-      newValues: { method, totalCents: view.totalCents },
+      newValues: { method, totalCents: result.totalCents },
     });
 
-    return settled;
+    return result.tab;
   }
 
   // BUILD-SPEC.md §9 "Staff can write off a tab with a required reason —
