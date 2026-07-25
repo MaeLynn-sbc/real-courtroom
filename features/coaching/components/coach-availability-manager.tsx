@@ -1,0 +1,127 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
+
+import { createAvailabilityWindowAction, deleteAvailabilityWindowAction } from "@/actions/coaching.actions";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
+
+type Window = Awaited<ReturnType<typeof coachAvailabilityService.listWindows>>[number];
+
+const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" });
+
+export function CoachAvailabilityManager({ coachId, windows }: { coachId: string; windows: Window[] }) {
+  const router = useRouter();
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [startAt, setStartAt] = useState("");
+  const [endAt, setEndAt] = useState("");
+  const [notes, setNotes] = useState("");
+
+  function onSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setServerError(null);
+
+    if (!startAt || !endAt) {
+      setServerError("Enter a start and end time.");
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await createAvailabilityWindowAction({
+        coachId,
+        startAt: new Date(startAt),
+        endAt: new Date(endAt),
+        notes: notes || undefined,
+      });
+      if (result.error) {
+        setServerError(result.error);
+        return;
+      }
+      toast.success("Availability window added.");
+      setStartAt("");
+      setEndAt("");
+      setNotes("");
+      router.refresh();
+    });
+  }
+
+  function onDelete(windowId: string) {
+    startTransition(async () => {
+      const result = await deleteAvailabilityWindowAction(windowId);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Window removed.");
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <form onSubmit={onSubmit} noValidate className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="startAt">Opens</Label>
+          <Input
+            id="startAt"
+            type="datetime-local"
+            value={startAt}
+            onChange={(event) => setStartAt(event.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="endAt">Closes</Label>
+          <Input id="endAt" type="datetime-local" value={endAt} onChange={(event) => setEndAt(event.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="notes">Notes (optional)</Label>
+          <Input id="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </div>
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Adding…" : "Add window"}
+        </Button>
+      </form>
+
+      {serverError ? (
+        <p className="text-destructive text-sm" role="alert">
+          {serverError}
+        </p>
+      ) : null}
+
+      {windows.length === 0 ? (
+        <p className="text-muted-foreground text-sm">No availability windows yet.</p>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Opens</TableHead>
+              <TableHead>Closes</TableHead>
+              <TableHead>Notes</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {windows.map((window) => (
+              <TableRow key={window.id}>
+                <TableCell>{dateTimeFormatter.format(window.startAt)}</TableCell>
+                <TableCell>{dateTimeFormatter.format(window.endAt)}</TableCell>
+                <TableCell>{window.notes ?? "—"}</TableCell>
+                <TableCell>
+                  <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={() => onDelete(window.id)}>
+                    Remove
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  );
+}

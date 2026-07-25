@@ -8,8 +8,11 @@ import { BookingSourceBadge } from "@/features/bookings/components/booking-sourc
 import { BookingStatusActions } from "@/features/bookings/components/booking-status-actions";
 import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
 import { RegenerateQrButton } from "@/features/bookings/components/regenerate-qr-button";
+import { CoachSessionPanel } from "@/features/coaching/components/coach-session-panel";
 import { formatRelativeTime } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
+import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
+import { coachSessionService } from "@/services/coaching/coach-session.service";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   dateStyle: "medium",
@@ -35,6 +38,13 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
   }
 
   const guestOrPlayerName = booking.player?.user.name ?? booking.player?.user.email ?? booking.guestName;
+
+  const [coachSession, allCoaches, availableCoaches] = await Promise.all([
+    coachSessionService.getByBookingId(booking.id),
+    coachAvailabilityService.listCoaches(),
+    coachAvailabilityService.listAvailableCoaches(booking.startAt, booking.endAt),
+  ]);
+  const availableCoachIds = new Set(availableCoaches.map((coach) => coach.id));
 
   return (
     <div className="flex flex-col gap-8">
@@ -114,6 +124,15 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Status</h2>
         <BookingStatusActions bookingId={booking.id} currentStatus={booking.status} />
+      </section>
+
+      <section>
+        <CoachSessionPanel
+          bookingId={booking.id}
+          existingSession={coachSession}
+          allCoaches={allCoaches}
+          availableCoachIds={availableCoachIds}
+        />
       </section>
 
       <section className="flex flex-col gap-3">
