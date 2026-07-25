@@ -1,6 +1,7 @@
 "use client";
 
-import { TriangleAlert } from "lucide-react";
+import { Banknote, CreditCard, Landmark, Smartphone, Store, TriangleAlert, Wallet } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useId, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -11,13 +12,12 @@ import {
   updatePaymentMethodAction,
 } from "@/actions/payment-method.actions";
 import { EmptyState } from "@/components/shared/empty-state";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RecordCard, recordCardAccentButtonClass, type RecordCardRamp } from "@/components/ui/record-card";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
 import type { saleService } from "@/services/sales/sale.service";
 
 type PaymentMethods = Awaited<ReturnType<typeof saleService.listPaymentMethods>>;
@@ -25,6 +25,20 @@ type PaymentMethods = Awaited<ReturnType<typeof saleService.listPaymentMethods>>
 interface PaymentMethodsWorkspaceProps {
   paymentMethods: PaymentMethods;
 }
+
+// Per BUILD-SPEC.md §2's "record card" ramp table — chosen for real-world
+// resonance (GCash's own brand is blue, cash is warm/physical, banking
+// reads institutional, card networks lean red), not arbitrary. A key
+// this app didn't seed (a custom method a staff member adds later) falls
+// back to the neutral "no natural color" default rather than guessing.
+const PAYMENT_METHOD_PRESENTATION: Record<string, { icon: LucideIcon; ramp: RecordCardRamp }> = {
+  CASH: { icon: Banknote, ramp: "amber" },
+  GCASH: { icon: Smartphone, ramp: "sky" },
+  BANK_TRANSFER: { icon: Landmark, ramp: "violet" },
+  CARD: { icon: CreditCard, ramp: "rose" },
+  PAY_AT_VENUE: { icon: Store, ramp: "slate" },
+};
+const DEFAULT_PRESENTATION = { icon: Wallet, ramp: "slate" as const };
 
 function PaymentMethodRow({ method }: { method: PaymentMethods[number] }) {
   const router = useRouter();
@@ -34,6 +48,7 @@ function PaymentMethodRow({ method }: { method: PaymentMethods[number] }) {
   const [sortOrder, setSortOrder] = useState(String(method.sortOrder));
   const [isSaving, startSaveTransition] = useTransition();
   const [isToggling, startToggleTransition] = useTransition();
+  const { icon, ramp } = PAYMENT_METHOD_PRESENTATION[method.key] ?? DEFAULT_PRESENTATION;
 
   function handleSave() {
     startSaveTransition(async () => {
@@ -63,25 +78,8 @@ function PaymentMethodRow({ method }: { method: PaymentMethods[number] }) {
   }
 
   return (
-    // A disabled method isn't a warning, it's just not in play right now —
-    // dimmed, not amber (BUILD-SPEC.md §2, "disabled / inactive").
-    <Card className={cn(!method.isActive && "opacity-60")}>
-      <CardContent className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-3">
-          <p className="text-muted-foreground font-mono text-xs tracking-wide">{method.key}</p>
-          <div className="flex items-center gap-2">
-            <Switch
-              tone="status"
-              checked={method.isActive}
-              onCheckedChange={handleToggleActive}
-              disabled={isToggling}
-              aria-label={method.isActive ? "Disable payment method" : "Enable payment method"}
-            />
-            <Badge variant={method.isActive ? "status" : "outline"}>
-              {method.isActive ? "Active" : "Disabled"}
-            </Badge>
-          </div>
-        </div>
+    <RecordCard ramp={ramp} icon={icon} title={method.key} active={method.isActive}>
+      <div className="flex flex-col gap-3">
         <div className="flex items-end gap-2">
           <div className="flex flex-1 flex-col gap-1.5">
             <Label htmlFor={labelId} className="text-muted-foreground text-xs">
@@ -100,12 +98,31 @@ function PaymentMethodRow({ method }: { method: PaymentMethods[number] }) {
               onChange={(event) => setSortOrder(event.target.value)}
             />
           </div>
-          <Button type="button" size="sm" variant="outline" disabled={isSaving} onClick={handleSave}>
+          <Button
+            type="button"
+            size="sm"
+            disabled={isSaving}
+            onClick={handleSave}
+            className={recordCardAccentButtonClass(ramp)}
+          >
             {isSaving ? "Saving…" : "Save"}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+        {/* The header pill (RecordCard) shows current state; this is the
+            actual control that changes it. */}
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={method.isActive}
+            onCheckedChange={handleToggleActive}
+            disabled={isToggling}
+            aria-label={method.isActive ? "Disable payment method" : "Enable payment method"}
+          />
+          <span className="text-muted-foreground text-xs">
+            {method.isActive ? "Active — tap to disable" : "Disabled — tap to enable"}
+          </span>
+        </div>
+      </div>
+    </RecordCard>
   );
 }
 

@@ -283,9 +283,69 @@ except where noted.
 
 Stated explicitly per the instruction not to average silently:
 
-1. **Action color vs status/active color (dashboard-internal, real bug, fixed this pass).** `--primary` and `--success` are the literal same OKLCH value today, and until this pass nothing distinguished "the button that performs an action" from "the badge/switch that shows a record is active" — both rendered identical green. **Resolved**: status/active now uses `--court-blue` (see table above), action keeps `--primary`. **Not resolved, flagged for the next pass**: `--success` (toast/confirmation messaging) is still the same value as `--primary`. That's a much larger blast-radius change (every success toast in the app) and is out of scope here — it just happens not to cause the same visible collision, because a success toast doesn't sit persistently next to a primary button the way a status badge does.
+1. **Action color vs status/active color (dashboard-internal, real bug, fixed this pass, then refined the next).** `--primary` and `--success` are the literal same OKLCH value today, and until this pass nothing distinguished "the button that performs an action" from "the badge/switch that shows a record is active" — both rendered identical green. The first fix gave status/active a single fixed color (`--court-blue`). The **record card** pattern below supersedes that for any card-based list: each record can carry its own accent, so "active" is never one fixed hue competing with `--primary` — it's whichever ramp that record already owns. `Switch`'s `tone="status"` and `Badge`'s `status` variant (both `--court-blue`) still exist as the lower-level primitive for places that aren't record-card lists (a lone toggle in a settings form, for instance). **Not resolved, flagged for the next pass**: `--success` (toast/confirmation messaging) is still the same value as `--primary`. That's a much larger blast-radius change (every success toast in the app) and is out of scope here.
 2. **Focus mechanism.** Dashboard: Tailwind `ring` (`focus-visible:ring-3 ring-ring/50` + `border-ring`) — this vocabulary is already overloaded with validation meaning (`aria-invalid:ring-3 ring-destructive/20`), so switching it would break that. Public site: native `outline` (`focus-visible:outline-2 outline-offset-2 outline-green`) — needed because the pill-shaped marketing buttons need the offset to clear their curved edge. **Dashboard wins in the dashboard, public wins on the public site.** Different mechanisms, kept different on purpose, not unified.
 3. **Card is always white, even in the dashboard's dark theme.** Already covered above — restated here because it's the item most likely to surprise someone porting a public-site pattern (fixed dark navy everywhere) into the dashboard.
+
+### The record card — standard pattern for a list of on/off records
+
+`components/ui/record-card.tsx` (`RecordCard`, `recordCardAccentButtonClass`).
+The shared component every future "list of records with an active/
+disabled state" screen uses — payment methods is the reference
+implementation; the collision-risk screens in the inventory below are
+the rollout candidates. Never hand-style this on a page; extend the
+component if a screen needs something it doesn't do yet.
+
+**Ramps** — a curated set of six, not arbitrary hex, chosen specifically
+because none of them is the app's brand green (`--primary`/`--success`),
+so a record's own accent can never re-create the collision this pattern
+exists to fix:
+
+| Ramp | Typical use | Header (`bg-50`/`text-700`) | Button (`bg-700`/white) |
+|---|---|---|---|
+| `sky` | Digital/mobile payment, electronic | 5.49:1 | 5.85:1 |
+| `violet` | Institutional/banking | 6.64:1 | 7.29:1 |
+| `amber` | Physical/cash-adjacent | 4.87:1 | 5.05:1 |
+| `rose` | Card networks | 5.51:1 | 6.06:1 |
+| `cyan` | Reserved — not yet assigned to a record type | 5.07:1 | 5.28:1 |
+| `slate` | Neutral default — a record type with no natural color | 9.88:1 | 10.34:1 |
+
+Every ratio above is WCAG AA-verified (≥4.5:1 for normal text), computed
+from Tailwind v4's actual default-palette OKLCH values (not eyeballed) —
+`amber` is the tightest at 4.87:1 / 5.05:1, still comfortably clear. The
+header always pairs a ramp's `-50` background with its own `-700` text/
+icon — never black or gray on a colored fill, and never a different
+ramp's text on another ramp's fill.
+
+**The pattern, precisely:**
+- **Header**: `bg-{ramp}-50` fill, `text-{ramp}-700` icon + title. The
+  icon is decorative (`aria-hidden`) — the title text is what a screen
+  reader gets, same as a sighted user gets the icon *and* the text, not
+  color standing in for either.
+- **Status pill**, top-right of the header: active = `bg-{ramp}-100
+  text-{ramp}-700` with a check glyph and the word "Active"; disabled =
+  a neutral outline pill with the word "Disabled." The color is never
+  the only signal — the label is always present, so this is presentation,
+  not the sole channel for state.
+- **Disabled card**: `opacity-55` on the whole card. Reads as
+  visibly inactive at a glance, distinct from the header tint, which
+  never changes based on active/disabled (the header is per-record
+  identity; the pill and opacity are per-record *state*).
+- **Body**: normal `Card` surface (`bg-card`/`text-card-foreground`)
+  below the header — inputs, buttons, whatever the record needs.
+- **Accent-follows-header**: a record's own primary action (e.g. its
+  "Save" button) uses `recordCardAccentButtonClass(ramp)` — the same
+  ramp as its header, at the `-700` stop with white text. This is
+  separate from the *page-level* action button (e.g. an "Add" button
+  above the list), which stays the app's standard `--primary` green —
+  the two never compete for the same color because they're never the
+  same ramp.
+
+**Not yet checked**: whether the ~40px header adds up to an oppressive
+amount of vertical space on the longest record-card list in the app —
+flagged explicitly per the rollout constraint, to be confirmed against
+the actual longest list before this pattern rolls out beyond payment
+methods, not assumed fine from the reference screen alone.
 
 ### Screen inventory — the rollout checklist
 
