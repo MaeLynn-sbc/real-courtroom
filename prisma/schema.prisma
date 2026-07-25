@@ -108,6 +108,8 @@ model User {
   employee                          Employee?
   bookingsCreated                   Booking[]
   bookingHistoryChanges             BookingHistory[]
+  coachSessionsBooked               CoachSession[]
+  coachSessionHistoryChanges        CoachSessionHistory[]
   courtMaintenanceCreated           CourtMaintenance[]
   payments                          Payment[]
   invoices                          Invoice[]
@@ -239,6 +241,7 @@ model Player {
   openPlayRegistrations      OpenPlayRegistration[]
   openPlayNightRegistrations OpenPlayNightRegistration[]
   bookings                   Booking[]
+  coachSessions              CoachSession[]
   equipmentRentals           EquipmentRental[]
   lockerRentals              LockerRental[]
   sales                      Sale[]
@@ -324,14 +327,23 @@ model Employee {
   // project's general soft-delete column convention, never wired to an
   // actual delete path.
   isActive       Boolean   @default(true)
+  // v1.2 DRAFT (Gate 1): placeholder capability flag — item 4 (coach
+  // designation mechanics, e.g. whether this becomes a real permission
+  // instead) wasn't received yet. Kept as a simple boolean, matching
+  // isActive's own style, only so CoachSession/CoachAvailabilityWindow
+  // below have something to gate against for this schema review; not
+  // wired into any authorization check yet.
+  isCoach        Boolean   @default(false)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
-  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shifts         Shift[]
-  sales          Sale[]
-  writtenOffTabs PlayerTab[]
+  user                     User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shifts                   Shift[]
+  sales                    Sale[]
+  writtenOffTabs           PlayerTab[]
+  coachSessions            CoachSession[]            @relation("CoachSessionsCoached")
+  coachAvailabilityWindows CoachAvailabilityWindow[] @relation("CoachAvailabilityWindows")
 
   @@index([deletedAt])
 }
@@ -538,6 +550,134 @@ model BookingHistory {
   changedBy User?   @relation(fields: [changedById], references: [id])
 
   @@index([bookingId])
+}
+
+// --- Coaching Sessions --------------------------------------------------
+// DRAFT — schema-only, Gate 1. Modeled deliberately on the Booking system
+// above: same status flow (CoachSessionStatus mirrors BookingStatus
+// value-for-value — CONFIRMED is what "confirmed-unpaid" means today,
+// same as a court booking; PAID/CHECKED_IN exist now so Phase 8 can wire
+// prepayment through this flow without a schema change), an explicit
+// source field set at creation (never inferred, same reasoning as
+// Booking.source), and Sale.coachSessionId below is a nullable slot
+// Phase 8 will populate — nothing writes to it this round. A distinct
+// enum/model set rather than literally reusing Booking's, matching this
+// schema's own convention (every status enum here belongs to exactly one
+// model — see MaintenanceStatus/PlayerTabStatus/etc. — not shared
+// cross-model), but the VALUES are intentionally identical, not
+// independently designed.
+//
+// Deliberately NOT modeled: recurrence (Booking's parentBookingId/
+// recurrenceRule) — coach availability is explicitly specific-date, not
+// recurring, and nothing in this round asked for a recurring session
+// series. An after-hours-style staff-override flag (Booking's
+// isAfterHours) is also omitted — open question below, not assumed.
+
+enum CoachSessionStatus {
+  PENDING
+  CONFIRMED
+  PAID
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+// Same reasoning as BookingSource — set once at creation, never inferred.
+enum CoachSessionSource {
+  PUBLIC
+  STAFF
+  UNKNOWN
+}
+
+// sessionReference: same human-facing pattern as Booking.bookingReference
+// ("CS-YYYYMMDD-NNNN" via the shared lib/reference-counter.ts), generated
+// in the service layer — not part of this schema-only gate.
+model CoachSession {
+  id               String             @id @default(cuid())
+  sessionReference String             @unique
+  coachId          String
+  bookedById       String
+  playerId         String?
+  groupSize        Int
+  // Snapshotted from CoachRate at creation — same lesson as
+  // TabLineItem.unitPriceCents: editing the rate table later must never
+  // rewrite a session that already booked at the old price.
+  rateCents        Int
+  status           CoachSessionStatus @default(PENDING)
+  source           CoachSessionSource @default(UNKNOWN)
+  startAt          DateTime
+  endAt            DateTime
+  guestName        String?
+  guestPhone       String?
+  guestEmail       String?
+  notes            String?
+  cancelledAt      DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  coach    Employee              @relation("CoachSessionsCoached", fields: [coachId], references: [id])
+  bookedBy User                  @relation(fields: [bookedById], references: [id])
+  player   Player?               @relation(fields: [playerId], references: [id])
+  history  CoachSessionHistory[]
+  sale     Sale?
+
+  // Same shape as Booking's [courtId, startAt, endAt] — this is the index
+  // the concurrency guard's overlap check (item 2, not built yet) reads
+  // through, coachId standing in for courtId as "the resource that can't
+  // be double-booked."
+  @@index([coachId, startAt, endAt])
+  @@index([status])
+  @@index([playerId])
+}
+
+model CoachSessionHistory {
+  id             String             @id @default(cuid())
+  coachSessionId String
+  status         CoachSessionStatus
+  note           String?
+  changedById    String?
+  createdAt      DateTime           @default(now())
+
+  coachSession CoachSession @relation(fields: [coachSessionId], references: [id], onDelete: Cascade)
+  changedBy    User?        @relation(fields: [changedById], references: [id])
+
+  @@index([coachSessionId])
+}
+
+// Specific open dates/times a coach has made themselves bookable —
+// deliberately NOT a recurring weekly template. Everything outside a
+// window is closed by default; a booking must fall inside one (item 3,
+// not built yet). One row per contiguous window, same shape as
+// CourtMaintenance's [startAt, endAt] pair, just opposite polarity
+// (CourtMaintenance blocks; this grants).
+model CoachAvailabilityWindow {
+  id        String   @id @default(cuid())
+  coachId   String
+  startAt   DateTime
+  endAt     DateTime
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  coach Employee @relation("CoachAvailabilityWindows", fields: [coachId], references: [id])
+
+  @@index([coachId, startAt, endAt])
+}
+
+// Owner-editable group-size -> price table (item 1) — a real table, not
+// the CMS "Other rates" JSON blob (that's marketing copy for the public
+// rates page, not a transactional lookup CoachSession.rateCents needs
+// FK-clean integrity against). OPEN QUESTION below: modeled here as ONE
+// facility-wide table, not per-coach — the request never said different
+// coaches charge different rates, only that price varies by group size.
+// Flag if that's wrong before Gate 2.
+model CoachRate {
+  id         String   @id @default(cuid())
+  groupSize  Int      @unique
+  priceCents Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 // --- Membership --------------------------------------------------------
@@ -1650,6 +1790,11 @@ enum SaleCategory {
   // registration fee is NOT included here — that's §8's payment flow,
   // Phase 8, not yet built; see open-play-sales.service.ts's comment.
   OPEN_PLAY
+  // Coaching sessions (v1.2 DRAFT) — reserved alongside
+  // Sale.coachSessionId below for when Phase 8 wires payment through
+  // coaching. Nothing creates a Sale with this category yet; coaching
+  // sessions launch this round with no payment step at all.
+  COACHING
   OTHER
 }
 
@@ -1688,6 +1833,7 @@ model Sale {
   playerId        String?
 
   bookingId                String? @unique
+  coachSessionId           String? @unique
   membershipId             String? @unique
   equipmentRentalId        String? @unique
   lockerRentalId           String? @unique
@@ -1703,6 +1849,7 @@ model Sale {
   shift                  Shift                   @relation(fields: [shiftId], references: [id])
   player                 Player?                 @relation(fields: [playerId], references: [id])
   booking                Booking?                @relation(fields: [bookingId], references: [id])
+  coachSession           CoachSession?           @relation(fields: [coachSessionId], references: [id])
   membership             Membership?             @relation(fields: [membershipId], references: [id])
   equipmentRental        EquipmentRental?        @relation(fields: [equipmentRentalId], references: [id])
   lockerRental           LockerRental?           @relation(fields: [lockerRentalId], references: [id])
