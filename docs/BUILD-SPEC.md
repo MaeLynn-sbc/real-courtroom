@@ -2001,6 +2001,37 @@ it (block the reschedule outright, or flag `isOutsideAvailability` and
 let staff decide, same shape as the create-time override). Not
 speculated on further here since reschedule itself isn't built.
 
+### Deliberate policy: cross-coach availability editing is open right now
+
+`services/coaching/coach-availability.service.ts`'s
+`ALLOW_CROSS_COACH_AVAILABILITY_EDITS` (currently `true`) lets any
+employee holding `coaching:manage_own_availability` create or delete
+availability windows on ANY coach's calendar, not just their own —
+including a non-coach admin (Owner/Manager) acting on a coach's behalf.
+This is deliberate, not a gap that slipped through: the two active
+coaches are family (father/son) who coordinate schedules directly, and
+the owner routinely inputs a slot on a coach's behalf ("put me in this
+time"). Strict per-coach ownership (the Gate 2 default) is friction
+neither scenario needs today.
+
+**This must be revisited the moment a non-family coach is added** —
+flip the one flag back to `false` and calendar isolation returns
+exactly as Gate 2 proved it (see
+`coach-availability-ownership.integration.ts`, which was updated to
+assert the current open default and manually re-verified against the
+flag set to `false` during development — both outputs reported in the
+PR, not preserved as a runtime toggle in the test itself). What did
+NOT change: the caller still needs the permission, and the *target*
+employee still has to be `isCoach` regardless of who's asking — this
+flag only widens whose calendar can be touched, never who can touch a
+calendar at all or whether a non-coach's calendar is editable.
+
+Every cross-coach or admin-on-behalf-of edit is recorded in its
+`AuditLog` entry's `metadata` (`callerEmployeeId`,
+`editingOwnCalendar: false`) — distinguishable from a coach managing
+their own calendar, so this doesn't silently become unauditable "any
+coach edits any coach" with no record of who actually acted.
+
 ---
 
 ## 16. Build order
