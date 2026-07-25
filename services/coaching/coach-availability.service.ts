@@ -2,11 +2,30 @@ import type { CreateAvailabilityWindowInput } from "@/features/coaching/schemas/
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
+// Part B (post-Gate-3 review): the two active coaches are family
+// (father/son) who coordinate schedules directly, and the non-coach
+// owner routinely inputs a slot on a coach's behalf ("put me in this
+// time"). Strict per-coach ownership is friction neither of those
+// scenarios needs right now — so it's relaxed, but through exactly ONE
+// switch, not scattered permission changes, specifically so it's cheap
+// to reverse. Flip this back to false the moment a non-family coach
+// joins and calendar isolation actually matters — nothing else in this
+// file needs to change to do that. Reasoning also recorded in
+// BUILD-SPEC.md §15 so it isn't just a comment nobody finds later.
+//
+// What this does NOT relax: the caller must still hold
+// coaching:manage_own_availability (an action-layer, requirePermission
+// concern, unaffected by this flag) and the TARGET employee must still
+// be isCoach — this only widens "whose calendar," never "who can reach
+// this at all" or "can you edit a non-coach's calendar."
+const ALLOW_CROSS_COACH_AVAILABILITY_EDITS = true;
+
 // Distinct from "you don't have the coaching:manage_own_availability
 // permission" (an action-layer, requirePermission concern) — this is
-// "you have the permission, but this isn't your window." Both are
-// required; neither substitutes for the other. See
-// coach-availability.ownership.integration.ts.
+// "you have the permission, but this isn't your window" — only
+// reachable when ALLOW_CROSS_COACH_AVAILABILITY_EDITS is false. Both
+// checks are required when active; neither substitutes for the other.
+// See coach-availability-ownership.integration.ts.
 export class CoachAvailabilityOwnershipError extends Error {
   constructor() {
     super("You can only manage your own coaching availability.");
@@ -61,7 +80,8 @@ export class CoachAvailabilityService {
   }
 
   async createWindow(input: CreateAvailabilityWindowInput, callerEmployeeId: string, actorUserId: string) {
-    if (input.coachId !== callerEmployeeId) {
+    const editingOwnCalendar = input.coachId === callerEmployeeId;
+    if (!editingOwnCalendar && !ALLOW_CROSS_COACH_AVAILABILITY_EDITS) {
       throw new CoachAvailabilityOwnershipError();
     }
 
@@ -79,11 +99,16 @@ export class CoachAvailabilityService {
       },
     });
 
+    // Part B traceability (item 4): a cross-coach or admin-on-behalf-of
+    // edit is recorded as one explicitly, not indistinguishable from a
+    // coach managing their own calendar — "silently becomes normal" is
+    // exactly what this metadata prevents, since it's queryable later.
     await this.writeAuditLog({
       actorUserId,
       action: "coach_availability_window.created",
       entityId: window.id,
       newValues: window,
+      metadata: { callerEmployeeId, editingOwnCalendar },
     });
 
     return window;
@@ -91,7 +116,8 @@ export class CoachAvailabilityService {
 
   async deleteWindow(windowId: string, callerEmployeeId: string, actorUserId: string): Promise<void> {
     const window = await prisma.coachAvailabilityWindow.findUniqueOrThrow({ where: { id: windowId } });
-    if (window.coachId !== callerEmployeeId) {
+    const editingOwnCalendar = window.coachId === callerEmployeeId;
+    if (!editingOwnCalendar && !ALLOW_CROSS_COACH_AVAILABILITY_EDITS) {
       throw new CoachAvailabilityOwnershipError();
     }
 
@@ -102,6 +128,7 @@ export class CoachAvailabilityService {
       action: "coach_availability_window.deleted",
       entityId: windowId,
       oldValues: window,
+      metadata: { callerEmployeeId, editingOwnCalendar },
     });
   }
 
@@ -111,6 +138,7 @@ export class CoachAvailabilityService {
     entityId: string;
     oldValues?: unknown;
     newValues?: unknown;
+    metadata?: unknown;
   }): Promise<void> {
     try {
       await prisma.auditLog.create({
@@ -121,6 +149,7 @@ export class CoachAvailabilityService {
           entityId: entry.entityId,
           oldValues: entry.oldValues ? (JSON.parse(JSON.stringify(entry.oldValues)) as object) : undefined,
           newValues: entry.newValues ? (JSON.parse(JSON.stringify(entry.newValues)) as object) : undefined,
+          metadata: entry.metadata ? (JSON.parse(JSON.stringify(entry.metadata)) as object) : undefined,
         },
       });
     } catch (error) {

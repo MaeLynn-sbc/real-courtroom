@@ -1,22 +1,30 @@
 /**
- * Gate 2, item 3: "coach edits only their own availability windows" is an
- * employeeId ownership check, distinct from the coaching:manage_own_
- * availability PERMISSION (which only says "may reach this endpoint at
- * all"). Both coaches here hold the same permission (granted at the
- * Role level in prisma/seed.ts) — this proves the ownership check is
- * what actually stops coach B from touching coach A's windows, not the
- * permission.
+ * Gate 2 established the ownership check (an employeeId comparison,
+ * distinct from the coaching:manage_own_availability PERMISSION — see
+ * CoachAvailabilityOwnershipError's own comment). Part B relaxed its
+ * default: ALLOW_CROSS_COACH_AVAILABILITY_EDITS in
+ * coach-availability.service.ts is true right now (the two active
+ * coaches are family who coordinate schedules directly), so this test
+ * now proves the CURRENT allowed behavior — coach-to-coach edits and
+ * admin-on-behalf-of-a-coach edits both succeed — while still proving
+ * what did NOT change: the target employee must still be isCoach.
+ *
+ * The toggle's reversibility itself (flip it back to strict per-coach
+ * ownership) was proven manually during development, the same way the
+ * concurrency guard's proven-failing-first check was: temporarily
+ * setting ALLOW_CROSS_COACH_AVAILABILITY_EDITS to false, re-running
+ * this suite's cross-coach scenario and confirming
+ * CoachAvailabilityOwnershipError fires again, then restoring true.
+ * Not kept as a runtime toggle inside this file — same reasoning as
+ * why the concurrency guard's "without the guard" run isn't preserved
+ * as code either, just reported.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
 import "dotenv/config";
 
 import { prisma } from "../../lib/prisma";
-import {
-  coachAvailabilityService,
-  CoachAvailabilityOwnershipError,
-  NotACoachError,
-} from "./coach-availability.service";
+import { coachAvailabilityService, NotACoachError } from "./coach-availability.service";
 
 const TEST_USERNAME_PREFIX = "it-coachown-";
 const TEST_DATE = new Date(2031, 4, 6);
@@ -37,8 +45,8 @@ async function cleanUp(): Promise<void> {
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
 }
 
-async function createCoach(username: string, isCoach: boolean): Promise<{ id: string }> {
-  const role = await prisma.role.findFirstOrThrow({ where: { name: "RECEPTIONIST" } });
+async function createCoach(username: string, isCoach: boolean, roleName = "RECEPTIONIST"): Promise<{ id: string }> {
+  const role = await prisma.role.findFirstOrThrow({ where: { name: roleName } });
   const user = await prisma.user.create({ data: { name: username, username, roleId: role.id } });
   return prisma.employee.create({
     data: { userId: user.id, employeeNumber: `${username}-num`, firstName: "Test", lastName: "Coach", isCoach },
@@ -47,6 +55,7 @@ async function createCoach(username: string, isCoach: boolean): Promise<{ id: st
 
 async function main(): Promise<void> {
   const owner = await prisma.user.findFirstOrThrow({ where: { username: "owner" } });
+  const ownerEmployee = await prisma.employee.findUniqueOrThrow({ where: { userId: owner.id } });
   await cleanUp();
 
   const coachA = await createCoach(`${TEST_USERNAME_PREFIX}a-${Date.now()}`, true);
@@ -58,7 +67,7 @@ async function main(): Promise<void> {
     endAt: new Date(TEST_DATE.getFullYear(), TEST_DATE.getMonth(), TEST_DATE.getDate(), 17),
   };
 
-  // Coach A creates their own window — allowed.
+  // Coach A creates their own window — always allowed, toggle or not.
   const aWindow = await coachAvailabilityService.createWindow(
     { coachId: coachA.id, ...window },
     coachA.id,
@@ -66,38 +75,58 @@ async function main(): Promise<void> {
   );
   console.log("PASS: coach A can create their own availability window.");
 
-  // Coach B tries to create a window ON COACH A'S BEHALF (coachId
-  // mismatches callerEmployeeId) — both hold the identical permission at
-  // the role level; only the ownership check can catch this.
-  let ownershipRejected = false;
-  try {
-    await coachAvailabilityService.createWindow({ coachId: coachA.id, ...window }, coachB.id, owner.id);
-  } catch (error) {
-    ownershipRejected = error instanceof CoachAvailabilityOwnershipError;
-  }
-  assert(ownershipRejected, "expected coach B creating a window for coach A to be rejected by the ownership check");
-  console.log("PASS: coach B cannot create a window on coach A's behalf.");
+  // Part B (item 1): coach B creates a window on COACH A'S calendar —
+  // now allowed by default. Both hold the identical permission at the
+  // role level; this is exactly the ownership dimension the toggle
+  // relaxes.
+  const crossCoachWindow = await coachAvailabilityService.createWindow(
+    { coachId: coachA.id, ...window, startAt: new Date(TEST_DATE.getFullYear(), TEST_DATE.getMonth(), TEST_DATE.getDate(), 18), endAt: new Date(TEST_DATE.getFullYear(), TEST_DATE.getMonth(), TEST_DATE.getDate(), 20) },
+    coachB.id,
+    owner.id,
+  );
+  console.log("PASS: coach B can create a window on coach A's calendar (Part B default).");
 
-  // Coach B tries to DELETE coach A's window — also rejected.
-  let deleteRejected = false;
-  try {
-    await coachAvailabilityService.deleteWindow(aWindow.id, coachB.id, owner.id);
-  } catch (error) {
-    deleteRejected = error instanceof CoachAvailabilityOwnershipError;
-  }
-  assert(deleteRejected, "expected coach B deleting coach A's window to be rejected by the ownership check");
-  const stillExists = await prisma.coachAvailabilityWindow.findUnique({ where: { id: aWindow.id } });
-  assert(stillExists !== null, "coach A's window must still exist after coach B's rejected delete attempt");
-  console.log("PASS: coach B cannot delete coach A's window — it still exists.");
+  // Traceability (item 4): the audit entry for that cross-coach create
+  // must record it as one, not indistinguishably from a self-edit.
+  const crossCoachAudit = await prisma.auditLog.findFirst({
+    where: { entityType: "CoachAvailabilityWindow", entityId: crossCoachWindow.id },
+    orderBy: { createdAt: "desc" },
+  });
+  const crossCoachMetadata = crossCoachAudit?.metadata as { callerEmployeeId?: string; editingOwnCalendar?: boolean } | null;
+  assert(crossCoachMetadata?.editingOwnCalendar === false, "expected the audit log to record this as NOT a self-edit");
+  assert(crossCoachMetadata?.callerEmployeeId === coachB.id, "expected the audit log to record coach B as the actual caller");
+  console.log("PASS: the cross-coach edit is recorded in the audit log as one, distinguishable from a self-edit.");
 
-  // Coach A deleting their OWN window — allowed.
+  // Coach B deleting coach A's window — also allowed now.
+  await coachAvailabilityService.deleteWindow(crossCoachWindow.id, coachB.id, owner.id);
+  const crossCoachDeleted = await prisma.coachAvailabilityWindow.findUnique({ where: { id: crossCoachWindow.id } });
+  assert(crossCoachDeleted === null, "expected coach B's delete of coach A's window to succeed");
+  console.log("PASS: coach B can delete coach A's window too.");
+
+  // Part B (item 3): the non-coach OWNER editing a coach's calendar on
+  // their behalf — "put me in this slot" — must also work.
+  const adminCreatedWindow = await coachAvailabilityService.createWindow(
+    { coachId: coachA.id, startAt: new Date(TEST_DATE.getFullYear(), TEST_DATE.getMonth(), TEST_DATE.getDate(), 21), endAt: new Date(TEST_DATE.getFullYear(), TEST_DATE.getMonth(), TEST_DATE.getDate(), 22) },
+    ownerEmployee.id,
+    owner.id,
+  );
+  const adminAudit = await prisma.auditLog.findFirst({
+    where: { entityType: "CoachAvailabilityWindow", entityId: adminCreatedWindow.id },
+    orderBy: { createdAt: "desc" },
+  });
+  const adminMetadata = adminAudit?.metadata as { editingOwnCalendar?: boolean } | null;
+  assert(adminMetadata?.editingOwnCalendar === false, "expected the admin-on-behalf-of edit to be recorded as not a self-edit too");
+  console.log("PASS: a non-coach admin (Owner) can create a window on a coach's behalf, also traced in the audit log.");
+
+  // Unchanged by Part B: coach A deleting their OWN window still works.
   await coachAvailabilityService.deleteWindow(aWindow.id, coachA.id, owner.id);
   const deleted = await prisma.coachAvailabilityWindow.findUnique({ where: { id: aWindow.id } });
   assert(deleted === null, "coach A should be able to delete their own window");
-  console.log("PASS: coach A can delete their own window.");
+  console.log("PASS: coach A can still delete their own window.");
 
-  // isCoach gating: an employee without isCoach can't get a window at
-  // all, even for themselves.
+  // Unchanged by Part B: the TARGET must still be isCoach, regardless
+  // of who's asking — the toggle only widens "whose calendar," never
+  // "can you edit a non-coach's calendar."
   let notCoachRejected = false;
   try {
     await coachAvailabilityService.createWindow({ coachId: notACoach.id, ...window }, notACoach.id, owner.id);
@@ -105,10 +134,18 @@ async function main(): Promise<void> {
     notCoachRejected = error instanceof NotACoachError;
   }
   assert(notCoachRejected, "expected an employee without isCoach to be rejected even managing their own record");
-  console.log("PASS: an employee without isCoach cannot hold availability windows, even for themselves.");
+
+  let notCoachRejectedByAdmin = false;
+  try {
+    await coachAvailabilityService.createWindow({ coachId: notACoach.id, ...window }, ownerEmployee.id, owner.id);
+  } catch (error) {
+    notCoachRejectedByAdmin = error instanceof NotACoachError;
+  }
+  assert(notCoachRejectedByAdmin, "expected isCoach gating to hold even for the admin — Part B widens ownership, not the isCoach requirement");
+  console.log("PASS: isCoach gating is untouched by Part B — a non-coach's calendar can't be created by anyone, coach or admin.");
 
   await cleanUp();
-  console.log("PASS: ownership check and isCoach gating both proven against real rows.");
+  console.log("PASS: Part B's cross-coach and admin-on-behalf-of allowances proven, with isCoach gating confirmed unchanged.");
   process.exit(0);
 }
 
