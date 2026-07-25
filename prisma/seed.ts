@@ -98,6 +98,14 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     label: "View Reports & Analytics",
     description: "View operational reports, export CSVs, and view analytics dashboards.",
   },
+  [PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY]: {
+    label: "Manage Own Coaching Availability",
+    description: "For employees marked as a coach: set and edit their own bookable availability windows.",
+  },
+  [PERMISSIONS.COACHING_MANAGE_RATES]: {
+    label: "Manage Coaching Rates",
+    description: "Edit the per-coach, per-group-size coaching rate table.",
+  },
 };
 
 const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
@@ -112,6 +120,14 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.PLAYERS_MANAGE,
     PERMISSIONS.EQUIPMENT_MANAGE,
     PERMISSIONS.REPORTS_MANAGE,
+    // v1.2 DRAFT (coaching sessions): "Coach is an existing
+    // employee/owner" — Owner and Manager are the two roles that can
+    // plausibly hold Employee.isCoach at launch (this venue's own
+    // coaches are its owners), so both get the ability to manage their
+    // own availability. Rates gate the same as every other CMS/rates
+    // setting — SYSTEM_ADMIN tier, which both roles already hold.
+    PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY,
+    PERMISSIONS.COACHING_MANAGE_RATES,
   ],
   [SYSTEM_ROLES.MANAGER]: [
     PERMISSIONS.DASHBOARD_ACCESS,
@@ -123,6 +139,8 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.PLAYERS_MANAGE,
     PERMISSIONS.EQUIPMENT_MANAGE,
     PERMISSIONS.REPORTS_MANAGE,
+    PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY,
+    PERMISSIONS.COACHING_MANAGE_RATES,
   ],
   [SYSTEM_ROLES.RECEPTIONIST]: [
     PERMISSIONS.DASHBOARD_ACCESS,
