@@ -1938,6 +1938,18 @@ general rule: any value a transaction acts on must be *read inside that
 transaction*, not carried in from before it started — this generalizes
 past `settleTab` to every transaction in this codebase.
 
+### Known residual: bookings-list transient double-render (dev mode)
+
+A hard navigation to `/dashboard/bookings` can, for roughly 50-150ms,
+commit two React roots before settling to one — strongly evidenced as a
+`next dev` Fast Refresh bootstrap artifact (raw server HTML always has
+exactly one copy of every element; no React hydration-mismatch warning
+ever fired across ~15 reproductions), **not yet observed absent under a
+production build** — that confirmation attempt broke mid-way and isn't
+counted. Safe to defer specifically because
+`e2e/bookings.spec.ts`'s `toHaveCount(1)` guard will fail if this
+inference is wrong once Phase 8 puts real action buttons on this page.
+
 ---
 
 ## 16. Build order

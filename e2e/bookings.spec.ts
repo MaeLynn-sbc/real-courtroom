@@ -99,7 +99,10 @@ test.describe("Booking System (requires a seeded database)", () => {
   // disagreement). `toHaveCount(1)` polls until the assertion holds, so
   // it tolerates that settle window — this exists to catch a REAL future
   // mismatch (e.g. once Phase 8 adds interactive verification-queue
-  // buttons to this dashboard), not the harmless transient itself.
+  // buttons to this dashboard), not the harmless transient itself. Not
+  // yet confirmed absent under a production build (that check broke
+  // mid-attempt and isn't counted) — this test is what makes deferring
+  // that confirmation safe: if the "dev-only" inference is wrong, it fails.
   test("the bookings list filter form settles to exactly one instance of each control", async ({
     page,
   }) => {

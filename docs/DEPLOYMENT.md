@@ -112,6 +112,11 @@ behavior:
    a documented, pre-existing category unrelated to a real regression, but
    confirm nothing new is failing.
 
+   **Stop any running dev/app server first.** A live server sharing the
+   same `.next` directory corrupts the build it's currently writing to —
+   confirmed live: an in-progress `npm run build` run alongside a still-
+   running `npm run dev` produced a broken, mismatched output.
+
 2. **Apply database migrations — see the dedicated "Migrations and
    rollback" section below** for the exact command, why it's a
    deliberate manual step rather than something that runs automatically,
