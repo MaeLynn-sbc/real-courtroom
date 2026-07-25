@@ -1946,9 +1946,36 @@ commit two React roots before settling to one — strongly evidenced as a
 exactly one copy of every element; no React hydration-mismatch warning
 ever fired across ~15 reproductions), **not yet observed absent under a
 production build** — that confirmation attempt broke mid-way and isn't
-counted. Safe to defer specifically because
-`e2e/bookings.spec.ts`'s `toHaveCount(1)` guard will fail if this
-inference is wrong once Phase 8 puts real action buttons on this page.
+counted. Also seen on other pages during unrelated e2e runs this
+session (the public site header, a bookings-list table cell, a reports
+notification) — page/root-wide, not specific to the bookings list.
+
+Guarded by `e2e/bookings.spec.ts`'s `toHaveCount(1)` checks on
+`/dashboard/bookings` (the list) and `/dashboard/bookings/[bookingId]`
+(the detail page — the most likely home for Phase 8's per-booking GCash
+verification UI, since it already hosts booking status actions).
+**Not a guarantee for wherever Phase 8 actually lands its
+approve/reject buttons** — that route doesn't exist yet. Whichever page
+Phase 8 ships this on needs the same check added explicitly, not an
+assumption that the two guards above already cover it.
+
+### Known residual: newly-created courts don't immediately appear in the new-booking court list
+
+Found while widening the guard above: `e2e/bookings.spec.ts`'s
+pre-existing `createFreshCourt` helper (creates a court, then
+immediately opens `/dashboard/bookings/new` and tries to select it by
+name) times out intermittently — confirmed live that the just-created
+court is genuinely absent from the Court dropdown's options at that
+moment, not a selector or timing issue in the test. Reproduces on two
+pre-existing tests (`staff can create a walk-in booking...`, `an
+overlapping hourly booking...`), predates this session's changes,
+root cause not investigated (likely a caching/revalidation gap between
+`createCourtAction` and wherever the new-booking form's court list is
+sourced — not confirmed). Worked around in the new detail-page stability
+test by using the existing "Court 1" fixture instead of a fresh one,
+which doesn't need `createFreshCourt`'s uniqueness guarantee. Not fixed
+here — flagged for its own investigation, same as the CMS test was
+before it got root-caused and fixed this round.
 
 ---
 

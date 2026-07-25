@@ -115,4 +115,44 @@ test.describe("Booking System (requires a seeded database)", () => {
     await expect(page.locator("#source")).toHaveCount(1);
     await expect(page.locator("#sort")).toHaveCount(1);
   });
+
+  // Widened per review: Phase 8's verification-queue approve/reject
+  // buttons don't have a page yet (Phase 8 hasn't been designed), so this
+  // can't guarantee coverage of wherever they land. What it CAN cover
+  // now is the single most likely candidate that already exists —
+  // /dashboard/bookings/[bookingId], which already hosts booking status
+  // actions and is where BUILD-SPEC.md §8's GCash reference/screenshot
+  // review UI (per-booking, not list-level) would naturally attach. The
+  // diagnosed artifact (BUILD-SPEC.md §15) is dev-client-bootstrap-wide,
+  // not specific to this page or the list page above — if Phase 8 lands
+  // its verification UI somewhere else instead, THAT page needs this
+  // same check added, not an assumption that this one covers it.
+  test("a booking detail page settles to exactly one instance of its key elements", async ({
+    page,
+  }) => {
+    await loginAsOwner(page);
+
+    // A scheduled booking on the existing "Court 1" fixture, not a fresh
+    // court + walk-in — sidesteps an unrelated, pre-existing staleness
+    // issue this investigation surfaced but didn't fix (newly-created
+    // courts don't reliably appear in this form's court list right
+    // away; out of scope for this review, flagged separately). A future
+    // date avoids colliding with any other booking on Court 1.
+    const suffix = Date.now();
+    const bookingDate = new Date();
+    bookingDate.setDate(bookingDate.getDate() + 1 + (suffix % 300));
+    const dateStr = bookingDate.toISOString().slice(0, 10);
+
+    await page.goto("/dashboard/bookings/new");
+    await page.getByRole("switch", { name: /walk-in \(starts now\)/i }).click();
+    await selectCourt(page, "Court 1");
+    await page.getByLabel("Starts", { exact: true }).fill(`${dateStr}T15:00`);
+    await page.getByLabel("Ends", { exact: true }).fill(`${dateStr}T16:00`);
+    await page.getByLabel(/guest name/i).fill(`Stability Check Guest ${suffix}`);
+    await page.getByRole("button", { name: /create booking/i }).click();
+    await page.waitForURL(NOT_NEW_BOOKING_URL);
+
+    await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+    await expect(page.getByAltText("Booking check-in QR code")).toHaveCount(1);
+  });
 });
