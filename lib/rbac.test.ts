@@ -1,4 +1,4 @@
-import { canAccessRoute } from "@/lib/rbac";
+import { CHANGE_PASSWORD_PATH, canAccessRoute, requiresPasswordChangeRedirect } from "@/lib/rbac";
 import { PERMISSIONS } from "@/types/permissions";
 
 describe("canAccessRoute", () => {
@@ -55,5 +55,22 @@ describe("canAccessRoute", () => {
         PERMISSIONS.BOOKINGS_MANAGE,
       ]),
     ).toBe("allowed");
+  });
+});
+
+describe("requiresPasswordChangeRedirect", () => {
+  it("does nothing when mustChangePassword is false", () => {
+    expect(requiresPasswordChangeRedirect("/dashboard/bookings", false)).toBe(false);
+    expect(requiresPasswordChangeRedirect(CHANGE_PASSWORD_PATH, false)).toBe(false);
+  });
+
+  it("redirects away from any other /dashboard path when mustChangePassword is true", () => {
+    expect(requiresPasswordChangeRedirect("/dashboard/bookings", true)).toBe(true);
+    expect(requiresPasswordChangeRedirect("/dashboard", true)).toBe(true);
+  });
+
+  it("allows the change-password page itself, and nested paths under it", () => {
+    expect(requiresPasswordChangeRedirect(CHANGE_PASSWORD_PATH, true)).toBe(false);
+    expect(requiresPasswordChangeRedirect(`${CHANGE_PASSWORD_PATH}/confirm`, true)).toBe(false);
   });
 });

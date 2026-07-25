@@ -36,6 +36,22 @@ const PROTECTED_ROUTES: RouteRule[] = [
 
 export type RouteAccessDecision = "allowed" | "unauthenticated" | "forbidden";
 
+// v1.2: the only page a must-change-password account may reach under
+// /dashboard. Logout needs no special-casing here — signOut() posts to
+// an /api/auth/* route, outside middleware's /dashboard/:path* matcher.
+export const CHANGE_PASSWORD_PATH = "/dashboard/change-password";
+
+// Checked BEFORE canAccessRoute's permission logic (see middleware.ts) —
+// a must-change account is blocked from everything under /dashboard
+// regardless of what permissions its role would otherwise grant, until it
+// changes its password. Kept as its own pure function (not folded into
+// canAccessRoute) because it's a different kind of decision: permission-
+// independent, and applies even to paths canAccessRoute would otherwise
+// mark "allowed" (e.g. the /dashboard root itself).
+export function requiresPasswordChangeRedirect(pathname: string, mustChangePassword: boolean): boolean {
+  return mustChangePassword && !pathname.startsWith(CHANGE_PASSWORD_PATH);
+}
+
 // Picks the longest (most specific) matching prefix rather than the first
 // match in array order, so nested rules like /dashboard/courts/new can
 // require a stricter permission than their /dashboard parent regardless of

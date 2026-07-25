@@ -31,6 +31,18 @@ export async function requirePermission(
     return { ok: false, error: "You must be signed in." };
   }
 
+  // v1.2 defense-in-depth: middleware.ts already redirects a must-change
+  // account away from every permission-gated page before it can reach the
+  // form that would call this action, but that's page-load-only coverage.
+  // Refusing here too means a crafted direct call to any permission-
+  // checked action fails on its own, without depending on middleware.
+  // requireSession() (below) is deliberately NOT gated the same way — the
+  // self-service change-password action needs to keep working precisely
+  // while this is true, and it only calls requireSession.
+  if (session.user.mustChangePassword) {
+    return { ok: false, error: "You must change your password before continuing." };
+  }
+
   if (!hasPermission(session.user.permissions, permission)) {
     return { ok: false, error: deniedMessage };
   }
