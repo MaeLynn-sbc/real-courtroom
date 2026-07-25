@@ -15,12 +15,30 @@ import {
   type AvailabilityConflict,
 } from "@/services/booking/booking.service";
 import { getWebsiteBookingContext } from "@/services/booking/website-identity";
+import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
+import { coachRateService } from "@/services/coaching/coach-rate.service";
+
+export interface PublicBookingCoachOption {
+  id: string;
+  name: string;
+  // That coach's full group-size -> price table, fetched up front so the
+  // confirmation screen can show a rate the instant the customer picks a
+  // group size — no per-selection round trip.
+  rates: { groupSize: number; priceCents: number }[];
+}
 
 export interface PublicBookingActionState {
   error: string | null;
   conflict?: AvailabilityConflict;
   bookingId?: string;
   bookingReference?: string;
+  // Coaches with a window fully covering the just-booked slot — computed
+  // once here rather than a separate client-triggered lookup, so the
+  // confirmation screen's optional "add a coach" step (Gate 3) has
+  // exactly what it needs with no extra round trip. Empty, not omitted,
+  // when nobody's available — the UI shows "no coaches available" rather
+  // than silently having nothing to render.
+  availableCoaches?: PublicBookingCoachOption[];
 }
 
 const RATE_LIMIT_MAX = 5;
@@ -86,7 +104,27 @@ export async function createPublicBookingAction(
     revalidatePath("/dashboard/bookings");
     revalidatePath("/availability");
 
-    return { error: null, bookingId: booking.id, bookingReference: booking.bookingReference };
+    const coaches = await coachAvailabilityService.listAvailableCoaches(booking.startAt, booking.endAt);
+    const coachOptions: PublicBookingCoachOption[] = await Promise.all(
+      coaches.map(async (coach) => ({
+        id: coach.id,
+        name: coach.user.name ?? coach.user.email ?? "Coach",
+        rates: (await coachRateService.listRates(coach.id)).map((rate) => ({
+          groupSize: rate.groupSize,
+          priceCents: rate.priceCents,
+        })),
+      })),
+    );
+    // A coach with no rate table can't actually be booked for any group
+    // size — don't offer an option that would just error on submit.
+    const availableCoaches = coachOptions.filter((coach) => coach.rates.length > 0);
+
+    return {
+      error: null,
+      bookingId: booking.id,
+      bookingReference: booking.bookingReference,
+      availableCoaches,
+    };
   } catch (error) {
     if (error instanceof BookingConflictError) {
       return { error: error.message, conflict: error.conflict };
