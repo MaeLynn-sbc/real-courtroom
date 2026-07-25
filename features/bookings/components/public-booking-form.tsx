@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Controller, useForm } from "react-hook-form";
 
-import { createPublicBookingAction } from "@/actions/public-booking.actions";
+import { createPublicBookingAction, type PublicBookingCoachOption } from "@/actions/public-booking.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PublicCoachAddOn } from "@/features/coaching/components/public-coach-add-on";
 
 const DURATIONS_MINUTES = [30, 60, 90, 120];
 
@@ -33,12 +34,14 @@ interface PublicBookingFormValues {
 }
 
 interface BookingConfirmation {
+  bookingId: string;
   bookingReference: string;
   courtName: string;
   date: string;
   time: string;
   durationMinutes: number;
   guestName: string;
+  availableCoaches: PublicBookingCoachOption[];
 }
 
 function toLocalDateValue(date: Date): string {
@@ -100,12 +103,14 @@ export function PublicBookingForm({
       }
 
       setConfirmation({
+        bookingId: result.bookingId ?? "",
         bookingReference: result.bookingReference,
         courtName: courts.find((court) => court.id === values.courtId)?.name ?? "",
         date: values.date,
         time: values.time,
         durationMinutes: Number(values.durationMinutes),
         guestName: values.guestName,
+        availableCoaches: result.availableCoaches ?? [],
       });
     });
   });
@@ -145,6 +150,10 @@ export function PublicBookingForm({
             Save your reference and phone number — you can look up this booking anytime from the
             Booking Lookup page. Payment is collected at the venue.
           </p>
+
+          <div className="border-t pt-3">
+            <PublicCoachAddOn bookingId={confirmation.bookingId} availableCoaches={confirmation.availableCoaches} />
+          </div>
         </CardContent>
       </Card>
     );
