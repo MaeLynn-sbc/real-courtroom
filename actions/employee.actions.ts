@@ -5,12 +5,10 @@ import { revalidatePath } from "next/cache";
 import {
   changeRoleSchema,
   createEmployeeSchema,
-  resetPasswordSchema,
   setActiveSchema,
   updateEmployeeSchema,
   type ChangeRoleInput,
   type CreateEmployeeInput,
-  type ResetPasswordInput,
   type SetActiveInput,
   type UpdateEmployeeInput,
 } from "@/features/employees/schemas/employee.schema";
@@ -25,6 +23,14 @@ export interface EmployeeActionState {
 
 export interface CreateEmployeeActionState extends EmployeeActionState {
   employeeId?: string;
+  // Plaintext, one-time — never re-fetchable after this response. The UI
+  // must show it now or the admin has to reset the password to see one
+  // again (see employee.service.ts's createEmployee comment).
+  tempPassword?: string;
+}
+
+export interface ResetPasswordActionState extends EmployeeActionState {
+  tempPassword?: string;
 }
 
 function requireUsersManage() {
@@ -45,9 +51,9 @@ export async function createEmployeeAction(
   }
 
   try {
-    const employee = await employeeService.createEmployee(parsed.data, authz.userId);
+    const { employee, tempPassword } = await employeeService.createEmployee(parsed.data, authz.userId);
     revalidatePath("/dashboard/admin/employees");
-    return { error: null, employeeId: employee.id };
+    return { error: null, employeeId: employee.id, tempPassword };
   } catch (error) {
     return { error: toActionError(error, { action: "createEmployeeAction", userId: authz.userId }) };
   }
@@ -78,22 +84,16 @@ export async function updateEmployeeAction(
 
 export async function resetEmployeePasswordAction(
   employeeId: string,
-  input: ResetPasswordInput,
-): Promise<EmployeeActionState> {
+): Promise<ResetPasswordActionState> {
   const authz = await requireUsersManage();
   if (!authz.ok) {
     return { error: authz.error };
   }
 
-  const parsed = resetPasswordSchema.safeParse(input);
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid password." };
-  }
-
   try {
-    await employeeService.resetPassword(employeeId, parsed.data, authz.userId);
+    const { tempPassword } = await employeeService.resetPassword(employeeId, authz.userId);
     revalidatePath("/dashboard/admin/employees");
-    return { error: null };
+    return { error: null, tempPassword };
   } catch (error) {
     return {
       error: toActionError(error, { action: "resetEmployeePasswordAction", userId: authz.userId }),

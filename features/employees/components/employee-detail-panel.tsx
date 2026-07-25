@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { TempPasswordReveal } from "@/features/employees/components/temp-password-reveal";
 import { updateEmployeeSchema } from "@/features/employees/schemas/employee.schema";
 import type { AuditLog } from "@/lib/generated/prisma/client";
 import { formatAuditLogLabel } from "@/services/notifications/notification-reference";
@@ -227,49 +228,42 @@ function RoleAndStatusSection({ employee, roles }: { employee: Employee; roles: 
 function ResetPasswordSection({ employee }: { employee: Employee }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [password, setPassword] = useState("");
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
 
-  function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
+  function handleReset() {
     setServerError(null);
-
-    if (password.length < 8) {
-      setServerError("Password must be at least 8 characters.");
-      return;
-    }
-
     startTransition(async () => {
-      const result = await resetEmployeePasswordAction(employee.id, { password });
+      const result = await resetEmployeePasswordAction(employee.id);
       if (result.error) {
         setServerError(result.error);
         return;
       }
+      if (result.tempPassword) {
+        setTempPassword(result.tempPassword);
+      }
       toast.success("Password reset.");
-      setPassword("");
     });
   }
 
+  if (tempPassword) {
+    return <TempPasswordReveal password={tempPassword} onDismiss={() => setTempPassword(null)} />;
+  }
+
   return (
-    <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="newPassword">New password</Label>
-        <Input
-          id="newPassword"
-          type="password"
-          autoComplete="new-password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-        />
-      </div>
+    <div className="flex flex-col gap-3">
+      <p className="text-muted-foreground text-sm">
+        Generates a new system password and forces a change at this employee&apos;s next login. There&apos;s
+        no way to set a specific password — only a fresh, random one.
+      </p>
       {serverError ? (
         <p className="text-destructive text-sm" role="alert">
           {serverError}
         </p>
       ) : null}
-      <Button type="submit" size="sm" variant="outline" disabled={isPending}>
+      <Button type="button" size="sm" variant="outline" onClick={handleReset} disabled={isPending}>
         {isPending ? "Resetting…" : "Reset password"}
       </Button>
-    </form>
+    </div>
   );
 }
 

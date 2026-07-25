@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TempPasswordReveal } from "@/features/employees/components/temp-password-reveal";
 import { createEmployeeSchema } from "@/features/employees/schemas/employee.schema";
 
 interface RoleOption {
@@ -31,7 +32,6 @@ const EMPTY_FORM = {
   firstName: "",
   lastName: "",
   username: "",
-  password: "",
   phone: "",
   email: "",
   roleId: "",
@@ -42,6 +42,12 @@ export function EmployeeCreateForm({ roles }: EmployeeCreateFormProps) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [values, setValues] = useState(EMPTY_FORM);
+  // Holds { tempPassword, employeeId } between a successful create and the
+  // admin dismissing the reveal — navigation is deferred until then so the
+  // password stays on screen instead of getting swept away by the redirect.
+  const [pendingReveal, setPendingReveal] = useState<{ tempPassword: string; employeeId: string } | null>(
+    null,
+  );
 
   function setField<K extends keyof typeof EMPTY_FORM>(key: K, value: string) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -55,7 +61,6 @@ export function EmployeeCreateForm({ roles }: EmployeeCreateFormProps) {
       firstName: values.firstName,
       lastName: values.lastName,
       username: values.username,
-      password: values.password,
       phone: values.phone || undefined,
       email: values.email || undefined,
       roleId: values.roleId,
@@ -74,11 +79,29 @@ export function EmployeeCreateForm({ roles }: EmployeeCreateFormProps) {
       }
       toast.success("Employee created.");
       setValues(EMPTY_FORM);
-      if (result.employeeId) {
-        router.push(`/dashboard/admin/employees?employeeId=${result.employeeId}`);
+      if (result.employeeId && result.tempPassword) {
+        setPendingReveal({ employeeId: result.employeeId, tempPassword: result.tempPassword });
       }
-      router.refresh();
     });
+  }
+
+  if (pendingReveal) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>New employee</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <TempPasswordReveal
+            password={pendingReveal.tempPassword}
+            onDismiss={() => {
+              router.push(`/dashboard/admin/employees?employeeId=${pendingReveal.employeeId}`);
+              router.refresh();
+            }}
+          />
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -107,26 +130,17 @@ export function EmployeeCreateForm({ roles }: EmployeeCreateFormProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                autoComplete="off"
-                value={values.username}
-                onChange={(event) => setField("username", event.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                value={values.password}
-                onChange={(event) => setField("password", event.target.value)}
-              />
-            </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="username">Username</Label>
+            <Input
+              id="username"
+              autoComplete="off"
+              value={values.username}
+              onChange={(event) => setField("username", event.target.value)}
+            />
+            <p className="text-muted-foreground text-xs">
+              A temporary password is generated on creation — shown once, next step.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

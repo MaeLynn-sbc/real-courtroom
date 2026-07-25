@@ -11,13 +11,15 @@ const employeeProfileSchema = z.object({
   email: z.string().email("Enter a valid email address.").optional(),
 });
 
+// v1.2: no password field — the system generates a temp password (see
+// lib/temp-password.ts), an admin never types or chooses one. Applies to
+// both creation and reset alike, see resetPasswordSchema below.
 export const createEmployeeSchema = employeeProfileSchema.extend({
   username: z
     .string()
     .min(3, "Username must be at least 3 characters.")
     .max(50)
     .regex(/^[a-z0-9_.-]+$/i, "Username may only contain letters, numbers, dots, hyphens, and underscores."),
-  password: z.string().min(8, "Password must be at least 8 characters."),
   roleId: z.string().min(1, "Select a role."),
 });
 export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
@@ -25,9 +27,11 @@ export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
 export const updateEmployeeSchema = employeeProfileSchema;
 export type UpdateEmployeeInput = z.infer<typeof updateEmployeeSchema>;
 
-export const resetPasswordSchema = z.object({
-  password: z.string().min(8, "Password must be at least 8 characters."),
-});
+// No fields — resetting has no input beyond which employee, since the
+// system generates the new temp password (see createEmployeeSchema's note
+// above). Kept as an explicit empty-object schema, not a bare `unknown`,
+// so the action signature stays parse-and-validate like every other one.
+export const resetPasswordSchema = z.object({});
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 export const changeRoleSchema = z.object({

@@ -3,7 +3,6 @@ import bcrypt from "bcryptjs";
 import type {
   ChangeRoleInput,
   CreateEmployeeInput,
-  ResetPasswordInput,
   SetActiveInput,
   UpdateEmployeeInput,
 } from "@/features/employees/schemas/employee.schema";
@@ -11,6 +10,7 @@ import type { Prisma } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { nextSequence } from "@/lib/reference-counter";
+import { generateTempPassword } from "@/lib/temp-password";
 import { formatEmployeeNumber } from "@/services/employee/employee-number";
 
 // Same cost factor as prisma/seed.ts's Owner password hash.
@@ -58,9 +58,19 @@ export class EmployeeService {
   // the employee number comes from the shared atomic counter
   // (lib/reference-counter.ts), generated inside this same transaction —
   // it can no longer collide, so no retry loop is needed.
+  //
+  // v1.2: the password is system-generated, never admin-chosen (see
+  // lib/temp-password.ts) — returned as plaintext ONLY in this method's
+  // return value, for the caller to show the admin exactly once. Nothing
+  // persists it in plaintext; only its bcrypt hash reaches the database.
+  // mustChangePassword starts true, forcing the new employee through the
+  // change-password flow before anything else (lib/rbac.ts,
+  // lib/action-auth.ts).
   async createEmployee(input: CreateEmployeeInput, actorUserId: string) {
-    const passwordHash = await bcrypt.hash(input.password, PASSWORD_HASH_COST);
+    const tempPassword = generateTempPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, PASSWORD_HASH_COST);
     const name = `${input.firstName} ${input.lastName}`.trim();
+    const now = new Date();
 
     const employee = await prisma.$transaction(async (tx) => {
       const sequence = await nextSequence("EMPLOYEE", tx);
@@ -72,6 +82,8 @@ export class EmployeeService {
           email: input.email,
           username: input.username.toLowerCase(),
           passwordHash,
+          mustChangePassword: true,
+          passwordChangedAt: now,
           roleId: input.roleId,
         },
       });
@@ -97,7 +109,7 @@ export class EmployeeService {
       newValues: employee,
     });
 
-    return employee;
+    return { employee, tempPassword };
   }
 
   async updateEmployee(employeeId: string, input: UpdateEmployeeInput, actorUserId: string) {
@@ -134,13 +146,19 @@ export class EmployeeService {
     return employee;
   }
 
-  async resetPassword(employeeId: string, input: ResetPasswordInput, actorUserId: string) {
+  // Same system-generated-only rule as createEmployee — an admin reset
+  // never lets the admin pick the new password, and it forces the same
+  // mustChangePassword flow the employee went through at creation.
+  // passwordChangedAt bumping to now() is also what invalidates that
+  // employee's other active sessions (see auth.ts's jwt() callback).
+  async resetPassword(employeeId: string, actorUserId: string) {
     const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
-    const passwordHash = await bcrypt.hash(input.password, PASSWORD_HASH_COST);
+    const tempPassword = generateTempPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, PASSWORD_HASH_COST);
 
     await prisma.user.update({
       where: { id: employee.userId },
-      data: { passwordHash },
+      data: { passwordHash, mustChangePassword: true, passwordChangedAt: new Date() },
     });
 
     await this.writeAuditLog({
@@ -150,7 +168,7 @@ export class EmployeeService {
       entityId: employee.id,
     });
 
-    return employee;
+    return { employee, tempPassword };
   }
 
   async changeRole(employeeId: string, input: ChangeRoleInput, actorUserId: string) {
