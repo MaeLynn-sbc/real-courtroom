@@ -69,20 +69,34 @@ model RolePermission {
 // future flexibility but is not written to at runtime.
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
+  id                 String    @id @default(cuid())
+  name               String?
   // v1.1: email became optional and is no longer the login identifier —
   // username is (see Employee below). Existing rows keep their email; a
   // loosened constraint, not a narrowing, so this stays additive.
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-  username      String?   @unique
-  passwordHash  String?
-  roleId        String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
+  email              String?   @unique
+  emailVerified      DateTime?
+  image              String?
+  username           String?   @unique
+  passwordHash       String?
+  // v1.2: true for an admin-created account or a fresh admin password
+  // reset, both of which set a system-generated temp password never
+  // chosen by the admin (see employee.service.ts). Cleared only by the
+  // user successfully changing their own password. Enforced server-side
+  // in lib/rbac.ts (page/action routing) and lib/action-auth.ts
+  // (requirePermission) — never trust a client-side redirect alone for
+  // this.
+  mustChangePassword Boolean   @default(false)
+  // Stamped every time passwordHash is set (creation, admin reset, or
+  // self-service change) — the version stamp auth.ts's jwt() callback
+  // compares on every request to invalidate a token issued before the
+  // most recent password change, since this app's JWT session strategy
+  // has no server-side session table to revoke rows from directly.
+  passwordChangedAt  DateTime?
+  roleId             String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
 
   role     Role      @relation(fields: [roleId], references: [id])
   accounts Account[]
@@ -299,6 +313,16 @@ model Employee {
   lastName       String
   phone          String?
   photoUrl       String?
+  // v1.2: the ONLY supported way to remove an employee's access —
+  // checked in auth.ts's authorize() to block login. There is no delete
+  // action anywhere in this codebase for Employee or its User, and none
+  // should be added: this row is required-FK attribution on Sale
+  // (employeeId), Shift (employeeId), and PlayerTab write-offs
+  // (writtenOffTabs) — deleting it would either cascade-destroy
+  // financial/audit history or violate those constraints outright.
+  // deletedAt below is unused for Employee — inherited from the
+  // project's general soft-delete column convention, never wired to an
+  // actual delete path.
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -880,10 +904,6 @@ model OpenPlayNightRegistration {
   queueEntry            QueueEntry?
   gameAssignmentEntries GameAssignmentParticipant[]
   tab                   PlayerTab?
-
-  @@index([sessionId, status])
-  @@index([sessionId, waitlistPos])
-  @@index([date])
   // Not expressible in schema.prisma — Prisma has no CHECK-constraint or
   // trigger syntax, so these are hand-written into
   // prisma/migrations/11_registration_session_constraints/migration.sql
@@ -899,6 +919,10 @@ model OpenPlayNightRegistration {
   //   2. A BEFORE INSERT/UPDATE trigger: when sessionId is set, `date`
   //      must equal that session's own `date` column (can't be expressed
   //      as a CHECK constraint — it reads a different table).
+
+  @@index([sessionId, status])
+  @@index([sessionId, waitlistPos])
+  @@index([date])
 }
 
 enum QueueEntryStatus {
@@ -956,25 +980,25 @@ enum GameAssignmentStatus {
 }
 
 model GameAssignment {
-  id      String @id @default(cuid())
-  courtId String
+  id              String               @id @default(cuid())
+  courtId         String
   // Nullable for the same reason as OpenPlayNightRegistration.sessionId —
   // weeknight rotation has no session to key off. `date` is what every
   // query groups by; sessionId is populated for Fri/Sat only.
-  sessionId String?
-  date      DateTime
+  sessionId       String?
+  date            DateTime
   // Max skill-level distance among this game's 4 participants at proposal
   // time (0 = all same level). Informational — not enforced, just shown to
   // staff and useful for later tuning of skillWindow.
   skillSpread     Int
   source          GameAssignmentSource
   createdByUserId String?
-  proposedAt      DateTime              @default(now())
+  proposedAt      DateTime             @default(now())
   startedAt       DateTime?
   endedAt         DateTime?
-  status          GameAssignmentStatus  @default(PROPOSED)
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  status          GameAssignmentStatus @default(PROPOSED)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
   court        Court                       @relation(fields: [courtId], references: [id])
   session      OpenPlayNightSession?       @relation(fields: [sessionId], references: [id])
@@ -999,8 +1023,8 @@ model GameAssignmentParticipant {
   registrationId String
   createdAt      DateTime @default(now())
 
-  assignment   GameAssignment             @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  registration OpenPlayNightRegistration  @relation(fields: [registrationId], references: [id])
+  assignment   GameAssignment            @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  registration OpenPlayNightRegistration @relation(fields: [registrationId], references: [id])
 
   @@unique([assignmentId, registrationId])
   @@index([registrationId])
@@ -1055,40 +1079,40 @@ enum TabSettlementMethod {
 }
 
 model PlayerTab {
-  id             String  @id @default(cuid())
-  date           DateTime
-  sessionId      String? // nullable — Fri/Sat only, same fork as OpenPlayNightRegistration.sessionId
-  registrationId String  @unique
-  playerName     String
+  id                 String               @id @default(cuid())
+  date               DateTime
+  sessionId          String? // nullable — Fri/Sat only, same fork as OpenPlayNightRegistration.sessionId
+  registrationId     String               @unique
+  playerName         String
   // Snapshotted at tab creation (BUILD-SPEC.md §9 "Prices snapshot at
   // transaction time"): the current weeknightGameRateCents setting for a
   // weeknight tab, or 0 for Fri/Sat (games "counted for rotation fairness,
   // billed at ₱0" — the flat ₱150 fee is a separate, not-yet-built §8
   // payment, not a tab line item).
-  gameRateCents  Int
-  status         PlayerTabStatus @default(OPEN)
-  settledAt      DateTime?
-  settledByUserId String?
-  settledVia     TabSettlementMethod?
+  gameRateCents      Int
+  status             PlayerTabStatus      @default(OPEN)
+  settledAt          DateTime?
+  settledByUserId    String?
+  settledVia         TabSettlementMethod?
   // Required when settledVia = GCASH — same "unique across all payments"
   // fraud check §8 already specifies, enforced at the service layer since
   // it's conditionally required, not a plain column constraint.
-  gcashReference String?
-  writeOffReason String?
+  gcashReference     String?
+  writeOffReason     String?
   // Required at the service layer for every write-off (BUILD-SPEC.md §9
   // review: "no anonymous write-offs") — nullable here only because
   // Prisma has no way to make a column conditionally required based on
   // another column's value (status = WRITTEN_OFF); enforced in
   // player-tab.service.ts's writeOffTab, same pattern as writeOffReason.
   writeOffEmployeeId String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
-  registration   OpenPlayNightRegistration @relation(fields: [registrationId], references: [id])
-  session        OpenPlayNightSession?     @relation(fields: [sessionId], references: [id])
-  writeOffEmployee Employee?               @relation(fields: [writeOffEmployeeId], references: [id])
-  lineItems      TabLineItem[]
-  sale           Sale?
+  registration     OpenPlayNightRegistration @relation(fields: [registrationId], references: [id])
+  session          OpenPlayNightSession?     @relation(fields: [sessionId], references: [id])
+  writeOffEmployee Employee?                 @relation(fields: [writeOffEmployeeId], references: [id])
+  lineItems        TabLineItem[]
+  sale             Sale?
 
   @@index([date, status])
   @@index([sessionId])
@@ -1098,13 +1122,13 @@ model PlayerTab {
 // item") — a correction is a new ADJUSTMENT row, a voided charge is a new
 // negative-amount row that offsets the original, never a mutation.
 model TabLineItem {
-  id             String          @id @default(cuid())
-  tabId          String
-  type           TabLineItemType
-  description    String
-  qtyOrGames     Int
-  unitPriceCents Int
-  amountCents    Int
+  id               String          @id @default(cuid())
+  tabId            String
+  type             TabLineItemType
+  description      String
+  qtyOrGames       Int
+  unitPriceCents   Int
+  amountCents      Int
   // Traceability for GAME items back to the completed game that generated
   // them. NOT database-unique on (tabId, gameAssignmentId) — see
   // voidsLineItemId below for why: a voided GAME credit must not
@@ -1121,9 +1145,9 @@ model TabLineItem {
   gameAssignmentId String?
   // Required for ADJUSTMENT (§9 "a required reason, logged with who made
   // it"); null for GAME/RENTAL, which are self-explanatory.
-  reason          String?
-  createdByUserId String?
-  createdAt       DateTime @default(now())
+  reason           String?
+  createdByUserId  String?
+  createdAt        DateTime        @default(now())
 
   // Set only on a void adjustment (type=ADJUSTMENT) — points back to the
   // line item it offsets. Purely additive: the original row is never
