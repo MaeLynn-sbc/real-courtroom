@@ -1977,6 +1977,30 @@ which doesn't need `createFreshCourt`'s uniqueness guarantee. Not fixed
 here — flagged for its own investigation, same as the CMS test was
 before it got root-caused and fixed this round.
 
+### Flagged, not built: coach sessions need re-validation on reschedule
+
+Coaching sessions (Gate 2) deliberately read their time through their
+parent Booking rather than duplicating startAt/endAt — one source of
+truth for "when" (Gate 1 review). That design has a sharp edge: if
+court rescheduling is ever wired up (`rescheduleBooking` exists in
+`booking.service.ts`'s git history but has zero callers and isn't
+built into any action — see §15's concurrency-audit note on it), moving
+a booking's time does NOT currently re-check whether the coach attached
+to its CoachSession is still available for the new time. A session
+booked inside a coach's stated window could end up silently attached to
+a slot outside it, or overlapping another one of that coach's sessions,
+purely as a side effect of the court booking moving — not anything a
+customer or coach did through the coaching flow itself.
+
+Whoever builds reschedule needs to re-run CoachSession's own
+availability check (`isSlotFullyCovered`, same as `createCoachSession`)
+and its own coach-double-booking check (`hasTimeOverlap` against the
+coach's other active sessions) against the NEW time before committing
+the move — and decide what happens when the coach isn't available for
+it (block the reschedule outright, or flag `isOutsideAvailability` and
+let staff decide, same shape as the create-time override). Not
+speculated on further here since reschedule itself isn't built.
+
 ---
 
 ## 16. Build order
