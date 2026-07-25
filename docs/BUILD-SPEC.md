@@ -242,6 +242,131 @@ with a 3px coral stripe along the bottom edge. This repeats on the
 TV display's court cards. It is the thing that makes the system look
 like this venue and not a generic booking tool. Keep it consistent.
 
+### Two density contexts, one brand
+
+Everything above is the **public/marketing** context: generous,
+phone-first, fixed dark-navy palette, no light mode. The **operational
+context** (`/dashboard`) is deliberately denser — counter-legible, not
+whitespace-generous — and lives in `app/globals.css` as CSS custom
+properties (light + `.dark` variants) rather than the fixed hex palette
+above. They share the same brand DNA (the green, the navy, the radius
+scale, the focus mechanics) but are not the same token set, and this
+pass does not try to force them into one. Where they genuinely
+disagree, see "Where the two contexts disagree" below — stated, not
+averaged.
+
+### Operational (dashboard) tokens — semantic roles
+
+Source of truth: `app/globals.css`'s `:root` / `.dark` custom
+properties, already fairly mature (v1.1 Sub-phase 5 introduced the
+shared `components/ui/*` layer). This UI-refresh pass formalizes the
+roles below and fixes the one real collision found in them (action vs
+status/active) — it does not rename or revalue the tokens themselves
+except where noted.
+
+| Role | Token(s) | Notes |
+|---|---|---|
+| Surface (page) | `--background` | The dashboard's dark-navy shell. Only surface that follows the theme toggle in the way you'd expect. |
+| Surface (content) | `--card`, `--popover` | Pinned to opaque white in **both** light and dark theme — confirmed deliberate (see `--border`'s comment in `globals.css`): the brand's dark navy is the shell, not where content lives. Anything raised (a table row, a form card, a dropdown) sits on white regardless of theme. |
+| Surface (chrome) | `--sidebar` | Its own darker scale, separate from `--background` — the persistent nav rail, not page content. |
+| Elevation | `ring-1 ring-foreground/10` (default) | Every `Card`/`Table` uses a hairline ring, not a shadow, as its resting elevation cue. |
+| Elevation (floating) | `--shadow-sm/md/lg` | Reserved for things that sit **above** page content — `Popover`, `Sheet`, `AlertDialog` — not resting cards. |
+| Action (primary CTA) | `--primary` (green) | Unchanged by this pass. Every "Save" / "Add" / "Create" button in the dashboard today. |
+| Status / active | `--court-blue` | **New role for an existing token.** Previously only used for the Court Status panel's "Occupied" dot (`features/dashboard/components/court-status-panel.tsx`). Formalized here as the general "this record is currently active" status color — a `Badge`/`Switch` representing record state never uses `--primary`/`--success` green again, so it can't collide with an action button on the same screen. See the payment-methods fix below for the first real application. |
+| Warning | `--warning` (amber) | "This needs attention" (maintenance, overdue) — not the same thing as disabled. |
+| Disabled / inactive | dimmed surface (`opacity-60` on the row/card) | A disabled record isn't a warning, it's just not in play — cooler, quieter treatment, not amber. |
+| Text on surface | `--foreground` on `--background`; `--card-foreground` on `--card`/`--popover`/`--sidebar` | This split already prevented one real bug (`components/ui/table.tsx`'s comment: a table inherited the page's near-white dark-theme text onto its always-white card background and washed out completely). Every new dashboard surface must set its own foreground explicitly, never assume inheritance. |
+| Text (secondary) | `--muted-foreground` | Captions, placeholders, table headers, meta text. |
+| Focus ring | `--ring` via `focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50` | Uniform across `Button`/`Input`/`Switch`/`Select` already — this pass didn't need to touch it. |
+
+### Where the two contexts disagree
+
+Stated explicitly per the instruction not to average silently:
+
+1. **Action color vs status/active color (dashboard-internal, real bug, fixed this pass).** `--primary` and `--success` are the literal same OKLCH value today, and until this pass nothing distinguished "the button that performs an action" from "the badge/switch that shows a record is active" — both rendered identical green. **Resolved**: status/active now uses `--court-blue` (see table above), action keeps `--primary`. **Not resolved, flagged for the next pass**: `--success` (toast/confirmation messaging) is still the same value as `--primary`. That's a much larger blast-radius change (every success toast in the app) and is out of scope here — it just happens not to cause the same visible collision, because a success toast doesn't sit persistently next to a primary button the way a status badge does.
+2. **Focus mechanism.** Dashboard: Tailwind `ring` (`focus-visible:ring-3 ring-ring/50` + `border-ring`) — this vocabulary is already overloaded with validation meaning (`aria-invalid:ring-3 ring-destructive/20`), so switching it would break that. Public site: native `outline` (`focus-visible:outline-2 outline-offset-2 outline-green`) — needed because the pill-shaped marketing buttons need the offset to clear their curved edge. **Dashboard wins in the dashboard, public wins on the public site.** Different mechanisms, kept different on purpose, not unified.
+3. **Card is always white, even in the dashboard's dark theme.** Already covered above — restated here because it's the item most likely to surprise someone porting a public-site pattern (fixed dark navy everywhere) into the dashboard.
+
+### Screen inventory — the rollout checklist
+
+Every screen/surface in the app, grouped by section. This is the
+checklist for the *next* decision (broad rollout) — nothing below is
+changed by this pass except payment-methods (marked ✅ reference).
+"Collision risk" = uses `Badge variant="success"` and/or `Switch` near
+a primary action button, i.e. a candidate for the same action-vs-status
+fix applied to payment-methods.
+
+**Public / marketing (unauthenticated, own token set — untouched)**
+`/` (home), `/about`, `/contact`, `/courts`, `/rates`, `/open-play`,
+`/book`, `/availability`, `/lookup`, `/unauthorized`. Shared chrome:
+`site-header.tsx`, `site-footer.tsx`, `site-status-pill.tsx`.
+
+**Lobby TV (`docs/tv-display.html`)**
+Static reference file only — not yet wired up as a live Next.js route
+(no `/display/<slug>` page exists in `app/` today, despite §1 naming
+it as one of the three displays). Out of scope for this pass either
+way; noted because it's the third "display" §1 promises and isn't
+built yet.
+
+**Dashboard — Operations**
+`/dashboard` (home), `/dashboard/shift`, `/dashboard/bookings` (+ `new`,
+`[bookingId]`, `check-in`), `/dashboard/open-play` (+ `new`,
+`[sessionId]`), `/dashboard/courts` (+ `new`, `[courtId]`),
+`/dashboard/equipment` (+ `new`, `[equipmentId]`, `rentals`,
+`rentals/[rentalId]`), `/dashboard/lockers` (+ `new`, `[lockerId]`,
+`rentals`, `rentals/[rentalId]`), `/dashboard/products`.
+
+**Dashboard — Coaching (merged this session, not yet restyled)**
+Public-facing: the coach add-on on the `/book` confirmation screen
+(`features/coaching/components/public-coach-add-on.tsx` — public
+token set, not this section). Staff-facing: `/dashboard/coaching`
+(session list, `Badge` source pill), `/dashboard/coaching/availability`
+(coach picker + window editor, added this session), `/dashboard/coaching/rates`.
+Uses `Switch` nowhere directly but does use status-style badges for
+session source (PUBLIC/STAFF) — worth a look in the next rollout pass,
+same as the collision-risk list below. Coaching must land in the same
+pass as every other operational screen — it's not a special case.
+
+**Dashboard — Tournaments**
+`/dashboard/tournaments` (+ `new`, `[tournamentId]`,
+`[tournamentId]/categories/[categoryId]`). `category-list.tsx` — ⚠
+collision risk (`Badge variant="success"`).
+
+**Dashboard — Players & memberships**
+`/dashboard/players` (+ `new`, `[playerId]`), `/dashboard/memberships`
+(+ `[membershipId]`, `plans`, `plans/new`).
+`enroll-membership-form.tsx`, `plan-form.tsx` — ⚠ collision risk (`Switch`).
+
+**Dashboard — Administration**
+`/dashboard/admin/employees`, `/dashboard/admin/roles`,
+`/dashboard/admin/payment-methods` ✅ **reference screen, this pass**,
+`/dashboard/admin/products`, `/dashboard/admin/settings`,
+`/dashboard/admin/website`, `/dashboard/admin/audit-logs`,
+`/dashboard/admin/diagnostics`, `/dashboard/admin/open-play-capacity`
+(+ `[date]`). `employee-detail-panel.tsx`, `role-form.tsx`,
+`module-toggles-panel.tsx`, `open-play-settings-panel.tsx`,
+`registration-roster-panel.tsx` — ⚠ collision risk (`Switch` and/or
+`Badge variant="success"`).
+
+**Dashboard — Sales, reports, analytics**
+`/dashboard/sales`, `/dashboard/reports` (+ `[reportType]`),
+`/dashboard/analytics`, `/dashboard/announcements` (+ `new`,
+`[announcementId]`). `shift-workspace.tsx` — ⚠ collision risk
+(`Badge variant="success"`).
+
+**Dashboard — Account / chrome**
+`/dashboard/change-password`. Shared chrome:
+`dashboard-header.tsx`, `dashboard-sidebar.tsx`, `user-nav.tsx`.
+
+**Other collision-risk consumers found by grep, not yet mapped to a
+specific screen above:** `booking-form.tsx`, `court-form.tsx`,
+`product-catalog.tsx`, `public-visibility-panel.tsx` (CMS) — all use
+`Switch`; confirm each one at rollout time before assuming the
+payment-methods fix applies as-is (some of these toggles may not
+represent "record is active" at all, e.g. a form checkbox for a
+one-off setting, where plain `--primary` green is already correct and
+unambiguous).
+
 ---
 
 ## 3. Public website — `/`

@@ -40,6 +40,13 @@ const badgeVariants = cva(
           "bg-success/10 text-success focus-visible:ring-success/20 dark:bg-success/20 dark:focus-visible:ring-success/40 [a]:hover:bg-success/20",
         warning:
           "bg-warning/15 text-warning-foreground focus-visible:ring-warning/30 dark:bg-warning/25 [a]:hover:bg-warning/25",
+        // BUILD-SPEC.md §2, "action vs status/active": "this record is
+        // currently active" must never render in the same green as a
+        // primary action button. Same bg/10-plus-solid-text pattern as
+        // success/warning above, built on --court-blue (already used
+        // for "Occupied" on the Court Status panel) instead of green.
+        status:
+          "bg-court-blue/10 text-court-blue focus-visible:ring-court-blue/20 dark:bg-court-blue/20 dark:focus-visible:ring-court-blue/40 [a]:hover:bg-court-blue/20",
       },
     },
     defaultVariants: {
