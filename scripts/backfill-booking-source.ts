@@ -16,6 +16,13 @@
  * Run via `npx tsx scripts/backfill-booking-source.ts`. Requires the dev
  * database up. Prints a report of how many rows landed in each bucket —
  * that report is the point of running it, not just a side effect.
+ *
+ * The DB-touching part is exported as backfillBookingSource() so
+ * services/booking/booking-source-backfill.integration.ts can run it
+ * against seeded fixture rows and assert the branching (agree/disagree/
+ * unresolvable) actually resolves correctly against real data — the live
+ * run against the dev DB never exercised that, since it found 0 UNKNOWN
+ * rows to process.
  */
 import "dotenv/config";
 
@@ -24,7 +31,7 @@ import type { BookingSource } from "../lib/generated/prisma/enums";
 import { WEBSITE_SYSTEM_USER_EMAIL } from "../lib/system-identities";
 import { resolveBookingSource } from "../services/booking/booking-source";
 
-async function main(): Promise<void> {
+export async function backfillBookingSource(): Promise<Record<BookingSource, number>> {
   const bookings = await prisma.booking.findMany({
     where: { source: "UNKNOWN" },
     select: {
@@ -47,8 +54,15 @@ async function main(): Promise<void> {
     }
   }
 
+  return counts;
+}
+
+async function main(): Promise<void> {
+  const counts = await backfillBookingSource();
+  const total = counts.PUBLIC + counts.STAFF + counts.UNKNOWN;
+
   console.log(
-    `Backfilled ${bookings.length} row(s) that were UNKNOWN:\n` +
+    `Backfilled ${total} row(s) that were UNKNOWN:\n` +
       `  PUBLIC:  ${counts.PUBLIC}\n` +
       `  STAFF:   ${counts.STAFF}\n` +
       `  UNKNOWN: ${counts.UNKNOWN} (left as-is — no write needed, already the default)`,
@@ -56,7 +70,9 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
