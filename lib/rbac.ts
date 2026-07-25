@@ -32,6 +32,13 @@ const PROTECTED_ROUTES: RouteRule[] = [
   // SYSTEM_ADMIN as before.
   { prefix: "/dashboard/admin/employees", permission: PERMISSIONS.USERS_MANAGE },
   { prefix: "/dashboard/admin/roles", permission: PERMISSIONS.USERS_MANAGE },
+  // v1.2 DRAFT (coaching sessions, Gate 2): sessions list gates the same
+  // as bookings (BOOKINGS_MANAGE) — availability and rates are more
+  // specific sub-routes that override it, same longest-prefix-match
+  // pattern as /dashboard/admin/employees above.
+  { prefix: "/dashboard/coaching", permission: PERMISSIONS.BOOKINGS_MANAGE },
+  { prefix: "/dashboard/coaching/availability", permission: PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY },
+  { prefix: "/dashboard/coaching/rates", permission: PERMISSIONS.COACHING_MANAGE_RATES },
 ];
 
 export type RouteAccessDecision = "allowed" | "unauthenticated" | "forbidden";
