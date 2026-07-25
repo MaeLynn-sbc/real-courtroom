@@ -115,24 +115,36 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
 
       // v1.2: re-checked on every call (not gated behind `!token.role` like
-      // the heavier fetch below) — a single-row, indexed lookup, cheap
-      // enough to run every request. This is what makes a password change
-      // actually invalidate a token issued before it: a mismatch here
-      // means the token predates the most recent password change (a reset
-      // elsewhere, or this same user changing it from another device), so
-      // the token is discarded outright by returning null. See
-      // User.passwordChangedAt's schema comment for why a JWT session
-      // needs this instead of just deleting a Session row.
-      const passwordState = await prisma.user.findUnique({
+      // the heavier fetch below) — a single-row, indexed lookup (plus its
+      // 1:1 Employee join), cheap enough to run every request. Two things
+      // ride on this same check:
+      //   - passwordChangedAt: a mismatch means the token predates the
+      //     most recent password change (a reset elsewhere, or this same
+      //     user changing it from another device) — see
+      //     User.passwordChangedAt's schema comment for why a JWT session
+      //     needs this instead of just deleting a Session row.
+      //   - employee.isActive: authorize() already refuses a NEW sign-in
+      //     for a deactivated employee, but a token issued BEFORE
+      //     deactivation would otherwise keep working — full permissions
+      //     included — until it naturally expired. Same "isActive false
+      //     blocks it" rule as authorize(), just re-applied on every
+      //     request instead of only at sign-in.
+      // Either condition discards the token outright by returning null.
+      const accountState = await prisma.user.findUnique({
         where: { id: userId },
-        select: { deletedAt: true, mustChangePassword: true, passwordChangedAt: true },
+        select: {
+          deletedAt: true,
+          mustChangePassword: true,
+          passwordChangedAt: true,
+          employee: { select: { isActive: true } },
+        },
       });
 
-      if (!passwordState || passwordState.deletedAt) {
+      if (!accountState || accountState.deletedAt || (accountState.employee && !accountState.employee.isActive)) {
         return null;
       }
 
-      const currentPasswordVersion = passwordState.passwordChangedAt?.getTime() ?? 0;
+      const currentPasswordVersion = accountState.passwordChangedAt?.getTime() ?? 0;
 
       if (user) {
         // Fresh sign-in — stamp the version this token was issued at.
@@ -141,7 +153,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return null;
       }
 
-      token.mustChangePassword = passwordState.mustChangePassword;
+      token.mustChangePassword = accountState.mustChangePassword;
 
       if (user || !token.role) {
         const dbUser = await prisma.user.findUnique({
