@@ -89,4 +89,27 @@ test.describe("Booking System (requires a seeded database)", () => {
     // Should not have navigated away from the form on failure.
     await expect(page.getByRole("heading", { name: "New booking" })).toBeVisible();
   });
+
+  // Regression guard for a diagnosed dev-mode-only artifact (pre-Phase-8
+  // review): a hard navigation to this page can transiently commit two
+  // React roots for well under 200ms before settling to one — confirmed
+  // via raw curl (server HTML always has exactly one of each filter
+  // control) and via console output (no hydration-mismatch warning ever
+  // fires; it's a doubled root-init, not a client/server markup
+  // disagreement). `toHaveCount(1)` polls until the assertion holds, so
+  // it tolerates that settle window — this exists to catch a REAL future
+  // mismatch (e.g. once Phase 8 adds interactive verification-queue
+  // buttons to this dashboard), not the harmless transient itself.
+  test("the bookings list filter form settles to exactly one instance of each control", async ({
+    page,
+  }) => {
+    await loginAsOwner(page);
+    await page.goto("/dashboard/bookings");
+
+    await expect(page.locator("form")).toHaveCount(1);
+    await expect(page.locator("#status")).toHaveCount(1);
+    await expect(page.locator("#date")).toHaveCount(1);
+    await expect(page.locator("#source")).toHaveCount(1);
+    await expect(page.locator("#sort")).toHaveCount(1);
+  });
 });
