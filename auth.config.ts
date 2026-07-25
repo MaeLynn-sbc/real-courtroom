@@ -24,6 +24,7 @@ export const authConfig = {
       session.user.id = typeof token.id === "string" ? token.id : "";
       session.user.role = token.role ?? null;
       session.user.permissions = token.permissions ?? [];
+      session.user.mustChangePassword = token.mustChangePassword ?? false;
       return session;
     },
   },

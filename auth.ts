@@ -114,6 +114,35 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return token;
       }
 
+      // v1.2: re-checked on every call (not gated behind `!token.role` like
+      // the heavier fetch below) — a single-row, indexed lookup, cheap
+      // enough to run every request. This is what makes a password change
+      // actually invalidate a token issued before it: a mismatch here
+      // means the token predates the most recent password change (a reset
+      // elsewhere, or this same user changing it from another device), so
+      // the token is discarded outright by returning null. See
+      // User.passwordChangedAt's schema comment for why a JWT session
+      // needs this instead of just deleting a Session row.
+      const passwordState = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { deletedAt: true, mustChangePassword: true, passwordChangedAt: true },
+      });
+
+      if (!passwordState || passwordState.deletedAt) {
+        return null;
+      }
+
+      const currentPasswordVersion = passwordState.passwordChangedAt?.getTime() ?? 0;
+
+      if (user) {
+        // Fresh sign-in — stamp the version this token was issued at.
+        token.passwordVersion = currentPasswordVersion;
+      } else if ((token.passwordVersion ?? 0) !== currentPasswordVersion) {
+        return null;
+      }
+
+      token.mustChangePassword = passwordState.mustChangePassword;
+
       if (user || !token.role) {
         const dbUser = await prisma.user.findUnique({
           where: { id: userId },
@@ -135,6 +164,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.user.id = typeof token.id === "string" ? token.id : "";
       session.user.role = token.role ?? null;
       session.user.permissions = token.permissions ?? [];
+      session.user.mustChangePassword = token.mustChangePassword ?? false;
       return session;
     },
   },
