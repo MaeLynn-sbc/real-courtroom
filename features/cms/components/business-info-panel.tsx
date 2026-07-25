@@ -65,7 +65,14 @@ export function BusinessInfoPanel({ businessInfo }: { businessInfo: BusinessInfo
             )}
           </div>
         ))}
-        <Button type="button" size="sm" disabled={isPending} onClick={handleSave} className="self-start">
+        <Button
+          type="button"
+          size="sm"
+          disabled={isPending}
+          onClick={handleSave}
+          className="self-start"
+          aria-label="Save business information"
+        >
           {isPending ? "Saving…" : "Save"}
         </Button>
       </CardContent>

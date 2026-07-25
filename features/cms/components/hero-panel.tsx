@@ -92,7 +92,14 @@ export function HeroPanel({ hero, galleryImages }: { hero: HomepageHero; gallery
             </p>
           ) : null}
         </div>
-        <Button type="button" size="sm" disabled={isPending} onClick={handleSave} className="self-start">
+        <Button
+          type="button"
+          size="sm"
+          disabled={isPending}
+          onClick={handleSave}
+          className="self-start"
+          aria-label="Save homepage hero"
+        >
           {isPending ? "Saving…" : "Save"}
         </Button>
       </CardContent>

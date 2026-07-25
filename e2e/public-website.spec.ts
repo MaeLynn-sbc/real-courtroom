@@ -91,8 +91,8 @@ test.describe("Public Website & Customer Booking (requires a seeded database)", 
       const current = await titleInput.inputValue().catch(() => null);
       if (current && current.startsWith("E2E HERO ")) {
         await titleInput.fill(DEFAULT_HERO_TITLE);
-        await page.getByRole("button", { name: /^save$/i }).first().click();
-        await expect(page.getByRole("button", { name: /^save$/i }).first()).toHaveText("Save", {
+        await page.getByRole("button", { name: "Save homepage hero" }).click();
+        await expect(page.getByRole("button", { name: "Save homepage hero" })).toHaveText("Save", {
           timeout: 20_000,
         });
       }
@@ -104,7 +104,15 @@ test.describe("Public Website & Customer Booking (requires a seeded database)", 
 
       await loginAsOwner(page);
       await page.goto("/dashboard/admin/website");
-      const saveButton = page.getByRole("button", { name: /^save$/i }).first();
+      // Root cause of this test's prior flakiness, found and fixed: the
+      // Business Info panel on this same page ALSO has a button whose
+      // visible text is plain "Save" — an unscoped name match (or
+      // `.first()`) can resolve to that button instead of the hero
+      // panel's own, submitting the wrong section while this one's input
+      // still shows the typed value locally. hero-panel.tsx now gives its
+      // button a distinct accessible name (aria-label) instead of relying
+      // on DOM position to disambiguate two identically-labeled buttons.
+      const saveButton = page.getByRole("button", { name: "Save homepage hero" });
       const titleInput = page.getByLabel("Hero title", { exact: true });
       await titleInput.fill(newTitle);
       await expect(titleInput).toHaveValue(newTitle);
