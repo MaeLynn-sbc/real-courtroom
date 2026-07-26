@@ -92,6 +92,7 @@ async function main(): Promise<void> {
     const forwardProof = await bookingPaymentProofService.submitBookingPaymentProof({
       bookingId: holdBooking.id,
       gcashReference: `SWITCHON-FWD-${Date.now()}`,
+      submittedAmountCents: holdBooking.totalAmountCents ?? 35000,
       screenshot: screenshot(),
     });
     const bookingAfterSubmit = await prisma.booking.findUniqueOrThrow({ where: { id: holdBooking.id } });
@@ -133,6 +134,7 @@ async function main(): Promise<void> {
     const reverseProof = await bookingPaymentProofService.submitBookingPaymentProof({
       bookingId: reverseBooking.id,
       gcashReference: `SWITCHON-REV-${Date.now()}`,
+      submittedAmountCents: reverseBooking.totalAmountCents ?? 35000,
       screenshot: screenshot(),
     });
 

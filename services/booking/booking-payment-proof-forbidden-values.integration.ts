@@ -69,6 +69,7 @@ async function main(): Promise<void> {
   const proof = await bookingPaymentProofService.submitBookingPaymentProof({
     bookingId: hold.id,
     gcashReference: forbiddenReference,
+    submittedAmountCents: hold.totalAmountCents ?? 35000,
     screenshot: { fileName: "proof.png", contentType: "image/png", data: Buffer.from("fake-image-bytes") },
     // Forbidden values, sent on purpose — a crafted request could send
     // exactly this. The type allows it (see SubmitBookingPaymentProofInput's

@@ -60,6 +60,7 @@ interface ScreenshotInput {
 export interface SubmitBookingPaymentProofInput {
   bookingId: string;
   gcashReference: string;
+  submittedAmountCents: number;
   screenshot: ScreenshotInput;
   status?: string;
   resolvedByEmployeeId?: string;
@@ -142,6 +143,7 @@ export class BookingPaymentProofService {
           data: {
             bookingId: input.bookingId,
             gcashReference: input.gcashReference,
+            submittedAmountCents: input.submittedAmountCents,
             screenshotStorageKey: upload.key,
             status: "PENDING",
           },
@@ -315,20 +317,18 @@ export class BookingPaymentProofService {
     });
   }
 
-  async getProofScreenshot(proofId: string): Promise<{ data: Buffer; contentType: string } | null> {
-    const proof = await prisma.bookingPaymentProof.findUnique({ where: { id: proofId } });
-    if (!proof) {
-      return null;
-    }
-    const data = await getUploadService().get(proof.screenshotStorageKey);
-    if (!data) {
-      return null;
-    }
-    // The upload interface doesn't round-trip contentType (only the raw
-    // bytes) — sniffing isn't worth it for a screenshot viewer; browsers
-    // render common image types fine from bytes alone via a generic
-    // image content-type. Gate 3's route sets this on the response.
-    return { data, contentType: "application/octet-stream" };
+  // Gate 3: the dashboard-wide badge. A separate, lighter query than
+  // listPendingProofs — the badge needs a number on every page load, not
+  // the full row set.
+  async countPendingProofs(): Promise<number> {
+    return prisma.bookingPaymentProof.count({ where: { status: "PENDING" } });
+  }
+
+  async getProofById(proofId: string) {
+    return prisma.bookingPaymentProof.findUnique({
+      where: { id: proofId },
+      include: { booking: { include: { court: true } }, resolvedByEmployee: true },
+    });
   }
 
   private async writeBookingHistory(

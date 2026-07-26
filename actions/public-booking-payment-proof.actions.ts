@@ -49,6 +49,7 @@ export async function submitPublicBookingPaymentProofAction(
     const proof = await bookingPaymentProofService.submitBookingPaymentProof({
       bookingId: parsed.data.bookingId,
       gcashReference: parsed.data.gcashReference,
+      submittedAmountCents: parsed.data.submittedAmountCents,
       screenshot: {
         fileName: parsed.data.screenshot.fileName,
         contentType: parsed.data.screenshot.contentType,
@@ -58,6 +59,7 @@ export async function submitPublicBookingPaymentProofAction(
 
     revalidatePath("/dashboard/bookings");
     revalidatePath(`/dashboard/bookings/${parsed.data.bookingId}`);
+    revalidatePath("/dashboard/bookings/verify-payments");
 
     return { error: null, proofId: proof.id };
   } catch (error) {

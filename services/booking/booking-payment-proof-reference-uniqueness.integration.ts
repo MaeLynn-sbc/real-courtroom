@@ -75,6 +75,7 @@ async function main(): Promise<void> {
   const proofA = await bookingPaymentProofService.submitBookingPaymentProof({
     bookingId: holdA.id,
     gcashReference: sharedReference,
+    submittedAmountCents: 35000,
     screenshot: screenshot(),
   });
   console.log(`RESULT: succeeded (proofId=${proofA.id}).`);
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
     await bookingPaymentProofService.submitBookingPaymentProof({
       bookingId: holdB.id,
       gcashReference: sharedReference,
+      submittedAmountCents: 35000,
       screenshot: screenshot(),
     });
   } catch (error) {
@@ -107,6 +109,7 @@ async function main(): Promise<void> {
   const proofC1 = await bookingPaymentProofService.submitBookingPaymentProof({
     bookingId: holdC.id,
     gcashReference: resubmitReference,
+    submittedAmountCents: 35000,
     screenshot: screenshot(),
   });
 
@@ -130,6 +133,7 @@ async function main(): Promise<void> {
   const proofD = await bookingPaymentProofService.submitBookingPaymentProof({
     bookingId: holdD.id,
     gcashReference: resubmitReference,
+    submittedAmountCents: 35000,
     screenshot: screenshot(),
   });
   console.log(`RESULT: succeeded (proofId=${proofD.id}) — a REJECTED proof does not permanently burn its reference.`);

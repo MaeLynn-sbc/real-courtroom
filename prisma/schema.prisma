@@ -1800,6 +1800,15 @@ model BookingPaymentProof {
   // from the pre-existing upload() rather than a flag on it (zero risk
   // to the one existing caller, CMS gallery uploads).
   screenshotStorageKey String
+  // Gate 3 gap, found and fixed while building the verification screen
+  // Gate 1 always intended: "flag when the submitted amount doesn't
+  // match what's owed" (§8) requires an actual stored number to compare
+  // against Booking.totalAmountCents — Gate 1's field list never
+  // included one. What the customer states they sent, at submission
+  // time — compared against the booking's totalAmountCents for the
+  // verification screen's mismatch flag, never trusted as proof of
+  // actual payment on its own (that's what the screenshot is for).
+  submittedAmountCents Int
   submittedAt           DateTime                   @default(now())
   status                BookingPaymentProofStatus  @default(PENDING)
   // Nullable for the same reason PlayerTab.writeOffEmployeeId is —

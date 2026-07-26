@@ -65,6 +65,7 @@ async function main(): Promise<void> {
   const proof = await bookingPaymentProofService.submitBookingPaymentProof({
     bookingId: hold.id,
     gcashReference: `VERIFYRACE-${Date.now()}`,
+    submittedAmountCents: 35000,
     screenshot: { fileName: "proof.png", contentType: "image/png", data: Buffer.from("fake-image-bytes") },
   });
 
