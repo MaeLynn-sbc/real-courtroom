@@ -1,0 +1,212 @@
+"use client";
+
+import { Check, Copy } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
+
+import { approveBookingPaymentProofAction, rejectBookingPaymentProofAction } from "@/actions/booking-payment-proof.actions";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { formatCurrency } from "@/lib/utils";
+import type { bookingPaymentProofService } from "@/services/booking/booking-payment-proof.service";
+
+type Proof = NonNullable<Awaited<ReturnType<typeof bookingPaymentProofService.getProofById>>>;
+
+interface PaymentVerificationDetailProps {
+  proof: Proof;
+}
+
+export function PaymentVerificationDetail({ proof }: PaymentVerificationDetailProps) {
+  const router = useRouter();
+  const [copied, setCopied] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [isApproving, startApprove] = useTransition();
+  const [isRejecting, startReject] = useTransition();
+
+  const expectedAmountCents = proof.booking.totalAmountCents ?? 0;
+  const amountMismatches = proof.submittedAmountCents !== expectedAmountCents;
+
+  function handleCopyReference() {
+    navigator.clipboard
+      .writeText(proof.gcashReference)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => toast.error("Couldn't copy — select and copy the reference manually."));
+  }
+
+  function handleApprove() {
+    startApprove(async () => {
+      const result = await approveBookingPaymentProofAction(proof.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      // The concurrency-awareness "equivalent check" (Gate 3): another
+      // staff member may have already resolved this proof between page
+      // load and this click (same race Gate 2 proved at the service
+      // layer) — the action returns alreadyResolved rather than an
+      // error, and the UI must say so plainly, not report a false
+      // "you approved it" when someone else already did.
+      if (result.alreadyResolved) {
+        toast.info("Someone else already handled this payment.");
+      } else {
+        toast.success("Payment approved — booking confirmed.");
+      }
+      router.push("/dashboard/bookings/verify-payments");
+      router.refresh();
+    });
+  }
+
+  function handleReject() {
+    if (!rejectReason.trim()) {
+      toast.error("Enter a reason for rejecting this payment.");
+      return;
+    }
+    startReject(async () => {
+      const result = await rejectBookingPaymentProofAction({ proofId: proof.id, reason: rejectReason.trim() });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      if (result.alreadyResolved) {
+        toast.info("Someone else already handled this payment.");
+      } else {
+        toast.success("Payment rejected — the customer can resubmit.");
+      }
+      router.push("/dashboard/bookings/verify-payments");
+      router.refresh();
+    });
+  }
+
+  const isPending = proof.status === "PENDING";
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Verify payment</h1>
+        <p className="text-muted-foreground text-sm">
+          {proof.booking.court.name} ·{" "}
+          {proof.booking.startAt.toLocaleString("en-PH", {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })}{" "}
+          · {proof.booking.guestName ?? "—"}
+        </p>
+      </div>
+
+      {!isPending ? (
+        <div className="border-border bg-muted/30 rounded-lg border p-4 text-sm">
+          <p className="font-medium">
+            Already {proof.status === "APPROVED" ? "approved" : "rejected"}
+            {proof.resolvedByEmployee
+              ? ` by ${proof.resolvedByEmployee.firstName} ${proof.resolvedByEmployee.lastName}`
+              : ""}
+            .
+          </p>
+          {proof.rejectionReason ? (
+            <p className="text-muted-foreground mt-1">Reason: {proof.rejectionReason}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>GCash reference</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <button
+            type="button"
+            onClick={handleCopyReference}
+            className="border-input hover:bg-accent flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors"
+          >
+            <span className="font-mono text-2xl font-semibold tracking-wide select-all">
+              {proof.gcashReference}
+            </span>
+            {copied ? (
+              <Check className="text-success size-5 shrink-0" aria-hidden="true" />
+            ) : (
+              <Copy className="text-muted-foreground size-5 shrink-0" aria-hidden="true" />
+            )}
+          </button>
+          <p className="text-muted-foreground mt-1.5 text-xs">
+            {copied ? "Copied." : "Tap to copy — paste into the GCash app to find this transaction."}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Amount</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Expected</span>
+            <span className="font-medium">{formatCurrency(expectedAmountCents)}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Submitted by customer</span>
+            <span className="flex items-center gap-2 font-medium">
+              {formatCurrency(proof.submittedAmountCents)}
+              {amountMismatches ? <Badge variant="warning">Doesn&apos;t match</Badge> : null}
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Screenshot</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {/* Full size, not a thumbnail — staff need to actually read the
+              amount and timestamp on it (§8). */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- served
+              from an authenticated route, not a static/optimizable asset */}
+          <img
+            src={`/api/booking-payment-proof/${encodeURIComponent(proof.screenshotStorageKey)}`}
+            alt="GCash payment confirmation screenshot"
+            className="w-full rounded-lg border"
+          />
+        </CardContent>
+      </Card>
+
+      {isPending ? (
+        <div className="flex flex-col gap-4">
+          <Button type="button" onClick={handleApprove} disabled={isApproving || isRejecting}>
+            {isApproving ? "Approving…" : "Approve — confirm this booking"}
+          </Button>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Reject</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <Textarea
+                placeholder="Why is this payment being rejected? The customer sees this."
+                value={rejectReason}
+                onChange={(event) => setRejectReason(event.target.value)}
+                disabled={isApproving || isRejecting}
+              />
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleReject}
+                disabled={isApproving || isRejecting || !rejectReason.trim()}
+                className="self-start"
+              >
+                {isRejecting ? "Rejecting…" : "Reject payment"}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+    </div>
+  );
+}
