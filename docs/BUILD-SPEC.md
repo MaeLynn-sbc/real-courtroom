@@ -2044,12 +2044,16 @@ domain only become necessary at Phase 8.
   above to court bookings: non-refundable on customer cancellation or
   no-show, before-cutoff conversion to `BookingCredit` (not cash),
   staff-initiated `BookingRefund` for the business's own errors. Modeled
-  in `prisma/schema.prisma` (`BookingCredit`, `BookingRefund`) — the
-  redemption/issuance flow itself isn't built yet (Gate 2+). The same
-  three sub-questions apply here too and are equally undecided:
-  `BookingCredit.expiresAt` is nullable rather than defaulting to the
-  proposed 90 days, for the same reason `OpenPlayCredit`'s equivalent
-  field is undecided.
+  in `prisma/schema.prisma` (`BookingCredit`, `BookingRefund`).
+  **`BookingCredit` expiry — resolved (Phase 8 Gate 2 review): 60 days
+  from issue**, set explicitly by the issuing service on every normal
+  issuance (not a DB default). `expiresAt` stays nullable for a
+  staff-granted no-expiry exception — an explicit override, not the
+  default path. This does NOT resolve `OpenPlayCredit`'s own proposed-
+  but-undecided 90-day default just below — the two mechanisms aren't
+  required to match and currently don't (60 vs. the still-proposed 90).
+  Transferability and coverage (below) remain undecided for bookings,
+  same as for open play.
 - **No-show-rate baseline, before Phase 8 ships prepayment** — §9's
   Fri/Sat participation KPIs (`registrationsCount` vs. `checkedInCount`
   vs. `noShowCount`) make the no-show rate measurable for the first

@@ -1834,12 +1834,16 @@ model BookingPaymentProof {
 // needs updating to reflect it (flagged in the Gate 1 report, not done
 // silently here).
 //
-// expiresAt is nullable because credit expiry itself is NOT decided
-// (§8/§17 list it as an open sub-question, proposed default 90 days) —
-// NULL here means "not yet decided," not "never expires." Whichever
-// service eventually issues a credit sets this explicitly once that
-// policy is confirmed; the column existing now doesn't bake in an
-// undecided answer.
+// expiresAt is nullable, but no longer for "undecided" reasons — Gate 2
+// review resolved it: 60 days from issue is the default a credit gets
+// (services/booking/booking-credit.service.ts sets this explicitly on
+// every normal issuance, not a Postgres column default — same "snapshot
+// values in application code" convention as gameRateCents/
+// totalAmountCents elsewhere in this schema). NULL is kept reachable
+// specifically for a staff-granted no-expiry exception — an explicit
+// override, not the default path. Note this landed on 60 days, not
+// OpenPlayCredit's still-undecided proposed 90 — the two credit
+// mechanisms are not required to match, and don't right now.
 model BookingCredit {
   id          String    @id @default(cuid())
   // Matches OpenPlayCredit's proposed shape and the existing
