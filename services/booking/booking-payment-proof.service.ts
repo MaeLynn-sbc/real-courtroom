@@ -1,0 +1,366 @@
+import type { Booking, BookingPaymentProof, Prisma } from "@/lib/generated/prisma/client";
+import { logger } from "@/lib/logger";
+import { prisma } from "@/lib/prisma";
+import { getUploadService } from "@/services/upload/upload-service.factory";
+import { saleService } from "@/services/sales/sale.service";
+
+// Duck-typed check, matching the existing convention (booking.service.ts,
+// open-play-checkin.service.ts, locker-rental.service.ts, match.service.ts,
+// equipment-rental.service.ts) — avoids importing the generated
+// PrismaClientKnownRequestError class just to read one field. Also
+// correctly catches a violation of BookingPaymentProof's hand-written
+// PARTIAL unique index (prisma/schema.prisma's comment on that model) —
+// Prisma maps a Postgres 23505 to P2002 based on the actual database
+// error code, not on whether the index was declared via `@unique` in
+// schema.prisma, so this check covers both the same way.
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002"
+  );
+}
+
+export class BookingNotAwaitingPaymentError extends Error {
+  constructor(reason: "not_found" | "wrong_status" | "hold_expired") {
+    super(
+      reason === "hold_expired"
+        ? "This booking's hold has expired — please start a new booking."
+        : "This booking isn't waiting for payment.",
+    );
+    this.name = "BookingNotAwaitingPaymentError";
+  }
+}
+
+export class DuplicateGcashReferenceError extends Error {
+  constructor() {
+    super("This GCash reference has already been used for another payment.");
+    this.name = "DuplicateGcashReferenceError";
+  }
+}
+
+export class BookingNotAwaitingVerificationError extends Error {
+  constructor() {
+    super("This booking isn't waiting for verification.");
+    this.name = "BookingNotAwaitingVerificationError";
+  }
+}
+
+interface ScreenshotInput {
+  fileName: string;
+  contentType: string;
+  data: Buffer;
+}
+
+// THE PUBLIC PATH HARDCODES ITS OWN PRIVILEGE (same pattern as coaching's
+// Gate 3, services/coaching/public-coach-session.ts). `status` below is
+// typed as accepted input specifically so a forbidden-value test can
+// SEND it — the create() call at the bottom of this method never reads
+// it. Whatever a crafted request sends, the stored row is PENDING. This
+// is the server refusing it, not the type system declining to have the
+// field.
+export interface SubmitBookingPaymentProofInput {
+  bookingId: string;
+  gcashReference: string;
+  screenshot: ScreenshotInput;
+  status?: string;
+  resolvedByEmployeeId?: string;
+  resolvedAt?: Date;
+  rejectionReason?: string;
+}
+
+export interface ResolveBookingPaymentProofContext {
+  employeeId: string;
+  actorUserId: string;
+}
+
+export interface ApproveBookingPaymentProofContext extends ResolveBookingPaymentProofContext {
+  shiftId: string;
+  paymentMethodId: string;
+}
+
+export interface ResolveBookingPaymentProofResult {
+  alreadyResolved: boolean;
+  proof: BookingPaymentProof;
+}
+
+function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+interface AuditLogEntry {
+  actorUserId: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  oldValues?: unknown;
+  newValues?: unknown;
+}
+
+export class BookingPaymentProofService {
+  // Reachable from the public submission action with NO session and NO
+  // employee context — every trusted value below (status=PENDING, the
+  // booking-status transition target) is hardcoded in this method, never
+  // taken from the caller.
+  async submitBookingPaymentProof(input: SubmitBookingPaymentProofInput): Promise<BookingPaymentProof> {
+    const upload = await getUploadService().uploadPrivate({
+      fileName: input.screenshot.fileName,
+      contentType: input.screenshot.contentType,
+      data: input.screenshot.data,
+    });
+
+    try {
+      const { proof, bookedById } = await prisma.$transaction(async (tx) => {
+        const now = new Date();
+        // Atomic conditional UPDATE (§15 pattern 2) — the WHERE clause IS
+        // the check: only a booking that is STILL AWAITING_PAYMENT with an
+        // UNEXPIRED hold can be moved. A concurrent second submission for
+        // the same booking (double-tap) affects 0 rows here and is
+        // rejected below, instead of racing to create two PENDING proof
+        // rows for one booking.
+        const updateResult = await tx.booking.updateMany({
+          where: { id: input.bookingId, status: "AWAITING_PAYMENT", holdExpiresAt: { gte: now } },
+          data: { status: "PENDING_VERIFICATION", holdExpiresAt: null },
+        });
+
+        if (updateResult.count === 0) {
+          const booking = await tx.booking.findUnique({ where: { id: input.bookingId } });
+          if (!booking) {
+            throw new BookingNotAwaitingPaymentError("not_found");
+          }
+          if (booking.status === "AWAITING_PAYMENT") {
+            throw new BookingNotAwaitingPaymentError("hold_expired");
+          }
+          throw new BookingNotAwaitingPaymentError("wrong_status");
+        }
+
+        // Hardcoded — see this method's own doc comment. input.status /
+        // input.resolvedByEmployeeId / input.resolvedAt / input.
+        // rejectionReason are never read here, on purpose.
+        const created = await tx.bookingPaymentProof.create({
+          data: {
+            bookingId: input.bookingId,
+            gcashReference: input.gcashReference,
+            screenshotStorageKey: upload.key,
+            status: "PENDING",
+          },
+        });
+
+        // No real signed-in actor exists for an unauthenticated public
+        // submission — attribute the audit trail to the same seeded
+        // Website system identity the booking itself is already
+        // attributed to (Booking.bookedById), not a made-up value.
+        const booking = await tx.booking.findUniqueOrThrow({ where: { id: input.bookingId } });
+        return { proof: created, bookedById: booking.bookedById };
+      });
+
+      await this.writeBookingHistory(input.bookingId, "PENDING_VERIFICATION", bookedById);
+      await this.writeAuditLog({
+        actorUserId: bookedById,
+        action: "booking_payment_proof.submitted",
+        entityType: "BookingPaymentProof",
+        entityId: proof.id,
+        newValues: proof,
+      });
+
+      return proof;
+    } catch (error) {
+      // The upload already landed — clean it up rather than leaving an
+      // orphaned file for a submission that never became a real proof row.
+      await getUploadService().delete(upload.key).catch(() => undefined);
+
+      if (isUniqueConstraintViolation(error)) {
+        throw new DuplicateGcashReferenceError();
+      }
+      throw error;
+    }
+  }
+
+  // Concurrency-safe the same way settleTab/writeOffTab already are (§15
+  // pattern 2): the status-guarded updateMany IS the guard, not a
+  // Serializable retry loop — this invariant is expressible as one row's
+  // WHERE clause. Two staff approving the same proof at once: exactly one
+  // updateMany affects a row and proceeds to create the Sale; the other
+  // affects 0 rows, re-reads the now-committed row, and returns it as a
+  // benign no-op — never a raw DB error, never two Sales.
+  async approveBookingPaymentProof(
+    proofId: string,
+    context: ApproveBookingPaymentProofContext,
+  ): Promise<ResolveBookingPaymentProofResult> {
+    const now = new Date();
+
+    const result = await prisma.$transaction(async (tx) => {
+      const updateResult = await tx.bookingPaymentProof.updateMany({
+        where: { id: proofId, status: "PENDING" },
+        data: { status: "APPROVED", resolvedByEmployeeId: context.employeeId, resolvedAt: now },
+      });
+
+      const proof = await tx.bookingPaymentProof.findUniqueOrThrow({ where: { id: proofId } });
+
+      if (updateResult.count === 0) {
+        return { alreadyResolved: true as const, proof, booking: null, sale: null };
+      }
+
+      const booking = await tx.booking.findUniqueOrThrow({ where: { id: proof.bookingId } });
+      if (booking.status !== "PENDING_VERIFICATION") {
+        throw new BookingNotAwaitingVerificationError();
+      }
+
+      const confirmedBooking = await tx.booking.update({
+        where: { id: booking.id },
+        data: { status: "CONFIRMED" },
+      });
+
+      const sale = await saleService.createSale(
+        {
+          category: "BOOKING",
+          source: "WEBSITE",
+          amountCents: booking.totalAmountCents ?? 0,
+          paymentMethodId: context.paymentMethodId,
+          employeeId: context.employeeId,
+          shiftId: context.shiftId,
+          playerId: booking.playerId,
+          bookingId: booking.id,
+        },
+        tx,
+      );
+
+      return { alreadyResolved: false as const, proof, booking: confirmedBooking, sale };
+    });
+
+    if (!result.alreadyResolved) {
+      await this.writeBookingHistory(result.booking.id, "CONFIRMED", context.actorUserId);
+      await this.writeAuditLog({
+        actorUserId: context.actorUserId,
+        action: "booking_payment_proof.approved",
+        entityType: "BookingPaymentProof",
+        entityId: result.proof.id,
+        newValues: result.proof,
+      });
+      await saleService.logSaleCreated(result.sale, context.actorUserId);
+    }
+
+    return { alreadyResolved: result.alreadyResolved, proof: result.proof };
+  }
+
+  // Same concurrency shape as approve, above — status-guarded updateMany,
+  // no Serializable retry needed.
+  async rejectBookingPaymentProof(
+    proofId: string,
+    reason: string,
+    context: ResolveBookingPaymentProofContext,
+  ): Promise<ResolveBookingPaymentProofResult> {
+    if (!reason.trim()) {
+      // Same "no anonymous write-offs" shape as PlayerTab's write-off
+      // reason — required, checked here at the service boundary.
+      throw new Error("A rejection reason is required.");
+    }
+
+    const now = new Date();
+
+    const result = await prisma.$transaction(async (tx) => {
+      const updateResult = await tx.bookingPaymentProof.updateMany({
+        where: { id: proofId, status: "PENDING" },
+        data: {
+          status: "REJECTED",
+          resolvedByEmployeeId: context.employeeId,
+          resolvedAt: now,
+          rejectionReason: reason,
+        },
+      });
+
+      const proof = await tx.bookingPaymentProof.findUniqueOrThrow({ where: { id: proofId } });
+
+      if (updateResult.count === 0) {
+        return { alreadyResolved: true as const, proof, booking: null };
+      }
+
+      const booking = await tx.booking.findUniqueOrThrow({ where: { id: proof.bookingId } });
+      if (booking.status !== "PENDING_VERIFICATION") {
+        throw new BookingNotAwaitingVerificationError();
+      }
+
+      // Terminal, same as CANCELLED — the slot is free for anyone
+      // (including this same customer, on a new booking) the instant this
+      // commits. No expiry field to clear: PENDING_VERIFICATION bookings
+      // already have holdExpiresAt=null (cleared at submission).
+      const rejectedBooking = await tx.booking.update({
+        where: { id: booking.id },
+        data: { status: "REJECTED" },
+      });
+
+      return { alreadyResolved: false as const, proof, booking: rejectedBooking };
+    });
+
+    if (!result.alreadyResolved) {
+      await this.writeBookingHistory(result.booking.id, "REJECTED", context.actorUserId, reason);
+      await this.writeAuditLog({
+        actorUserId: context.actorUserId,
+        action: "booking_payment_proof.rejected",
+        entityType: "BookingPaymentProof",
+        entityId: result.proof.id,
+        newValues: result.proof,
+      });
+    }
+
+    return { alreadyResolved: result.alreadyResolved, proof: result.proof };
+  }
+
+  async listPendingProofs() {
+    return prisma.bookingPaymentProof.findMany({
+      where: { status: "PENDING" },
+      include: { booking: { include: { court: true } } },
+      orderBy: { submittedAt: "asc" },
+    });
+  }
+
+  async getProofScreenshot(proofId: string): Promise<{ data: Buffer; contentType: string } | null> {
+    const proof = await prisma.bookingPaymentProof.findUnique({ where: { id: proofId } });
+    if (!proof) {
+      return null;
+    }
+    const data = await getUploadService().get(proof.screenshotStorageKey);
+    if (!data) {
+      return null;
+    }
+    // The upload interface doesn't round-trip contentType (only the raw
+    // bytes) — sniffing isn't worth it for a screenshot viewer; browsers
+    // render common image types fine from bytes alone via a generic
+    // image content-type. Gate 3's route sets this on the response.
+    return { data, contentType: "application/octet-stream" };
+  }
+
+  private async writeBookingHistory(
+    bookingId: string,
+    status: Booking["status"],
+    changedById: string | null,
+    note?: string,
+  ): Promise<void> {
+    await prisma.bookingHistory.create({
+      data: { bookingId, status, changedById, note },
+    });
+  }
+
+  private async writeAuditLog(entry: AuditLogEntry): Promise<void> {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          userId: entry.actorUserId,
+          action: entry.action,
+          entityType: entry.entityType,
+          entityId: entry.entityId,
+          oldValues: toJsonValue(entry.oldValues),
+          newValues: toJsonValue(entry.newValues),
+        },
+      });
+    } catch (error) {
+      logger.error(
+        { err: error, action: entry.action, userId: entry.actorUserId },
+        "Failed to write audit log entry",
+      );
+    }
+  }
+}
+
+export const bookingPaymentProofService = new BookingPaymentProofService();

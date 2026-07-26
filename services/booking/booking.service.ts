@@ -32,6 +32,15 @@ export interface CreateBookingSaleContext {
   source?: SaleSource;
 }
 
+// Phase 8 Gate 2 — everything CreateBookingInput has except
+// paymentMethodId: a hold doesn't pay for anything yet, so requiring a
+// payment method up front (the way the staff/pay-at-court path does)
+// would be meaningless here.
+export type CreateBookingHoldInput = Omit<CreateBookingInput, "paymentMethodId">;
+
+// BUILD-SPEC.md §8 "Slot holding": 30 minutes from checkout start.
+const HOLD_DURATION_MINUTES = 30;
+
 export type AvailabilityConflictType =
   | "COURT_DISABLED"
   | "OUTSIDE_OPERATING_HOURS"
@@ -231,10 +240,32 @@ export class BookingService {
       };
     }
 
+    // Phase 8 Gate 2 (§15 "Held slots expire — orphaned holds must not
+    // block a court forever"): an AWAITING_PAYMENT hold whose
+    // holdExpiresAt has passed does NOT count as active — same effect as
+    // if it were already CANCELLED, without needing a cron job to
+    // actually flip it. Lazy exclusion is sufficient for correctness on
+    // its own (nothing else needs to run for the slot to free up); an
+    // opportunistic sweep to CANCELLED for a clean audit trail is a
+    // separate, non-load-bearing concern, not implemented here. Inert for
+    // every booking created before this Gate: `status: { not:
+    // "AWAITING_PAYMENT" }` is true for all of them, since nothing before
+    // this phase can ever produce that status.
+    const now = new Date();
     const activeBookings = await client.booking.findMany({
       where: {
         courtId,
-        status: { notIn: ["CANCELLED", "NO_SHOW"] },
+        // REJECTED (§8 item 3: "no valid payment ever arrived... the slot
+        // releases") is excluded for the same reason CANCELLED/NO_SHOW
+        // are — it's a terminal, non-blocking outcome. Distinct from
+        // REFUNDED, which is deliberately NOT excluded here: a refunded
+        // booking was, by definition, once CONFIRMED and real (the
+        // business's own error, not the customer's), and this phase
+        // doesn't build the refund action that would even produce that
+        // status yet — left as future work to decide alongside it, not
+        // assumed here.
+        status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+        OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
         ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
       },
       select: { id: true, startAt: true, endAt: true },
@@ -375,6 +406,87 @@ export class BookingService {
     await saleService.logSaleCreated(booking.sale, actorUserId);
 
     return booking.booking;
+  }
+
+  // Phase 8 Gate 2 (BUILD-SPEC.md §8 "Slot holding"). Deliberately a
+  // SEPARATE method from createBooking above, not a branch inside it —
+  // createBooking's own source is untouched by this whole phase, which is
+  // the strongest form of the hard boundary proof: the function every
+  // existing caller (staff bookings, and the public path with the switch
+  // off) goes through literally has not changed. Only
+  // actions/public-booking.actions.ts decides which of the two methods to
+  // call, and only when the prepayment switch is on.
+  //
+  // No Sale here — that's the whole point of a hold. paymentMethodId
+  // isn't part of the input (unlike createBooking's) because nothing is
+  // being paid for yet; the real payment method (GCash) gets recorded
+  // when a staff member approves the submitted proof.
+  async createBookingHold(input: CreateBookingHoldInput, actorUserId: string): Promise<Booking> {
+    const qrCodeToken = randomUUID();
+
+    const booking = await runSerializableWithRetry(async (tx) => {
+      // Public path always enforces operating hours, same as
+      // createBooking does for source="WEBSITE" — a hold can't reserve a
+      // slot the public site wouldn't otherwise let it book.
+      const availability = await this.checkAvailabilityWithClient(
+        tx,
+        input.courtId,
+        input.startAt,
+        input.endAt,
+        undefined,
+        true,
+      );
+      if (!availability.available && availability.conflict) {
+        throw new BookingConflictError(availability.conflict);
+      }
+
+      const now = new Date();
+      const sequence = await nextSequence(dailyScope("BOOKING", now), tx);
+      const bookingReference = formatBookingReference(now, sequence);
+
+      const court = await tx.court.findUniqueOrThrow({
+        where: { id: input.courtId },
+        select: { hourlyRateCents: true },
+      });
+      const durationHours = (input.endAt.getTime() - input.startAt.getTime()) / 3_600_000;
+      const totalAmountCents = Math.round((court.hourlyRateCents ?? 0) * durationHours);
+      const holdExpiresAt = new Date(now.getTime() + HOLD_DURATION_MINUTES * 60_000);
+
+      return tx.booking.create({
+        data: {
+          bookingReference,
+          courtId: input.courtId,
+          bookedById: actorUserId,
+          playerId: input.playerId,
+          type: input.type,
+          status: "AWAITING_PAYMENT",
+          source: "PUBLIC",
+          startAt: input.startAt,
+          endAt: input.endAt,
+          guestName: input.guestName,
+          guestPhone: input.guestPhone,
+          guestEmail: input.guestEmail,
+          totalAmountCents,
+          notes: input.notes,
+          qrCodeToken,
+          // Already enforced above (enforceOperatingHours: true) — a hold
+          // can never land after-hours, unlike a staff booking.
+          isAfterHours: false,
+          holdExpiresAt,
+        },
+      });
+    });
+
+    await this.writeBookingHistory(booking.id, "AWAITING_PAYMENT", actorUserId);
+    await this.writeAuditLog({
+      actorUserId,
+      action: "booking.hold_created",
+      entityType: "Booking",
+      entityId: booking.id,
+      newValues: booking,
+    });
+
+    return booking;
   }
 
   async updateBookingStatus(
