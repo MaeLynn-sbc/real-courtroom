@@ -2,37 +2,38 @@
 
 import { revalidatePath } from "next/cache";
 
-import type { CreateBookingInput } from "@/features/bookings/schemas/booking.schema";
 import {
   publicBookingSchema,
   type PublicBookingInput,
 } from "@/features/bookings/schemas/public-booking.schema";
 import { toActionError } from "@/lib/errors";
 import { checkRateLimit } from "@/lib/rate-limit";
-import {
-  BookingConflictError,
-  bookingService,
-  type AvailabilityConflict,
-} from "@/services/booking/booking.service";
-import { getWebsiteBookingContext } from "@/services/booking/website-identity";
+import { BookingConflictError, type AvailabilityConflict } from "@/services/booking/booking.service";
+import { createPublicBooking } from "@/services/booking/public-booking.service";
 
 export interface PublicBookingActionState {
   error: string | null;
   conflict?: AvailabilityConflict;
   bookingId?: string;
   bookingReference?: string;
+  // Phase 8 Gate 2 — only ever true when the owner-controlled prepayment
+  // switch is on (settingsService.getBookingRequirePrepayment). Default
+  // OFF means this is undefined/false for every booking today, and the
+  // rest of this action state is byte-for-byte what it always was.
+  requiresPayment?: boolean;
+  holdExpiresAt?: Date;
 }
 
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
-// No session — this is the public, unauthenticated entry point. It
-// resolves the seeded Website system identity itself and then calls
-// bookingService.createBooking() exactly as createBookingAction does —
-// same validation, same Serializable-transaction conflict detection,
-// same bookingReference format. See ARCHITECTURE.md's PHASE 12
-// addendum for why this identity exists instead of loosening the
-// Booking/Sale schema.
+// No session — this is the public, unauthenticated entry point. Thin
+// wrapper: validation + rate-limit + revalidation only. The actual
+// decision logic (including the Phase 8 prepayment-switch check) lives in
+// services/booking/public-booking.service.ts's createPublicBooking, so an
+// integration test can call it directly without next/cache's
+// revalidatePath throwing outside a real request context — same split
+// this session already established for coaching's public path.
 export async function createPublicBookingAction(
   input: PublicBookingInput,
 ): Promise<PublicBookingActionState> {
@@ -60,33 +61,24 @@ export async function createPublicBookingAction(
   }
 
   try {
-    const context = await getWebsiteBookingContext();
-
-    // Every field here is already validated above (publicBookingSchema)
-    // or computed in this function (startAt/endAt/type) — paymentMethodId
-    // is the real seeded "Pay at Venue" id, not customer input, so this
-    // doesn't need a second pass through createBookingSchema.
-    const bookingInput: CreateBookingInput = {
+    const result = await createPublicBooking({
       courtId: parsedPublic.data.courtId,
-      type: "HOURLY",
       startAt,
       endAt,
       guestName: parsedPublic.data.guestName,
       guestPhone: parsedPublic.data.guestPhone,
-      paymentMethodId: context.paymentMethodId,
-    };
-
-    const booking = await bookingService.createBooking(bookingInput, context.userId, {
-      employeeId: context.employeeId,
-      shiftId: context.shiftId,
-      paymentMethodId: context.paymentMethodId,
-      source: "WEBSITE",
     });
 
     revalidatePath("/dashboard/bookings");
     revalidatePath("/availability");
 
-    return { error: null, bookingId: booking.id, bookingReference: booking.bookingReference };
+    return {
+      error: null,
+      bookingId: result.bookingId,
+      bookingReference: result.bookingReference,
+      requiresPayment: result.requiresPayment || undefined,
+      holdExpiresAt: result.holdExpiresAt,
+    };
   } catch (error) {
     if (error instanceof BookingConflictError) {
       return { error: error.message, conflict: error.conflict };
