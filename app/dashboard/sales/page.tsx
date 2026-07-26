@@ -45,20 +45,6 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
         <DateRangePicker />
       </div>
 
-      {/* BUILD-SPEC.md §9 review: not a footnote — Fri/Sat ₱150 registration
-          fees are real cash being collected right now (§8's walk-in cash
-          path) and are entirely excluded from every number on this page.
-          Delete this banner as part of Phase 8, once that revenue is
-          actually tracked here — not before. */}
-      <div className="border-coral/40 bg-coral/[0.08] text-coral flex items-start gap-2 rounded-lg border px-4 py-3 text-sm font-medium">
-        <span aria-hidden="true">⚠</span>
-        <span>
-          This page excludes Fri/Sat ₱150 registration fees — that cash is
-          collected today but not yet recorded anywhere. Do not use this
-          page for till reconciliation until Phase 8 adds it.
-        </span>
-      </div>
-
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader>
@@ -112,15 +98,18 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
             <span>Adjustments (discounts, void reversals)</span>
             <span>{formatCurrency(summary.adjustmentsCents)}</span>
           </div>
+          <div className="flex items-center justify-between">
+            <span>
+              Fri/Sat registrations{" "}
+              <span className="text-muted-foreground">
+                ({summary.friSatRegistrationFeeCount} walk-in{summary.friSatRegistrationFeeCount === 1 ? "" : "s"})
+              </span>
+            </span>
+            <span>{formatCurrency(summary.friSatRegistrationFeeCents)}</span>
+          </div>
           <div className="flex items-center justify-between border-t pt-2 font-medium">
             <span>Net revenue</span>
             <span>{formatCurrency(summary.netRevenueCents)}</span>
-          </div>
-          <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2">
-            <span className="flex items-center gap-2">
-              Fri/Sat ₱150 registrations <Badge variant="outline">not yet collected</Badge>
-            </span>
-            <span className="text-muted-foreground text-xs">{summary.friSatRegistrationFeeNote}</span>
           </div>
         </CardContent>
       </Card>

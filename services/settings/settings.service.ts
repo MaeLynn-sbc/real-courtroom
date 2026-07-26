@@ -109,6 +109,9 @@ const DEFAULT_OPEN_PLAY_SETTINGS: OpenPlaySettings = {
   // range, giving a Friday night a Monday open and a Saturday night a
   // Tuesday open by default.
   onlineRegistrationLeadTimeDays: 4,
+  // BUILD-SPEC.md §9 "Fri/Sat ₱150 registrations" — the actual, real
+  // amount collected at the desk since Phase 7, only now recorded.
+  friSatRegistrationFeeCents: 15000,
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never
@@ -296,8 +299,17 @@ export class SettingsService {
     return this.setJsonValue(CMS_KEYS.COURT_HOURS, value, actorUserId);
   }
 
+  // Merges over DEFAULT_OPEN_PLAY_SETTINGS rather than returning the
+  // stored row as-is (same reasoning, same fix shape, as getCourtHours
+  // above) — this shape has now grown twice in one session
+  // (onlineRegistrationLeadTimeDays, then friSatRegistrationFeeCents).
+  // Found live: a stored row saved before a field existed came back
+  // missing it, and registerWalkIn's Sale creation crashed on
+  // `amountCents` being undefined — not hypothetical, reproduced via a
+  // real browser smoke test against the actual dev database.
   async getOpenPlaySettings(): Promise<OpenPlaySettings> {
-    return this.getJsonValue(CMS_KEYS.OPEN_PLAY_SETTINGS, DEFAULT_OPEN_PLAY_SETTINGS);
+    const stored = await this.getJsonValue<Partial<OpenPlaySettings>>(CMS_KEYS.OPEN_PLAY_SETTINGS, {});
+    return { ...DEFAULT_OPEN_PLAY_SETTINGS, ...stored };
   }
 
   async setOpenPlaySettings(value: OpenPlaySettings, actorUserId: string) {

@@ -7,6 +7,13 @@ export const registerWalkInInputSchema = z.object({
   // BUILD-SPEC.md §4: required for every open play registration.
   skillLevel: z.enum(["BEGINNER", "NOVICE", "INTERMEDIATE", "ADVANCED"]),
   partyId: z.string().max(100).optional(),
+  // Gate 2 review follow-up (BUILD-SPEC.md §9): this action is Fri/Sat-
+  // only by construction (sessionId always required above), so the
+  // ₱150 registration fee always applies — same required-ness as
+  // settleTabInputSchema's own method/paymentMethodId.
+  method: z.enum(["CASH", "GCASH"]),
+  gcashReference: z.string().max(100).optional(),
+  paymentMethodId: z.string().min(1),
 });
 
 export type RegisterWalkInInput = z.infer<typeof registerWalkInInputSchema>;

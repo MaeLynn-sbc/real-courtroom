@@ -1163,6 +1163,11 @@ model OpenPlayNightRegistration {
   queueEntry            QueueEntry?
   gameAssignmentEntries GameAssignmentParticipant[]
   tab                   PlayerTab?
+  // The Fri/Sat ₱150 registration fee's own Sale row — WALK_IN only for
+  // now (registerWalkIn), created in the same transaction as this row.
+  // Distinct from `tab`/PlayerTab.sale (the weeknight game/rental
+  // settlement path) — this registration never has both.
+  sale                  Sale?
   // Open-play online self-registration, Gate 1 plumbing.
   paymentProofs         OpenPlayRegistrationPaymentProof[]
   // The waitlist entry that was invited-to-pay and became this row, if
@@ -2034,9 +2039,11 @@ enum SaleCategory {
   TOURNAMENT_REGISTRATION
   PRODUCT
   // BUILD-SPEC.md §9 — a settled PlayerTab (games + rentals + adjustments,
-  // net of write-offs, which are never revenue). The Fri/Sat ₱150
-  // registration fee is NOT included here — that's §8's payment flow,
-  // Phase 8, not yet built; see open-play-sales.service.ts's comment.
+  // net of write-offs, which are never revenue) via Sale.playerTabId, OR
+  // the Fri/Sat ₱150 walk-in registration fee via
+  // Sale.openPlayNightRegistrationId (Gate 2 review follow-up) — two
+  // distinct linked-record shapes under one category, never both on the
+  // same Sale row.
   OPEN_PLAY
   // Coaching sessions (v1.2 DRAFT) — reserved alongside
   // Sale.coachSessionId below for when Phase 8 wires payment through
@@ -2088,22 +2095,32 @@ model Sale {
   tournamentRegistrationId String? @unique
   productId                String? @unique
   playerTabId              String? @unique
+  // Gate 2 review follow-up: the Fri/Sat ₱150 walk-in registration fee
+  // (services/open-play/open-play-registration.service.ts's
+  // registerWalkIn) — a SaleCategory.OPEN_PLAY Sale, but distinct from
+  // playerTabId above (the weeknight/Fri-Sat game+rental settlement
+  // path). A single OpenPlayNightRegistration only ever has one or the
+  // other kind of Sale, never both — a Fri/Sat walk-in's tab (if it
+  // ever gets one, e.g. equipment rental) settles with its OWN,
+  // separate Sale via playerTabId, same as today.
+  openPlayNightRegistrationId String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  paymentMethod          PaymentMethod           @relation(fields: [paymentMethodId], references: [id])
-  employee               Employee                @relation(fields: [employeeId], references: [id])
-  shift                  Shift                   @relation(fields: [shiftId], references: [id])
-  player                 Player?                 @relation(fields: [playerId], references: [id])
-  booking                Booking?                @relation(fields: [bookingId], references: [id])
-  coachSession           CoachSession?           @relation(fields: [coachSessionId], references: [id])
-  membership             Membership?             @relation(fields: [membershipId], references: [id])
-  equipmentRental        EquipmentRental?        @relation(fields: [equipmentRentalId], references: [id])
-  lockerRental           LockerRental?           @relation(fields: [lockerRentalId], references: [id])
-  tournamentRegistration TournamentRegistration? @relation(fields: [tournamentRegistrationId], references: [id])
-  product                Product?                @relation(fields: [productId], references: [id])
-  playerTab              PlayerTab?              @relation(fields: [playerTabId], references: [id])
+  paymentMethod            PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
+  employee                 Employee                   @relation(fields: [employeeId], references: [id])
+  shift                    Shift                      @relation(fields: [shiftId], references: [id])
+  player                   Player?                    @relation(fields: [playerId], references: [id])
+  booking                  Booking?                   @relation(fields: [bookingId], references: [id])
+  coachSession             CoachSession?              @relation(fields: [coachSessionId], references: [id])
+  membership               Membership?                @relation(fields: [membershipId], references: [id])
+  equipmentRental          EquipmentRental?           @relation(fields: [equipmentRentalId], references: [id])
+  lockerRental             LockerRental?              @relation(fields: [lockerRentalId], references: [id])
+  tournamentRegistration   TournamentRegistration?    @relation(fields: [tournamentRegistrationId], references: [id])
+  product                  Product?                   @relation(fields: [productId], references: [id])
+  playerTab                PlayerTab?                 @relation(fields: [playerTabId], references: [id])
+  openPlayNightRegistration OpenPlayNightRegistration? @relation(fields: [openPlayNightRegistrationId], references: [id])
 
   @@index([category])
   @@index([createdAt])

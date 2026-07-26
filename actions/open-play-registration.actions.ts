@@ -8,7 +8,7 @@ import {
   type RegisterWalkInInput,
   type ReleaseRegistrationInput,
 } from "@/features/open-play-capacity/schemas/open-play-registration.schema";
-import { requirePermission } from "@/lib/action-auth";
+import { requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
 import { PERMISSIONS } from "@/types/permissions";
@@ -24,6 +24,14 @@ function requireOpenPlayManage() {
   return requirePermission(PERMISSIONS.OPEN_PLAY_MANAGE, "You don't have permission to manage open play.");
 }
 
+// Gate 2 review follow-up: this action now creates a Sale (the ₱150
+// registration fee), so — same standard as settleTabAction and every
+// other Sale-creating action in this app — it needs a real Employee
+// and a currently open Shift, not just the permission check alone.
+function requireOpenPlayManageWithOpenShift() {
+  return requireEmployeeWithOpenShift(PERMISSIONS.OPEN_PLAY_MANAGE, "You don't have permission to manage open play.");
+}
+
 // The client panels also call router.refresh() after a successful action
 // (force-dynamic pages don't strictly need this), but revalidating here
 // too covers any other tab/user looking at the same night.
@@ -32,7 +40,7 @@ function revalidateSession(): void {
 }
 
 export async function registerWalkInAction(input: RegisterWalkInInput): Promise<OpenPlayRegistrationActionState> {
-  const authz = await requireOpenPlayManage();
+  const authz = await requireOpenPlayManageWithOpenShift();
   if (!authz.ok) {
     return { error: authz.error };
   }
@@ -40,6 +48,10 @@ export async function registerWalkInAction(input: RegisterWalkInInput): Promise<
   const parsed = registerWalkInInputSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid registration." };
+  }
+
+  if (parsed.data.method === "GCASH" && !parsed.data.gcashReference?.trim()) {
+    return { error: "A GCash reference number is required." };
   }
 
   try {
@@ -52,6 +64,13 @@ export async function registerWalkInAction(input: RegisterWalkInInput): Promise<
         partyId: parsed.data.partyId,
       },
       authz.userId,
+      {
+        method: parsed.data.method,
+        gcashReference: parsed.data.gcashReference ?? null,
+        paymentMethodId: parsed.data.paymentMethodId,
+        employeeId: authz.employeeId,
+        shiftId: authz.shiftId,
+      },
     );
     revalidateSession();
     return { error: null };

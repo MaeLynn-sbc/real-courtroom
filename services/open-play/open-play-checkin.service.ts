@@ -2,7 +2,11 @@ import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import type { OpenPlayNightRegistration, Prisma, QueueEntry } from "@/lib/generated/prisma/client";
 import type { RaceHook } from "@/lib/race-test-hooks";
-import { openPlayRegistrationService, type RegisterWalkInInput } from "@/services/open-play/open-play-registration.service";
+import {
+  openPlayRegistrationService,
+  type RegisterWalkInInput,
+  type RegisterWalkInSaleContext,
+} from "@/services/open-play/open-play-registration.service";
 import { playerTabService } from "@/services/open-play/player-tab.service";
 import { settingsService } from "@/services/settings/settings.service";
 
@@ -262,14 +266,22 @@ export class OpenPlayCheckinService {
   // how most weeknight players arrive" (BUILD-SPEC.md §6). Works for
   // either a Fri/Sat session (capacity-gated) or a weeknight date
   // (uncapped) depending on which is provided.
+  // Gate 2 review follow-up: the Fri/Sat branch also collects the ₱150
+  // registration fee (same as registerWalkIn's own "register only"
+  // path — both create a CONFIRMED registration immediately, so both
+  // owe the fee at that moment), so saleContext is REQUIRED on the
+  // sessionId variant — bundled into the discriminated union itself
+  // rather than a separate optional parameter, so "Fri/Sat without a
+  // saleContext" is unrepresentable instead of a runtime check. The
+  // weeknight (date) branch never carries one — no fee applies there.
   async registerAndCheckIn(
-    target: { sessionId: string } | { date: Date },
+    target: { sessionId: string; saleContext: RegisterWalkInSaleContext } | { date: Date },
     input: RegisterWalkInInput,
     actorUserId: string,
   ): Promise<CheckInResult> {
     const registration =
       "sessionId" in target
-        ? await openPlayRegistrationService.registerWalkIn(target.sessionId, input, actorUserId)
+        ? await openPlayRegistrationService.registerWalkIn(target.sessionId, input, actorUserId, target.saleContext)
         : await openPlayRegistrationService.registerWeeknightWalkIn(target.date, input, actorUserId);
 
     return this.checkIn(registration.id, actorUserId);

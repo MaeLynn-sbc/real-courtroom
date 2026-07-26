@@ -103,6 +103,15 @@ export const openPlaySettingsSchema = z.object({
   // that's a hard on/off gate; this is a rolling window on top of it,
   // owner-editable, not hardcoded.
   onlineRegistrationLeadTimeDays: z.number().int().positive(),
+  // Gate 2 review follow-up (BUILD-SPEC.md §9): the Fri/Sat walk-in
+  // registration fee, real cash collected at the desk since Phase 7,
+  // now actually recorded as a Sale (registerWalkIn) instead of being
+  // invisible to sales reporting. Same "snapshotted at creation, a rate
+  // change never rewrites history" shape as weeknightGameRateCents
+  // above — not that this needs a snapshot column anywhere, since the
+  // Sale itself is created (and its amountCents fixed) at registration
+  // time, not read again later.
+  friSatRegistrationFeeCents: z.number().int().nonnegative(),
 });
 
 export type OpenPlaySettings = z.infer<typeof openPlaySettingsSchema>;

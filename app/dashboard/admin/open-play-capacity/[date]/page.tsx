@@ -90,7 +90,11 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
           ) : null}
         </div>
 
-        <WalkInRegistrationForm target={{ sessionId: session.id }} players={players} />
+        <WalkInRegistrationForm
+          target={{ sessionId: session.id }}
+          players={players}
+          paymentMethods={paymentMethods.map((pm) => ({ id: pm.id, label: pm.label }))}
+        />
         <CheckInPanel
           expected={serializeRegistrations(expected)}
           checkedIn={serializeRegistrations(checkedIn)}

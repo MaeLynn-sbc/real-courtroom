@@ -8,6 +8,8 @@ import type {
 } from "@/lib/generated/prisma/client";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import { canTransitionOpenPlayWaitlistEntryStatus } from "@/services/open-play/open-play-waitlist-status";
+import { saleService } from "@/services/sales/sale.service";
+import { settingsService } from "@/services/settings/settings.service";
 import { getSmsService } from "@/services/sms/sms-service.factory";
 import { OPEN_PLAY_SKILL_LEVEL_ORDER } from "@/types/open-play-skill-levels";
 
@@ -45,6 +47,24 @@ export interface RegisterWalkInInput {
   skillLevel: OpenPlaySkillLevel;
   playerId?: string;
   partyId?: string;
+}
+
+// Gate 2 review follow-up (BUILD-SPEC.md §9): the Fri/Sat ₱150 walk-in
+// registration fee is real cash collected at the desk (registerWalkIn
+// has marked CONFIRMED immediately since Phase 4/7), but had no Sale
+// row and no payment-method attribution at all — sales reporting
+// hardcoded this bucket to ₱0. Same shape as player-tab.service.ts's
+// own SaleContext, duplicated rather than imported (this codebase's
+// established per-service *SaleContext convention — see
+// CreateBookingSaleContext, SellProductSaleContext, etc.), plus
+// method/gcashReference alongside it, mirroring settleTab's own
+// separate (method, gcashReference, saleContext) parameters exactly.
+export interface RegisterWalkInSaleContext {
+  method: "CASH" | "GCASH";
+  gcashReference: string | null;
+  paymentMethodId: string;
+  employeeId: string;
+  shiftId: string;
 }
 
 // Open-play online self-registration, Gate 2 (BUILD-SPEC.md §6). No
@@ -112,12 +132,65 @@ async function lockSessionRow(
   return rows[0] ?? null;
 }
 
+// Gate 2 review follow-up: ONE mechanism for creating the Fri/Sat
+// registration fee's Sale, shared (not duplicated) between
+// registerWalkIn below and, in the future, whatever action lets staff
+// confirm a waitlisted online registrant's CASH payment on arrival
+// (§6's invite-to-pay flow — not built yet, but when it is, it must
+// call this exact function, not grow a second, diverging one).
+// Deliberately outside the class — same "duplicate a helper, don't
+// couple two classes" precedent this file already follows for
+// countOccupiedSeats/lockSessionRow, and callable from either without
+// needing `this`. amountCents is read fresh from settings on every
+// call, never cached, so an owner rate change applies to the very next
+// registration — same reasoning as every other settings-backed
+// business rule in this app.
+async function createOpenPlayRegistrationFeeSale(
+  tx: Prisma.TransactionClient,
+  registration: { id: string; playerId: string | null; playerName: string },
+  saleContext: RegisterWalkInSaleContext,
+): Promise<void> {
+  const { friSatRegistrationFeeCents } = await settingsService.getOpenPlaySettings();
+  if (friSatRegistrationFeeCents <= 0) {
+    return;
+  }
+  await saleService.createSale(
+    {
+      category: "OPEN_PLAY",
+      amountCents: friSatRegistrationFeeCents,
+      paymentMethodId: saleContext.paymentMethodId,
+      employeeId: saleContext.employeeId,
+      shiftId: saleContext.shiftId,
+      playerId: registration.playerId ?? undefined,
+      openPlayNightRegistrationId: registration.id,
+      description: `Fri/Sat open play registration — ${registration.playerName}`,
+    },
+    tx,
+  );
+}
+
 export class OpenPlayRegistrationService {
   // Phase 4 only builds the staff walk-in path (cash, paid immediately —
   // see the OpenPlayNightRegistrationStatus enum comment in schema.prisma)
   // — status always lands on CONFIRMED; waitlistPos non-null means "paid,
   // no seat yet" rather than a separate status value.
-  async registerWalkIn(sessionId: string, input: RegisterWalkInInput, actorUserId: string): Promise<OpenPlayNightRegistration> {
+  // saleContext is optional so pre-existing fixture/test call sites that
+  // don't care about billing (rotation, concurrency, capacity tests
+  // predating this fee ever being tracked) are byte-for-byte unaffected
+  // — when omitted, no Sale is created regardless of the fee setting.
+  // Every REAL call site (registerWalkInAction, registerAndCheckIn's
+  // Fri/Sat branch) always supplies one; this is not a gap staff can
+  // hit, only a deliberate opt-out for code that isn't testing money.
+  async registerWalkIn(
+    sessionId: string,
+    input: RegisterWalkInInput,
+    actorUserId: string,
+    saleContext?: RegisterWalkInSaleContext,
+  ): Promise<OpenPlayNightRegistration> {
+    if (saleContext?.method === "GCASH" && !saleContext.gcashReference?.trim()) {
+      throw new Error("A GCash reference number is required.");
+    }
+
     const registration = await prisma.$transaction(async (tx) => {
       const session = await lockSessionRow(tx, sessionId);
       if (!session) {
@@ -145,7 +218,7 @@ export class OpenPlayRegistrationService {
         waitlistPos = (_max.waitlistPos ?? 0) + 1;
       }
 
-      return tx.openPlayNightRegistration.create({
+      const created = await tx.openPlayNightRegistration.create({
         data: {
           sessionId,
           date: session.date,
@@ -159,6 +232,16 @@ export class OpenPlayRegistrationService {
           waitlistPos,
         },
       });
+
+      if (saleContext) {
+        await createOpenPlayRegistrationFeeSale(
+          tx,
+          { id: created.id, playerId: created.playerId, playerName: created.playerName },
+          saleContext,
+        );
+      }
+
+      return created;
     });
 
     await this.writeAuditLog({
@@ -166,7 +249,12 @@ export class OpenPlayRegistrationService {
       action: "open_play_night_registration.created",
       entityType: "OpenPlayNightRegistration",
       entityId: registration.id,
-      newValues: { sessionId, waitlistPos: registration.waitlistPos, skillLevel: registration.skillLevel },
+      newValues: {
+        sessionId,
+        waitlistPos: registration.waitlistPos,
+        skillLevel: registration.skillLevel,
+        ...(saleContext ? { paymentMethod: saleContext.method, paymentMethodId: saleContext.paymentMethodId } : {}),
+      },
     });
 
     return registration;

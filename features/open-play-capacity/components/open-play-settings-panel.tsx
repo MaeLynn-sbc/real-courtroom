@@ -101,6 +101,25 @@ export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
         </div>
 
         <div className="flex flex-col gap-1.5">
+          <Label htmlFor="friSatRegistrationFeeCents">Fri/Sat registration fee (₱, per walk-in)</Label>
+          <p className="text-muted-foreground text-xs">
+            Charged as a real Sale when staff register a Fri/Sat walk-in — cash or GCash, attributed to the
+            employee and shift that took the payment, same as every other money-moving action in this app.
+          </p>
+          <Input
+            id="friSatRegistrationFeeCents"
+            type="number"
+            min={0}
+            step={0.01}
+            className="w-24"
+            value={settings.friSatRegistrationFeeCents / 100}
+            onChange={(event) =>
+              setSettings((s) => ({ ...s, friSatRegistrationFeeCents: Math.round(Number(event.target.value) * 100) }))
+            }
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
           <Label htmlFor="onlineRegistrationLeadTimeDays">Online registration opens (days before the session)</Label>
           <p className="text-muted-foreground text-xs">
             A Fri/Sat night&apos;s online registration only opens this many days ahead of it — a submission for a

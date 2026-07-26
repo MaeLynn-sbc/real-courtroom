@@ -42,16 +42,14 @@ export interface OpenPlaySalesSummary {
   byPaymentMethod: { paymentMethodId: string; label: string; amountCents: number; count: number }[];
   unsettledCount: number;
   unsettledTotalCents: number;
-  // BUILD-SPEC.md §9 wants "Fri/Sat ₱150 registrations" broken out here
-  // too. That revenue is collected at REGISTRATION time, not tab
-  // settlement — it belongs to §8's GCash/cash payment flow, which Phase 8
-  // builds (see §8's "Court bookings — prepayment REQUIRED..." and "Staff
-  // can still add walk-ins paying ₱150 cash at the desk"). Nothing records
-  // that payment yet, so this is always 0 until Phase 8 exists — surfaced
-  // explicitly rather than silently omitted, so nobody mistakes ₱0 for
-  // "no Fri/Sat revenue that night."
+  // BUILD-SPEC.md §9 "Fri/Sat ₱150 registrations," broken out here.
+  // Gate 2 review follow-up: this used to be hardcoded 0 with a note
+  // that the fee wasn't recorded anywhere yet — registerWalkIn now
+  // creates a real Sale (Sale.openPlayNightRegistrationId) for it, so
+  // this is a genuine aggregate, included in byPaymentMethod and
+  // netRevenueCents below, not a separate, excluded bucket anymore.
   friSatRegistrationFeeCents: number;
-  friSatRegistrationFeeNote: string;
+  friSatRegistrationFeeCount: number;
 }
 
 export class OpenPlaySalesService {
@@ -103,10 +101,30 @@ export class OpenPlaySalesService {
       }
     }
 
-    const sales = await prisma.sale.findMany({
+    const tabSales = await prisma.sale.findMany({
       where: { category: "OPEN_PLAY", status: "COMPLETED", playerTabId: { in: settledTabIds } },
       include: { paymentMethod: true },
     });
+
+    // Gate 2 review follow-up: the Fri/Sat registration fee's own Sales
+    // — a DIFFERENT linked-record shape (openPlayNightRegistrationId,
+    // not playerTabId), scoped by the registration's own `date` column,
+    // the exact same "grouping key" reasoning this file's own top
+    // comment already gives for why PlayerTab.date (not Sale.createdAt)
+    // is used above.
+    const registrationFeeSales = await prisma.sale.findMany({
+      where: {
+        category: "OPEN_PLAY",
+        status: "COMPLETED",
+        openPlayNightRegistrationId: { not: null },
+        openPlayNightRegistration: { date: { gte: from, lte: to } },
+      },
+      include: { paymentMethod: true },
+    });
+    const friSatRegistrationFeeCents = registrationFeeSales.reduce((sum, sale) => sum + sale.amountCents, 0);
+    const friSatRegistrationFeeCount = registrationFeeSales.length;
+
+    const sales = [...tabSales, ...registrationFeeSales];
     const byPaymentMethodMap = new Map<string, { paymentMethodId: string; label: string; amountCents: number; count: number }>();
     for (const sale of sales) {
       const existing = byPaymentMethodMap.get(sale.paymentMethodId);
@@ -130,16 +148,15 @@ export class OpenPlaySalesService {
       weeknightGameCount,
       equipmentRentalRevenueCents,
       adjustmentsCents,
-      netRevenueCents: weeknightGameRevenueCents + equipmentRentalRevenueCents + adjustmentsCents,
+      netRevenueCents: weeknightGameRevenueCents + equipmentRentalRevenueCents + adjustmentsCents + friSatRegistrationFeeCents,
       writeOffCents,
       writeOffCount,
       writeOffs,
       byPaymentMethod: Array.from(byPaymentMethodMap.values()).sort((a, b) => b.amountCents - a.amountCents),
       unsettledCount,
       unsettledTotalCents,
-      friSatRegistrationFeeCents: 0,
-      friSatRegistrationFeeNote:
-        "Not yet collected as a recorded payment — the ₱150 Fri/Sat registration fee is part of §8's GCash/cash payment flow, not yet built (Phase 8).",
+      friSatRegistrationFeeCents,
+      friSatRegistrationFeeCount,
     };
   }
 }

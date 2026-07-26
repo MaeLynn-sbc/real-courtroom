@@ -21,6 +21,11 @@ export interface RegistrablePlayer {
   openPlaySkillLevel: OpenPlaySkillLevel | null;
 }
 
+export interface WalkInPaymentMethod {
+  id: string;
+  label: string;
+}
+
 type NightTarget = { sessionId: string } | { date: string };
 
 interface WalkInRegistrationFormProps {
@@ -30,15 +35,30 @@ interface WalkInRegistrationFormProps {
   // no check-in) button doesn't make much sense there — most weeknight
   // players just walk in (BUILD-SPEC.md §6). Fri/Sat shows both actions.
   showRegisterOnly?: boolean;
+  // Gate 2 review follow-up (BUILD-SPEC.md §9): only meaningful (and
+  // only ever passed) for a Fri/Sat `target` — the ₱150 registration
+  // fee applies there, never on a weeknight. Same PaymentMethod list
+  // TabsPanel already receives from the same page.
+  paymentMethods?: WalkInPaymentMethod[];
 }
 
-export function WalkInRegistrationForm({ target, players, showRegisterOnly = true }: WalkInRegistrationFormProps) {
+export function WalkInRegistrationForm({
+  target,
+  players,
+  showRegisterOnly = true,
+  paymentMethods = [],
+}: WalkInRegistrationFormProps) {
   const router = useRouter();
   const [playerName, setPlayerName] = useState("");
   const [phone, setPhone] = useState("");
   const [skillLevel, setSkillLevel] = useState<OpenPlaySkillLevel>("BEGINNER");
   const [matchedPlayerId, setMatchedPlayerId] = useState<string | undefined>(undefined);
+  const [method, setMethod] = useState<"CASH" | "GCASH">("CASH");
+  const [gcashReference, setGcashReference] = useState("");
+  const [paymentMethodId, setPaymentMethodId] = useState(paymentMethods[0]?.id ?? "");
   const [isPending, startTransition] = useTransition();
+
+  const isCapacityNight = "sessionId" in target;
 
   const playersByName = useMemo(() => new Map(players.map((player) => [player.name.toLowerCase(), player])), [players]);
 
@@ -61,12 +81,24 @@ export function WalkInRegistrationForm({ target, players, showRegisterOnly = tru
     setPhone("");
     setSkillLevel("BEGINNER");
     setMatchedPlayerId(undefined);
+    setMethod("CASH");
+    setGcashReference("");
   }
 
   function submit(action: "register" | "walkin") {
     if (!playerName.trim() || !phone.trim()) {
       toast.error("Enter a name and phone number.");
       return;
+    }
+    if (isCapacityNight) {
+      if (!paymentMethodId) {
+        toast.error("Select a payment method.");
+        return;
+      }
+      if (method === "GCASH" && !gcashReference.trim()) {
+        toast.error("Enter the GCash reference number.");
+        return;
+      }
     }
 
     startTransition(async () => {
@@ -77,13 +109,26 @@ export function WalkInRegistrationForm({ target, players, showRegisterOnly = tru
         playerId: matchedPlayerId,
       };
 
-      const result =
-        action === "register" && "sessionId" in target
-          ? await registerWalkInAction({ sessionId: target.sessionId, ...base })
-          : await registerAndCheckInAction({
-              ...("sessionId" in target ? { sessionId: target.sessionId } : { date: target.date }),
-              ...base,
-            });
+      let result: { error: string | null };
+      if (action === "register" && "sessionId" in target) {
+        result = await registerWalkInAction({
+          sessionId: target.sessionId,
+          ...base,
+          method,
+          gcashReference: method === "GCASH" ? gcashReference.trim() : undefined,
+          paymentMethodId,
+        });
+      } else if ("sessionId" in target) {
+        result = await registerAndCheckInAction({
+          sessionId: target.sessionId,
+          ...base,
+          method,
+          gcashReference: method === "GCASH" ? gcashReference.trim() : undefined,
+          paymentMethodId,
+        });
+      } else {
+        result = await registerAndCheckInAction({ date: target.date, ...base });
+      }
 
       if (result.error) {
         toast.error(result.error);
@@ -102,8 +147,9 @@ export function WalkInRegistrationForm({ target, players, showRegisterOnly = tru
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <p className="text-muted-foreground text-sm">
-          Cash paid at the desk — marked confirmed immediately. Start typing a name to find a returning
-          player and prefill their details.
+          {isCapacityNight
+            ? "Marked confirmed immediately. Start typing a name to find a returning player and prefill their details."
+            : "Cash paid at the desk — marked confirmed immediately. Start typing a name to find a returning player and prefill their details."}
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="flex flex-col gap-1.5">
@@ -140,6 +186,48 @@ export function WalkInRegistrationForm({ target, players, showRegisterOnly = tru
             </Select>
           </div>
         </div>
+        {isCapacityNight ? (
+          <div className="flex flex-wrap items-end gap-3 rounded-md border border-dashed px-3 py-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="walkInMethod">Registration fee</Label>
+              <Select value={method} onValueChange={(value) => setMethod(value as "CASH" | "GCASH")}>
+                <SelectTrigger id="walkInMethod" className="w-28">
+                  <SelectValue>{() => (method === "CASH" ? "Cash" : "GCash")}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CASH">Cash</SelectItem>
+                  <SelectItem value="GCASH">GCash</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {method === "GCASH" ? (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="walkInGcashReference">GCash reference</Label>
+                <Input
+                  id="walkInGcashReference"
+                  className="w-48"
+                  value={gcashReference}
+                  onChange={(event) => setGcashReference(event.target.value)}
+                />
+              </div>
+            ) : null}
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="walkInPaymentMethod">Payment method</Label>
+              <Select value={paymentMethodId} onValueChange={(value) => setPaymentMethodId(value ?? "")}>
+                <SelectTrigger id="walkInPaymentMethod" className="w-40">
+                  <SelectValue>{() => paymentMethods.find((pm) => pm.id === paymentMethodId)?.label ?? "Select"}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {paymentMethods.map((pm) => (
+                    <SelectItem key={pm.id} value={pm.id}>
+                      {pm.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        ) : null}
         <div className="flex gap-2">
           <Button type="button" disabled={isPending} onClick={() => submit("walkin")}>
             {isPending ? "Working…" : "Walk-in (register & check in)"}
