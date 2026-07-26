@@ -3,6 +3,7 @@
 import {
   Activity,
   BarChart3,
+  Banknote,
   CalendarDays,
   Clock,
   CreditCard,
@@ -36,6 +37,7 @@ const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
   "/dashboard/courts": MapPin,
   "/dashboard/bookings": CalendarDays,
   "/dashboard/bookings/verify-payments": Receipt,
+  "/dashboard/admin/open-play-capacity/verify-payments": Banknote,
   "/dashboard/tournaments": Trophy,
   "/dashboard/players": Users,
   "/dashboard/memberships": CreditCard,

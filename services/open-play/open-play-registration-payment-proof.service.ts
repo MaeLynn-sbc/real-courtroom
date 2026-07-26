@@ -325,6 +325,12 @@ export class OpenPlayRegistrationPaymentProofService {
     });
   }
 
+  // Same "lighter query for a badge on every page load" split as
+  // bookingPaymentProofService.countPendingProofs.
+  async countPendingProofs(): Promise<number> {
+    return prisma.openPlayRegistrationPaymentProof.count({ where: { status: "PENDING" } });
+  }
+
   private async writeAuditLog(entry: {
     actorUserId: string | null;
     action: string;

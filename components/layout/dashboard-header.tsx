@@ -3,6 +3,7 @@
 import {
   Activity,
   BarChart3,
+  Banknote,
   CalendarDays,
   Clock,
   CreditCard,
@@ -41,6 +42,7 @@ const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
   "/dashboard/courts": MapPin,
   "/dashboard/bookings": CalendarDays,
   "/dashboard/bookings/verify-payments": Receipt,
+  "/dashboard/admin/open-play-capacity/verify-payments": Banknote,
   "/dashboard/tournaments": Trophy,
   "/dashboard/players": Users,
   "/dashboard/memberships": CreditCard,
@@ -62,9 +64,10 @@ const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
 
 interface DashboardHeaderProps {
   pendingVerificationCount: number;
+  pendingOpenPlayVerificationCount: number;
 }
 
-export function DashboardHeader({ pendingVerificationCount }: DashboardHeaderProps) {
+export function DashboardHeader({ pendingVerificationCount, pendingOpenPlayVerificationCount }: DashboardHeaderProps) {
   return (
     <header className="border-border/60 bg-background/80 sticky top-0 z-40 flex h-16 items-center gap-3 border-b px-4 backdrop-blur-md md:px-6">
       <Sheet>
@@ -124,6 +127,21 @@ export function DashboardHeader({ pendingVerificationCount }: DashboardHeaderPro
               className="absolute -top-1 -right-1 h-5 min-w-5 rounded-full px-1 text-[10px]"
             >
               {pendingVerificationCount > 9 ? "9+" : pendingVerificationCount}
+            </Badge>
+          </Link>
+        ) : null}
+        {pendingOpenPlayVerificationCount > 0 ? (
+          <Link
+            href="/dashboard/admin/open-play-capacity/verify-payments"
+            aria-label={`${pendingOpenPlayVerificationCount} open-play payment ${pendingOpenPlayVerificationCount === 1 ? "verification" : "verifications"} pending`}
+            className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "relative")}
+          >
+            <Banknote className="size-5" aria-hidden="true" />
+            <Badge
+              variant="destructive"
+              className="absolute -top-1 -right-1 h-5 min-w-5 rounded-full px-1 text-[10px]"
+            >
+              {pendingOpenPlayVerificationCount > 9 ? "9+" : pendingOpenPlayVerificationCount}
             </Badge>
           </Link>
         ) : null}
