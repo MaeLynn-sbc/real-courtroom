@@ -696,15 +696,52 @@ registered -> checked_in -> playing/waiting -> done
            \-> no_show
 ```
 
-### Registration (public, online) — PARKED, spec only, not built
+### Registration (public, online) — PARKED, building plumbing only, stays OFF
 
-**Recorded here ahead of implementation — nothing in this subsection is
-built yet.** Deliberately sequenced after deploy, after real Fridays
-establish the no-show baseline, and after §8's court-booking prepayment
-switch decision (same dependency chain — see §17, "No-show-rate
-baseline, before Phase 8 ships prepayment"). Gate 1 spec review happens
-when its turn comes; until then this is a parked design, not a queue of
-work.
+**Recorded here ahead of full implementation.** Deliberately sequenced
+to stay OFF (not reachable by any real customer) until after deploy,
+after real Fridays establish the no-show baseline, and after §8's
+court-booking prepayment switch decision (same dependency chain — see
+§17, "No-show-rate baseline, before Phase 8 ships prepayment"). Same
+pattern as §8's own court-booking prepayment: the plumbing can be built
+and merged ahead of that decision, gated behind a switch that defaults
+off, without activating early.
+
+**Gate 1 status (schema + hard boundary): built.** `OpenPlayNightRegistrationStatus`
+gained `REJECTED`; `OpenPlayNightRegistration` gained `holdExpiresAt`
+(mirrors `Booking.holdExpiresAt`); `OpenPlayRegistrationPaymentProof`
+and `OpenPlayWaitlistEntry` are new, separate tables (not a polymorphic
+extension of `BookingPaymentProof`); the waitlist's own state machine
+(`WAITING -> INVITED -> {CONVERTED | EXPIRED}`) lives in
+`services/open-play/open-play-waitlist-status.ts`, pure and unit-tested.
+None of this is reachable from any service or route yet — Gate 2
+(registration submission, invite processing, capacity check) is next.
+
+**Two independent gates, both required, neither built into a service
+yet:**
+1. `settingsService.getOpenPlayOnlineRegistrationEnabled()` — whether
+   the online registration feature exists at all, anywhere. Defaults
+   `false`. Same single-point-of-control shape as §8's booking-
+   prepayment switch, but named differently: there's no "on without
+   prepayment" mode to toggle between the way court bookings have
+   pay-at-venue, so this gates existence, not a payment method.
+2. `OpenPlayCapacityDefault.onlineRegistrationEnabled` — a **separate**,
+   per-weekday (Friday/Saturday) toggle for which capacity nights offer
+   it, editable on the existing "Weekday Defaults" card
+   (`/dashboard/admin/open-play-capacity`) next to that day's capacity
+   number. Defaults `true` for both existing days (it's inert on its
+   own — gate 1 above is what actually controls reachability), so an
+   owner who flips the feature-wide switch on gets "Friday and
+   Saturday" without a redundant second opt-in, and can narrow it to
+   one day from there.
+
+**Which nights are capacity nights at all (Fri/Sat) is a separate,
+still-hardcoded fact, unchanged by either toggle above** —
+`OPEN_PLAY_DAYS_OF_WEEK = [5, 6]` in `open-play-capacity.service.ts`,
+enforced a second time by a DB-level `CHECK` constraint
+(`OpenPlayNightRegistration_session_matches_weekday`, migration 11/12).
+Both online-registration toggles only ever narrow within whatever that
+hardcoded set already is.
 
 Applies to **Fri/Sat only** (weeknight has no capacity, so no waitlist
 concept — see §5). A player registers online for a specific session:
