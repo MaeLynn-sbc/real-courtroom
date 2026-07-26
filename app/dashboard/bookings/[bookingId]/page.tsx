@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +8,7 @@ import { BookingQrCode } from "@/features/bookings/components/booking-qr-code";
 import { BookingSourceBadge } from "@/features/bookings/components/booking-source-badge";
 import { BookingStatusActions } from "@/features/bookings/components/booking-status-actions";
 import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
+import { RecordGcashPaymentForm } from "@/features/bookings/components/record-gcash-payment-form";
 import { RegenerateQrButton } from "@/features/bookings/components/regenerate-qr-button";
 import { formatRelativeTime } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
@@ -115,6 +117,25 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
         <h2 className="text-lg font-medium">Status</h2>
         <BookingStatusActions bookingId={booking.id} currentStatus={booking.status} />
       </section>
+
+      {booking.status === "AWAITING_PAYMENT" ? (
+        // A hold waits on the customer submitting proof (BUILD-SPEC.md
+        // §8) — no public upload screen exists yet, so this lets staff
+        // record it on their behalf (phone/desk). Once submitted, this
+        // booking moves to /dashboard/bookings/verify-payments.
+        <section className="flex flex-col gap-3">
+          <RecordGcashPaymentForm bookingId={booking.id} expectedAmountCents={booking.totalAmountCents ?? 0} />
+        </section>
+      ) : null}
+      {booking.status === "PENDING_VERIFICATION" ? (
+        <p className="text-muted-foreground text-sm">
+          Payment submitted — waiting on staff verification. See{" "}
+          <Link href="/dashboard/bookings/verify-payments" className="text-primary hover:underline">
+            Verify payments
+          </Link>
+          .
+        </p>
+      ) : null}
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">History</h2>

@@ -39,6 +39,12 @@ interface BookingConfirmation {
   time: string;
   durationMinutes: number;
   guestName: string;
+  // Phase 8: true only when the owner-controlled GCash-prepayment switch
+  // is on. Must not be silently ignored here — showing "Booking
+  // confirmed... payment collected at the venue" for what's actually a
+  // 30-minute hold waiting on GCash proof would tell a customer their
+  // slot is secured when it isn't yet.
+  requiresPayment: boolean;
 }
 
 function toLocalDateValue(date: Date): string {
@@ -106,6 +112,7 @@ export function PublicBookingForm({
         time: values.time,
         durationMinutes: Number(values.durationMinutes),
         guestName: values.guestName,
+        requiresPayment: result.requiresPayment ?? false,
       });
     });
   });
@@ -114,7 +121,9 @@ export function PublicBookingForm({
     return (
       <Card className="mx-auto max-w-md">
         <CardHeader>
-          <CardTitle className="text-success">Booking confirmed</CardTitle>
+          <CardTitle className={confirmation.requiresPayment ? undefined : "text-success"}>
+            {confirmation.requiresPayment ? "Slot held — payment needed" : "Booking confirmed"}
+          </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm">
           <div className="flex justify-between">
@@ -141,10 +150,18 @@ export function PublicBookingForm({
             <span className="text-muted-foreground">Duration</span>
             <span className="font-medium">{confirmation.durationMinutes} minutes</span>
           </div>
-          <p className="text-muted-foreground pt-2 text-xs">
-            Save your reference and phone number — you can look up this booking anytime from the
-            Booking Lookup page. Payment is collected at the venue.
-          </p>
+          {confirmation.requiresPayment ? (
+            <p className="text-warning-foreground bg-warning/15 rounded-lg p-2 pt-2 text-xs">
+              This slot is held for 30 minutes, not yet confirmed. Send your GCash payment and
+              save your reference number — call us or visit the desk with it, and we&apos;ll get
+              your booking verified. Save your reference and phone number to look this up later.
+            </p>
+          ) : (
+            <p className="text-muted-foreground pt-2 text-xs">
+              Save your reference and phone number — you can look up this booking anytime from the
+              Booking Lookup page. Payment is collected at the venue.
+            </p>
+          )}
         </CardContent>
       </Card>
     );

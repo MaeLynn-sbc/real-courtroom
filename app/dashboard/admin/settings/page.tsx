@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { ModuleTogglesPanel } from "@/features/settings/components/module-toggles-panel";
+import { PaymentSettingsPanel } from "@/features/settings/components/payment-settings-panel";
 import { SettingsWorkspace } from "@/features/settings/components/settings-workspace";
 import { settingsService } from "@/services/settings/settings.service";
 
@@ -15,9 +16,10 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [settings, enabledModules] = await Promise.all([
+  const [settings, enabledModules, requirePrepayment] = await Promise.all([
     settingsService.listSettings(),
     settingsService.getEnabledModules(),
+    settingsService.getBookingRequirePrepayment(),
   ]);
 
   return (
@@ -28,6 +30,7 @@ export default async function SettingsPage() {
       </div>
 
       <ModuleTogglesPanel enabledModules={enabledModules} />
+      <PaymentSettingsPanel requirePrepayment={requirePrepayment} />
       <SettingsWorkspace settings={settings} />
     </div>
   );
