@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type {
   BusinessInfo,
   CourtHoursSettings,
@@ -27,6 +29,18 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
 
 // Phase 8 Gate 2 — see getBookingRequirePrepayment/setBookingRequirePrepayment.
 const BOOKING_REQUIRE_PREPAYMENT_KEY = "booking.requirePrepayment";
+
+// Phase 10 Gate 1 — see getOrCreateDisplaySlug. An unguessable path
+// component (not a permission check) standing in for "the TV display's
+// URL isn't listed anywhere a random visitor would find it" — the route
+// itself is intentionally login-free per BUILD-SPEC.md §12/§13.
+const DISPLAY_SLUG_KEY = "display.slug";
+
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002"
+  );
+}
 
 const DEFAULT_HERO: HomepageHero = {
   title: "THE COURTROOM",
@@ -253,12 +267,52 @@ export class SettingsService {
     return this.setJsonValue(CMS_KEYS.OPEN_PLAY_SETTINGS, value, actorUserId);
   }
 
+  // Phase 10 Gate 1 (BUILD-SPEC.md §12/§13): lazily provisions the
+  // unguessable slug /display/[slug] validates against, the first time
+  // anything asks for it — same "no seeded Setting rows, everything is
+  // created on first write" doctrine every other setting in this file
+  // follows (see the class-level comment above). No real user initiates
+  // this, so the audit trail records actorUserId: null rather than
+  // borrowing an unrelated identity — see setJsonValue's comment.
+  // create() (not upsert) is deliberate: it lets Postgres's own unique
+  // index on Setting.key be the race guard between two concurrent first
+  // callers, instead of two upserts silently overwriting each other with
+  // two different slugs.
+  async getOrCreateDisplaySlug(): Promise<string> {
+    const existing = await this.getJsonValue<string | null>(DISPLAY_SLUG_KEY, null);
+    if (existing) {
+      return existing;
+    }
+
+    const slug = randomUUID();
+    try {
+      const setting = await prisma.setting.create({
+        data: { key: DISPLAY_SLUG_KEY, value: slug, updatedById: null },
+      });
+      await this.writeSettingAuditLog("setting.updated", setting.id, setting.key, setting.value, null);
+      return slug;
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        const row = await prisma.setting.findUniqueOrThrow({ where: { key: DISPLAY_SLUG_KEY } });
+        return row.value as string;
+      }
+      throw error;
+    }
+  }
+
   private async getJsonValue<T>(key: string, fallback: T): Promise<T> {
     const row = await prisma.setting.findUnique({ where: { key } });
     return row ? (row.value as T) : fallback;
   }
 
-  private async setJsonValue<T>(key: string, value: T, actorUserId: string) {
+  // actorUserId is nullable for the one genuinely-system-initiated write
+  // this service does — getOrCreateDisplaySlug's self-provisioning, below
+  // — which has no real user behind it and no natural existing system
+  // identity to borrow (the seeded Website identity means "a public
+  // booking," a semantic stretch for "the TV display bootstrapped its
+  // own access token"). Setting.updatedById and AuditLog.userId are both
+  // already nullable in schema for exactly this shape of event.
+  private async setJsonValue<T>(key: string, value: T, actorUserId: string | null) {
     const setting = await prisma.setting.upsert({
       where: { key },
       update: { value: value as object, updatedById: actorUserId },
@@ -275,7 +329,7 @@ export class SettingsService {
     settingId: string,
     key: string,
     value: unknown,
-    actorUserId: string,
+    actorUserId: string | null,
   ): Promise<void> {
     try {
       await prisma.auditLog.create({

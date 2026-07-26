@@ -1,0 +1,377 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import type { DisplayCourt, DisplayData } from "@/services/display/display.service";
+
+import styles from "@/app/display/[slug]/tv-display.module.css";
+
+// BUILD-SPEC.md §12/§13. Structure and sizing are ported verbatim from
+// docs/tv-display.html (see tv-display.module.css's header comment) —
+// this file is the "swap the demo DATA object for a live fetch loop"
+// half of that port, plus the operational requirements §13 adds on top
+// of the reference (start gate, wake lock, resilient reconnect, 6h
+// reload). Never render anything here that displayService didn't
+// already put in DisplayData — see that file for what's excluded and
+// why.
+
+const POLL_INTERVAL_MS = 30_000;
+const RETRY_INTERVAL_MS = 5_000;
+const RELOAD_AFTER_MS = 6 * 60 * 60 * 1000;
+const RELOAD_CHECK_INTERVAL_MS = 60_000;
+const ENDING_SOON_MS = 2 * 60 * 1000;
+
+const clockFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
+const dateFormatter = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" });
+const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
+
+function hhmm(iso: string): string {
+  return timeFormatter.format(new Date(iso));
+}
+
+function cls(...names: (string | false | null | undefined)[]): string {
+  return names.filter(Boolean).join(" ");
+}
+
+interface CourtTiming {
+  minutes: string;
+  seconds: string;
+  percentDone: number;
+  ending: boolean;
+}
+
+function computeTiming(startAt: string, endAt: string, now: number): CourtTiming {
+  const start = new Date(startAt).getTime();
+  const end = new Date(endAt).getTime();
+  const left = Math.max(0, end - now);
+  const total = Math.max(1, end - start);
+  return {
+    minutes: String(Math.floor(left / 60_000)).padStart(2, "0"),
+    seconds: String(Math.floor(left / 1000) % 60).padStart(2, "0"),
+    percentDone: Math.max(0, Math.min(100, ((now - start) / total) * 100)),
+    ending: left <= ENDING_SOON_MS,
+  };
+}
+
+export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
+  const [data, setData] = useState(initialData);
+  const [now, setNow] = useState(() => Date.now());
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(() => Date.now());
+  const [reconnecting, setReconnecting] = useState(false);
+  const [started, setStarted] = useState(false);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dataRef = useRef(data);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const mountedAtRef = useRef(Date.now());
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
+  // Clock + every countdown on screen re-render off this single 1s tick
+  // — matches the reference file's own setInterval(tick, 1000).
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Resilient polling (BUILD-SPEC.md §13): "Never blank on error — keep
+  // last good data, show a small reconnecting indicator." A failed poll
+  // retries sooner (5s) than the normal 30s cadence so a brief wifi drop
+  // recovers fast without needing a human to touch the TV; `data` itself
+  // is only ever replaced by a successful response.
+  useEffect(() => {
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    async function poll() {
+      try {
+        const response = await fetch("/api/display", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Unexpected status ${response.status}`);
+        }
+        const json = (await response.json()) as DisplayData;
+        if (cancelled) return;
+        setData(json);
+        setLastUpdatedAt(Date.now());
+        setReconnecting(false);
+        timeoutId = setTimeout(poll, POLL_INTERVAL_MS);
+      } catch {
+        if (cancelled) return;
+        setReconnecting(true);
+        timeoutId = setTimeout(poll, RETRY_INTERVAL_MS);
+      }
+    }
+
+    timeoutId = setTimeout(poll, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, []);
+
+  // Long names shrink, never truncate (BUILD-SPEC.md §12) — same pass
+  // as the reference file's fitNames(), scoped to this component's own
+  // container instead of the whole document.
+  const fitNames = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const selector = `.${styles["next-up"]} .${styles.names} .${styles.n}, .${styles.waiting} .${styles.w}`;
+    container.querySelectorAll<HTMLElement>(selector).forEach((el) => {
+      el.style.fontSize = "";
+      const base = parseFloat(getComputedStyle(el).fontSize);
+      let size = base;
+      while (el.scrollWidth > el.clientWidth + 1 && size > base * 0.5) {
+        size -= base * 0.04;
+        el.style.fontSize = `${size}px`;
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    fitNames();
+    window.addEventListener("resize", fitNames);
+    return () => window.removeEventListener("resize", fitNames);
+  }, [data, fitNames]);
+
+  const acquireWakeLock = useCallback(async () => {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLockRef.current = await navigator.wakeLock.request("screen");
+      }
+    } catch {
+      // Not fatal — the TV just risks sleeping until the next
+      // visibilitychange re-attempt. Nothing to surface on an
+      // unattended, login-free screen.
+    }
+  }, []);
+
+  // The wake lock drops when the screen turns off and does not return
+  // on its own (BUILD-SPEC.md §13) — re-acquire on visibilitychange.
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (started && document.visibilityState === "visible") {
+        void acquireWakeLock();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [started, acquireWakeLock]);
+
+  // Auto-reload every 6h to pick up deploys, but only when no game is
+  // within 60s of ending (BUILD-SPEC.md §13) — never interrupt a
+  // countdown a room full of people is watching.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (Date.now() - mountedAtRef.current < RELOAD_AFTER_MS) return;
+      const endingSoon = dataRef.current.courts.some((court) => {
+        if (!court.endAt) return false;
+        const msLeft = new Date(court.endAt).getTime() - Date.now();
+        return msLeft > 0 && msLeft <= 60_000;
+      });
+      if (!endingSoon) {
+        window.location.reload();
+      }
+    }, RELOAD_CHECK_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  async function handleStart() {
+    setStarted(true);
+    try {
+      await containerRef.current?.requestFullscreen?.();
+    } catch {
+      // Some browsers/OSes deny fullscreen outright — the page still
+      // works windowed, just without the kiosk chrome-hiding benefit.
+    }
+    await acquireWakeLock();
+  }
+
+  const staleSeconds = Math.round((now - lastUpdatedAt) / 1000);
+  const liveLabel = reconnecting ? "Reconnecting…" : staleSeconds < 5 ? "Just updated" : `Updated ${staleSeconds}s ago`;
+
+  const queueUp = data.queue.slice(0, 4);
+  const queueThen = data.queue.slice(4, 8);
+  const queueRest = data.queue.slice(8);
+  const queueShown = queueRest.slice(0, 8);
+  const queueExtra = queueRest.length - queueShown.length;
+
+  return (
+    <div className={styles.page} ref={containerRef}>
+      {!started && (
+        <div className={styles.startGate}>
+          <button type="button" className={styles.startButton} onClick={handleStart}>
+            Start display
+          </button>
+        </div>
+      )}
+
+      <div className={styles.top}>
+        <div className={styles.logo} role="img" aria-label="The Courtroom" />
+        <div>
+          <div className={styles.title}>
+            Court <span>Status</span>
+          </div>
+          <div className={styles.sub}>Live · Updates every 30 seconds</div>
+        </div>
+        <div className={styles.clock}>
+          <b>{clockFormatter.format(now)}</b>
+          <span>{dateFormatter.format(now)}</span>
+        </div>
+      </div>
+
+      <div className={styles.courts}>
+        {data.courts.map((court) => (
+          <CourtCard key={court.id} court={court} now={now} />
+        ))}
+      </div>
+
+      <div className={styles.queue}>
+        <div className={styles["q-row"]}>
+          <div className={styles["q-label"]}>
+            <b>
+              Open
+              <br />
+              play
+            </b>
+            <em className={styles["count-n"]}>{data.queue.length}</em>
+            <span>Waiting</span>
+          </div>
+          <div className={styles["next-up"]}>
+            <span className={styles.tag}>Next up</span>
+            <span className={styles.names}>
+              {queueUp.length ? (
+                queueUp.map((name, i) => (
+                  <span key={`${name}-${i}`} className={cls(styles.n, styles[`c${i % 4}`])}>
+                    {name}
+                  </span>
+                ))
+              ) : (
+                <span className={cls(styles.n, styles.c0)}>Nobody waiting</span>
+              )}
+            </span>
+          </div>
+          <div className={cls(styles["next-up"], styles.later)}>
+            <span className={styles.tag}>After that</span>
+            <span className={styles.names}>
+              {queueThen.length ? (
+                queueThen.map((name, i) => (
+                  <span key={`${name}-${i}`} className={styles.n}>
+                    {name}
+                  </span>
+                ))
+              ) : (
+                <span className={styles.n}>—</span>
+              )}
+            </span>
+          </div>
+        </div>
+        <div className={cls(styles["q-row"], styles.rest)}>
+          <div className={styles.waiting}>
+            {queueShown.map((name, i) => (
+              <span key={`${name}-${i}`} className={styles.w}>
+                <i>{i + 9}</i>
+                {name}
+              </span>
+            ))}
+            {queueExtra > 0 && <span className={cls(styles.w, styles.more)}>+{queueExtra} more</span>}
+          </div>
+        </div>
+      </div>
+
+      <div className={cls(styles.live, reconnecting && styles.stale)}>
+        <i />
+        <span>{liveLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+function CourtCard({ court, now }: { court: DisplayCourt; now: number }) {
+  if (court.state === "free") {
+    return (
+      <div className={cls(styles.court, styles.free)}>
+        <div className={styles["court-head"]}>
+          <span className={styles["court-no"]}>{court.name}</span>
+          <span className={styles.pill}>Available</span>
+        </div>
+        <div className={styles["big-open"]}>Available</div>
+        <div className={styles.sched}>
+          <span>Next booking</span>
+          <span>{court.next ? `${court.next.name} · ${hhmm(court.next.startAt)}` : "No bookings today"}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Narrowed by the state check above — DisplayCourtActive always
+  // carries real startAt/endAt strings.
+  const timing = computeTiming(court.startAt, court.endAt, now);
+
+  if (court.state === "res") {
+    return (
+      <div className={cls(styles.court, styles.res, timing.ending && styles.ending)}>
+        <div className={styles["court-head"]}>
+          <span className={styles["court-no"]}>{court.name}</span>
+        </div>
+        <div className={styles.booked}>
+          <div className={styles["big-booked"]}>Booked</div>
+          <div className={styles["booked-name"]}>{court.players[0]?.name ?? "Guest"}</div>
+          <div className={styles["booked-time"]}>
+            {hhmm(court.startAt)} — {hhmm(court.endAt)}
+          </div>
+        </div>
+        <div className={styles.timer}>
+          <div className={styles.count}>
+            {timing.minutes}:{timing.seconds}
+            <small>Minutes left</small>
+          </div>
+          <div className={styles.bar}>
+            <i style={{ width: `${timing.percentDone}%` }} />
+          </div>
+          {court.next && (
+            <div className={styles["next-line"]}>
+              <span>Next</span>
+              <span>
+                <b>{court.next.name}</b> · {hhmm(court.next.startAt)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // "op" — open play.
+  return (
+    <div className={cls(styles.court, styles.op, timing.ending && styles.ending)}>
+      <div className={styles["court-head"]}>
+        <span className={styles["court-no"]}>{court.name}</span>
+        <span className={styles.pill}>Open play</span>
+      </div>
+      <div className={styles.players}>
+        {court.players.map((player, i) => (
+          <span key={`${player.name}-${i}`} className={cls(styles.pname, styles[`c${i % 4}`])}>
+            {player.name}
+          </span>
+        ))}
+      </div>
+      <div className={styles.timer}>
+        <div className={styles.count}>
+          {timing.minutes}:{timing.seconds}
+          <small>Minutes left</small>
+        </div>
+        <div className={styles.bar}>
+          <i style={{ width: `${timing.percentDone}%` }} />
+        </div>
+        <div className={styles.sched}>
+          <span>
+            {hhmm(court.startAt)} — {hhmm(court.endAt)}
+          </span>
+          <span>Open play game</span>
+        </div>
+      </div>
+    </div>
+  );
+}
