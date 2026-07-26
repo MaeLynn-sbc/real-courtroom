@@ -696,6 +696,52 @@ registered -> checked_in -> playing/waiting -> done
            \-> no_show
 ```
 
+### Registration (public, online) — PARKED, spec only, not built
+
+**Recorded here ahead of implementation — nothing in this subsection is
+built yet.** Deliberately sequenced after deploy, after real Fridays
+establish the no-show baseline, and after §8's court-booking prepayment
+switch decision (same dependency chain — see §17, "No-show-rate
+baseline, before Phase 8 ships prepayment"). Gate 1 spec review happens
+when its turn comes; until then this is a parked design, not a queue of
+work.
+
+Applies to **Fri/Sat only** (weeknight has no capacity, so no waitlist
+concept — see §5). A player registers online for a specific session:
+
+1. **Slots available** → the same GCash prepayment machinery §8 already
+   builds for court bookings: a hold, reference-number + screenshot
+   submission, staff verification queue. The registration only becomes
+   `confirmed` once staff approve — identical shape to the existing
+   Fri/Sat verification flow, just reached from a public form instead
+   of the desk.
+2. **Session full** → **no payment prompt at all.** No hold, no GCash
+   step, nothing to verify. The player is appended to the waitlist,
+   first-come-first-served by submission time (state explicitly if a
+   different ordering is ever wanted — FCFS is the default assumption,
+   not a placeholder).
+3. **A slot frees** (a cancellation, a no-show marked, or capacity
+   raised) → the waitlist head is **invited to pay**, at which point
+   step 1's flow begins for them (hold, submit, verify).
+4. **The pay-now invite has a time limit** — reuse Phase 8's existing
+   hold-expiry pattern exactly (`holdExpiresAt`, the 30-minute window
+   already built for court-booking holds — §8), not a second mechanism.
+   If the invited player doesn't pay within the window, the invite
+   passes to the next person on the list.
+5. **Notification of an open slot is SMS**, not in-app/email — a
+   waitlisted customer isn't watching the dashboard the way staff are.
+   Same local SMS provider already priced for coach notifications
+   (~₱0.56/text). Requires capturing a phone number at waitlist
+   signup (already collected for registration generally — see
+   `OpenPlayRegistration.phone` above).
+
+**Unchanged, still true after this ships:** check-in remains the
+*only* path into the actual rotation `QueueEntry` (§6, "Check-in is
+what enters a player into the queue — not registration"). Prepayment
+online only changes how a registration becomes `confirmed` — it does
+not create a queue entry, does not skip check-in, and does not change
+anything about how the check-in screen or rotation board work today.
+
 ### Check-in (on arrival)
 
 Sets `checkedInAt`, creates the `QueueEntry` with
