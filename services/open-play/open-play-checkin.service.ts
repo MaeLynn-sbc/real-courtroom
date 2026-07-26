@@ -311,6 +311,13 @@ export class OpenPlayCheckinService {
   async getCheckInScreenData(where: { sessionId: string } | { date: Date }): Promise<CheckInScreenData> {
     if ("sessionId" in where) {
       await this.reconcileNoShows(where.sessionId);
+      // Open-play online self-registration, Gate 2 review follow-up:
+      // same lazy-on-read pattern as reconcileNoShows immediately above,
+      // for a different stale-state class (a lapsed online invite with
+      // no cancellation/capacity-change to otherwise trigger it). Weeknight
+      // (no sessionId) has no waitlist/invites, so this only runs for
+      // Fri/Sat, same guard as reconcileNoShows.
+      await openPlayRegistrationService.reconcileExpiredInvites(where.sessionId, null);
     }
 
     const filter: Prisma.OpenPlayNightRegistrationWhereInput =

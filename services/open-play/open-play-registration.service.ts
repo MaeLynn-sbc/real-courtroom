@@ -8,6 +8,7 @@ import type {
 } from "@/lib/generated/prisma/client";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import { canTransitionOpenPlayWaitlistEntryStatus } from "@/services/open-play/open-play-waitlist-status";
+import { getSmsService } from "@/services/sms/sms-service.factory";
 import { OPEN_PLAY_SKILL_LEVEL_ORDER } from "@/types/open-play-skill-levels";
 
 // BUILD-SPEC.md §5. Concurrency: SELECT ... FOR UPDATE on the session
@@ -406,7 +407,57 @@ export class OpenPlayRegistrationService {
         entityId: nextWaiting.id,
         newValues: { registrationId: registration.id, inviteExpiresAt: holdExpiresAt },
       });
+
+      // A waitlisted customer isn't watching the dashboard the way staff
+      // are (BUILD-SPEC.md §6) — SMS is the only channel that actually
+      // reaches them. Best-effort: a delivery failure here must not roll
+      // back the invite/hold itself (the seat is still genuinely theirs
+      // until holdExpiresAt), so this is deliberately outside the
+      // transaction's failure path — logged, not thrown.
+      try {
+        await getSmsService().send(
+          nextWaiting.phone,
+          `The Courtroom: A spot has opened up for Open Play! You have until ${holdExpiresAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })} to confirm and pay, or your spot will be given to the next person.`,
+        );
+      } catch (error) {
+        logger.error({ error, waitlistEntryId: nextWaiting.id }, "Failed to send open-play waitlist invite SMS");
+      }
     }
+  }
+
+  // Gate 2 review follow-up: inviteNextWaitlistEntry only ever runs from
+  // releaseRegistration or setSessionCapacityOverride — a lapsed invite
+  // with neither a cancellation nor a capacity change to trigger it would
+  // otherwise sit unresolved (the WaitlistEntry stuck at INVITED, the
+  // next WAITING entry never invited) indefinitely. Same lazy-
+  // reconciliation-on-read pattern as openPlayCheckinService's own
+  // reconcileNoShows (this codebase's established no-cron precedent) —
+  // called from the capacity/roster screen's own read path
+  // (getCheckInScreenData), not on a schedule. Cheap pre-check outside
+  // any transaction/lock first, same shape as reconcileNoShows' own
+  // cutoff check, so a normal read that has nothing to reconcile doesn't
+  // pay for a session lock it doesn't need.
+  async reconcileExpiredInvites(sessionId: string, actorUserId: string | null): Promise<void> {
+    const session = await prisma.openPlayNightSession.findUnique({ where: { id: sessionId } });
+    if (!session) {
+      return;
+    }
+
+    const staleInvite = await prisma.openPlayWaitlistEntry.findFirst({
+      where: { sessionId, status: "INVITED", inviteExpiresAt: { lt: new Date() } },
+      select: { id: true },
+    });
+    if (!staleInvite) {
+      return;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const locked = await lockSessionRow(tx, sessionId);
+      if (!locked) {
+        return;
+      }
+      await this.inviteNextWaitlistEntry(tx, { id: locked.id, date: locked.date }, actorUserId);
+    });
   }
 
   async cancelRegistration(registrationId: string, actorUserId: string): Promise<OpenPlayNightRegistration> {
