@@ -25,6 +25,9 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
+// Phase 8 Gate 2 — see getBookingRequirePrepayment/setBookingRequirePrepayment.
+const BOOKING_REQUIRE_PREPAYMENT_KEY = "booking.requirePrepayment";
+
 const DEFAULT_HERO: HomepageHero = {
   title: "THE COURTROOM",
   subtitle: "Indoor pickleball courts, open play, and more.",
@@ -139,6 +142,24 @@ export class SettingsService {
 
   async setPublicVisibility(key: PublicVisibilityKey, visible: boolean, actorUserId: string) {
     return this.setBooleanFlag(key, visible, actorUserId);
+  }
+
+  // Phase 8 Gate 2 (BUILD-SPEC.md §8): the ONE switch that decides
+  // whether the public booking path requires GCash prepayment. Every
+  // other piece of Phase 8 code reads THIS, never a second copy of the
+  // decision — actions/public-booking.actions.ts is the only call site.
+  // Same "absence of a row means false" doctrine as the flag groups
+  // above, which is exactly the required default: OFF until someone with
+  // SYSTEM_ADMIN explicitly turns it on (actions/payment-settings.
+  // actions.ts — §15 "Owner-only payment settings," same permission tier
+  // every other owner-only setting in this codebase already uses).
+  async getBookingRequirePrepayment(): Promise<boolean> {
+    const flags = await this.getBooleanFlags([BOOKING_REQUIRE_PREPAYMENT_KEY]);
+    return flags[BOOKING_REQUIRE_PREPAYMENT_KEY] ?? false;
+  }
+
+  async setBookingRequirePrepayment(value: boolean, actorUserId: string) {
+    return this.setBooleanFlag(BOOKING_REQUIRE_PREPAYMENT_KEY, value, actorUserId);
   }
 
   private async getBooleanFlags(keys: readonly string[]): Promise<Record<string, boolean>> {
