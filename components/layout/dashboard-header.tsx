@@ -15,6 +15,7 @@ import {
   MapPin,
   Megaphone,
   Menu,
+  Receipt,
   Repeat,
   Settings,
   ShieldCheck,
@@ -28,16 +29,19 @@ import Link from "next/link";
 
 import { UserNav } from "@/components/layout/user-nav";
 import { Logo } from "@/components/shared/logo";
-import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationBell } from "@/features/notifications/components/notification-bell";
 import { dashboardNavGroups, siteConfig } from "@/lib/config";
+import { cn } from "@/lib/utils";
 
 const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
   "/dashboard": LayoutDashboard,
   "/dashboard/shift": Clock,
   "/dashboard/courts": MapPin,
   "/dashboard/bookings": CalendarDays,
+  "/dashboard/bookings/verify-payments": Receipt,
   "/dashboard/open-play": Repeat,
   "/dashboard/tournaments": Trophy,
   "/dashboard/players": Users,
@@ -58,7 +62,11 @@ const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
   "/dashboard/admin/diagnostics": Activity,
 };
 
-export function DashboardHeader() {
+interface DashboardHeaderProps {
+  pendingVerificationCount: number;
+}
+
+export function DashboardHeader({ pendingVerificationCount }: DashboardHeaderProps) {
   return (
     <header className="border-border/60 bg-background/80 sticky top-0 z-40 flex h-16 items-center gap-3 border-b px-4 backdrop-blur-md md:px-6">
       <Sheet>
@@ -106,6 +114,21 @@ export function DashboardHeader() {
       </Link>
 
       <div className="ml-auto flex items-center gap-3">
+        {pendingVerificationCount > 0 ? (
+          <Link
+            href="/dashboard/bookings/verify-payments"
+            aria-label={`${pendingVerificationCount} payment ${pendingVerificationCount === 1 ? "verification" : "verifications"} pending`}
+            className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "relative")}
+          >
+            <Receipt className="size-5" aria-hidden="true" />
+            <Badge
+              variant="destructive"
+              className="absolute -top-1 -right-1 h-5 min-w-5 rounded-full px-1 text-[10px]"
+            >
+              {pendingVerificationCount > 9 ? "9+" : pendingVerificationCount}
+            </Badge>
+          </Link>
+        ) : null}
         <NotificationBell />
         <UserNav />
       </div>

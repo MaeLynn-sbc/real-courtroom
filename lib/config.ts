@@ -30,6 +30,7 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Dashboard", href: "/dashboard" },
       { title: "Shift", href: "/dashboard/shift" },
       { title: "Bookings", href: "/dashboard/bookings" },
+      { title: "Verify Payments", href: "/dashboard/bookings/verify-payments" },
       { title: "Open Play", href: "/dashboard/open-play" },
       { title: "Equipment", href: "/dashboard/equipment" },
       { title: "Lockers", href: "/dashboard/lockers" },
