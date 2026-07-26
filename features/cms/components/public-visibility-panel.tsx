@@ -68,7 +68,10 @@ function VisibilityRow({
         <p className="font-medium">{label}</p>
         <p className="text-muted-foreground text-xs">{description}</p>
       </div>
-      <Switch checked={visible} onCheckedChange={handleChange} disabled={isPending} aria-label={label} />
+      {/* BUILD-SPEC.md §2 — same "live, persisted active toggle" status
+          semantics as Modules above it in Settings, not a one-off form
+          field, so it gets the dedicated status color too. */}
+      <Switch checked={visible} onCheckedChange={handleChange} disabled={isPending} aria-label={label} tone="status" />
     </div>
   );
 }

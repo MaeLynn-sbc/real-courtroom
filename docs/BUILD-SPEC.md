@@ -341,20 +341,31 @@ ramp's text on another ramp's fill.
   the two never compete for the same color because they're never the
   same ramp.
 
-**Not yet checked**: whether the ~40px header adds up to an oppressive
-amount of vertical space on the longest record-card list in the app —
-flagged explicitly per the rollout constraint, to be confirmed against
-the actual longest list before this pattern rolls out beyond payment
-methods, not assumed fine from the reference screen alone.
+**Checked at rollout** (13-screen batch, this pass): the ~40px header
+is fine for short, naturally-bounded lists (payment methods stays under
+10 rows forever) but genuinely heavy on a list that grows unbounded
+over a venue's lifetime — product-catalog is the one screen in this
+batch that fits that shape. `RecordCard` gained a `density?: "default" |
+"compact"` prop for exactly this case: trimmed header padding
+(`px-3 py-1.5` vs `px-4 py-2.5`), smaller icon/pill/text. `default`
+(payment methods' size) is unchanged and stays the default; only
+product-catalog opts into `compact`.
 
 ### Screen inventory — the rollout checklist
 
-Every screen/surface in the app, grouped by section. This is the
-checklist for the *next* decision (broad rollout) — nothing below is
-changed by this pass except payment-methods (marked ✅ reference).
-"Collision risk" = uses `Badge variant="success"` and/or `Switch` near
-a primary action button, i.e. a candidate for the same action-vs-status
-fix applied to payment-methods.
+Every screen/surface in the app, grouped by section. Payment methods
+(✅ reference) plus the 13 screens this checklist originally flagged
+have now all been checked — each is marked ✅ **fixed** (with which
+treatment: `RecordCard`, the lower-level `Switch`/`Badge` `status`
+tone, or neither) or ✅ **checked, no change** (the `Switch`/`Badge`
+grep hit was real but not a genuine collision — see reasoning inline).
+Only 1 of the 13 turned out to be an actual record-card list; the other
+12 split between "single settings panel, live-persisted toggle" (the
+lower-level `status` tone applies) and "form draft field feeding one
+submit button" (no real action-vs-status collision exists — flagged by
+the same grep that caught real cases, but not one itself). Checking
+each individually, not assuming the grep hit meant the fix applied, is
+exactly what this section originally asked for.
 
 **Public / marketing (unauthenticated, own token set — untouched)**
 `/` (home), `/about`, `/contact`, `/courts`, `/rates`, `/open-play`,
@@ -389,42 +400,81 @@ pass as every other operational screen — it's not a special case.
 
 **Dashboard — Tournaments**
 `/dashboard/tournaments` (+ `new`, `[tournamentId]`,
-`[tournamentId]/categories/[categoryId]`). `category-list.tsx` — ⚠
-collision risk (`Badge variant="success"`).
+`[tournamentId]/categories/[categoryId]`). `category-list.tsx` — ✅
+**fixed**: `Badge variant="success"` → `variant="status"`. A 5-column
+comparison table (name/division/format/teams/bracket), not a vertical
+record list — `RecordCard` doesn't fit the shape, so this is the
+lower-level swap. Sits beside `CategoryForm`'s green "Add category"
+button, confirming the collision was real.
 
 **Dashboard — Players & memberships**
 `/dashboard/players` (+ `new`, `[playerId]`), `/dashboard/memberships`
 (+ `[membershipId]`, `plans`, `plans/new`).
-`enroll-membership-form.tsx`, `plan-form.tsx` — ⚠ collision risk (`Switch`).
+`enroll-membership-form.tsx` (`autoRenew`), `plan-form.tsx`
+(`priorityBooking`) — ✅ **checked, no change**. Both switches are
+create-time form fields feeding one submit button, not a live/persisted
+"this record is active" toggle displayed after the fact — exactly the
+"form checkbox for a one-off setting" case this section already
+carved out as not-a-collision. Left as the default green.
+Separately noted, out of this batch's scope: `plan-list.tsx` (not
+originally flagged — it uses `Badge`, and this checklist's grep was
+`Switch`-only) has the actual live `plan.isActive` collision
+`plan-form.tsx` doesn't. Flagging for a future pass, not fixed here.
 
 **Dashboard — Administration**
 `/dashboard/admin/employees`, `/dashboard/admin/roles`,
-`/dashboard/admin/payment-methods` ✅ **reference screen, this pass**,
-`/dashboard/admin/products`, `/dashboard/admin/settings`,
+`/dashboard/admin/payment-methods` ✅ **reference screen**,
+`/dashboard/admin/products` ✅ **fixed (RecordCard)**,
+`/dashboard/admin/settings`,
 `/dashboard/admin/website`, `/dashboard/admin/audit-logs`,
 `/dashboard/admin/diagnostics`, `/dashboard/admin/open-play-capacity`
-(+ `[date]`). `employee-detail-panel.tsx`, `role-form.tsx`,
-`module-toggles-panel.tsx`, `open-play-settings-panel.tsx`,
-`registration-roster-panel.tsx` — ⚠ collision risk (`Switch` and/or
-`Badge variant="success"`).
+(+ `[date]`).
+- `employee-detail-panel.tsx` — ✅ **fixed**, `isActive` only:
+  `Switch tone="status"` + `Badge variant="status"` (a genuine, live,
+  persisted "is this employee's login active" toggle). `isCoach` on the
+  same screen is a capability flag, not an active/inactive state, and
+  its badge never used the colliding green — left as default.
+- `role-form.tsx` — ✅ **checked, no change**. Every permission
+  `Switch` is unsaved draft state feeding one "Save"/"Create role"
+  button, same non-collision shape as the membership forms above.
+- `module-toggles-panel.tsx` — ✅ **fixed**: `Switch tone="status"` on
+  all 3 rows (live, immediately-persisted module toggles).
+- `open-play-settings-panel.tsx` — ✅ **checked, no change**.
+  `autoConfirmProposals` is local draft state, only persisted by the
+  panel's single "Save" button alongside several numeric settings —
+  not a live per-record toggle.
+- `registration-roster-panel.tsx` — ✅ **fixed**: `Badge variant=
+  "success"` → `"status"` for "Confirmed." A roster table, same
+  reasoning as category-list.tsx — not a record-card list.
+- `product-catalog.tsx` — ✅ **fixed (RecordCard, `density="compact"`)**
+  — see the products section above for the density decision. Products
+  have no `type`/`category` field the way payment methods have a fixed
+  key, so there's no real per-item taxonomy to color-code; every card
+  uses one consistent, deliberate identity (a generic retail icon on
+  `cyan` — the one ramp this table had listed as "reserved, not yet
+  assigned," now assigned) rather than an arbitrary or guessed mapping.
 
 **Dashboard — Sales, reports, analytics**
 `/dashboard/sales`, `/dashboard/reports` (+ `[reportType]`),
 `/dashboard/analytics`, `/dashboard/announcements` (+ `new`,
-`[announcementId]`). `shift-workspace.tsx` — ⚠ collision risk
-(`Badge variant="success"`).
+`[announcementId]`). `shift-workspace.tsx` — ✅ **fixed**: both the
+"Current shift" header pill and the "Recent shifts" table's status
+column, `Badge variant="success"` → `"status"`. Genuine live "is this
+shift open right now" state in both places.
 
 **Dashboard — Account / chrome**
 `/dashboard/change-password`. Shared chrome:
 `dashboard-header.tsx`, `dashboard-sidebar.tsx`, `user-nav.tsx`.
 
-**Other collision-risk consumers found by grep, not yet mapped to a
-specific screen above:** `booking-form.tsx`, `court-form.tsx`,
-`product-catalog.tsx`, `public-visibility-panel.tsx` (CMS) — all use
-`Switch`; confirm each one at rollout time before assuming the
-payment-methods fix applies as-is (some of these toggles may not
-represent "record is active" at all, e.g. a form checkbox for a
-one-off setting, where plain `--primary` green is already correct and
+**Other consumers found by grep, checked this batch:**
+`booking-form.tsx` (`isWalkIn`) and `court-form.tsx` (`indoor`) — ✅
+**checked, no change**, both one-off create/edit form fields, not
+persisted record state. `public-visibility-panel.tsx` (CMS) — ✅
+**fixed**: `Switch tone="status"` on all 4 rows, same live/persisted-
+toggle shape as Modules above it in Settings. Confirms the caveat
+originally written here — "some of these toggles may not represent
+'record is active' at all... plain `--primary` green is already correct
+and
 unambiguous).
 
 ---

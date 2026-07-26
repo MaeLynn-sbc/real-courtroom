@@ -59,11 +59,16 @@ function ModuleToggleRow({
         <p className="font-medium">{label}</p>
         <p className="text-muted-foreground text-xs">{description}</p>
       </div>
+      {/* BUILD-SPEC.md §2 — a live, immediately-persisted "is this
+          module active" toggle, the same status semantics as payment
+          methods' own Switch, so it gets the dedicated status color
+          rather than the default action green. */}
       <Switch
         checked={enabled}
         onCheckedChange={handleChange}
         disabled={isPending}
         aria-label={label}
+        tone="status"
       />
     </div>
   );

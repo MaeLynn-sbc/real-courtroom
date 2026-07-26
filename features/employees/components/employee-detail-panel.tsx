@@ -225,12 +225,18 @@ function RoleAndStatusSection({ employee, roles }: { employee: Employee; roles: 
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* BUILD-SPEC.md §2 — genuine record-active status (does this
+              employee's login work right now), so tone="status"/
+              variant="status" apply, unlike isCoach below (a capability
+              flag, not an active/inactive state — its badge never used
+              the colliding "success" green in the first place). */}
           <Switch
             checked={employee.isActive}
             onCheckedChange={handleActiveChange}
             disabled={isActivePending}
+            tone="status"
           />
-          <Badge variant={employee.isActive ? "secondary" : "destructive"}>
+          <Badge variant={employee.isActive ? "status" : "destructive"}>
             {employee.isActive ? "Active" : "Inactive"}
           </Badge>
         </div>

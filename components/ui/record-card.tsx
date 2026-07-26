@@ -61,6 +61,15 @@ interface RecordCardProps {
   inactiveLabel?: string
   children: React.ReactNode
   className?: string
+  // BUILD-SPEC.md §2: "not yet checked whether the ~40px header adds up
+  // to an oppressive amount of vertical space on the longest record-card
+  // list in the app." Checked at rollout: product-catalog is the one
+  // list in this app that grows unbounded over a venue's lifetime (every
+  // other record-card candidate — payment methods, etc. — stays under a
+  // handful of rows by nature). "compact" trims header padding and icon/
+  // pill size for exactly that kind of list; "default" (payment methods'
+  // size) is unchanged and stays the default.
+  density?: "default" | "compact"
 }
 
 function RecordCard({
@@ -72,7 +81,10 @@ function RecordCard({
   inactiveLabel = "Disabled",
   children,
   className,
+  density = "default",
 }: RecordCardProps) {
+  const compact = density === "compact"
+
   return (
     <div
       data-slot="record-card"
@@ -82,22 +94,29 @@ function RecordCard({
         className,
       )}
     >
-      <div className={cn("flex items-center justify-between gap-3 px-4 py-2.5", RAMP_HEADER[ramp])}>
+      <div
+        className={cn(
+          "flex items-center justify-between gap-3",
+          compact ? "px-3 py-1.5" : "px-4 py-2.5",
+          RAMP_HEADER[ramp],
+        )}
+      >
         <div className="flex min-w-0 items-center gap-2">
-          <Icon className="size-4 shrink-0" aria-hidden="true" />
-          <span className="truncate text-sm font-medium">{title}</span>
+          <Icon className={cn("shrink-0", compact ? "size-3.5" : "size-4")} aria-hidden="true" />
+          <span className={cn("truncate font-medium", compact ? "text-xs" : "text-sm")}>{title}</span>
         </div>
         <span
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+            "inline-flex shrink-0 items-center gap-1 rounded-full font-medium",
+            compact ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-xs",
             active ? RAMP_PILL_ACTIVE[ramp] : "border border-border text-muted-foreground",
           )}
         >
-          {active ? <Check className="size-3" aria-hidden="true" /> : null}
+          {active ? <Check className={compact ? "size-2.5" : "size-3"} aria-hidden="true" /> : null}
           {active ? activeLabel : inactiveLabel}
         </span>
       </div>
-      <div className="p-4">{children}</div>
+      <div className={compact ? "p-3" : "p-4"}>{children}</div>
     </div>
   )
 }

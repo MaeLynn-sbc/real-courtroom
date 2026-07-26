@@ -114,7 +114,9 @@ export function RegistrationRosterPanel({ registrations, skillBreakdown, capacit
                     ) : registration.waitlistPos !== null ? (
                       <Badge variant="warning">Waitlist #{registration.waitlistPos}</Badge>
                     ) : (
-                      <Badge variant="success">Confirmed</Badge>
+                      // BUILD-SPEC.md §2 — status/active, not action green;
+                      // a roster table, not a record-card list.
+                      <Badge variant="status">Confirmed</Badge>
                     )}
                   </TableCell>
                   <TableCell>

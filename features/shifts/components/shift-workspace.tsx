@@ -131,7 +131,11 @@ function EndShiftForm({ shift }: { shift: NonNullable<Shift> }) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <CardTitle>Current shift</CardTitle>
-        <Badge variant="success">Open</Badge>
+        {/* BUILD-SPEC.md §2 — this is genuine record-active status (the
+            shift IS open right now), so it gets the dedicated status
+            color, not the action-button green, consistently with every
+            other "active" indicator in the dashboard. */}
+        <Badge variant="status">Open</Badge>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-3 text-sm">
@@ -212,7 +216,7 @@ export function ShiftWorkspace({ currentShift, recentShifts }: ShiftWorkspacePro
                   <TableRow key={shift.id}>
                     <TableCell className="font-medium">{shift.shiftNumber}</TableCell>
                     <TableCell>
-                      <Badge variant={shift.status === "OPEN" ? "success" : "outline"}>
+                      <Badge variant={shift.status === "OPEN" ? "status" : "outline"}>
                         {shift.status === "OPEN" ? "Open" : "Closed"}
                       </Badge>
                     </TableCell>

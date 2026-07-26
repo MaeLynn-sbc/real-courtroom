@@ -64,7 +64,16 @@ export function CategoryList({ tournamentId, categories }: CategoryListProps) {
             </TableCell>
             <TableCell>
               {category._count.matches > 0 ? (
-                <Badge variant="success">Generated</Badge>
+                // BUILD-SPEC.md §2: this table sits beside CategoryForm's
+                // green "Add category" submit button (see the tournament
+                // detail page's two-column layout) — variant="status"
+                // avoids the same green appearing twice with two
+                // different meanings. A multi-column comparison table
+                // like this one isn't a record-card list (RecordCard is
+                // for a vertical list of independently-editable records,
+                // not a dense side-by-side field comparison), so this is
+                // the lower-level swap, not a card.
+                <Badge variant="status">Generated</Badge>
               ) : (
                 <Badge variant="outline">Not generated</Badge>
               )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { GripVertical } from "lucide-react";
+import { GripVertical, ShoppingBag } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -14,10 +14,24 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RecordCard, recordCardAccentButtonClass } from "@/components/ui/record-card";
 import { Switch } from "@/components/ui/switch";
 import type { productService } from "@/services/products/product.service";
 
 type Products = Awaited<ReturnType<typeof productService.listProducts>>;
+
+// Unlike payment methods (a fixed CASH/GCASH/BANK_TRANSFER/... key),
+// Product has no type/category field to key an icon+ramp lookup off —
+// any staff member can add anything for sale (paddles, drinks, shirts,
+// grip tape). Rather than guess at names or cycle colors arbitrarily
+// (both fail "meaningful, not arbitrary"), every product card uses one
+// consistent, deliberately-chosen identity: a generic retail icon on
+// "cyan" — BUILD-SPEC.md §2's ramp table already listed cyan as
+// "Reserved — not yet assigned to a record type," making this its first
+// real assignment, not an arbitrary pick. A record's own name (the card
+// title) carries the per-item identity instead.
+const PRODUCT_ICON = ShoppingBag;
+const PRODUCT_RAMP = "cyan" as const;
 
 function AddProductForm() {
   const router = useRouter();
@@ -122,34 +136,51 @@ function ProductRow({
       onDragOver={onDragOver}
       onDrop={onDrop}
       data-product-name={product.name}
-      // text-card-foreground is required alongside bg-card, not implied
-      // by it — the <Card> component sets both together, but this is a
-      // raw div, not <Card>. Without it, the row's text inherits the
-      // PAGE's --foreground (light, for the dark theme) onto this white
-      // row background — confirmed live: the input text rendered at
-      // oklch(0.96 ...) on an oklch(1 ...) background, functionally
-      // invisible.
-      className="bg-card text-card-foreground flex items-center gap-3 rounded-xl border p-3"
+      className="flex items-center gap-2"
     >
       <GripVertical
         className="text-muted-foreground size-4 shrink-0 cursor-grab active:cursor-grabbing"
         aria-hidden="true"
       />
-      <Input value={name} onChange={(event) => setName(event.target.value)} className="flex-1" />
-      <Input
-        type="number"
-        min="0"
-        value={priceCents}
-        onChange={(event) => setPriceCents(event.target.value)}
-        className="w-32"
-      />
-      <div className="flex items-center gap-2">
-        <Switch checked={active} onCheckedChange={setActive} aria-label={`${product.name} active`} />
-        <span className="text-muted-foreground text-xs">{active ? "Active" : "Inactive"}</span>
-      </div>
-      <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={handleSave}>
-        {isPending ? "Saving…" : "Save"}
-      </Button>
+      <RecordCard
+        ramp={PRODUCT_RAMP}
+        icon={PRODUCT_ICON}
+        title={product.name}
+        active={product.active}
+        density="compact"
+        className="flex-1"
+      >
+        <div className="flex flex-col gap-2">
+          <div className="flex items-end gap-2">
+            <Input value={name} onChange={(event) => setName(event.target.value)} className="flex-1" />
+            <Input
+              type="number"
+              min="0"
+              value={priceCents}
+              onChange={(event) => setPriceCents(event.target.value)}
+              className="w-28"
+            />
+            <Button
+              type="button"
+              size="sm"
+              disabled={isPending}
+              onClick={handleSave}
+              className={recordCardAccentButtonClass(PRODUCT_RAMP)}
+            >
+              {isPending ? "Saving…" : "Save"}
+            </Button>
+          </div>
+          {/* The header pill (RecordCard) shows current state; this is the
+              actual control that changes it — same split as payment-methods'
+              own row. */}
+          <div className="flex items-center gap-2">
+            <Switch checked={active} onCheckedChange={setActive} aria-label={`${product.name} active`} />
+            <span className="text-muted-foreground text-xs">
+              {active ? "Active — tap to disable" : "Disabled — tap to enable"}
+            </span>
+          </div>
+        </div>
+      </RecordCard>
     </div>
   );
 }
