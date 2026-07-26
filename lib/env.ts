@@ -13,6 +13,11 @@ const envSchema = z.object({
   PAYMENT_PROVIDER: z.enum(["local"]).default("local"),
   EMAIL_PROVIDER: z.enum(["console"]).default("console"),
   UPLOAD_PROVIDER: z.enum(["local"]).default("local"),
+  // Open-play online self-registration, Gate 1 — see services/sms/. No
+  // real provider wired this gate (BUILD-SPEC.md §6 names Semaphore for
+  // later); "console" logs instead of sending, same convention as
+  // EMAIL_PROVIDER above.
+  SMS_PROVIDER: z.enum(["console"]).default("console"),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),

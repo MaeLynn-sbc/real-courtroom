@@ -100,6 +100,10 @@ export default async function DiagnosticsPage() {
               <span className="text-muted-foreground">Upload</span>
               <span>{health.providers.upload}</span>
             </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">SMS</span>
+              <span>{health.providers.sms}</span>
+            </div>
           </CardContent>
         </Card>
 

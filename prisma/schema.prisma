@@ -338,16 +338,19 @@ model Employee {
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
-  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shifts         Shift[]
-  sales          Sale[]
-  writtenOffTabs PlayerTab[]
+  user                                      User                               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shifts                                    Shift[]
+  sales                                     Sale[]
+  writtenOffTabs                            PlayerTab[]
   // Phase 8 plumbing — see BookingPaymentProof/BookingRefund, below Sale.
-  resolvedBookingPaymentProofs BookingPaymentProof[]
-  issuedBookingRefunds         BookingRefund[]
-  coachSessions            CoachSession[]            @relation("CoachSessionsCoached")
-  coachAvailabilityWindows CoachAvailabilityWindow[] @relation("CoachAvailabilityWindows")
-  coachRates               CoachRate[]               @relation("CoachRates")
+  resolvedBookingPaymentProofs              BookingPaymentProof[]
+  issuedBookingRefunds                      BookingRefund[]
+  coachSessions                             CoachSession[]                     @relation("CoachSessionsCoached")
+  coachAvailabilityWindows                  CoachAvailabilityWindow[]          @relation("CoachAvailabilityWindows")
+  coachRates                                CoachRate[]                        @relation("CoachRates")
+  // Open-play online self-registration, Gate 1 plumbing — see
+  // OpenPlayRegistrationPaymentProof, below QueueEntry.
+  resolvedOpenPlayRegistrationPaymentProofs OpenPlayRegistrationPaymentProof[]
 
   @@index([deletedAt])
 }
@@ -554,15 +557,15 @@ model Booking {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  court         Court                 @relation(fields: [courtId], references: [id])
-  bookedBy      User                  @relation(fields: [bookedById], references: [id])
-  player        Player?               @relation(fields: [playerId], references: [id])
-  parentBooking Booking?              @relation("BookingRecurrence", fields: [parentBookingId], references: [id])
-  recurrences   Booking[]             @relation("BookingRecurrence")
-  history       BookingHistory[]
-  payments      Payment[]
-  invoices      Invoice[]
-  sale          Sale?
+  court           Court                 @relation(fields: [courtId], references: [id])
+  bookedBy        User                  @relation(fields: [bookedById], references: [id])
+  player          Player?               @relation(fields: [playerId], references: [id])
+  parentBooking   Booking?              @relation("BookingRecurrence", fields: [parentBookingId], references: [id])
+  recurrences     Booking[]             @relation("BookingRecurrence")
+  history         BookingHistory[]
+  payments        Payment[]
+  invoices        Invoice[]
+  sale            Sale?
   // Phase 8 plumbing — see the models themselves, below Sale, for the
   // full shape and reasoning.
   paymentProofs   BookingPaymentProof[]
@@ -575,7 +578,7 @@ model Booking {
   // booking can carry a coach session through any point in the Phase 8
   // lifecycle (AWAITING_PAYMENT hold included; see coach-session.service.ts's
   // merge-time note on why creating a session doesn't require CONFIRMED).
-  coachSession  CoachSession?
+  coachSession    CoachSession?
 
   @@index([courtId, startAt, endAt])
   @@index([status])
@@ -1045,6 +1048,11 @@ model OpenPlayNightSession {
   queueEntries    QueueEntry[]
   gameAssignments GameAssignment[]
   tabs            PlayerTab[]
+  // Open-play online self-registration, Gate 1 plumbing — see
+  // OpenPlayWaitlistEntry, below QueueEntry. Fri/Sat only (this model's
+  // own required sessionId enforces that — weeknight is uncapped, so
+  // "waitlist" is meaningless there; see OpenPlayWaitlistEntry's comment).
+  waitlistEntries OpenPlayWaitlistEntry[]
 
   @@unique([date])
   @@index([status])
@@ -1052,13 +1060,23 @@ model OpenPlayNightSession {
 
 // BUILD-SPEC.md §5/§6. Phase 4 only builds the staff walk-in path — cash
 // paid immediately, so status lands on CONFIRMED directly (no
-// AWAITING_PAYMENT/PENDING_VERIFICATION hold). Those two values exist now
-// for Phase 8's public GCash flow to use, not yet reachable from any
-// service method. "Confirmed but no seat" (paid, waiting for capacity) is
-// waitlistPos being non-null, independent of status — a waitlisted
-// walk-in still has status=CONFIRMED (they paid), just no seat yet. See
+// AWAITING_PAYMENT/PENDING_VERIFICATION hold). Those two values existed
+// unused until online self-registration Gate 1 (BUILD-SPEC.md §6, "PARKED"
+// subsection) — this is where they get used for real. "Confirmed but no
+// seat" (paid, waiting for capacity) is waitlistPos being non-null,
+// independent of status — a waitlisted walk-in still has status=CONFIRMED
+// (they paid), just no seat yet. See
 // services/open-play/open-play-registration.service.ts for the exact
-// capacity-counting predicate.
+// capacity-counting predicate. This is a DIFFERENT concept from
+// OpenPlayWaitlistEntry (below QueueEntry) — that one is for an online
+// registrant who has NOT paid and holds no registration row at all yet.
+//
+// REJECTED added in the same Gate 1 pass, mirroring Booking's exact
+// reasoning (services/booking/booking-status.ts's comment): a staff-
+// rejected bad GCash proof is a different real-world event from a
+// customer's own CANCELLED, and conflating them the way this enum did
+// before (there was no REJECTED) would have forced Gate 2's reject
+// action to reuse CANCELLED and lose that distinction.
 enum OpenPlayNightRegistrationStatus {
   AWAITING_PAYMENT
   PENDING_VERIFICATION
@@ -1066,6 +1084,7 @@ enum OpenPlayNightRegistrationStatus {
   CHECKED_OUT
   NO_SHOW
   CANCELLED
+  REJECTED
 }
 
 enum OpenPlayNightRegistrationSource {
@@ -1074,7 +1093,7 @@ enum OpenPlayNightRegistrationSource {
 }
 
 model OpenPlayNightRegistration {
-  id           String                          @id @default(cuid())
+  id            String                          @id @default(cuid())
   // Nullable — BUILD-SPEC.md §0: weeknight open play needs no capacity, no
   // waitlist, no prepayment, but still needs registration/check-in/queue
   // rows like Fri/Sat does. Fri/Sat registrations always have a session
@@ -1082,34 +1101,53 @@ model OpenPlayNightRegistration {
   // is the field both cases set, so every read path can group/query by
   // night without a session join. PlayerTab (§9, Phase 7) follows the same
   // date-keyed, nullable-sessionId shape for the same reason.
-  sessionId    String?
-  date         DateTime
-  playerId     String?
-  playerName   String
-  phone        String
-  skillLevel   OpenPlaySkillLevel
-  source       OpenPlayNightRegistrationSource
-  status       OpenPlayNightRegistrationStatus @default(CONFIRMED)
+  sessionId     String?
+  date          DateTime
+  playerId      String?
+  playerName    String
+  phone         String
+  skillLevel    OpenPlaySkillLevel
+  source        OpenPlayNightRegistrationSource
+  status        OpenPlayNightRegistrationStatus @default(CONFIRMED)
   // Non-null means "on the waitlist, this position" — null means "has a
   // seat." Independent of `status` (see enum comment above). Always null
   // for weeknight (uncapped, never waitlisted).
-  waitlistPos  Int?
+  waitlistPos   Int?
   // Optional group tag (BUILD-SPEC.md §7) — a party enters the queue only
   // once every member with this partyId has checked in (§6).
-  partyId      String?
-  registeredAt DateTime                        @default(now())
+  partyId       String?
+  registeredAt  DateTime                        @default(now())
   // BUILD-SPEC.md §6 "Check-in... sets checkedInAt" — null until check-in.
   // Queue position derives from this, never registeredAt.
-  checkedInAt  DateTime?
-  checkedOutAt DateTime?
-  createdAt    DateTime                        @default(now())
-  updatedAt    DateTime                        @updatedAt
+  checkedInAt   DateTime?
+  checkedOutAt  DateTime?
+  // Open-play online self-registration, Gate 1 plumbing. Mirrors
+  // Booking.holdExpiresAt exactly, including the "nulled on submission"
+  // rule (see that column's comment in schema.prisma) — set only when a
+  // waitlist invite creates this row at status=AWAITING_PAYMENT, cleared
+  // the moment proof is submitted (status -> PENDING_VERIFICATION), and
+  // always NULL for WALK_IN registrations and any registration created
+  // before this Gate existed. Same "lazy exclusion, no active sweep"
+  // reasoning as the court-booking hold: nothing sweeps an expired,
+  // unresolved hold back to a terminal status automatically — the
+  // separate OpenPlayWaitlistEntry.status (below QueueEntry) is what
+  // actually decides whether the freed invite passes to the next person,
+  // independent of whether this registration row itself ever changes.
+  holdExpiresAt DateTime?
+  createdAt     DateTime                        @default(now())
+  updatedAt     DateTime                        @updatedAt
 
-  session               OpenPlayNightSession?       @relation(fields: [sessionId], references: [id])
-  player                Player?                     @relation(fields: [playerId], references: [id])
+  session               OpenPlayNightSession?              @relation(fields: [sessionId], references: [id])
+  player                Player?                            @relation(fields: [playerId], references: [id])
   queueEntry            QueueEntry?
   gameAssignmentEntries GameAssignmentParticipant[]
   tab                   PlayerTab?
+  // Open-play online self-registration, Gate 1 plumbing.
+  paymentProofs         OpenPlayRegistrationPaymentProof[]
+  // The waitlist entry that was invited-to-pay and became this row, if
+  // any — null for a WALK_IN registration or a direct (non-waitlisted)
+  // WEBSITE registration. The inverse of OpenPlayWaitlistEntry.registrationId.
+  waitlistEntry         OpenPlayWaitlistEntry?
   // Not expressible in schema.prisma — Prisma has no CHECK-constraint or
   // trigger syntax, so these are hand-written into
   // prisma/migrations/11_registration_session_constraints/migration.sql
@@ -1163,6 +1201,129 @@ model QueueEntry {
 
   @@index([date, status])
   @@index([sessionId, status])
+}
+
+// --- Open-play online self-registration (BUILD-SPEC.md §6, "PARKED"
+// subsection) — Gate 1: schema only. Nothing below is reachable from any
+// service or route yet; every field is either nullable or has a safe
+// default, so this migration changes zero existing runtime behavior.
+// Same "plumbing only" shape as Phase 8's own Gate 1
+// (18_phase8_prepayment_plumbing) — mirrored deliberately, including the
+// naming: OpenPlayRegistrationPaymentProof is BookingPaymentProof's exact
+// shape, field for field, against OpenPlayNightRegistration instead of
+// Booking.
+//
+// Deliberately a SEPARATE model, not a polymorphic BookingPaymentProof
+// (nullable bookingId + nullable registrationId + a type discriminator).
+// BookingPaymentProof is shipped, live, and read by Gate 3's verification
+// queue with an unconditional `booking: { include: { court: true } } }`
+// — making its own FK nullable would touch that already-proven code for
+// no benefit. Two small, duplicate models cost less than one shared,
+// invasive one — same reasoning this codebase already applies elsewhere
+// (see booking.service.ts's toJsonValue comment). Whether the Gate 3
+// verification-queue UI can still show both proof types in one list, or
+// needs its own tab/filter, is a real open question — reported
+// separately, not decided here (see the Gate 1 report, not the schema).
+enum OpenPlayRegistrationPaymentProofStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model OpenPlayRegistrationPaymentProof {
+  id                   String                                 @id @default(cuid())
+  registrationId       String
+  // Same fraud-check shape as BookingPaymentProof.gcashReference — see
+  // that field's comment. Uniqueness is scoped (partial index, hand-
+  // written in migration.sql) to PENDING/APPROVED only, not REJECTED,
+  // for the identical "a rejected screenshot must be resubmittable"
+  // reason. NOT scoped across BookingPaymentProof — a reference reused
+  // between a court booking and an open-play registration would not be
+  // caught by either table's own index alone. Flagged as a real,
+  // accepted gap in the Gate 1 report; not fixed here (closing it would
+  // mean touching BookingPaymentProof's own shipped submission path,
+  // outside this Gate's hard boundary).
+  gcashReference       String
+  screenshotStorageKey String
+  submittedAmountCents Int
+  submittedAt          DateTime                               @default(now())
+  status               OpenPlayRegistrationPaymentProofStatus @default(PENDING)
+  resolvedByEmployeeId String?
+  resolvedAt           DateTime?
+  rejectionReason      String?
+  createdAt            DateTime                               @default(now())
+  updatedAt            DateTime                               @updatedAt
+
+  registration       OpenPlayNightRegistration @relation(fields: [registrationId], references: [id])
+  resolvedByEmployee Employee?                 @relation(fields: [resolvedByEmployeeId], references: [id])
+
+  @@index([registrationId])
+  @@index([status])
+}
+
+enum OpenPlayWaitlistEntryStatus {
+  // Not yet invited — sitting in FCFS order (submittedAt) behind
+  // whoever's ahead. The only status a brand-new online registrant on a
+  // full night ever starts in.
+  WAITING
+  // A slot freed and this entry is next; a real OpenPlayNightRegistration
+  // (status=AWAITING_PAYMENT, holdExpiresAt=now+30min) has been created
+  // and linked via registrationId. Waiting on GCash proof.
+  INVITED
+  // Default assumption, stated explicitly per the spec's own "state
+  // explicitly if a different rule is wanted" convention — NOT
+  // confirmed with the business: the invite window lapsed with no proof
+  // submitted. Terminal for this entry — it does not silently return to
+  // WAITING for a second chance. If a returning-to-the-back behavior is
+  // wanted instead, that's a one-line change to the transition table
+  // below, flagged here so it isn't missed.
+  EXPIRED
+  // The invite was paid and verified in time — registrationId now
+  // points at a CONFIRMED (or still PENDING_VERIFICATION) registration.
+  // Terminal, success case.
+  CONVERTED
+}
+
+// A queue of online registrants for a full Fri/Sat night who have NOT
+// paid and hold no OpenPlayNightRegistration row at all yet — distinct
+// from OpenPlayNightRegistration.waitlistPos (a *paid* walk-in with no
+// seat, see that field's comment). sessionId is required, not nullable
+// the way OpenPlayNightRegistration.sessionId is: a waitlist only exists
+// where capacity does, and weeknight open play is uncapped (BUILD-SPEC.md
+// §0) — no session, no waitlist concept. Fri/Sat only, confirmed in the
+// Gate 1 report, not assumed silently.
+model OpenPlayWaitlistEntry {
+  id              String                      @id @default(cuid())
+  sessionId       String
+  playerName      String
+  // Required, not optional — the whole reason this exists is the SMS
+  // invite (BUILD-SPEC.md §6), which has nowhere to go without one.
+  phone           String
+  skillLevel      OpenPlaySkillLevel
+  submittedAt     DateTime                    @default(now())
+  status          OpenPlayWaitlistEntryStatus @default(WAITING)
+  // Both null until INVITED; both stay set (not cleared) once EXPIRED or
+  // CONVERTED — an audit trail of when the invite went out and when it
+  // was due, unlike Booking.holdExpiresAt which nulls on submission
+  // (that one guards a live availability check; this one doesn't gate
+  // anything once the entry leaves INVITED, so there's no equivalent
+  // reason to clear it).
+  invitedAt       DateTime?
+  inviteExpiresAt DateTime?
+  // Set once INVITED (points at the real hold this entry produced) —
+  // null in WAITING, never unset afterward, even if the entry later
+  // reaches EXPIRED (the dead registration stays linked for the audit
+  // trail; see its own holdExpiresAt comment on why nothing sweeps it).
+  registrationId  String?                     @unique
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+
+  session      OpenPlayNightSession       @relation(fields: [sessionId], references: [id])
+  registration OpenPlayNightRegistration? @relation(fields: [registrationId], references: [id])
+
+  // The FCFS scan ("who's next") queries exactly this shape: this
+  // session's still-WAITING entries, oldest submittedAt first.
+  @@index([sessionId, status, submittedAt])
 }
 
 // --- Rotation queue and pairing (BUILD-SPEC.md §7) --------------------------
@@ -1951,8 +2112,8 @@ enum BookingPaymentProofStatus {
 }
 
 model BookingPaymentProof {
-  id        String @id @default(cuid())
-  bookingId String
+  id                   String                    @id @default(cuid())
+  bookingId            String
   // Fraud check (§8 "unique across all payments"): NOT a plain @unique
   // here on purpose — a customer whose proof was rejected for a bad
   // screenshot (not a bad payment) must be able to resubmit the SAME
@@ -1967,7 +2128,7 @@ model BookingPaymentProof {
   // as OpenPlayNightRegistration's hand-written CHECK constraint/trigger
   // (see that model's comment). Any future migration touching this
   // table must not let a plain `migrate diff` silently drop it.
-  gcashReference String
+  gcashReference       String
   // The storage-interface key returned by UploadService.uploadPrivate()
   // (services/upload/upload-service.interface.ts) — never a directly-
   // servable public URL. Retrieval goes through getSignedUrl()/get(), so
@@ -1986,8 +2147,8 @@ model BookingPaymentProof {
   // verification screen's mismatch flag, never trusted as proof of
   // actual payment on its own (that's what the screenshot is for).
   submittedAmountCents Int
-  submittedAt           DateTime                   @default(now())
-  status                BookingPaymentProofStatus  @default(PENDING)
+  submittedAt          DateTime                  @default(now())
+  status               BookingPaymentProofStatus @default(PENDING)
   // Nullable for the same reason PlayerTab.writeOffEmployeeId is —
   // required at the service layer (Gate 2's verification action, via
   // requireEmployee, same mechanism as write-offs/settlements — not a
@@ -1995,13 +2156,13 @@ model BookingPaymentProof {
   // constraint. NULL while status = PENDING; both set together the
   // moment staff approve or reject.
   resolvedByEmployeeId String?
-  resolvedAt            DateTime?
+  resolvedAt           DateTime?
   // Required at the service layer when status = REJECTED (same
   // conditional-requiredness shape as PlayerTab.writeOffReason). NULL
   // for PENDING and APPROVED.
-  rejectionReason       String?
-  createdAt             DateTime                   @default(now())
-  updatedAt              DateTime                  @updatedAt
+  rejectionReason      String?
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
 
   booking            Booking   @relation(fields: [bookingId], references: [id])
   resolvedByEmployee Employee? @relation(fields: [resolvedByEmployeeId], references: [id])

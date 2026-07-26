@@ -11,6 +11,7 @@ export interface HealthReport {
     payment: string;
     email: string;
     upload: string;
+    sms: string;
   };
 }
 
@@ -38,6 +39,7 @@ export class HealthService {
         payment: env.PAYMENT_PROVIDER,
         email: env.EMAIL_PROVIDER,
         upload: env.UPLOAD_PROVIDER,
+        sms: env.SMS_PROVIDER,
       },
     };
   }

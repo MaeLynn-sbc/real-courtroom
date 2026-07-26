@@ -36,6 +36,18 @@ const BOOKING_REQUIRE_PREPAYMENT_KEY = "booking.requirePrepayment";
 // itself is intentionally login-free per BUILD-SPEC.md §12/§13.
 const DISPLAY_SLUG_KEY = "display.slug";
 
+// Open-play online self-registration, Gate 1 — see
+// getOpenPlayOnlineRegistrationEnabled/setOpenPlayOnlineRegistrationEnabled.
+// Named differently from BOOKING_REQUIRE_PREPAYMENT_KEY on purpose:
+// Booking's switch toggles a payment METHOD on an already-existing
+// public flow (prepay vs. pay-at-venue) — this switch gates whether the
+// public registration flow exists at all. There is no "online
+// registration without prepayment" mode to toggle between; prepayment
+// is inherent to the flow itself whenever a slot is open (BUILD-SPEC.md
+// §6). Off means the feature isn't reachable; on means it is. Same
+// single-point-of-control, required-OFF-by-default shape either way.
+const OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY = "openPlay.onlineRegistrationEnabled";
+
 function isUniqueConstraintViolation(error: unknown): boolean {
   return (
     typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002"
@@ -174,6 +186,26 @@ export class SettingsService {
 
   async setBookingRequirePrepayment(value: boolean, actorUserId: string) {
     return this.setBooleanFlag(BOOKING_REQUIRE_PREPAYMENT_KEY, value, actorUserId);
+  }
+
+  // Open-play online self-registration, Gate 1 (BUILD-SPEC.md §6,
+  // "PARKED" subsection): the switch this whole feature will gate behind
+  // once a later gate wires a public registration action to read it —
+  // same "absence of a row means false" doctrine, same required-OFF
+  // default, same single-point-of-control reasoning as
+  // getBookingRequirePrepayment above. Built now, alongside the schema,
+  // so Gate 2 has one point of control to wire into rather than
+  // inventing it mid-service. Nothing reads this yet — proven in the
+  // Gate 1 report by the existing staff registration flow's own test
+  // suite and a live smoke test both being unaffected by this method
+  // merely existing.
+  async getOpenPlayOnlineRegistrationEnabled(): Promise<boolean> {
+    const flags = await this.getBooleanFlags([OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY]);
+    return flags[OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY] ?? false;
+  }
+
+  async setOpenPlayOnlineRegistrationEnabled(value: boolean, actorUserId: string) {
+    return this.setBooleanFlag(OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY, value, actorUserId);
   }
 
   private async getBooleanFlags(keys: readonly string[]): Promise<Record<string, boolean>> {
