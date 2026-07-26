@@ -9,6 +9,12 @@ export function getUploadService(): UploadService {
     return cachedService;
   }
 
+  // *** SWAP POINT (deploy) *** — Digital Ocean Spaces isn't provisioned
+  // yet. When it is: add "spaces" to UPLOAD_PROVIDER's enum in lib/env.ts,
+  // add a SpacesUploadService implementing UploadService (all four
+  // methods, including the private-upload/get/delete/getSignedUrl quartet
+  // added for Phase 8 — see upload-service.interface.ts), and a case here.
+  // No application code outside this file changes.
   switch (env.UPLOAD_PROVIDER) {
     case "local":
       cachedService = new LocalUploadService();

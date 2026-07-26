@@ -13,6 +13,11 @@ import type { BookingStatus } from "@/lib/generated/prisma/enums";
 // services/booking/booking.service.ts itself from a "use client" file.
 import { BOOKING_STATUS_TRANSITIONS } from "@/services/booking/booking-status";
 
+// AWAITING_PAYMENT/PENDING_VERIFICATION/REJECTED/REFUNDED (Phase 8
+// plumbing, Gate 1) are unreachable — BOOKING_STATUS_TRANSITIONS has no
+// entry that transitions into any of them yet, so these labels exist
+// only for type-safety (Record<BookingStatus, string> is exhaustive) and
+// are never rendered until Gate 2 wires real transitions in.
 const STATUS_ACTION_LABELS: Record<BookingStatus, string> = {
   PENDING: "Mark pending",
   CONFIRMED: "Confirm",
@@ -21,6 +26,10 @@ const STATUS_ACTION_LABELS: Record<BookingStatus, string> = {
   COMPLETED: "Mark complete",
   CANCELLED: "Cancel",
   NO_SHOW: "Mark no-show",
+  AWAITING_PAYMENT: "Awaiting payment",
+  PENDING_VERIFICATION: "Verify payment",
+  REJECTED: "Reject",
+  REFUNDED: "Mark refunded",
 };
 
 interface BookingStatusActionsProps {

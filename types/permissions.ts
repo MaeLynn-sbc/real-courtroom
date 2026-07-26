@@ -8,6 +8,16 @@ export const PERMISSIONS = {
   USERS_MANAGE: "users:manage",
   COURTS_MANAGE: "courts:manage",
   BOOKINGS_MANAGE: "bookings:manage",
+  // Phase 8 plumbing (BUILD-SPEC.md §8 addendum): deliberately separate
+  // from BOOKINGS_MANAGE. Once the public-prepayment switch is on, staff
+  // creating a booking from the dashboard may still use pay-at-venue —
+  // but a role holding BOOKINGS_MANAGE (can create bookings) must not
+  // automatically inherit that bypass. A future limited front-desk role
+  // could hold BOOKINGS_MANAGE without this, and would have to collect
+  // prepayment like the public site does. Not yet checked anywhere —
+  // Gate 2 wires requireEmployee(PERMISSIONS.BOOKINGS_PAY_AT_VENUE, ...)
+  // into the staff booking action's pay-at-venue payment-method options.
+  BOOKINGS_PAY_AT_VENUE: "bookings:pay_at_venue",
   OPEN_PLAY_MANAGE: "open_play:manage",
   TOURNAMENTS_MANAGE: "tournaments:manage",
   PLAYERS_MANAGE: "players:manage",

@@ -78,6 +78,11 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     label: "Manage Bookings",
     description: "Create, view, and manage court bookings, including walk-ins and check-in.",
   },
+  [PERMISSIONS.BOOKINGS_PAY_AT_VENUE]: {
+    label: "Accept Pay-at-Venue Bookings",
+    description:
+      "Create a staff booking without GCash prepayment, even when the public site requires it.",
+  },
   [PERMISSIONS.OPEN_PLAY_MANAGE]: {
     label: "Manage Open Play",
     description: "Run Open Play sessions: registration, check-in, and live queue rotation.",
@@ -107,6 +112,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.USERS_MANAGE,
     PERMISSIONS.COURTS_MANAGE,
     PERMISSIONS.BOOKINGS_MANAGE,
+    PERMISSIONS.BOOKINGS_PAY_AT_VENUE,
     PERMISSIONS.OPEN_PLAY_MANAGE,
     PERMISSIONS.TOURNAMENTS_MANAGE,
     PERMISSIONS.PLAYERS_MANAGE,
@@ -118,6 +124,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.SYSTEM_ADMIN,
     PERMISSIONS.COURTS_MANAGE,
     PERMISSIONS.BOOKINGS_MANAGE,
+    PERMISSIONS.BOOKINGS_PAY_AT_VENUE,
     PERMISSIONS.OPEN_PLAY_MANAGE,
     PERMISSIONS.TOURNAMENTS_MANAGE,
     PERMISSIONS.PLAYERS_MANAGE,
@@ -127,6 +134,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
   [SYSTEM_ROLES.RECEPTIONIST]: [
     PERMISSIONS.DASHBOARD_ACCESS,
     PERMISSIONS.BOOKINGS_MANAGE,
+    PERMISSIONS.BOOKINGS_PAY_AT_VENUE,
     PERMISSIONS.OPEN_PLAY_MANAGE,
     PERMISSIONS.PLAYERS_MANAGE,
     PERMISSIONS.EQUIPMENT_MANAGE,

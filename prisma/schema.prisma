@@ -332,6 +332,9 @@ model Employee {
   shifts         Shift[]
   sales          Sale[]
   writtenOffTabs PlayerTab[]
+  // Phase 8 plumbing — see BookingPaymentProof/BookingRefund, below Sale.
+  resolvedBookingPaymentProofs BookingPaymentProof[]
+  issuedBookingRefunds         BookingRefund[]
 
   @@index([deletedAt])
 }
@@ -446,6 +449,16 @@ enum BookingType {
   MAINTENANCE_BLOCK
 }
 
+// Phase 8 plumbing: AWAITING_PAYMENT/PENDING_VERIFICATION/REJECTED/
+// REFUNDED added for the public GCash-prepayment flow — same four
+// values BUILD-SPEC.md §8's reconciliation already named for this exact
+// purpose, matching OpenPlayNightRegistrationStatus's naming for the
+// equivalent Fri/Sat flow. All four exist now but are unreachable from
+// any service method until Gate 2 wires them in (same "reserved ahead of
+// the service that uses it" shape as OpenPlayNightRegistrationStatus's
+// own AWAITING_PAYMENT/PENDING_VERIFICATION — see that enum's comment).
+// PENDING/PAID are pre-existing and untouched — still reserved, still
+// unreachable, not repurposed for this flow (see booking-status.ts).
 enum BookingStatus {
   PENDING
   CONFIRMED
@@ -454,6 +467,10 @@ enum BookingStatus {
   COMPLETED
   CANCELLED
   NO_SHOW
+  AWAITING_PAYMENT
+  PENDING_VERIFICATION
+  REJECTED
+  REFUNDED
 }
 
 // v1.2: an explicit field, not inferred at read time from Sale.source or
@@ -508,18 +525,37 @@ model Booking {
   // hours, this just flags it for reporting. Always false for WEBSITE
   // bookings, since those are blocked outright instead of flagged.
   isAfterHours     Boolean       @default(false)
+  // Phase 8 plumbing. Set only for the public GCash hold (status =
+  // AWAITING_PAYMENT): now + 30 minutes at checkout start. Explicitly
+  // set back to NULL the moment payment proof is submitted (status ->
+  // PENDING_VERIFICATION) — a hold's expiry must never keep counting
+  // once staff verification is what the booking is actually waiting on.
+  // Any code that sweeps expired holds must scope its query to
+  // status = AWAITING_PAYMENT (not just "holdExpiresAt is in the past"),
+  // exactly like OpenPlayNightRegistration's equivalent window — belt
+  // and suspenders, since NULL already can't be "in the past" through
+  // any query, but the status scope is the actual source of truth.
+  // Always NULL for STAFF bookings and any booking created before this
+  // switch existed.
+  holdExpiresAt    DateTime?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  court         Court            @relation(fields: [courtId], references: [id])
-  bookedBy      User             @relation(fields: [bookedById], references: [id])
-  player        Player?          @relation(fields: [playerId], references: [id])
-  parentBooking Booking?         @relation("BookingRecurrence", fields: [parentBookingId], references: [id])
-  recurrences   Booking[]        @relation("BookingRecurrence")
+  court         Court                 @relation(fields: [courtId], references: [id])
+  bookedBy      User                  @relation(fields: [bookedById], references: [id])
+  player        Player?               @relation(fields: [playerId], references: [id])
+  parentBooking Booking?              @relation("BookingRecurrence", fields: [parentBookingId], references: [id])
+  recurrences   Booking[]             @relation("BookingRecurrence")
   history       BookingHistory[]
   payments      Payment[]
   invoices      Invoice[]
   sale          Sale?
+  // Phase 8 plumbing — see the models themselves, below Sale, for the
+  // full shape and reasoning.
+  paymentProofs   BookingPaymentProof[]
+  creditsIssued   BookingCredit[]       @relation("BookingCreditSource")
+  creditsRedeemed BookingCredit[]       @relation("BookingCreditRedemption")
+  refunds         BookingRefund[]
 
   @@index([courtId, startAt, endAt])
   @@index([status])
@@ -1715,6 +1751,140 @@ model Sale {
   @@index([employeeId])
   @@index([shiftId])
   @@index([playerId])
+}
+
+// --- Phase 8 plumbing: GCash prepayment for public court bookings ---------
+// BUILD-SPEC.md §8 "Court bookings — prepayment REQUIRED on the public
+// site, Phase 8". The switch that turns this flow on for the public is a
+// Setting row (owner-only, §15's existing "Owner-only payment settings"
+// rule) — no schema change needed for it, it's built in Gate 2. Nothing
+// here is reachable from any service yet.
+
+// One row per submission, not per booking — a rejected submission is not
+// deleted or overwritten (append-only, same reasoning as TabLineItem):
+// resubmission after a REJECTED proof creates a NEW row, so the full
+// history of every attempt against a booking stays visible to staff.
+// "Which proof is the live one" is whichever row has status = PENDING
+// (at most one per booking at a time — enforced at the service layer,
+// Gate 2, not the schema).
+enum BookingPaymentProofStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model BookingPaymentProof {
+  id        String @id @default(cuid())
+  bookingId String
+  // Fraud check (§8 "unique across all payments"): NOT a plain @unique
+  // here on purpose — a customer whose proof was rejected for a bad
+  // screenshot (not a bad payment) must be able to resubmit the SAME
+  // reference number for the SAME booking. The real invariant is
+  // narrower than "this string appears once in the whole table, ever":
+  // it's "no reference may be PENDING or APPROVED more than once,
+  // anywhere" — REJECTED rows don't count. Prisma has no partial/
+  // conditional unique index syntax, so this is a hand-written partial
+  // unique index (`WHERE status IN ('PENDING','APPROVED')`) in
+  // prisma/migrations/18_phase8_prepayment_plumbing/migration.sql,
+  // invisible to `prisma migrate diff` — same pattern and same warning
+  // as OpenPlayNightRegistration's hand-written CHECK constraint/trigger
+  // (see that model's comment). Any future migration touching this
+  // table must not let a plain `migrate diff` silently drop it.
+  gcashReference String
+  // The storage-interface key returned by UploadService.uploadPrivate()
+  // (services/upload/upload-service.interface.ts) — never a directly-
+  // servable public URL. Retrieval goes through getSignedUrl()/get(), so
+  // the production (Spaces) swap can gate access instead of serving a
+  // guessable-but-unauthenticated static path. See that interface for
+  // the full public/private distinction and why it's a separate method
+  // from the pre-existing upload() rather than a flag on it (zero risk
+  // to the one existing caller, CMS gallery uploads).
+  screenshotStorageKey String
+  submittedAt           DateTime                   @default(now())
+  status                BookingPaymentProofStatus  @default(PENDING)
+  // Nullable for the same reason PlayerTab.writeOffEmployeeId is —
+  // required at the service layer (Gate 2's verification action, via
+  // requireEmployee, same mechanism as write-offs/settlements — not a
+  // new one), not expressible as a conditional-on-status column
+  // constraint. NULL while status = PENDING; both set together the
+  // moment staff approve or reject.
+  resolvedByEmployeeId String?
+  resolvedAt            DateTime?
+  // Required at the service layer when status = REJECTED (same
+  // conditional-requiredness shape as PlayerTab.writeOffReason). NULL
+  // for PENDING and APPROVED.
+  rejectionReason       String?
+  createdAt             DateTime                   @default(now())
+  updatedAt              DateTime                  @updatedAt
+
+  booking            Booking   @relation(fields: [bookingId], references: [id])
+  resolvedByEmployee Employee? @relation(fields: [resolvedByEmployeeId], references: [id])
+
+  @@index([bookingId])
+  @@index([status])
+}
+
+// Cancelling a court booking before the cutoff converts its prepaid fee
+// to credit instead of cash — same non-refundable-but-not-punitive shape
+// BUILD-SPEC.md §8 specs for Fri/Sat open play (OpenPlayCredit, not yet
+// built), applied here to bookings per this phase's explicit instruction
+// to extend that decided policy shape to court bookings — the previously
+// open "court bookings' own cancellation/refund policy" question (§17)
+// is resolved by that instruction, not by this model alone; BUILD-SPEC.md
+// needs updating to reflect it (flagged in the Gate 1 report, not done
+// silently here).
+//
+// expiresAt is nullable because credit expiry itself is NOT decided
+// (§8/§17 list it as an open sub-question, proposed default 90 days) —
+// NULL here means "not yet decided," not "never expires." Whichever
+// service eventually issues a credit sets this explicitly once that
+// policy is confirmed; the column existing now doesn't bake in an
+// undecided answer.
+model BookingCredit {
+  id          String    @id @default(cuid())
+  // Matches OpenPlayCredit's proposed shape and the existing
+  // returning-player lookup convention (WalkInRegistrationForm) — tied
+  // to the phone number that made the original booking, not a User/
+  // Player id, since a public booking's real customer identity is
+  // guestPhone, not always a registered Player.
+  phone       String
+  amountCents Int
+  reason      String
+  issuedAt    DateTime  @default(now())
+  expiresAt   DateTime?
+  usedAt      DateTime?
+
+  sourceBookingId String
+  sourceBooking   Booking  @relation("BookingCreditSource", fields: [sourceBookingId], references: [id])
+  usedByBookingId String?
+  usedByBooking   Booking? @relation("BookingCreditRedemption", fields: [usedByBookingId], references: [id])
+
+  @@index([phone])
+  @@index([sourceBookingId])
+}
+
+// A REAL cash refund for the business's OWN error (wrongly-rejected valid
+// payment, genuine double payment, a staff-cancelled booking) — never
+// reachable from customer-initiated cancellation, which goes through
+// BookingCredit above instead. Same "no anonymous write-offs" shape as
+// PlayerTab's write-off fields, except employeeId/reason are both
+// required columns here (not conditionally-nullable) since every row in
+// this table only ever means one thing: a required Employee attribution
+// and a required reason.
+model BookingRefund {
+  id          String   @id @default(cuid())
+  bookingId   String
+  amountCents Int
+  reason      String
+  employeeId  String
+  refundedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  booking  Booking  @relation(fields: [bookingId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([bookingId])
+  @@index([employeeId])
 }
 
 // A simple retail catalog for one-time sales (SaleCategory.PRODUCT) —

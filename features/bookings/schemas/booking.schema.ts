@@ -28,10 +28,17 @@ export const createBookingSchema = z
 
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;
 
-// All 7 schema-level BookingStatus values are accepted here (matches the
+// All 11 schema-level BookingStatus values are accepted here (matches the
 // frozen Prisma enum exactly) — it's BookingService's state machine
 // (services/booking/booking-status.ts), not this schema, that rejects
-// transitions into PAID or otherwise-invalid transitions.
+// transitions into PAID or otherwise-invalid transitions. The Phase 8
+// plumbing additions (AWAITING_PAYMENT/PENDING_VERIFICATION/REJECTED/
+// REFUNDED) are listed here for the same reason PAID always was — this
+// schema's job is "is this a real enum value," not "is this transition
+// currently reachable" — and stay unreachable in practice because
+// BOOKING_STATUS_TRANSITIONS has no entry transitioning into any of them
+// yet (Gate 1 is schema-only; see that file's comment for the real graph
+// Gate 2 wires in).
 export const updateBookingStatusSchema = z.object({
   status: z.enum([
     "PENDING",
@@ -41,6 +48,10 @@ export const updateBookingStatusSchema = z.object({
     "COMPLETED",
     "CANCELLED",
     "NO_SHOW",
+    "AWAITING_PAYMENT",
+    "PENDING_VERIFICATION",
+    "REJECTED",
+    "REFUNDED",
   ]),
   note: z.string().max(500).optional(),
 });

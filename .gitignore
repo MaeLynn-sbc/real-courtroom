@@ -48,6 +48,12 @@ next-env.d.ts
 /public/uploads/*
 !/public/uploads/.gitkeep
 
+# local PRIVATE file uploads (dev upload service target — Phase 8 GCash
+# payment-proof screenshots) — deliberately outside /public, never
+# web-served directly. See services/upload/local-upload.service.ts.
+/storage/private-uploads/*
+!/storage/private-uploads/.gitkeep
+
 # testing
 /playwright-report
 /test-results
