@@ -39,6 +39,7 @@ const SALE_CATEGORY_LABELS: Record<SaleCategory, string> = {
   TOURNAMENT_REGISTRATION: "Tournament registration",
   PRODUCT: "Product",
   OPEN_PLAY: "Open play",
+  COACHING: "Coaching",
   OTHER: "Other",
 };
 

@@ -56,6 +56,26 @@ describe("canAccessRoute", () => {
       ]),
     ).toBe("allowed");
   });
+
+  it("gates coaching availability/rates more strictly than the coaching sessions list", () => {
+    expect(canAccessRoute("/dashboard/coaching", true, [PERMISSIONS.BOOKINGS_MANAGE])).toBe(
+      "allowed",
+    );
+    expect(
+      canAccessRoute("/dashboard/coaching/availability", true, [PERMISSIONS.BOOKINGS_MANAGE]),
+    ).toBe("forbidden");
+    expect(
+      canAccessRoute("/dashboard/coaching/availability", true, [
+        PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY,
+      ]),
+    ).toBe("allowed");
+    expect(canAccessRoute("/dashboard/coaching/rates", true, [PERMISSIONS.BOOKINGS_MANAGE])).toBe(
+      "forbidden",
+    );
+    expect(
+      canAccessRoute("/dashboard/coaching/rates", true, [PERMISSIONS.COACHING_MANAGE_RATES]),
+    ).toBe("allowed");
+  });
 });
 
 describe("requiresPasswordChangeRedirect", () => {

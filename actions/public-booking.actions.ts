@@ -10,6 +10,17 @@ import { toActionError } from "@/lib/errors";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { BookingConflictError, type AvailabilityConflict } from "@/services/booking/booking.service";
 import { createPublicBooking } from "@/services/booking/public-booking.service";
+import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
+import { coachRateService } from "@/services/coaching/coach-rate.service";
+
+export interface PublicBookingCoachOption {
+  id: string;
+  name: string;
+  // That coach's full group-size -> price table, fetched up front so the
+  // confirmation screen can show a rate the instant the customer picks a
+  // group size — no per-selection round trip.
+  rates: { groupSize: number; priceCents: number }[];
+}
 
 export interface PublicBookingActionState {
   error: string | null;
@@ -22,6 +33,18 @@ export interface PublicBookingActionState {
   // rest of this action state is byte-for-byte what it always was.
   requiresPayment?: boolean;
   holdExpiresAt?: Date;
+  // Coaches with a window fully covering the just-booked slot — computed
+  // once here rather than a separate client-triggered lookup, so the
+  // confirmation screen's optional "add a coach" step (Gate 3) has
+  // exactly what it needs with no extra round trip. Empty, not omitted,
+  // when nobody's available — the UI shows "no coaches available" rather
+  // than silently having nothing to render. Populated the same way
+  // whether the booking that was just created is CONFIRMED or an
+  // AWAITING_PAYMENT hold (Phase 8) — coach availability only depends on
+  // the slot's time, not the court booking's payment state; see
+  // coach-session.service.ts's createCoachSession, which never checks
+  // Booking.status either.
+  availableCoaches?: PublicBookingCoachOption[];
 }
 
 const RATE_LIMIT_MAX = 5;
@@ -72,12 +95,31 @@ export async function createPublicBookingAction(
     revalidatePath("/dashboard/bookings");
     revalidatePath("/availability");
 
+    // Coach availability only depends on the slot's time, not whether
+    // this booking landed CONFIRMED or as a Phase 8 AWAITING_PAYMENT
+    // hold — same startAt/endAt already used to create it, above.
+    const coaches = await coachAvailabilityService.listAvailableCoaches(startAt, endAt);
+    const coachOptions: PublicBookingCoachOption[] = await Promise.all(
+      coaches.map(async (coach) => ({
+        id: coach.id,
+        name: coach.user.name ?? coach.user.email ?? "Coach",
+        rates: (await coachRateService.listRates(coach.id)).map((rate) => ({
+          groupSize: rate.groupSize,
+          priceCents: rate.priceCents,
+        })),
+      })),
+    );
+    // A coach with no rate table can't actually be booked for any group
+    // size — don't offer an option that would just error on submit.
+    const availableCoaches = coachOptions.filter((coach) => coach.rates.length > 0);
+
     return {
       error: null,
       bookingId: result.bookingId,
       bookingReference: result.bookingReference,
       requiresPayment: result.requiresPayment || undefined,
       holdExpiresAt: result.holdExpiresAt,
+      availableCoaches,
     };
   } catch (error) {
     if (error instanceof BookingConflictError) {

@@ -6,10 +6,12 @@ import {
   changeRoleSchema,
   createEmployeeSchema,
   setActiveSchema,
+  setCoachSchema,
   updateEmployeeSchema,
   type ChangeRoleInput,
   type CreateEmployeeInput,
   type SetActiveInput,
+  type SetCoachInput,
   type UpdateEmployeeInput,
 } from "@/features/employees/schemas/employee.schema";
 import { requirePermission } from "@/lib/action-auth";
@@ -144,5 +146,29 @@ export async function setEmployeeActiveAction(
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "setEmployeeActiveAction", userId: authz.userId }) };
+  }
+}
+
+export async function setEmployeeCoachAction(
+  employeeId: string,
+  input: SetCoachInput,
+): Promise<EmployeeActionState> {
+  const authz = await requireUsersManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = setCoachSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await employeeService.setCoach(employeeId, parsed.data, authz.userId);
+    revalidatePath("/dashboard/admin/employees");
+    revalidatePath("/dashboard/coaching");
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "setEmployeeCoachAction", userId: authz.userId }) };
   }
 }

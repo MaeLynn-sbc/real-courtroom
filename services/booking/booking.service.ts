@@ -16,6 +16,7 @@ import { runSerializableWithRetry } from "@/lib/serializable-retry";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import { formatBookingReference } from "@/services/booking/booking-reference";
 import { canTransitionBookingStatus } from "@/services/booking/booking-status";
+import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { saleService } from "@/services/sales/sale.service";
 import { settingsService } from "@/services/settings/settings.service";
 
@@ -518,6 +519,25 @@ export class BookingService {
       oldValues: { status: existing.status },
       newValues: { status: booking.status },
     });
+
+    // Coaching sessions (v1.2) deliberately read their time through this
+    // booking rather than duplicating it — "cancelling the court booking
+    // removes the coach session" only actually happens if this status
+    // transition propagates it, since nothing in this app hard-deletes a
+    // Booking row (cancellation is this status update, never a DELETE,
+    // so CoachSession.bookingId's ON DELETE CASCADE never fires from
+    // real usage). Scoped to CANCELLED only, matching the literal ask —
+    // NO_SHOW is a separate, unasked-for question left alone.
+    if (status === "CANCELLED") {
+      const coachSession = await prisma.coachSession.findUnique({ where: { bookingId: booking.id } });
+      if (coachSession && coachSession.status !== "CANCELLED") {
+        await coachSessionService.cancelCoachSession(
+          coachSession.id,
+          actorUserId,
+          "Parent court booking was cancelled.",
+        );
+      }
+    }
 
     return booking;
   }

@@ -43,3 +43,11 @@ export const setActiveSchema = z.object({
   isActive: z.boolean(),
 });
 export type SetActiveInput = z.infer<typeof setActiveSchema>;
+
+// v1.2 DRAFT (coaching sessions): whether this employee can hold
+// coaching availability windows and appear in the coach picker — see
+// services/coaching/coach-availability.service.ts's isCoach gating.
+export const setCoachSchema = z.object({
+  isCoach: z.boolean(),
+});
+export type SetCoachInput = z.infer<typeof setCoachSchema>;

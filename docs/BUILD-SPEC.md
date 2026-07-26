@@ -1977,6 +1977,61 @@ which doesn't need `createFreshCourt`'s uniqueness guarantee. Not fixed
 here — flagged for its own investigation, same as the CMS test was
 before it got root-caused and fixed this round.
 
+### Flagged, not built: coach sessions need re-validation on reschedule
+
+Coaching sessions (Gate 2) deliberately read their time through their
+parent Booking rather than duplicating startAt/endAt — one source of
+truth for "when" (Gate 1 review). That design has a sharp edge: if
+court rescheduling is ever wired up (`rescheduleBooking` exists in
+`booking.service.ts`'s git history but has zero callers and isn't
+built into any action — see §15's concurrency-audit note on it), moving
+a booking's time does NOT currently re-check whether the coach attached
+to its CoachSession is still available for the new time. A session
+booked inside a coach's stated window could end up silently attached to
+a slot outside it, or overlapping another one of that coach's sessions,
+purely as a side effect of the court booking moving — not anything a
+customer or coach did through the coaching flow itself.
+
+Whoever builds reschedule needs to re-run CoachSession's own
+availability check (`isSlotFullyCovered`, same as `createCoachSession`)
+and its own coach-double-booking check (`hasTimeOverlap` against the
+coach's other active sessions) against the NEW time before committing
+the move — and decide what happens when the coach isn't available for
+it (block the reschedule outright, or flag `isOutsideAvailability` and
+let staff decide, same shape as the create-time override). Not
+speculated on further here since reschedule itself isn't built.
+
+### Deliberate policy: cross-coach availability editing is open right now
+
+`services/coaching/coach-availability.service.ts`'s
+`ALLOW_CROSS_COACH_AVAILABILITY_EDITS` (currently `true`) lets any
+employee holding `coaching:manage_own_availability` create or delete
+availability windows on ANY coach's calendar, not just their own —
+including a non-coach admin (Owner/Manager) acting on a coach's behalf.
+This is deliberate, not a gap that slipped through: the two active
+coaches are family (father/son) who coordinate schedules directly, and
+the owner routinely inputs a slot on a coach's behalf ("put me in this
+time"). Strict per-coach ownership (the Gate 2 default) is friction
+neither scenario needs today.
+
+**This must be revisited the moment a non-family coach is added** —
+flip the one flag back to `false` and calendar isolation returns
+exactly as Gate 2 proved it (see
+`coach-availability-ownership.integration.ts`, which was updated to
+assert the current open default and manually re-verified against the
+flag set to `false` during development — both outputs reported in the
+PR, not preserved as a runtime toggle in the test itself). What did
+NOT change: the caller still needs the permission, and the *target*
+employee still has to be `isCoach` regardless of who's asking — this
+flag only widens whose calendar can be touched, never who can touch a
+calendar at all or whether a non-coach's calendar is editable.
+
+Every cross-coach or admin-on-behalf-of edit is recorded in its
+`AuditLog` entry's `metadata` (`callerEmployeeId`,
+`editingOwnCalendar: false`) — distinguishable from a coach managing
+their own calendar, so this doesn't silently become unauditable "any
+coach edits any coach" with no record of who actually acted.
+
 ---
 
 ## 16. Build order

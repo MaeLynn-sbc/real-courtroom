@@ -4,6 +4,7 @@ import type {
   ChangeRoleInput,
   CreateEmployeeInput,
   SetActiveInput,
+  SetCoachInput,
   UpdateEmployeeInput,
 } from "@/features/employees/schemas/employee.schema";
 import type { Prisma } from "@/lib/generated/prisma/client";
@@ -200,6 +201,23 @@ export class EmployeeService {
     await this.writeAuditLog({
       actorUserId,
       action: input.isActive ? "employee.activated" : "employee.deactivated",
+      entityType: "Employee",
+      entityId: employee.id,
+    });
+
+    return employee;
+  }
+
+  async setCoach(employeeId: string, input: SetCoachInput, actorUserId: string) {
+    const employee = await prisma.employee.update({
+      where: { id: employeeId },
+      data: { isCoach: input.isCoach },
+      include: employeeWithUser,
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: input.isCoach ? "employee.marked_coach" : "employee.unmarked_coach",
       entityType: "Employee",
       entityId: employee.id,
     });

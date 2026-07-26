@@ -23,6 +23,15 @@ export const PERMISSIONS = {
   PLAYERS_MANAGE: "players:manage",
   EQUIPMENT_MANAGE: "equipment:manage",
   REPORTS_MANAGE: "reports:manage",
+  // v1.2 DRAFT (coaching sessions, Gate 1): a coach edits ONLY their own
+  // availability windows — this permission gates "can reach the
+  // endpoint at all," the service layer enforces the actual employeeId
+  // match, same shape as every other "own X" scoping in this codebase.
+  COACHING_MANAGE_OWN_AVAILABILITY: "coaching:manage_own_availability",
+  // Rate-table edits (group size -> price, per coach) — owner-tier,
+  // matching the existing precedent that CMS/rates-adjacent settings
+  // gate on SYSTEM_ADMIN, not a narrower permission.
+  COACHING_MANAGE_RATES: "coaching:manage_rates",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

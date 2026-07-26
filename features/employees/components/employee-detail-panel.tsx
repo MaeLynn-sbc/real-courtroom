@@ -8,6 +8,7 @@ import {
   changeEmployeeRoleAction,
   resetEmployeePasswordAction,
   setEmployeeActiveAction,
+  setEmployeeCoachAction,
   updateEmployeeAction,
 } from "@/actions/employee.actions";
 import { Badge } from "@/components/ui/badge";
@@ -148,6 +149,7 @@ function RoleAndStatusSection({ employee, roles }: { employee: Employee; roles: 
   const [roleError, setRoleError] = useState<string | null>(null);
   const [isRolePending, startRoleTransition] = useTransition();
   const [isActivePending, startActiveTransition] = useTransition();
+  const [isCoachPending, startCoachTransition] = useTransition();
 
   function handleRoleChange(roleId: string) {
     setRoleError(null);
@@ -170,6 +172,18 @@ function RoleAndStatusSection({ employee, roles }: { employee: Employee; roles: 
         return;
       }
       toast.success(isActive ? "Employee enabled." : "Employee disabled.");
+      router.refresh();
+    });
+  }
+
+  function handleCoachChange(isCoach: boolean) {
+    startCoachTransition(async () => {
+      const result = await setEmployeeCoachAction(employee.id, { isCoach });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(isCoach ? "Marked as a coach." : "No longer a coach.");
       router.refresh();
     });
   }
@@ -218,6 +232,21 @@ function RoleAndStatusSection({ employee, roles }: { employee: Employee; roles: 
           />
           <Badge variant={employee.isActive ? "secondary" : "destructive"}>
             {employee.isActive ? "Active" : "Inactive"}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <p className="text-sm font-medium">Coaching</p>
+          <p className="text-muted-foreground text-xs">
+            Only a coach can hold availability windows and appear in the coach picker.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch checked={employee.isCoach} onCheckedChange={handleCoachChange} disabled={isCoachPending} />
+          <Badge variant={employee.isCoach ? "secondary" : "outline"}>
+            {employee.isCoach ? "Coach" : "Not a coach"}
           </Badge>
         </div>
       </div>

@@ -10,8 +10,11 @@ import { BookingStatusActions } from "@/features/bookings/components/booking-sta
 import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
 import { RecordGcashPaymentForm } from "@/features/bookings/components/record-gcash-payment-form";
 import { RegenerateQrButton } from "@/features/bookings/components/regenerate-qr-button";
+import { CoachSessionPanel } from "@/features/coaching/components/coach-session-panel";
 import { formatRelativeTime } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
+import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
+import { coachSessionService } from "@/services/coaching/coach-session.service";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   dateStyle: "medium",
@@ -37,6 +40,13 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
   }
 
   const guestOrPlayerName = booking.player?.user.name ?? booking.player?.user.email ?? booking.guestName;
+
+  const [coachSession, allCoaches, availableCoaches] = await Promise.all([
+    coachSessionService.getByBookingId(booking.id),
+    coachAvailabilityService.listCoaches(),
+    coachAvailabilityService.listAvailableCoaches(booking.startAt, booking.endAt),
+  ]);
+  const availableCoachIds = new Set(availableCoaches.map((coach) => coach.id));
 
   return (
     <div className="flex flex-col gap-8">
@@ -122,7 +132,12 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
         // A hold waits on the customer submitting proof (BUILD-SPEC.md
         // §8) — no public upload screen exists yet, so this lets staff
         // record it on their behalf (phone/desk). Once submitted, this
-        // booking moves to /dashboard/bookings/verify-payments.
+        // booking moves to /dashboard/bookings/verify-payments. A coach
+        // session may already be attached at this point (added right
+        // after the public booking form, before payment — see
+        // coach-session.service.ts's createCoachSession, which never
+        // gates on Booking.status) — the panel below shows it regardless
+        // of where this booking is in the payment lifecycle.
         <section className="flex flex-col gap-3">
           <RecordGcashPaymentForm bookingId={booking.id} expectedAmountCents={booking.totalAmountCents ?? 0} />
         </section>
@@ -136,6 +151,15 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
           .
         </p>
       ) : null}
+
+      <section>
+        <CoachSessionPanel
+          bookingId={booking.id}
+          existingSession={coachSession}
+          allCoaches={allCoaches}
+          availableCoachIds={availableCoachIds}
+        />
+      </section>
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">History</h2>

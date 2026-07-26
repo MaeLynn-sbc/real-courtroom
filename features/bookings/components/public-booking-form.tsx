@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Controller, useForm } from "react-hook-form";
 
-import { createPublicBookingAction } from "@/actions/public-booking.actions";
+import { createPublicBookingAction, type PublicBookingCoachOption } from "@/actions/public-booking.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PublicCoachAddOn } from "@/features/coaching/components/public-coach-add-on";
 
 const DURATIONS_MINUTES = [30, 60, 90, 120];
 
@@ -33,6 +34,7 @@ interface PublicBookingFormValues {
 }
 
 interface BookingConfirmation {
+  bookingId: string;
   bookingReference: string;
   courtName: string;
   date: string;
@@ -45,6 +47,11 @@ interface BookingConfirmation {
   // 30-minute hold waiting on GCash proof would tell a customer their
   // slot is secured when it isn't yet.
   requiresPayment: boolean;
+  // Independent of requiresPayment above — offered whether this booking
+  // landed CONFIRMED or as a hold, since attaching a coach never depends
+  // on the court booking's payment state (see public-booking.actions.ts's
+  // comment on this same field).
+  availableCoaches: PublicBookingCoachOption[];
 }
 
 function toLocalDateValue(date: Date): string {
@@ -106,6 +113,7 @@ export function PublicBookingForm({
       }
 
       setConfirmation({
+        bookingId: result.bookingId ?? "",
         bookingReference: result.bookingReference,
         courtName: courts.find((court) => court.id === values.courtId)?.name ?? "",
         date: values.date,
@@ -113,6 +121,7 @@ export function PublicBookingForm({
         durationMinutes: Number(values.durationMinutes),
         guestName: values.guestName,
         requiresPayment: result.requiresPayment ?? false,
+        availableCoaches: result.availableCoaches ?? [],
       });
     });
   });
@@ -162,6 +171,14 @@ export function PublicBookingForm({
               Booking Lookup page. Payment is collected at the venue.
             </p>
           )}
+
+          {/* Offered regardless of requiresPayment above — a held slot
+              can still have a coach attached before payment clears, same
+              as coach-session.service.ts's createCoachSession itself
+              never gating on Booking.status. */}
+          <div className="border-t pt-3">
+            <PublicCoachAddOn bookingId={confirmation.bookingId} availableCoaches={confirmation.availableCoaches} />
+          </div>
         </CardContent>
       </Card>
     );

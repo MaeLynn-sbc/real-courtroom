@@ -1,6 +1,7 @@
 import type { Booking, BookingPaymentProof, Prisma } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { getUploadService } from "@/services/upload/upload-service.factory";
 import { saleService } from "@/services/sales/sale.service";
 
@@ -304,6 +305,27 @@ export class BookingPaymentProofService {
         entityId: result.proof.id,
         newValues: result.proof,
       });
+
+      // Merge-time fix (Coaching x Phase 8): booking.service.ts's
+      // updateBookingStatus already does this exact cascade for CANCELLED
+      // — REJECTED is the same kind of terminal, slot-freeing outcome
+      // (see the comment two blocks up: "same as CANCELLED"), but this
+      // path sets status via its own direct tx.booking.update rather than
+      // going through updateBookingStatus, so it never inherited that
+      // cascade. Without this, a coach attached to a booking whose GCash
+      // proof got rejected would stay CONFIRMED forever — permanently
+      // occupying that coach's slot for a court booking that never
+      // happened. createCoachSession never checks Booking.status when it
+      // attaches (services/coaching/coach-session.service.ts), so nothing
+      // else would have caught this.
+      const coachSession = await prisma.coachSession.findUnique({ where: { bookingId: result.booking.id } });
+      if (coachSession && coachSession.status !== "CANCELLED") {
+        await coachSessionService.cancelCoachSession(
+          coachSession.id,
+          context.actorUserId,
+          "Parent court booking's payment was rejected.",
+        );
+      }
     }
 
     return { alreadyResolved: result.alreadyResolved, proof: result.proof };
