@@ -714,11 +714,37 @@ and `OpenPlayWaitlistEntry` are new, separate tables (not a polymorphic
 extension of `BookingPaymentProof`); the waitlist's own state machine
 (`WAITING -> INVITED -> {CONVERTED | EXPIRED}`) lives in
 `services/open-play/open-play-waitlist-status.ts`, pure and unit-tested.
-None of this is reachable from any service or route yet — Gate 2
-(registration submission, invite processing, capacity check) is next.
+**Gate 2 status (registration submission, invite processing, capacity
+check): built.** `submitOnlineRegistration`, `inviteNextWaitlistEntry`
+(seat-aware, invites as many WAITING entries as a freed/raised capacity
+allows in one call, not capped at one), and the public
+`createPublicOpenPlayRegistration` wrapper (hardcodes `source: WEBSITE`
+server-side) all exist. Two review follow-ups landed in the same gate,
+before Gate 3, since Gate 3 builds public-facing UI on top of this:
+SMS is now actually called on every invite (Gate 1 only built the
+interface); an expired invite's freed seat no longer sits unoffered
+indefinitely — `openPlayCheckinService.getCheckInScreenData` lazily
+reconciles it on every roster-screen load, same no-cron pattern as
+`reconcileNoShows`.
 
-**Two independent gates, both required, neither built into a service
-yet:**
+**A third gate, also required, distinct from the two boolean switches
+below: an owner-editable registration lead-time window**
+(`openPlaySettingsSchema.onlineRegistrationLeadTimeDays`, default 4,
+edited on the same "Check-in & Rotation Settings" card as the other
+open-play settings). Online registration for a Fri/Sat night only
+opens this many days ahead of it — a submission for a date further out
+is rejected with a `not-yet-open` status and a concrete `opensAt` date,
+not silently accepted or treated as invalid input. Checked in
+`createPublicOpenPlayRegistration`, between the two on/off gates below
+and the capacity call. The upcoming-nights list
+(`getUpcomingNights`, `/dashboard/admin/open-play-capacity`) now also
+shows a registered/waitlisted count per night, so a night weeks out
+that already has online registrations is visible at a glance — closes
+the gap where the only way to see a future registration was navigating
+to that exact date's roster.
+
+**Two independent gates, both required, both checked in
+`createPublicOpenPlayRegistration` (Gate 2):**
 1. `settingsService.getOpenPlayOnlineRegistrationEnabled()` — whether
    the online registration feature exists at all, anywhere. Defaults
    `false`. Same single-point-of-control shape as §8's booking-
@@ -2487,3 +2513,15 @@ domain only become necessary at Phase 8.
   the existing `CourtMaintenance` concept. **Check both at build time**
   before building either — this may turn out to need nothing new at
   all.
+- **Public "Open Play" nav link points at the wrong system — not
+  forgotten, deliberately deferred to Gate 3.** `components/layout/
+  site-header.tsx` and `site-footer.tsx`'s "Open Play" links both go
+  to `/open-play`, which renders the OLD, unrelated `OpenPlaySession`
+  list (`openPlaySessionService`) — not this section's Gate 1/Gate 2
+  online-registration pipeline. Left alone through Gate 2 because there
+  was no public form to point it at yet (Gate 2 only built the
+  service/action layer, same split as Phase 8's own gates). **When
+  Gate 3 builds the actual public registration form/page, repointing
+  these two links to it is part of that gate, not a separate cleanup
+  pass** — don't ship Gate 3's form without also fixing where the nav
+  already claims to send customers.

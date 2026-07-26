@@ -12,7 +12,8 @@ import { createPublicOpenPlayRegistration } from "@/services/open-play/public-op
 
 export interface PublicOpenPlayRegistrationActionState {
   error: string | null;
-  status?: "disabled" | "registered" | "waitlisted";
+  status?: "disabled" | "not-yet-open" | "registered" | "waitlisted";
+  opensAt?: Date;
   registrationId?: string;
   holdExpiresAt?: Date | null;
   waitlistEntryId?: string;
@@ -49,6 +50,15 @@ export async function createPublicOpenPlayRegistrationAction(
 
     if (result.status === "disabled") {
       return { error: "Online registration isn't available for this night.", status: "disabled" };
+    }
+
+    if (result.status === "not-yet-open") {
+      const opensAtLabel = result.opensAt.toLocaleDateString("en-PH", { month: "long", day: "numeric" });
+      return {
+        error: `Online registration for this date opens on ${opensAtLabel}. Please check back then.`,
+        status: "not-yet-open",
+        opensAt: result.opensAt,
+      };
     }
 
     revalidatePath("/dashboard/admin/open-play-capacity");

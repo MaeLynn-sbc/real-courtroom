@@ -5,6 +5,7 @@ import { settingsService } from "@/services/settings/settings.service";
 
 export type CreatePublicOpenPlayRegistrationResult =
   | { status: "disabled" }
+  | { status: "not-yet-open"; opensAt: Date }
   | { status: "registered"; registrationId: string; holdExpiresAt: Date | null }
   | { status: "waitlisted"; waitlistEntryId: string };
 
@@ -44,6 +45,22 @@ export async function createPublicOpenPlayRegistration(
   const dayEnabled = defaults.find((row) => row.dayOfWeek === date.getDay())?.onlineRegistrationEnabled ?? false;
   if (!dayEnabled) {
     return { status: "disabled" };
+  }
+
+  // Gate 2 review follow-up: a third, distinct check on top of the two
+  // on/off gates above — a rolling window, not a boolean. Compared as
+  // whole calendar days (both sides pinned to local midnight) so "N days
+  // before" means N calendar days, not a fractional 24-hour count that
+  // would open registration at a different hour every day. Owner-
+  // editable via openPlaySettingsSchema.onlineRegistrationLeadTimeDays,
+  // not hardcoded.
+  const { onlineRegistrationLeadTimeDays } = await settingsService.getOpenPlaySettings();
+  const todayMidnight = new Date();
+  todayMidnight.setHours(0, 0, 0, 0);
+  const daysUntilSession = Math.round((date.getTime() - todayMidnight.getTime()) / (24 * 60 * 60 * 1000));
+  if (daysUntilSession > onlineRegistrationLeadTimeDays) {
+    const opensAt = new Date(date.getTime() - onlineRegistrationLeadTimeDays * 24 * 60 * 60 * 1000);
+    return { status: "not-yet-open", opensAt };
   }
 
   const result = await openPlayRegistrationService.submitOnlineRegistration(session.id, {

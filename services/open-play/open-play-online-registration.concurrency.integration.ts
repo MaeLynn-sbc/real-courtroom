@@ -143,6 +143,14 @@ async function main(): Promise<void> {
 
   try {
     await settingsService.setOpenPlayOnlineRegistrationEnabled(true, owner.id);
+    // Gate 2 review follow-up: raise the lead-time window so the new
+    // registration-opens-N-days-before check (proven on its own in
+    // open-play-registration-lead-time.integration.ts) doesn't reject
+    // this file's far-future fixture dates.
+    await settingsService.setOpenPlaySettings(
+      { ...(await settingsService.getOpenPlaySettings()), onlineRegistrationLeadTimeDays: 100_000 },
+      owner.id,
+    );
     await openPlayCapacityService.setOnlineRegistrationEnabledForDay(5, true, owner.id);
 
     await raceForLastSeat(owner.id);
@@ -151,6 +159,10 @@ async function main(): Promise<void> {
     console.log("\nAll open-play online registration concurrency scenarios passed.");
   } finally {
     await settingsService.setOpenPlayOnlineRegistrationEnabled(false, owner.id);
+    await settingsService.setOpenPlaySettings(
+      { ...(await settingsService.getOpenPlaySettings()), onlineRegistrationLeadTimeDays: 4 },
+      owner.id,
+    );
     await openPlayCapacityService.setOnlineRegistrationEnabledForDay(6, true, owner.id);
     const restored = await settingsService.getOpenPlayOnlineRegistrationEnabled();
     console.log(`Feature-wide switch restored to OFF (verified: ${restored === false}).`);

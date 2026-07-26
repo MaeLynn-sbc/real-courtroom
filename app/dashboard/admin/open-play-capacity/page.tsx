@@ -45,6 +45,8 @@ export default async function OpenPlayCapacityPage() {
     capacity: night.capacity,
     isOverride: night.isOverride,
     status: night.status,
+    registeredCount: night.registeredCount,
+    waitlistedCount: night.waitlistedCount,
   }));
 
   return (

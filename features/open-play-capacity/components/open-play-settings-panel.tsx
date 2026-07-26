@@ -101,6 +101,24 @@ export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
         </div>
 
         <div className="flex flex-col gap-1.5">
+          <Label htmlFor="onlineRegistrationLeadTimeDays">Online registration opens (days before the session)</Label>
+          <p className="text-muted-foreground text-xs">
+            A Fri/Sat night&apos;s online registration only opens this many days ahead of it — a submission for a
+            later night is rejected with an &quot;opens on&quot; date, not silently accepted.
+          </p>
+          <Input
+            id="onlineRegistrationLeadTimeDays"
+            type="number"
+            min={1}
+            className="w-24"
+            value={settings.onlineRegistrationLeadTimeDays}
+            onChange={(event) =>
+              setSettings((s) => ({ ...s, onlineRegistrationLeadTimeDays: Number(event.target.value) }))
+            }
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
           <Label htmlFor="targetGameMinutes">Target game length (minutes, informational)</Label>
           <Input
             id="targetGameMinutes"

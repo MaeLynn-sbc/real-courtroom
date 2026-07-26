@@ -56,6 +56,14 @@ async function main(): Promise<void> {
 
   try {
     await settingsService.setOpenPlayOnlineRegistrationEnabled(true, owner.id);
+    // Gate 2 review follow-up: raise the lead-time window so the new
+    // registration-opens-N-days-before check (proven on its own in
+    // open-play-registration-lead-time.integration.ts) doesn't reject
+    // this file's far-future fixture date.
+    await settingsService.setOpenPlaySettings(
+      { ...(await settingsService.getOpenPlaySettings()), onlineRegistrationLeadTimeDays: 100_000 },
+      owner.id,
+    );
     await openPlayCapacityService.setOnlineRegistrationEnabledForDay(5, true, owner.id);
     await openPlayCapacityService.setSessionCapacityOverride(TEST_DATE, 1, owner.id);
     console.log("Both gates on, capacity set to 1.");
@@ -136,6 +144,10 @@ async function main(): Promise<void> {
   } finally {
     smsService.send = originalSend;
     await settingsService.setOpenPlayOnlineRegistrationEnabled(false, owner.id);
+    await settingsService.setOpenPlaySettings(
+      { ...(await settingsService.getOpenPlaySettings()), onlineRegistrationLeadTimeDays: 4 },
+      owner.id,
+    );
     await openPlayCapacityService.setOnlineRegistrationEnabledForDay(5, true, owner.id);
     const restored = await settingsService.getOpenPlayOnlineRegistrationEnabled();
     console.log(`Feature-wide switch restored to OFF (verified: ${restored === false}).`);

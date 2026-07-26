@@ -94,6 +94,15 @@ export const openPlaySettingsSchema = z.object({
   // onto each weeknight PlayerTab at creation — a price change here never
   // rewrites an already-open tab's rate.
   weeknightGameRateCents: z.number().int().nonnegative(),
+  // Open-play online self-registration, Gate 2 review follow-up: how many
+  // days before a Fri/Sat session online registration opens for it. A
+  // submission for a date further out than this is rejected with a clear
+  // "opens on <date>" reason (services/open-play/public-open-play-
+  // registration.service.ts), not silently treated as invalid input.
+  // Distinct from onlineRegistrationEnabled (settings.service.ts) —
+  // that's a hard on/off gate; this is a rolling window on top of it,
+  // owner-editable, not hardcoded.
+  onlineRegistrationLeadTimeDays: z.number().int().positive(),
 });
 
 export type OpenPlaySettings = z.infer<typeof openPlaySettingsSchema>;

@@ -18,6 +18,8 @@ interface UpcomingNight {
   capacity: number;
   isOverride: boolean;
   status: string | null;
+  registeredCount: number;
+  waitlistedCount: number;
 }
 
 function NightRow({ night }: { night: UpcomingNight }) {
@@ -46,6 +48,12 @@ function NightRow({ night }: { night: UpcomingNight }) {
         ) : (
           <span className="text-muted-foreground text-xs">from default</span>
         )}
+        {night.registeredCount > 0 || night.waitlistedCount > 0 ? (
+          <span className="text-muted-foreground text-xs">
+            {night.registeredCount} registered
+            {night.waitlistedCount > 0 ? ` · ${night.waitlistedCount} waiting` : ""}
+          </span>
+        ) : null}
       </div>
       <Input
         id={`night-${night.date}`}

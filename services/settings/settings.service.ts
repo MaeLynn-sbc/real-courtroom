@@ -104,6 +104,11 @@ const DEFAULT_OPEN_PLAY_SETTINGS: OpenPlaySettings = {
   autoConfirmProposals: false,
   targetGameMinutes: 15,
   weeknightGameRateCents: 3500,
+  // Open-play online self-registration, Gate 2 review follow-up: 4 days
+  // (owner-editable) — midway through the user's own proposed 3-5 day
+  // range, giving a Friday night a Monday open and a Saturday night a
+  // Tuesday open by default.
+  onlineRegistrationLeadTimeDays: 4,
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never

@@ -57,6 +57,17 @@ async function main(): Promise<void> {
 
     // ============== SWITCH ON, DAY TOGGLE OFF ==============
     await settingsService.setOpenPlayOnlineRegistrationEnabled(true, owner.id);
+    // Gate 2 review follow-up: this file's fixture date is years out
+    // (matching every other integration test's convention of using a
+    // far-future date to avoid colliding with real data) — raise the
+    // lead-time window so the new registration-opens-N-days-before
+    // check (proven on its own in open-play-registration-lead-time
+    // .integration.ts) doesn't interfere with what this file is
+    // actually testing.
+    await settingsService.setOpenPlaySettings(
+      { ...(await settingsService.getOpenPlaySettings()), onlineRegistrationLeadTimeDays: 100_000 },
+      owner.id,
+    );
     await openPlayCapacityService.setOnlineRegistrationEnabledForDay(5, false, owner.id);
     const dayOffResult = await createPublicOpenPlayRegistration({
       playerName: "Day Off Guest",
@@ -156,6 +167,10 @@ async function main(): Promise<void> {
   } finally {
     await settingsService.setOpenPlayOnlineRegistrationEnabled(false, owner.id);
     await openPlayCapacityService.setOnlineRegistrationEnabledForDay(5, true, owner.id);
+    await settingsService.setOpenPlaySettings(
+      { ...(await settingsService.getOpenPlaySettings()), onlineRegistrationLeadTimeDays: 4 },
+      owner.id,
+    );
     const restored = await settingsService.getOpenPlayOnlineRegistrationEnabled();
     console.log(`Feature-wide switch restored to OFF (verified: ${restored === false}).`);
   }

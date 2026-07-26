@@ -65,6 +65,13 @@ export interface UpcomingOpenPlayNight {
   capacity: number;
   isOverride: boolean;
   status: OpenPlayNightSession["status"] | null;
+  // Gate 2 review follow-up: closes the blind spot between an online
+  // registration landing (possibly weeks before the night, once the
+  // lead-time window opens) and staff ever navigating to that specific
+  // date's roster to see it. 0 for any date with no session row yet —
+  // registration/waitlist rows can't exist without one.
+  registeredCount: number;
+  waitlistedCount: number;
 }
 
 export class OpenPlayCapacityService {
@@ -355,6 +362,45 @@ export class OpenPlayCapacityService {
     const sessionsByDate = new Map(sessions.map((session) => [session.date.getTime(), session]));
     const defaultsByDay = new Map(defaults.map((row) => [row.dayOfWeek, row.capacity]));
 
+    // Gate 2 review follow-up: registered/waitlisted counts per night,
+    // so a night three weeks out that already has online registrations
+    // is visible here without staff navigating to its specific roster.
+    // Only sessions that already have a row can have any registrations
+    // (sessionId is required on both models) — sessionIds is often
+    // empty (most upcoming nights have no override yet), skip the
+    // queries entirely rather than issue an `IN ()` against nothing.
+    const sessionIds = sessions.map((session) => session.id);
+    const now = new Date();
+    const [registeredGroups, waitlistedGroups] = sessionIds.length > 0
+      ? await Promise.all([
+          // Same "occupied" predicate as countOccupiedSeats
+          // (open-play-registration.service.ts) — CONFIRMED/
+          // PENDING_VERIFICATION always count, an AWAITING_PAYMENT hold
+          // only while its holdExpiresAt hasn't passed, walk-in-waitlist
+          // rows (waitlistPos not null) excluded.
+          prisma.openPlayNightRegistration.groupBy({
+            by: ["sessionId"],
+            where: {
+              sessionId: { in: sessionIds },
+              waitlistPos: null,
+              OR: [
+                { status: "CONFIRMED" },
+                { status: "PENDING_VERIFICATION" },
+                { status: "AWAITING_PAYMENT", holdExpiresAt: { gte: now } },
+              ],
+            },
+            _count: { _all: true },
+          }),
+          prisma.openPlayWaitlistEntry.groupBy({
+            by: ["sessionId"],
+            where: { sessionId: { in: sessionIds }, status: "WAITING" },
+            _count: { _all: true },
+          }),
+        ])
+      : [[], []];
+    const registeredBySession = new Map(registeredGroups.map((row) => [row.sessionId, row._count._all]));
+    const waitlistedBySession = new Map(waitlistedGroups.map((row) => [row.sessionId, row._count._all]));
+
     return dates.map((date) => {
       const dayOfWeek = date.getDay() as OpenPlayDayOfWeek;
       const session = sessionsByDate.get(date.getTime());
@@ -364,6 +410,8 @@ export class OpenPlayCapacityService {
         capacity: session?.capacity ?? defaultsByDay.get(dayOfWeek) ?? 0,
         isOverride: Boolean(session),
         status: session?.status ?? null,
+        registeredCount: session ? registeredBySession.get(session.id) ?? 0 : 0,
+        waitlistedCount: session ? waitlistedBySession.get(session.id) ?? 0 : 0,
       };
     });
   }
