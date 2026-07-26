@@ -23,6 +23,12 @@ interface DashboardNavGroup {
 // what reception touches every day and is listed first; Administration is
 // setup/management screens. See ARCHITECTURE.md's v1.1 Sub-phase 1
 // addendum for the full reasoning.
+// No entry here for /dashboard/open-play — that's the old, dormant
+// OpenPlaySession/OpenPlayQueue system (see prisma/schema.prisma's own
+// comment above those models). The route and its underlying code are
+// untouched and still reachable directly; only the nav link is gone, so
+// staff can't land on it and think something's broken. The live system
+// is /dashboard/admin/open-play-capacity, below.
 export const dashboardNavGroups: DashboardNavGroup[] = [
   {
     label: "Operations",
@@ -31,7 +37,6 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Shift", href: "/dashboard/shift" },
       { title: "Bookings", href: "/dashboard/bookings" },
       { title: "Verify Payments", href: "/dashboard/bookings/verify-payments" },
-      { title: "Open Play", href: "/dashboard/open-play" },
       { title: "Equipment", href: "/dashboard/equipment" },
       { title: "Lockers", href: "/dashboard/lockers" },
       { title: "Products", href: "/dashboard/products" },
