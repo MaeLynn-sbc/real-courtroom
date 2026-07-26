@@ -1019,11 +1019,32 @@ enum OpenPlayNightStatus {
 // Seed: Friday(5) 32, Saturday(6) 40 — owner-editable, no upper cap
 // enforced (BUILD-SPEC.md §4 "Accept any positive integer").
 model OpenPlayCapacityDefault {
-  id        String   @id @default(cuid())
-  dayOfWeek Int
-  capacity  Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                        String   @id @default(cuid())
+  dayOfWeek                 Int
+  capacity                  Int
+  // Open-play online self-registration, Gate 1 follow-up (BUILD-SPEC.md
+  // §6): which capacity nights actually offer online registration — a
+  // NARROWER question than "which nights are capacity nights at all."
+  // That broader question is still hardcoded to Friday/Saturday
+  // (OPEN_PLAY_DAYS_OF_WEEK in open-play-capacity.service.ts, plus the
+  // DB-level CHECK constraint in migration 11/12) and stays that way;
+  // this column doesn't touch it. This is the second, independent gate:
+  // even once services/settings.getOpenPlayOnlineRegistrationEnabled()
+  // (the feature-wide switch) is on, a specific weekday's online
+  // registration only actually offers itself if this is ALSO true for
+  // that day — both gates must pass. Defaults true (not false, unlike
+  // the feature-wide switch) because it changes nothing on its own: the
+  // feature-wide switch is what actually gates reachability, defaulting
+  // false. This column merely states which days WOULD be offered once
+  // that switch is flipped, and "Friday and Saturday" is the accurate
+  // default answer today, backfilling true for both already-seeded rows
+  // when this column is added — an owner who later wants online
+  // registration on Friday only turns this off for Saturday specifically,
+  // rather than every deployment needing to opt both days back in after
+  // enabling the feature.
+  onlineRegistrationEnabled Boolean  @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
   @@unique([dayOfWeek])
 }

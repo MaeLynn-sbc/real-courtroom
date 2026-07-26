@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 
 import {
   capacityDefaultInputSchema,
+  onlineRegistrationEnabledInputSchema,
   sessionCapacityOverrideInputSchema,
   type CapacityDefaultInput,
+  type OnlineRegistrationEnabledInput,
   type SessionCapacityOverrideInput,
 } from "@/features/open-play-capacity/schemas/open-play-capacity.schema";
 import { requireSystemAdmin } from "@/lib/action-auth";
@@ -44,6 +46,32 @@ export async function setCapacityDefaultAction(input: CapacityDefaultInput): Pro
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "setCapacityDefaultAction", userId: authz.userId }) };
+  }
+}
+
+export async function setOnlineRegistrationEnabledAction(
+  input: OnlineRegistrationEnabledInput,
+): Promise<OpenPlayCapacityActionState> {
+  const authz = await requireOpenPlayCapacityAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = onlineRegistrationEnabledInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  try {
+    await openPlayCapacityService.setOnlineRegistrationEnabledForDay(
+      parsed.data.dayOfWeek,
+      parsed.data.enabled,
+      authz.userId,
+    );
+    revalidateOpenPlayCapacity();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "setOnlineRegistrationEnabledAction", userId: authz.userId }) };
   }
 }
 

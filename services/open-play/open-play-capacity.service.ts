@@ -98,6 +98,39 @@ export class OpenPlayCapacityService {
     return updated;
   }
 
+  // Open-play online self-registration, Gate 1 follow-up (BUILD-SPEC.md
+  // §6). A narrower, independent question from setCapacityDefault above:
+  // whether THIS capacity night (already hardcoded to Fri/Sat —
+  // OPEN_PLAY_DAYS_OF_WEEK, this file's own top-of-file comment) also
+  // offers online registration. Not read by any registration path yet —
+  // the feature-wide switch (settingsService.
+  // getOpenPlayOnlineRegistrationEnabled) still gates all of it; this is
+  // the second, per-day gate a later gate's service code will also check.
+  async setOnlineRegistrationEnabledForDay(
+    dayOfWeek: OpenPlayDayOfWeek,
+    enabled: boolean,
+    actorUserId: string,
+  ): Promise<OpenPlayCapacityDefault> {
+    const existing = await prisma.openPlayCapacityDefault.findUnique({ where: { dayOfWeek } });
+
+    const updated = await prisma.openPlayCapacityDefault.upsert({
+      where: { dayOfWeek },
+      update: { onlineRegistrationEnabled: enabled },
+      create: { dayOfWeek, capacity: 0, onlineRegistrationEnabled: enabled },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_capacity_default.online_registration_toggled",
+      entityType: "OpenPlayCapacityDefault",
+      entityId: updated.id,
+      oldValues: existing ? { onlineRegistrationEnabled: existing.onlineRegistrationEnabled } : null,
+      newValues: { dayOfWeek, onlineRegistrationEnabled: enabled },
+    });
+
+    return updated;
+  }
+
   // "One per date. Created on demand from the weekday default" — nothing
   // pre-populates future Friday/Saturday rows; this is the sole entry
   // point that materializes one, called either by an owner setting a

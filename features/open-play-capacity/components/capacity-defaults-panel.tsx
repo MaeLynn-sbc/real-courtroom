@@ -4,22 +4,31 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { setCapacityDefaultAction } from "@/actions/open-play-capacity.actions";
+import { setCapacityDefaultAction, setOnlineRegistrationEnabledAction } from "@/actions/open-play-capacity.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 interface CapacityDefaultsPanelProps {
   fridayCapacity: number;
   saturdayCapacity: number;
+  fridayOnlineRegistrationEnabled: boolean;
+  saturdayOnlineRegistrationEnabled: boolean;
 }
 
-export function CapacityDefaultsPanel({ fridayCapacity, saturdayCapacity }: CapacityDefaultsPanelProps) {
+export function CapacityDefaultsPanel({
+  fridayCapacity,
+  saturdayCapacity,
+  fridayOnlineRegistrationEnabled,
+  saturdayOnlineRegistrationEnabled,
+}: CapacityDefaultsPanelProps) {
   const router = useRouter();
   const [friday, setFriday] = useState(fridayCapacity);
   const [saturday, setSaturday] = useState(saturdayCapacity);
   const [isPending, startTransition] = useTransition();
+  const [isTogglePending, startToggleTransition] = useTransition();
 
   function save(dayOfWeek: 5 | 6, capacity: number) {
     startTransition(async () => {
@@ -29,6 +38,25 @@ export function CapacityDefaultsPanel({ fridayCapacity, saturdayCapacity }: Capa
         return;
       }
       toast.success("Capacity default saved.");
+      router.refresh();
+    });
+  }
+
+  // Open-play online self-registration, Gate 1 follow-up (BUILD-SPEC.md
+  // §6). Independent of the capacity number above and independent of
+  // the feature-wide switch (still off, elsewhere) — this only decides
+  // which of Friday/Saturday would offer online registration once that
+  // switch is on. Live-toggled, same tone="status" convention as every
+  // other live/persisted settings toggle in the dashboard (BUILD-SPEC.md
+  // §2), not a form field batched into the capacity Save button beside it.
+  function toggleOnlineRegistration(dayOfWeek: 5 | 6, enabled: boolean) {
+    startToggleTransition(async () => {
+      const result = await setOnlineRegistrationEnabledAction({ dayOfWeek, enabled });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`Online registration ${enabled ? "enabled" : "disabled"}.`);
       router.refresh();
     });
   }
@@ -58,6 +86,18 @@ export function CapacityDefaultsPanel({ fridayCapacity, saturdayCapacity }: Capa
                 Save
               </Button>
             </div>
+            <div className="flex items-center gap-2 pt-1">
+              <Switch
+                checked={fridayOnlineRegistrationEnabled}
+                onCheckedChange={(checked) => toggleOnlineRegistration(5, checked)}
+                disabled={isTogglePending}
+                tone="status"
+                aria-label="Friday online registration"
+              />
+              <span className="text-muted-foreground text-xs">
+                Online registration {fridayOnlineRegistrationEnabled ? "on" : "off"}
+              </span>
+            </div>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="saturdayCapacity">Saturday</Label>
@@ -72,6 +112,18 @@ export function CapacityDefaultsPanel({ fridayCapacity, saturdayCapacity }: Capa
               <Button type="button" size="sm" disabled={isPending} onClick={() => save(6, saturday)}>
                 Save
               </Button>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <Switch
+                checked={saturdayOnlineRegistrationEnabled}
+                onCheckedChange={(checked) => toggleOnlineRegistration(6, checked)}
+                disabled={isTogglePending}
+                tone="status"
+                aria-label="Saturday online registration"
+              />
+              <span className="text-muted-foreground text-xs">
+                Online registration {saturdayOnlineRegistrationEnabled ? "on" : "off"}
+              </span>
             </div>
           </div>
         </div>

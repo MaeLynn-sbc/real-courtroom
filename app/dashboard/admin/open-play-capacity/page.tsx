@@ -36,6 +36,8 @@ export default async function OpenPlayCapacityPage() {
 
   const fridayCapacity = defaults.find((row) => row.dayOfWeek === 5)?.capacity ?? 0;
   const saturdayCapacity = defaults.find((row) => row.dayOfWeek === 6)?.capacity ?? 0;
+  const fridayOnlineRegistrationEnabled = defaults.find((row) => row.dayOfWeek === 5)?.onlineRegistrationEnabled ?? true;
+  const saturdayOnlineRegistrationEnabled = defaults.find((row) => row.dayOfWeek === 6)?.onlineRegistrationEnabled ?? true;
 
   const nights = upcomingNights.map((night) => ({
     date: dateValueFormatter(night.date),
@@ -59,7 +61,12 @@ export default async function OpenPlayCapacityPage() {
         </Link>
       </div>
 
-      <CapacityDefaultsPanel fridayCapacity={fridayCapacity} saturdayCapacity={saturdayCapacity} />
+      <CapacityDefaultsPanel
+        fridayCapacity={fridayCapacity}
+        saturdayCapacity={saturdayCapacity}
+        fridayOnlineRegistrationEnabled={fridayOnlineRegistrationEnabled}
+        saturdayOnlineRegistrationEnabled={saturdayOnlineRegistrationEnabled}
+      />
       <OpenPlaySettingsPanel {...openPlaySettings} />
       <UpcomingNightsPanel nights={nights} />
     </div>

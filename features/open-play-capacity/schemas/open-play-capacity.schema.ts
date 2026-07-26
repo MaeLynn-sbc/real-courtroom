@@ -17,3 +17,13 @@ export const sessionCapacityOverrideInputSchema = z.object({
 });
 
 export type SessionCapacityOverrideInput = z.infer<typeof sessionCapacityOverrideInputSchema>;
+
+// Open-play online self-registration, Gate 1 follow-up (BUILD-SPEC.md
+// §6) — which capacity night(s) offer online registration, independent
+// of the capacity number itself.
+export const onlineRegistrationEnabledInputSchema = z.object({
+  dayOfWeek: z.union([z.literal(5), z.literal(6)]),
+  enabled: z.boolean(),
+});
+
+export type OnlineRegistrationEnabledInput = z.infer<typeof onlineRegistrationEnabledInputSchema>;
