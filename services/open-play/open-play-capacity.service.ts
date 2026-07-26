@@ -2,6 +2,7 @@ import { getFacilityCloseMinutes } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import type { OpenPlayCapacityDefault, OpenPlayNightSession, Prisma } from "@/lib/generated/prisma/client";
+import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
 import { playerTabService } from "@/services/open-play/player-tab.service";
 import { settingsService } from "@/services/settings/settings.service";
 
@@ -197,9 +198,49 @@ export class OpenPlayCapacityService {
   async setSessionCapacityOverride(date: Date, capacity: number, actorUserId: string): Promise<OpenPlayNightSession> {
     const session = await this.getOrCreateSessionForDate(date);
 
-    const updated = await prisma.openPlayNightSession.update({
-      where: { id: session.id },
-      data: { capacity },
+    // Open-play online self-registration, Gate 2 (BUILD-SPEC.md §6): "a
+    // slot frees ... or capacity raised" — wrapped in a transaction that
+    // also locks the session row (same raw-SQL FOR UPDATE query
+    // open-play-registration.service.ts's own lockSessionRow runs;
+    // duplicated rather than imported across services, same precedent
+    // as isUniqueConstraintViolation already being duplicated between
+    // these two exact files) purely so inviteNextWaitlistEntry below can
+    // safely read/write OpenPlayWaitlistEntry rows for this session
+    // without racing a concurrent registerWalkIn/releaseRegistration.
+    // Harmless when uncontended (this action is owner-only and rare —
+    // this file's own existing comment on this method already says so),
+    // and inert whenever the feature-wide switch is off, since no
+    // OpenPlayWaitlistEntry row can exist in that state — proven in this
+    // gate's hard-boundary check via the existing
+    // open-play-capacity.concurrency.integration.ts suite passing
+    // unmodified.
+    const updated = await prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ id: string; date: Date; capacity: number }[]>`
+        SELECT id, date, capacity FROM "OpenPlayNightSession" WHERE id = ${session.id} FOR UPDATE
+      `;
+      const locked = rows[0];
+      if (!locked) {
+        throw new Error("Open play night session not found.");
+      }
+
+      const result = await tx.openPlayNightSession.update({
+        where: { id: session.id },
+        data: { capacity },
+      });
+
+      // Only a genuine increase ever frees anything — lowering capacity
+      // has its own separate, not-yet-built guard (this method's own
+      // "Phase 4 note" above already flags that lowering below the
+      // confirmed count isn't rejected yet; unrelated to this gate).
+      if (capacity > locked.capacity) {
+        await openPlayRegistrationService.inviteNextWaitlistEntry(
+          tx,
+          { id: session.id, date: locked.date },
+          actorUserId,
+        );
+      }
+
+      return result;
     });
 
     await this.writeAuditLog({

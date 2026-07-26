@@ -3,9 +3,11 @@ import { prisma } from "@/lib/prisma";
 import type {
   OpenPlayNightRegistration,
   OpenPlayNightRegistrationSource,
+  OpenPlayWaitlistEntry,
   Prisma,
 } from "@/lib/generated/prisma/client";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
+import { canTransitionOpenPlayWaitlistEntryStatus } from "@/services/open-play/open-play-waitlist-status";
 import { OPEN_PLAY_SKILL_LEVEL_ORDER } from "@/types/open-play-skill-levels";
 
 // BUILD-SPEC.md §5. Concurrency: SELECT ... FOR UPDATE on the session
@@ -44,7 +46,55 @@ export interface RegisterWalkInInput {
   partyId?: string;
 }
 
+// Open-play online self-registration, Gate 2 (BUILD-SPEC.md §6). No
+// playerId/partyId — the public path doesn't resolve a returning-player
+// match or support party registration yet (neither was asked for; this
+// mirrors exactly what §6's spec describes, nothing more).
+export interface RegisterOnlineInput {
+  playerName: string;
+  phone: string;
+  skillLevel: OpenPlaySkillLevel;
+}
+
+export type SubmitOnlineRegistrationResult =
+  | { kind: "registered"; registration: OpenPlayNightRegistration }
+  | { kind: "waitlisted"; entry: OpenPlayWaitlistEntry };
+
 export type ReleaseStatus = "CANCELLED" | "NO_SHOW" | "CHECKED_OUT";
+
+// Matches Phase 8's HOLD_DURATION_MINUTES (booking.service.ts) exactly,
+// per this gate's explicit instruction to reuse holdExpiresAt's pattern,
+// not invent a second one.
+const HOLD_DURATION_MINUTES = 30;
+
+// Shared by registerWalkIn (a seat taken by cash-paid-immediately staff
+// registration) and submitOnlineRegistration/inviteNextWaitlistEntry (a
+// seat taken or provisionally held by an online registration) — ONE
+// definition of "how many seats does this session currently have
+// spoken for," used by every path that needs to answer that question,
+// rather than each computing its own narrower view and disagreeing.
+// waitlistPos is a walk-in-only concept (BUILD-SPEC.md §5 "Confirmed
+// but no seat") — always null on every online-sourced row regardless of
+// state, so filtering on it here only ever excludes walk-in rows still
+// on the walk-in waitlist, exactly as before this predicate was shared.
+// PENDING_VERIFICATION counts (proof submitted, not yet resolved —
+// mirrors Booking's own "not excluded until REJECTED" stance). An
+// AWAITING_PAYMENT hold only counts while its holdExpiresAt hasn't
+// passed — mirrors booking.service.ts's checkAvailabilityWithClient's
+// identical lazy-exclusion of an expired hold.
+async function countOccupiedSeats(tx: Prisma.TransactionClient, sessionId: string, now: Date): Promise<number> {
+  return tx.openPlayNightRegistration.count({
+    where: {
+      sessionId,
+      waitlistPos: null,
+      OR: [
+        { status: "CONFIRMED" },
+        { status: "PENDING_VERIFICATION" },
+        { status: "AWAITING_PAYMENT", holdExpiresAt: { gte: now } },
+      ],
+    },
+  });
+}
 
 export interface SessionRegistrations {
   registrations: OpenPlayNightRegistration[];
@@ -73,12 +123,17 @@ export class OpenPlayRegistrationService {
         throw new Error("Open play night session not found.");
       }
 
-      // "Confirmed" for capacity-counting purposes = has a seat: status
-      // CONFIRMED and no waitlistPos (BUILD-SPEC.md §5 "Only confirmed
-      // (verified paid) registrations count toward capacity").
-      const seatedCount = await tx.openPlayNightRegistration.count({
-        where: { sessionId, status: "CONFIRMED", waitlistPos: null },
-      });
+      // Open-play online self-registration, Gate 2: widened from a
+      // CONFIRMED-only count to countOccupiedSeats (also sees an
+      // unexpired online AWAITING_PAYMENT hold or PENDING_VERIFICATION
+      // registration as occupying a seat) — a walk-in arriving mid-way
+      // through someone's online pay-now window must not be seated on
+      // top of it. Identical result to the old query whenever no online
+      // registration exists for this session (the two new OR branches
+      // simply match zero rows), which is always true while the
+      // feature-wide switch is off — proven in this gate's hard-
+      // boundary check, not just asserted.
+      const seatedCount = await countOccupiedSeats(tx, sessionId, new Date());
 
       let waitlistPos: number | null = null;
       if (seatedCount >= session.capacity) {
@@ -150,6 +205,210 @@ export class OpenPlayRegistrationService {
     return registration;
   }
 
+  // Open-play online self-registration, Gate 2 (BUILD-SPEC.md §6). The
+  // raw registration-or-waitlist decision, source=WEBSITE hardcoded
+  // here (never accepted from a caller-supplied field — there isn't
+  // one on RegisterOnlineInput to begin with) — no switch check inside
+  // this method, same split as booking.service.ts's createBookingHold:
+  // the feature-wide/per-day gate checks live in the thin public
+  // wrapper (services/open-play/public-open-play-registration.service.ts),
+  // this method assumes the caller already decided registration is
+  // allowed right now. actorUserId is always null — no real staff user
+  // triggers this, same precedent this file's own reconcileNoShows
+  // caller already established (markNoShow's system release), not
+  // Booking's separate borrowed-website-identity pattern.
+  //
+  // Same lock as registerWalkIn (`lockSessionRow`, §15 pattern 1) — two
+  // people submitting for the same session's last seat concurrently
+  // serialize through it exactly like a walk-in racing another walk-in
+  // does today; no new concurrency pattern introduced.
+  async submitOnlineRegistration(
+    sessionId: string,
+    input: RegisterOnlineInput,
+  ): Promise<SubmitOnlineRegistrationResult> {
+    const result = await prisma.$transaction(async (tx) => {
+      const session = await lockSessionRow(tx, sessionId);
+      if (!session) {
+        throw new Error("Open play night session not found.");
+      }
+
+      const now = new Date();
+      const occupied = await countOccupiedSeats(tx, sessionId, now);
+
+      if (occupied < session.capacity) {
+        const holdExpiresAt = new Date(now.getTime() + HOLD_DURATION_MINUTES * 60_000);
+        const registration = await tx.openPlayNightRegistration.create({
+          data: {
+            sessionId,
+            date: session.date,
+            playerName: input.playerName,
+            phone: input.phone,
+            skillLevel: input.skillLevel,
+            source: "WEBSITE" satisfies OpenPlayNightRegistrationSource,
+            status: "AWAITING_PAYMENT",
+            holdExpiresAt,
+          },
+        });
+        return { kind: "registered" as const, registration };
+      }
+
+      // Full — BUILD-SPEC.md §6 "no payment prompt at all... no hold, no
+      // proof row." No OpenPlayNightRegistration row at all, on purpose
+      // (see OpenPlayWaitlistEntry's own schema comment) — just the
+      // waitlist entry.
+      const entry = await tx.openPlayWaitlistEntry.create({
+        data: {
+          sessionId,
+          playerName: input.playerName,
+          phone: input.phone,
+          skillLevel: input.skillLevel,
+        },
+      });
+      return { kind: "waitlisted" as const, entry };
+    });
+
+    if (result.kind === "registered") {
+      await this.writeAuditLog({
+        actorUserId: null,
+        action: "open_play_night_registration.online_hold_created",
+        entityType: "OpenPlayNightRegistration",
+        entityId: result.registration.id,
+        newValues: { sessionId, holdExpiresAt: result.registration.holdExpiresAt },
+      });
+    } else {
+      await this.writeAuditLog({
+        actorUserId: null,
+        action: "open_play_waitlist_entry.created",
+        entityType: "OpenPlayWaitlistEntry",
+        entityId: result.entry.id,
+        newValues: { sessionId },
+      });
+    }
+
+    return result;
+  }
+
+  // Open-play online self-registration, Gate 2. "When a slot frees ...
+  // the next waitlisted person is invited to pay" (BUILD-SPEC.md §6).
+  // Called from inside an ALREADY-locked session transaction — either
+  // releaseRegistration's own tx (a cancellation/no-show/check-out just
+  // found no walk-in waitlist head to promote) or
+  // OpenPlayCapacityService.setSessionCapacityOverride's tx (capacity
+  // just increased) — never acquires its own lock, matching §15's
+  // canonical order (Session first, always) rather than introducing a
+  // second lock site for the same row.
+  //
+  // Lazy invite-expiry (mirrors Booking's own "lazy exclusion, no
+  // active sweep" precedent exactly, per this gate's instruction to
+  // reuse the pattern) — resolved right here, at the one moment it
+  // actually matters (a slot is about to be offered), not on a
+  // schedule. At most one INVITED entry per session at a time is the
+  // invariant this method maintains: if one is still live (not past its
+  // deadline), do nothing rather than double-invite; if it's expired,
+  // transition it EXPIRED first, then fall through and try the next
+  // WAITING entry in the same call — one "a slot is available" moment
+  // can both resolve a stale invite and hand the slot to someone new.
+  async inviteNextWaitlistEntry(
+    tx: Prisma.TransactionClient,
+    session: { id: string; date: Date },
+    actorUserId: string | null,
+  ): Promise<void> {
+    const now = new Date();
+
+    // Resolve every stale invite first — cleanliness/audit correctness,
+    // not a capacity effect: countOccupiedSeats already stops counting
+    // an AWAITING_PAYMENT hold the instant its own holdExpiresAt passes,
+    // independent of whether this write has run yet (same lazy-exclusion
+    // reasoning as Booking's own expired-hold handling). More than one
+    // can be stale at once if this session went a while without anyone
+    // freeing a slot to trigger this method — resolve all of them, not
+    // just the first found.
+    const staleInvites = await tx.openPlayWaitlistEntry.findMany({
+      where: { sessionId: session.id, status: "INVITED", inviteExpiresAt: { lt: now } },
+    });
+    for (const stale of staleInvites) {
+      if (!canTransitionOpenPlayWaitlistEntryStatus("INVITED", "EXPIRED")) {
+        // Defensive — the state machine says this transition is invalid,
+        // which would mean this method's own invariant (EXPIRED is only
+        // ever reached from INVITED) has already been violated
+        // elsewhere. Fail loudly rather than silently writing a status
+        // the transition table doesn't allow.
+        throw new Error(`Cannot transition waitlist entry ${stale.id} from INVITED to EXPIRED.`);
+      }
+      await tx.openPlayWaitlistEntry.update({ where: { id: stale.id }, data: { status: "EXPIRED" } });
+      await this.writeAuditLog({
+        actorUserId,
+        action: "open_play_waitlist_entry.invite_expired",
+        entityType: "OpenPlayWaitlistEntry",
+        entityId: stale.id,
+        newValues: { status: "EXPIRED" },
+      });
+    }
+
+    // Seat-aware, not "at most one outstanding invite ever": BUILD-SPEC.md
+    // §6 describes one freed slot inviting one person, and "capacity
+    // raised" can free several slots at once (e.g. 30 -> 35), so this
+    // invites as many WAITING entries, FCFS, as there is currently
+    // room for — each invite's own new hold counts toward occupied for
+    // the next iteration via countOccupiedSeats, so the loop naturally
+    // stops the moment seats run out. Bounded by real row counts
+    // (WAITING entries, session capacity), no artificial cap needed.
+    for (;;) {
+      const currentSession = await tx.openPlayNightSession.findUniqueOrThrow({
+        where: { id: session.id },
+        select: { capacity: true },
+      });
+      const occupied = await countOccupiedSeats(tx, session.id, now);
+      if (occupied >= currentSession.capacity) {
+        return;
+      }
+
+      const nextWaiting = await tx.openPlayWaitlistEntry.findFirst({
+        where: { sessionId: session.id, status: "WAITING" },
+        orderBy: { submittedAt: "asc" },
+      });
+      if (!nextWaiting) {
+        return;
+      }
+
+      if (!canTransitionOpenPlayWaitlistEntryStatus("WAITING", "INVITED")) {
+        throw new Error(`Cannot transition waitlist entry ${nextWaiting.id} from WAITING to INVITED.`);
+      }
+
+      const holdExpiresAt = new Date(now.getTime() + HOLD_DURATION_MINUTES * 60_000);
+      const registration = await tx.openPlayNightRegistration.create({
+        data: {
+          sessionId: session.id,
+          date: session.date,
+          playerName: nextWaiting.playerName,
+          phone: nextWaiting.phone,
+          skillLevel: nextWaiting.skillLevel,
+          source: "WEBSITE" satisfies OpenPlayNightRegistrationSource,
+          status: "AWAITING_PAYMENT",
+          holdExpiresAt,
+        },
+      });
+
+      await tx.openPlayWaitlistEntry.update({
+        where: { id: nextWaiting.id },
+        data: {
+          status: "INVITED",
+          invitedAt: now,
+          inviteExpiresAt: holdExpiresAt,
+          registrationId: registration.id,
+        },
+      });
+
+      await this.writeAuditLog({
+        actorUserId,
+        action: "open_play_waitlist_entry.invited",
+        entityType: "OpenPlayWaitlistEntry",
+        entityId: nextWaiting.id,
+        newValues: { registrationId: registration.id, inviteExpiresAt: holdExpiresAt },
+      });
+    }
+  }
+
   async cancelRegistration(registrationId: string, actorUserId: string): Promise<OpenPlayNightRegistration> {
     return this.releaseRegistration(registrationId, "CANCELLED", actorUserId);
   }
@@ -218,7 +477,19 @@ export class OpenPlayRegistrationService {
       // order (Registration ranks before Session), for zero behavioral
       // gain.
       const current = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
-      if (current.status !== "CONFIRMED") {
+      // Open-play online self-registration, Gate 2: widened from
+      // CONFIRMED-only. An online registration can be released while
+      // AWAITING_PAYMENT (a hold nobody paid) or PENDING_VERIFICATION
+      // (proof submitted, not yet resolved) — both genuinely occupy a
+      // seat per countOccupiedSeats, so cancelling either one must free
+      // it and run the same promotion/invite logic below, not silently
+      // no-op the way this guard used to treat every non-CONFIRMED
+      // status. CHECKED_OUT/CANCELLED/NO_SHOW/REJECTED are still
+      // terminal — cancelling one of those (a concurrent or earlier
+      // release already happened) stays the idempotent no-op it always
+      // was.
+      const releasableStatuses: (typeof current.status)[] = ["CONFIRMED", "AWAITING_PAYMENT", "PENDING_VERIFICATION"];
+      if (!releasableStatuses.includes(current.status)) {
         // Already released by a concurrent (or earlier) call — idempotent
         // no-op, same treatment as check-in's double-tap.
         return current;
@@ -249,6 +520,15 @@ export class OpenPlayRegistrationService {
             where: { sessionId: existing.sessionId, waitlistPos: { gt: head.waitlistPos ?? 0 } },
             data: { waitlistPos: { decrement: 1 } },
           });
+        } else {
+          // Open-play online self-registration, Gate 2: the paid walk-in
+          // waitlist (waitlistPos-based, above) always gets first claim
+          // on a freed seat — unchanged, still the very branch this
+          // comment sits in. Only once THAT waitlist has nobody left
+          // does the freed seat go to the online waitlist instead. Same
+          // transaction, same session lock already held above — not a
+          // second, parallel release mechanism.
+          await this.inviteNextWaitlistEntry(tx, { id: existing.sessionId, date: existing.date }, actorUserId);
         }
       } else if (releasedWaitlistPos !== null) {
         // Released registration was itself waitlisted, not seated — no
