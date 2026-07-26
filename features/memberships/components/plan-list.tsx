@@ -43,7 +43,17 @@ export function PlanList({ plans }: PlanListProps) {
             <TableCell>{BILLING_LABELS[plan.billingPeriod] ?? plan.billingPeriod}</TableCell>
             <TableCell>{plan.discountPercent ? `${plan.discountPercent}%` : "—"}</TableCell>
             <TableCell>
-              <Badge variant={plan.isActive ? "success" : "outline"}>
+              {/* BUILD-SPEC.md §2 — genuine live "is this plan active"
+                  status, sitting directly beneath the page's green "New
+                  plan" button (app/dashboard/memberships/plans/page.tsx).
+                  variant="status" avoids the same green meaning two
+                  different things on one screen — same fix as the other
+                  status-table cases in the 13-screen batch (category-list,
+                  registration-roster-panel, shift-workspace). Found
+                  during that batch, fixed as its own follow-up per plan-
+                  form.tsx (a create form, not this list) being what was
+                  actually flagged. */}
+              <Badge variant={plan.isActive ? "status" : "outline"}>
                 {plan.isActive ? "Active" : "Inactive"}
               </Badge>
             </TableCell>
