@@ -4,6 +4,29 @@ import { prisma } from "@/lib/prisma";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { getUploadService } from "@/services/upload/upload-service.factory";
 import { saleService } from "@/services/sales/sale.service";
+import { getSmsService } from "@/services/sms/sms-service.factory";
+
+// Payment-proof verification-outcome SMS — same reasoning as open-play's
+// waitlist-invite SMS (services/open-play/open-play-registration.service.ts):
+// a customer isn't watching the dashboard the way staff are, so SMS is the
+// channel that actually reaches them. Best-effort throughout — a send
+// failure is logged, never thrown; the booking/proof state change itself
+// is already committed and correct regardless of whether the text lands.
+// guestPhone is the only phone this whole proof lifecycle ever has —
+// AWAITING_PAYMENT/PENDING_VERIFICATION only exist on the public WEBSITE
+// booking path (public-booking.schema.ts requires guestPhone), so it's
+// always present in practice; still checked defensively since the column
+// itself is nullable.
+async function sendBookingProofSms(phone: string | null, message: string): Promise<void> {
+  if (!phone) {
+    return;
+  }
+  try {
+    await getSmsService().send(phone, message);
+  } catch (error) {
+    logger.error({ error, phone }, "Failed to send booking payment-proof SMS");
+  }
+}
 
 // Duck-typed check, matching the existing convention (booking.service.ts,
 // open-play-checkin.service.ts, locker-rental.service.ts, match.service.ts,
@@ -113,7 +136,7 @@ export class BookingPaymentProofService {
     });
 
     try {
-      const { proof, bookedById } = await prisma.$transaction(async (tx) => {
+      const { proof, bookedById, guestPhone, bookingReference } = await prisma.$transaction(async (tx) => {
         const now = new Date();
         // Atomic conditional UPDATE (§15 pattern 2) — the WHERE clause IS
         // the check: only a booking that is STILL AWAITING_PAYMENT with an
@@ -155,7 +178,12 @@ export class BookingPaymentProofService {
         // Website system identity the booking itself is already
         // attributed to (Booking.bookedById), not a made-up value.
         const booking = await tx.booking.findUniqueOrThrow({ where: { id: input.bookingId } });
-        return { proof: created, bookedById: booking.bookedById };
+        return {
+          proof: created,
+          bookedById: booking.bookedById,
+          guestPhone: booking.guestPhone,
+          bookingReference: booking.bookingReference,
+        };
       });
 
       await this.writeBookingHistory(input.bookingId, "PENDING_VERIFICATION", bookedById);
@@ -166,6 +194,14 @@ export class BookingPaymentProofService {
         entityId: proof.id,
         newValues: proof,
       });
+
+      // Submission acknowledgment — confirms the payment was actually
+      // received before staff ever look at it, so the customer isn't left
+      // wondering whether it went through.
+      await sendBookingProofSms(
+        guestPhone,
+        `The Courtroom: We received your GCash payment for booking ${bookingReference}. We're verifying it now — you'll get a text once it's confirmed.`,
+      );
 
       return proof;
     } catch (error) {
@@ -242,6 +278,10 @@ export class BookingPaymentProofService {
         newValues: result.proof,
       });
       await saleService.logSaleCreated(result.sale, context.actorUserId);
+      await sendBookingProofSms(
+        result.booking.guestPhone,
+        `The Courtroom: Your booking ${result.booking.bookingReference} is CONFIRMED! See you on the court.`,
+      );
     }
 
     return { alreadyResolved: result.alreadyResolved, proof: result.proof };
@@ -326,6 +366,19 @@ export class BookingPaymentProofService {
           "Parent court booking's payment was rejected.",
         );
       }
+
+      // No customer-facing status page shows rejectionReason anywhere in
+      // this app yet (confirmed: app/lookup/page.tsx doesn't even query
+      // BookingPaymentProof) — this SMS is the first place a customer
+      // ever sees it, not a second copy of existing text. REJECTED is
+      // terminal (same as CANCELLED, per the comment above) — a customer
+      // cannot resubmit proof for THIS booking, only make a new one,
+      // stated plainly rather than implying a resubmit step that doesn't
+      // exist.
+      await sendBookingProofSms(
+        result.booking.guestPhone,
+        `The Courtroom: We couldn't verify your GCash payment for booking ${result.booking.bookingReference} — ${reason}. This booking has been cancelled; please make a new booking if you'd still like to play, or contact us for help.`,
+      );
     }
 
     return { alreadyResolved: result.alreadyResolved, proof: result.proof };

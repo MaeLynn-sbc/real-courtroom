@@ -9,7 +9,9 @@ const NAV_LINKS: { href: string; label: string }[] = [
   { href: "/about", label: "About" },
   { href: "/courts", label: "Courts" },
   { href: "/rates", label: "Rates" },
-  { href: "/open-play", label: "Open Play" },
+  // Gate 3: repointed to the real self-registration form — see
+  // site-header.tsx's comment on the same change.
+  { href: "/open-play/register", label: "Open Play" },
   { href: "/contact", label: "Contact" },
   { href: "/book", label: "Book Now" },
 ];

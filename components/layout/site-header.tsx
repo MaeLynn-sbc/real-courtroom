@@ -24,8 +24,13 @@ const PILL_BUTTON_GHOST = cn(PILL_BUTTON, "border-line text-bone hover:border-gr
 export async function SiteHeader() {
   const visibility = await settingsService.getPublicVisibility();
 
+  // Gate 3: repointed from /open-play (the old, unrelated OpenPlaySession
+  // list) to the real self-registration form, now that one exists — was
+  // deliberately left alone through Gates 1/2 since there was nothing to
+  // point it at yet. The old page is untouched and still reachable by
+  // direct URL, just no longer the thing this nav link claims to be.
   const navLinks = visibility[PUBLIC_VISIBILITY_KEYS.OPEN_PLAY]
-    ? [...BASE_NAV_LINKS.slice(0, 2), { href: "/open-play", label: "Open Play" }, ...BASE_NAV_LINKS.slice(2)]
+    ? [...BASE_NAV_LINKS.slice(0, 2), { href: "/open-play/register", label: "Open Play" }, ...BASE_NAV_LINKS.slice(2)]
     : BASE_NAV_LINKS;
 
   return (

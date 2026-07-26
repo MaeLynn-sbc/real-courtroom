@@ -1,0 +1,351 @@
+import type { OpenPlayRegistrationPaymentProof } from "@/lib/generated/prisma/client";
+import { logger } from "@/lib/logger";
+import { prisma } from "@/lib/prisma";
+import {
+  createOpenPlayRegistrationFeeSale,
+  openPlayRegistrationService,
+  type RegisterWalkInSaleContext,
+} from "@/services/open-play/open-play-registration.service";
+import { getUploadService } from "@/services/upload/upload-service.factory";
+import { getSmsService } from "@/services/sms/sms-service.factory";
+
+// Mirrors services/booking/booking-payment-proof.service.ts's exact shape
+// — same three states (submit / approve / reject), same concurrency
+// pattern (§15 pattern 2, a status-guarded updateMany as the guard
+// itself, not a check-then-act), same public-path-hardcodes-its-own-
+// privilege convention for submission. Gate 1 built the
+// OpenPlayRegistrationPaymentProof model; nothing referenced it until
+// now (confirmed: zero non-schema hits anywhere in the repo).
+
+export class OpenPlayRegistrationNotAwaitingPaymentError extends Error {
+  constructor(reason: "not_found" | "wrong_status" | "hold_expired") {
+    super(
+      reason === "hold_expired"
+        ? "This registration's hold has expired — please submit a new registration."
+        : "This registration isn't waiting for payment.",
+    );
+    this.name = "OpenPlayRegistrationNotAwaitingPaymentError";
+  }
+}
+
+export class OpenPlayRegistrationNotAwaitingVerificationError extends Error {
+  constructor() {
+    super("This registration isn't waiting for verification.");
+    this.name = "OpenPlayRegistrationNotAwaitingVerificationError";
+  }
+}
+
+interface ScreenshotInput {
+  fileName: string;
+  contentType: string;
+  data: Buffer;
+}
+
+// THE PUBLIC PATH HARDCODES ITS OWN PRIVILEGE — same convention as
+// SubmitBookingPaymentProofInput's own comment. status/resolvedByEmployeeId/
+// resolvedAt/rejectionReason are typed as accepted input specifically so a
+// forbidden-value test can SEND them; submitOpenPlayRegistrationPaymentProof
+// never reads any of it.
+export interface SubmitOpenPlayRegistrationPaymentProofInput {
+  registrationId: string;
+  gcashReference: string;
+  submittedAmountCents: number;
+  screenshot: ScreenshotInput;
+  status?: string;
+  resolvedByEmployeeId?: string;
+  resolvedAt?: Date;
+  rejectionReason?: string;
+}
+
+export interface ResolveOpenPlayRegistrationPaymentProofContext {
+  employeeId: string;
+  actorUserId: string;
+}
+
+export interface ApproveOpenPlayRegistrationPaymentProofContext extends ResolveOpenPlayRegistrationPaymentProofContext {
+  shiftId: string;
+  paymentMethodId: string;
+}
+
+export interface ResolveOpenPlayRegistrationPaymentProofResult {
+  alreadyResolved: boolean;
+  proof: OpenPlayRegistrationPaymentProof;
+}
+
+// Same best-effort, log-don't-throw SMS shape as
+// services/booking/booking-payment-proof.service.ts's sendBookingProofSms
+// and open-play's own waitlist-invite SMS.
+async function sendOpenPlayProofSms(phone: string | null, message: string): Promise<void> {
+  if (!phone) {
+    return;
+  }
+  try {
+    await getSmsService().send(phone, message);
+  } catch (error) {
+    logger.error({ error, phone }, "Failed to send open-play payment-proof SMS");
+  }
+}
+
+export class OpenPlayRegistrationPaymentProofService {
+  // Reachable from the public submission action with no session/employee
+  // context — same shape as submitBookingPaymentProof.
+  async submitOpenPlayRegistrationPaymentProof(
+    input: SubmitOpenPlayRegistrationPaymentProofInput,
+  ): Promise<OpenPlayRegistrationPaymentProof> {
+    const upload = await getUploadService().uploadPrivate({
+      fileName: input.screenshot.fileName,
+      contentType: input.screenshot.contentType,
+      data: input.screenshot.data,
+    });
+
+    try {
+      const { proof, phone, playerName } = await prisma.$transaction(async (tx) => {
+        const now = new Date();
+        // Atomic conditional UPDATE (§15 pattern 2), identical shape to
+        // submitBookingPaymentProof's own guard.
+        const updateResult = await tx.openPlayNightRegistration.updateMany({
+          where: { id: input.registrationId, status: "AWAITING_PAYMENT", holdExpiresAt: { gte: now } },
+          data: { status: "PENDING_VERIFICATION", holdExpiresAt: null },
+        });
+
+        if (updateResult.count === 0) {
+          const registration = await tx.openPlayNightRegistration.findUnique({ where: { id: input.registrationId } });
+          if (!registration) {
+            throw new OpenPlayRegistrationNotAwaitingPaymentError("not_found");
+          }
+          if (registration.status === "AWAITING_PAYMENT") {
+            throw new OpenPlayRegistrationNotAwaitingPaymentError("hold_expired");
+          }
+          throw new OpenPlayRegistrationNotAwaitingPaymentError("wrong_status");
+        }
+
+        // Hardcoded — see this method's own doc comment above the input
+        // type. input.status/resolvedByEmployeeId/resolvedAt/rejectionReason
+        // are never read here.
+        const created = await tx.openPlayRegistrationPaymentProof.create({
+          data: {
+            registrationId: input.registrationId,
+            gcashReference: input.gcashReference,
+            submittedAmountCents: input.submittedAmountCents,
+            screenshotStorageKey: upload.key,
+            status: "PENDING",
+          },
+        });
+
+        const registration = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: input.registrationId } });
+        return { proof: created, phone: registration.phone, playerName: registration.playerName };
+      });
+
+      await this.writeAuditLog({
+        actorUserId: null,
+        action: "open_play_registration_payment_proof.submitted",
+        entityType: "OpenPlayRegistrationPaymentProof",
+        entityId: proof.id,
+        newValues: proof,
+      });
+
+      // Submission acknowledgment — this is the FIRST self-service
+      // (public, unauthenticated) proof upload this app has; there is no
+      // staff-in-the-room moment to reassure the customer otherwise.
+      await sendOpenPlayProofSms(
+        phone,
+        `The Courtroom: We received your GCash payment for Open Play (${playerName}). We're verifying it now — you'll get a text once it's confirmed.`,
+      );
+
+      return proof;
+    } catch (error) {
+      // The upload already landed — clean it up rather than leaving an
+      // orphaned file for a submission that never became a real proof row.
+      // NOTE (accepted gap, carried over from Gate 1's own report):
+      // unlike BookingPaymentProof's hand-written partial unique index,
+      // OpenPlayRegistrationPaymentProof.gcashReference has no unique
+      // index at all yet — so, unlike submitBookingPaymentProof, there is
+      // genuinely no duplicate-reference detection to map here. A GCash
+      // reference could be reused across two open-play registrations (or
+      // across an open-play registration and a court booking) without
+      // either table's index catching it.
+      await getUploadService().delete(upload.key).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  // Same concurrency shape as approveBookingPaymentProof — the
+  // status-guarded updateMany IS the guard.
+  async approveOpenPlayRegistrationPaymentProof(
+    proofId: string,
+    context: ApproveOpenPlayRegistrationPaymentProofContext,
+  ): Promise<ResolveOpenPlayRegistrationPaymentProofResult> {
+    const now = new Date();
+
+    const result = await prisma.$transaction(async (tx) => {
+      const updateResult = await tx.openPlayRegistrationPaymentProof.updateMany({
+        where: { id: proofId, status: "PENDING" },
+        data: { status: "APPROVED", resolvedByEmployeeId: context.employeeId, resolvedAt: now },
+      });
+
+      const proof = await tx.openPlayRegistrationPaymentProof.findUniqueOrThrow({ where: { id: proofId } });
+
+      if (updateResult.count === 0) {
+        return { alreadyResolved: true as const, proof, registration: null };
+      }
+
+      const registration = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: proof.registrationId } });
+      if (registration.status !== "PENDING_VERIFICATION") {
+        throw new OpenPlayRegistrationNotAwaitingVerificationError();
+      }
+
+      const confirmedRegistration = await tx.openPlayNightRegistration.update({
+        where: { id: registration.id },
+        data: { status: "CONFIRMED" },
+      });
+
+      // Shared mechanism (Gate 2 review follow-up's own instruction: "both
+      // paths — existing walk-in, new online-invite/proof-confirm — share
+      // one mechanism, not a second, diverging one"). Same fee, same
+      // Sale shape, just attributed with GCASH + the reference the
+      // customer actually submitted instead of a staff-entered cash/GCash
+      // choice.
+      const saleContext: RegisterWalkInSaleContext = {
+        method: "GCASH",
+        gcashReference: proof.gcashReference,
+        paymentMethodId: context.paymentMethodId,
+        employeeId: context.employeeId,
+        shiftId: context.shiftId,
+      };
+      await createOpenPlayRegistrationFeeSale(tx, confirmedRegistration, saleContext);
+
+      return { alreadyResolved: false as const, proof, registration: confirmedRegistration };
+    });
+
+    if (!result.alreadyResolved) {
+      await this.writeAuditLog({
+        actorUserId: context.actorUserId,
+        action: "open_play_registration_payment_proof.approved",
+        entityType: "OpenPlayRegistrationPaymentProof",
+        entityId: result.proof.id,
+        newValues: result.proof,
+      });
+      await sendOpenPlayProofSms(
+        result.registration.phone,
+        "The Courtroom: You're confirmed for Open Play! See you then.",
+      );
+    }
+
+    return { alreadyResolved: result.alreadyResolved, proof: result.proof };
+  }
+
+  // Same concurrency shape as rejectBookingPaymentProof. Two sequential
+  // transactions, not one — resolving the proof, then releasing the
+  // registration (which has its own session lock + seat-freeing +
+  // waitlist-invite logic already, in releaseRegistration via
+  // rejectRegistration). Accepted, documented risk: if the second
+  // transaction fails after the first commits, the proof would show
+  // REJECTED while the registration hasn't been released yet — a real
+  // gap, but the same class of non-atomicity this codebase already
+  // accepts for submitBookingPaymentProof's upload-then-transaction
+  // shape, and there's no external I/O between these two steps (both hit
+  // the same Postgres instance) to make that realistically likely.
+  // Combining them into one transaction would mean reworking
+  // releaseRegistration to accept an externally-supplied tx — out of
+  // scope for this gate, not attempted here.
+  async rejectOpenPlayRegistrationPaymentProof(
+    proofId: string,
+    reason: string,
+    context: ResolveOpenPlayRegistrationPaymentProofContext,
+  ): Promise<ResolveOpenPlayRegistrationPaymentProofResult> {
+    if (!reason.trim()) {
+      throw new Error("A rejection reason is required.");
+    }
+
+    const now = new Date();
+
+    const result = await prisma.$transaction(async (tx) => {
+      const updateResult = await tx.openPlayRegistrationPaymentProof.updateMany({
+        where: { id: proofId, status: "PENDING" },
+        data: { status: "REJECTED", resolvedByEmployeeId: context.employeeId, resolvedAt: now, rejectionReason: reason },
+      });
+
+      const proof = await tx.openPlayRegistrationPaymentProof.findUniqueOrThrow({ where: { id: proofId } });
+
+      if (updateResult.count === 0) {
+        return { alreadyResolved: true as const, proof, registration: null };
+      }
+
+      const registration = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: proof.registrationId } });
+      if (registration.status !== "PENDING_VERIFICATION") {
+        throw new OpenPlayRegistrationNotAwaitingVerificationError();
+      }
+
+      return { alreadyResolved: false as const, proof, registration };
+    });
+
+    if (!result.alreadyResolved) {
+      await this.writeAuditLog({
+        actorUserId: context.actorUserId,
+        action: "open_play_registration_payment_proof.rejected",
+        entityType: "OpenPlayRegistrationPaymentProof",
+        entityId: result.proof.id,
+        newValues: result.proof,
+      });
+
+      // Frees the seat and (via releaseRegistration's own existing
+      // no-walk-in-waitlist-head branch) invites the next online waiter —
+      // that path already sends ITS OWN SMS (Gate 2's
+      // inviteNextWaitlistEntry), so nothing extra needed here for them.
+      await openPlayRegistrationService.rejectRegistration(result.registration.id, context.actorUserId);
+
+      // No customer-facing status page exists for open-play (by design —
+      // BUILD-SPEC.md §6 point 5: SMS is the channel, not a web lookup
+      // page, same as this app's own booking flow has no customer-facing
+      // rejection text either — confirmed, nothing to reuse). REJECTED is
+      // terminal (rejectRegistration mirrors Booking's own "same as
+      // CANCELLED" reasoning) — stated plainly: no resubmission for THIS
+      // registration, only a brand new one.
+      await sendOpenPlayProofSms(
+        result.registration.phone,
+        `The Courtroom: We couldn't verify your GCash payment for Open Play — ${reason}. This registration has been cancelled; please submit a new registration if you'd still like to join, or contact us for help.`,
+      );
+    }
+
+    return { alreadyResolved: result.alreadyResolved, proof: result.proof };
+  }
+
+  async getProofById(proofId: string) {
+    return prisma.openPlayRegistrationPaymentProof.findUnique({
+      where: { id: proofId },
+      include: { registration: true, resolvedByEmployee: true },
+    });
+  }
+
+  async listPendingProofs() {
+    return prisma.openPlayRegistrationPaymentProof.findMany({
+      where: { status: "PENDING" },
+      include: { registration: true },
+      orderBy: { submittedAt: "asc" },
+    });
+  }
+
+  private async writeAuditLog(entry: {
+    actorUserId: string | null;
+    action: string;
+    entityType: string;
+    entityId: string;
+    newValues?: unknown;
+  }): Promise<void> {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          userId: entry.actorUserId,
+          action: entry.action,
+          entityType: entry.entityType,
+          entityId: entry.entityId,
+          newValues: JSON.parse(JSON.stringify(entry.newValues ?? null)),
+        },
+      });
+    } catch (error) {
+      logger.error({ err: error, action: entry.action }, "Failed to write audit log entry");
+    }
+  }
+}
+
+export const openPlayRegistrationPaymentProofService = new OpenPlayRegistrationPaymentProofService();

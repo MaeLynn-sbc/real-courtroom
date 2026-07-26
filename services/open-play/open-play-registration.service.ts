@@ -81,7 +81,7 @@ export type SubmitOnlineRegistrationResult =
   | { kind: "registered"; registration: OpenPlayNightRegistration }
   | { kind: "waitlisted"; entry: OpenPlayWaitlistEntry };
 
-export type ReleaseStatus = "CANCELLED" | "NO_SHOW" | "CHECKED_OUT";
+export type ReleaseStatus = "CANCELLED" | "NO_SHOW" | "CHECKED_OUT" | "REJECTED";
 
 // Matches Phase 8's HOLD_DURATION_MINUTES (booking.service.ts) exactly,
 // per this gate's explicit instruction to reuse holdExpiresAt's pattern,
@@ -145,7 +145,7 @@ async function lockSessionRow(
 // call, never cached, so an owner rate change applies to the very next
 // registration — same reasoning as every other settings-backed
 // business rule in this app.
-async function createOpenPlayRegistrationFeeSale(
+export async function createOpenPlayRegistrationFeeSale(
   tx: Prisma.TransactionClient,
   registration: { id: string; playerId: string | null; playerName: string },
   saleContext: RegisterWalkInSaleContext,
@@ -561,6 +561,18 @@ export class OpenPlayRegistrationService {
 
   async markCheckedOut(registrationId: string, actorUserId: string): Promise<OpenPlayNightRegistration> {
     return this.releaseRegistration(registrationId, "CHECKED_OUT", actorUserId);
+  }
+
+  // Gate 3: called by openPlayRegistrationPaymentProofService after a
+  // submitted GCash proof is rejected — terminal, same as CANCELLED
+  // (mirrors Booking's own "REJECTED is terminal, same slot-freeing
+  // shape as CANCELLED" reasoning). releaseRegistration's existing
+  // releasableStatuses already includes PENDING_VERIFICATION (widened
+  // in Gate 2), so this correctly frees the seat and runs the same
+  // walk-in-waitlist-first-then-online-waitlist promotion/invite logic
+  // every other release path already uses — no new mechanism.
+  async rejectRegistration(registrationId: string, actorUserId: string): Promise<OpenPlayNightRegistration> {
+    return this.releaseRegistration(registrationId, "REJECTED", actorUserId);
   }
 
   // BUILD-SPEC.md §5 "Auto-promotion... inside the same transaction as
