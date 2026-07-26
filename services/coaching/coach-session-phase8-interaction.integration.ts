@@ -35,7 +35,6 @@ import { settingsService } from "../settings/settings.service";
 import { addPublicCoachToBooking } from "./public-coach-session";
 import { coachAvailabilityService } from "./coach-availability.service";
 import { coachRateService } from "./coach-rate.service";
-import { coachSessionService } from "./coach-session.service";
 
 const TEST_DATE = new Date(2031, 6, 11); // Friday, distinct from other integration fixtures' dates
 const TEST_USERNAME_PREFIX = "it-phase8coach-";
