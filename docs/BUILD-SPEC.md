@@ -2455,3 +2455,35 @@ domain only become necessary at Phase 8.
   building the payment flow §8 already specifies — don't let the
   banner quietly become permanent. Remove the banner only once Phase 8
   actually records this revenue somewhere.
+- **Staff/coach SMS notifications** — a staff badge in-app already
+  exists for most things; SMS specifically to coaches when they're
+  booked, since a coach isn't always looking at a screen the way
+  front-desk staff are. Coach phone numbers are already collected
+  (`Employee.phone`). Reuse the SMS interface built for open-play
+  waitlist invites (`services/sms/`) rather than a second one. Not
+  decided which events trigger it (every booking? only new ones? a
+  reschedule?) — needs its own scoping pass before building.
+- **Tournaments homepage section** — a public-site section advertising
+  tournaments, plus a "host your tournament here" invite section with
+  an owner-attached QR/link per tournament. The organizer runs their
+  own registration on their own end (not this app's job) — this app's
+  part is just the advertising surface and the QR/link attachment.
+- **Homepage address, contact number, Google Maps link/button** — same
+  "needed for the footer" gap this section already named for address/
+  Facebook URL, above, extended to the homepage itself and a maps
+  button specifically.
+- **Per-court operating hours, by day of week, owner-editable** —
+  proposed default-on shape: Court 3 7am–11pm normally / 7am–6pm Fri–
+  Sat; Court 2 7am–8pm normally / 7am–6pm Fri–Sat. **Check first at
+  build time**: does hours-enforcement logic already exist (a booking
+  presumably can't already happen at 3am today — confirm what's
+  actually gating that before assuming nothing does). Also check
+  whether "all courts close 6pm Fri/Sat" is better modeled as one
+  shared Fri/Sat cutoff setting than duplicating the same cutoff
+  per-court — don't build the duplication reflexively if a single
+  setting covers it more honestly.
+- **Court booking-availability toggle** — likely superseded by the
+  per-court-hours item directly above, or possibly already covered by
+  the existing `CourtMaintenance` concept. **Check both at build time**
+  before building either — this may turn out to need nothing new at
+  all.
