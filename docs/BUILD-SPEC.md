@@ -2525,3 +2525,22 @@ domain only become necessary at Phase 8.
   these two links to it is part of that gate, not a separate cleanup
   pass** — don't ship Gate 3's form without also fixing where the nav
   already claims to send customers.
+- **Player search / "regulars" — a real gap, PARKED as a convenience
+  feature, not urgent.** Confirmed by direct code inspection: the only
+  "find an existing player" mechanism connected to check-in today is a
+  native HTML `<datalist>` autocomplete inside `WalkInRegistrationForm`
+  (shared by weeknight and Fri/Sat) — exact, case-insensitive name match
+  only, no phone lookup, no fuzzy search. The separate Players section
+  (`app/dashboard/players`) searches by name/email only (no phone), has
+  no tag/categorization concept anywhere (no "regular," no flag of any
+  kind on `Player`), and has zero wiring to check-in in either
+  direction — two islands connected only by that one datalist. Needed,
+  when this gets its own gate:
+  - Real search reachable from check-in — name AND phone, not
+    exact-match-only (replacing or supplementing the datalist).
+  - A new field on `Player` for tagging/categorizing (e.g. "regular") —
+    doesn't exist today, would need its own schema addition.
+  - The check-in screen searching/selecting from this properly, instead
+    of the current lightweight prefill.
+  Sequenced after Item A (Fri/Sat registration fee — done) and the
+  current open-play online-registration Gate 3 work. Not built now.
