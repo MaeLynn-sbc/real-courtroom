@@ -23,7 +23,7 @@ export default async function BookPage({ searchParams }: BookPageProps) {
   ]);
   const courtOptions = courts
     .filter((court) => court.status === "ACTIVE")
-    .map((court) => ({ id: court.id, name: court.name }));
+    .map((court) => ({ id: court.id, name: court.name, hourlyRateCents: court.hourlyRateCents }));
 
   return (
     <div className="flex min-h-svh flex-1 flex-col">

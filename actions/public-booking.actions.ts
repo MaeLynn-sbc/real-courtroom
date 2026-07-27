@@ -33,6 +33,9 @@ export interface PublicBookingActionState {
   // rest of this action state is byte-for-byte what it always was.
   requiresPayment?: boolean;
   holdExpiresAt?: Date;
+  // Already computed and persisted server-side (pro-rata) — surfaced so
+  // the confirmation screen can show what was actually charged.
+  totalAmountCents?: number;
   // Coaches with a window fully covering the just-booked slot — computed
   // once here rather than a separate client-triggered lookup, so the
   // confirmation screen's optional "add a coach" step (Gate 3) has
@@ -119,6 +122,7 @@ export async function createPublicBookingAction(
       bookingReference: result.bookingReference,
       requiresPayment: result.requiresPayment || undefined,
       holdExpiresAt: result.holdExpiresAt,
+      totalAmountCents: result.totalAmountCents,
       availableCoaches,
     };
   } catch (error) {

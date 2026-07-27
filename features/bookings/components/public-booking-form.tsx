@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 
 import { createPublicBookingAction, type PublicBookingCoachOption } from "@/actions/public-booking.actions";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PublicCoachAddOn } from "@/features/coaching/components/public-coach-add-on";
+import { formatCurrency } from "@/lib/utils";
 
 // Presentation-only convenience list — no schema/service duration limit
 // exists (services/booking/booking.service.ts's totalAmountCents is
@@ -30,6 +31,7 @@ const DURATIONS_MINUTES = [30, 60, 90, 120, 150, 180, 210, 240];
 interface PublicBookingFormCourt {
   id: string;
   name: string;
+  hourlyRateCents: number | null;
 }
 
 interface PublicBookingFormValues {
@@ -49,6 +51,9 @@ interface BookingConfirmation {
   time: string;
   durationMinutes: number;
   guestName: string;
+  // Already computed and persisted server-side (pro-rata) — see
+  // services/booking/booking.service.ts's totalAmountCents.
+  totalAmountCents: number;
   // Phase 8: true only when the owner-controlled GCash-prepayment switch
   // is on. Must not be silently ignored here — showing "Booking
   // confirmed... payment collected at the venue" for what's actually a
@@ -102,6 +107,20 @@ export function PublicBookingForm({
     },
   });
 
+  // Preview-only — mirrors booking.service.ts's own Math.round(hourlyRateCents
+  // * durationHours) so the number shown here matches what the server will
+  // actually charge, same shape as the staff booking form's own "Pricing
+  // summary" preview. Never fed back into the submitted payload; the
+  // server still computes and persists the real amount independently.
+  const watchedCourtId = useWatch({ control, name: "courtId" });
+  const watchedDurationMinutes = useWatch({ control, name: "durationMinutes" });
+  const selectedCourt = courts.find((court) => court.id === watchedCourtId);
+  const previewDurationHours = Number(watchedDurationMinutes) / 60;
+  const previewTotalCents =
+    selectedCourt?.hourlyRateCents != null && Number.isFinite(previewDurationHours)
+      ? Math.round(selectedCourt.hourlyRateCents * previewDurationHours)
+      : null;
+
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
 
@@ -128,6 +147,7 @@ export function PublicBookingForm({
         time: values.time,
         durationMinutes: Number(values.durationMinutes),
         guestName: values.guestName,
+        totalAmountCents: result.totalAmountCents ?? 0,
         requiresPayment: result.requiresPayment ?? false,
         availableCoaches: result.availableCoaches ?? [],
       });
@@ -166,6 +186,10 @@ export function PublicBookingForm({
           <div className="flex justify-between">
             <span className="text-muted-foreground">Duration</span>
             <span className="font-medium">{confirmation.durationMinutes} minutes</span>
+          </div>
+          <div className="flex justify-between border-t pt-3 text-base">
+            <span className="font-medium">Total</span>
+            <span className="font-semibold tabular-nums">{formatCurrency(confirmation.totalAmountCents)}</span>
           </div>
           {confirmation.requiresPayment ? (
             <p className="text-warning-foreground bg-warning/15 rounded-lg p-2 pt-2 text-xs">
@@ -260,6 +284,25 @@ export function PublicBookingForm({
           )}
         />
       </div>
+
+      <Card>
+        <CardContent className="flex flex-col gap-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Rate</span>
+            <span className="font-medium tabular-nums">
+              {selectedCourt?.hourlyRateCents != null
+                ? `${formatCurrency(selectedCourt.hourlyRateCents)}/hr`
+                : "—"}
+            </span>
+          </div>
+          <div className="flex justify-between border-t pt-2 text-base">
+            <span className="font-medium">Total</span>
+            <span className="font-semibold tabular-nums">
+              {previewTotalCents != null ? formatCurrency(previewTotalCents) : "—"}
+            </span>
+          </div>
+        </CardContent>
+      </Card>
 
       {serverError ? (
         <p className="text-destructive text-sm" role="alert">

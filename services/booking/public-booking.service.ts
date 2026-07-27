@@ -19,6 +19,11 @@ export interface CreatePublicBookingResult {
   bookingReference: string;
   requiresPayment: boolean;
   holdExpiresAt?: Date;
+  // Already computed and persisted by bookingService.createBooking/
+  // createBookingHold (pro-rata, hourlyRateCents * durationHours) — just
+  // surfaced here so the confirmation screen can show what was actually
+  // charged, instead of the customer never seeing a price at all.
+  totalAmountCents: number;
 }
 
 // Extracted from actions/public-booking.actions.ts so this — the actual
@@ -61,6 +66,7 @@ export async function createPublicBooking(input: CreatePublicBookingInput): Prom
       bookingReference: hold.bookingReference,
       requiresPayment: true,
       holdExpiresAt: hold.holdExpiresAt ?? undefined,
+      totalAmountCents: hold.totalAmountCents ?? 0,
     };
   }
 
@@ -84,5 +90,10 @@ export async function createPublicBooking(input: CreatePublicBookingInput): Prom
     source: "WEBSITE",
   });
 
-  return { bookingId: booking.id, bookingReference: booking.bookingReference, requiresPayment: false };
+  return {
+    bookingId: booking.id,
+    bookingReference: booking.bookingReference,
+    requiresPayment: false,
+    totalAmountCents: booking.totalAmountCents ?? 0,
+  };
 }
