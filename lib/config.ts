@@ -60,7 +60,10 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Payment Methods", href: "/dashboard/admin/payment-methods" },
       { title: "Product Catalog", href: "/dashboard/admin/products" },
       { title: "Website", href: "/dashboard/admin/website" },
-      { title: "Open Play Capacity", href: "/dashboard/admin/open-play-capacity" },
+      // Renamed from "Open Play Capacity" — that read as Fri/Sat-only,
+      // but this same screen also covers weeknight drop-in (its own
+      // clearly labeled section on the page itself now, too).
+      { title: "Open Play (Weeknight & Fri/Sat)", href: "/dashboard/admin/open-play-capacity" },
       { title: "Audit Logs", href: "/dashboard/admin/audit-logs" },
       { title: "Settings", href: "/dashboard/admin/settings" },
       { title: "Reports", href: "/dashboard/reports" },
