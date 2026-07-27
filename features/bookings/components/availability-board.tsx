@@ -41,11 +41,10 @@ function toTimeValue(hour: number): string {
 // One slot renders as a miniature court: navy fill, a bottom-edge stripe
 // mirrors docs/design-reference.html's .slot styling. Four states read
 // as four genuinely distinct color families, not shades of one hue:
-//   - available (open, tap to hold): NO fill — sits on the table's own
-//     ambient background, identified by a green border only (green is
-//     the one brand accent), text is plain readable grey. Was a solid
-//     bg-navy-600 block; removed — that read as an unwanted
-//     "highlighted" state instead of a plain open slot.
+//   - available (open, tap to hold): solid --bone fill, dark navy-900
+//     text — reverted back to this from a border-only/no-fill look the
+//     owner tried live and didn't want; 16.24:1 contrast (navy-900 on
+//     bone), comfortably clears WCAG AA's 4.5:1 for normal text.
 //   - booked: cool blue (Tailwind's sky-*, not a custom brand token —
 //     same precedent as the dashboard's RecordCard ramps using stock
 //     Tailwind shades for functional/state color, not brand identity).
@@ -61,7 +60,7 @@ function cellClasses(state: BoardCell["state"], isSelected: boolean): string {
   }
   switch (state) {
     case "available":
-      return "bg-transparent text-slate border-green/30 hover:bg-green/[0.07] hover:border-green hover:text-bone hover:-translate-y-px after:bg-green after:opacity-60 cursor-pointer";
+      return "bg-bone text-navy-900 border-bone font-bold hover:-translate-y-px after:bg-green after:opacity-70 cursor-pointer";
     case "openPlay":
       return "bg-coral/[0.13] border-coral/30 text-coral text-[10px] font-bold tracking-[0.1em] uppercase after:bg-coral after:opacity-60 cursor-default";
     case "past":
@@ -230,7 +229,7 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
 
       <div className="font-jetbrains text-slate flex flex-wrap gap-5 text-[11px]">
         <span className="flex items-center gap-1.5">
-          <i className="border-green/60 inline-block size-3.5 rounded border" aria-hidden="true" />
+          <i className="bg-bone inline-block size-3.5 rounded" aria-hidden="true" />
           Open — tap to hold
         </span>
         <span className="flex items-center gap-1.5">
