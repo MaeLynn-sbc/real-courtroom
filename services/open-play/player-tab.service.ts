@@ -2,6 +2,7 @@ import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import type { PlayerTab, Prisma, TabLineItem } from "@/lib/generated/prisma/client";
 import { equipmentService } from "@/services/equipment/equipment.service";
+import { productService } from "@/services/products/product.service";
 import { saleService } from "@/services/sales/sale.service";
 import { settingsService } from "@/services/settings/settings.service";
 
@@ -236,6 +237,49 @@ export class PlayerTabService {
       entityType: "PlayerTab",
       entityId: tabId,
       newValues: { equipmentKey, qty, amountCents: lineItem.amountCents },
+    });
+
+    return lineItem;
+  }
+
+  // Open-play queue/tabs screen batch: "+ Add-on" — same shape as
+  // addRentalLineItem immediately above, sourcing its price from the
+  // Product catalog instead of Equipment (see product.service.ts's
+  // getActiveProductPriceCents). Distinct TabLineItemType ("PRODUCT",
+  // not "RENTAL") so these show up as what they are — a one-time
+  // consumable sale, not equipment rental — without touching the
+  // RENTAL path at all.
+  async addProductLineItem(tabId: string, productId: string, qty: number, actorUserId: string): Promise<TabLineItem> {
+    const product = await productService.getActiveProductPriceCents(productId);
+    if (!product) {
+      throw new Error("This add-on isn't available.");
+    }
+
+    const lineItem = await prisma.$transaction(async (tx) => {
+      const tab = await this.lockAndCheckTabOpen(tx, tabId);
+      if (tab.sessionId) {
+        await this.assertSessionNotClosed(tx, tab.sessionId);
+      }
+
+      return tx.tabLineItem.create({
+        data: {
+          tabId,
+          type: "PRODUCT",
+          description: product.name,
+          qtyOrGames: qty,
+          unitPriceCents: product.priceCents,
+          amountCents: product.priceCents * qty,
+          createdByUserId: actorUserId,
+        },
+      });
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "player_tab.product_added",
+      entityType: "PlayerTab",
+      entityId: tabId,
+      newValues: { productId, qty, amountCents: lineItem.amountCents },
     });
 
     return lineItem;

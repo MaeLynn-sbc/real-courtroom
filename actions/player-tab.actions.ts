@@ -4,12 +4,14 @@ import { revalidatePath } from "next/cache";
 
 import {
   addAdjustmentInputSchema,
+  addProductLineItemInputSchema,
   addRentalLineItemInputSchema,
   closeSessionInputSchema,
   settleTabInputSchema,
   voidLineItemInputSchema,
   writeOffTabInputSchema,
   type AddAdjustmentInput,
+  type AddProductLineItemInput,
   type AddRentalLineItemInput,
   type CloseSessionInput,
   type SettleTabInput,
@@ -90,6 +92,26 @@ export async function addRentalLineItemAction(input: AddRentalLineItemInput): Pr
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "addRentalLineItemAction", userId: authz.userId }) };
+  }
+}
+
+export async function addProductLineItemAction(input: AddProductLineItemInput): Promise<PlayerTabActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = addProductLineItemInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await playerTabService.addProductLineItem(parsed.data.tabId, parsed.data.productId, parsed.data.qty, authz.userId);
+    revalidateOpenPlayCapacity();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "addProductLineItemAction", userId: authz.userId }) };
   }
 }
 

@@ -18,6 +18,18 @@ export const addRentalLineItemInputSchema = z.object({
 
 export type AddRentalLineItemInput = z.infer<typeof addRentalLineItemInputSchema>;
 
+// Open-play queue/tabs screen batch: "+ Add-on" — same shape as
+// addRentalLineItemInputSchema above, productId in place of
+// equipmentKey/description (the Product record already has both a name
+// and a price; nothing extra to enter).
+export const addProductLineItemInputSchema = z.object({
+  tabId: z.string().min(1),
+  productId: z.string().min(1),
+  qty: z.number().int().positive(),
+});
+
+export type AddProductLineItemInput = z.infer<typeof addProductLineItemInputSchema>;
+
 export const addAdjustmentInputSchema = z.object({
   tabId: z.string().min(1),
   description: z.string().min(1, "Enter a description.").max(200),

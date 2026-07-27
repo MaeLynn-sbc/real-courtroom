@@ -412,7 +412,7 @@ export class OpenPlayRotationService {
       throw new Error("A manual assignment needs exactly 4 players — doubles only.");
     }
     if (new Set(registrationIds).size !== 4) {
-      throw new Error("A player can't be picked twice for the same foursome.");
+      throw new Error("A player can't be picked twice for the same group.");
     }
 
     return prisma.$transaction(async (tx) => {

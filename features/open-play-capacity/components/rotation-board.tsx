@@ -99,6 +99,19 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
     );
   }
 
+  // Quick-queue: strict FIFO, no skill matching, no manual picking —
+  // `waiting` is already in wait order (longest-waiting unit first, per
+  // getRotationBoardData), so flattening each unit's members in place and
+  // taking the first 4 IS "the first 4 people in wait order." Reuses
+  // createManualAssignment via createManualAssignmentAction below — a
+  // different SELECTION rule only, not a second group-creation mechanism.
+  // Strict, as asked: a party that doesn't fit evenly into the next 4-slot
+  // boundary can be split by this cut (e.g. two parties of 3 back to
+  // back) — createManualAssignment has no party-wholeness check to
+  // violate, but this is a real, known consequence of "strict FIFO."
+  const flatWaitingIds = waiting.flatMap((unit) => unit.members.map((member) => member.registrationId));
+  const quickQueueIds = flatWaitingIds.slice(0, 4);
+
   return (
     <div className="flex flex-col gap-4">
       {unfillableQueueReason ? (
@@ -129,7 +142,7 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                     ))}
                   </ul>
                   <p className="text-muted-foreground text-xs">
-                    {court.active.source === "MANUAL" ? "Manual foursome" : `Skill spread ${court.active.skillSpread}`} · started{" "}
+                    {court.active.source === "MANUAL" ? "Manual group" : `Skill spread ${court.active.skillSpread}`} · started{" "}
                     {court.active.startedAt ? new Date(court.active.startedAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }) : "—"}
                   </p>
                   <div className="flex gap-2">
@@ -162,7 +175,7 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                     ))}
                   </ul>
                   <p className="text-muted-foreground text-xs">
-                    {court.proposed.source === "MANUAL" ? "Manual foursome" : `Skill spread ${court.proposed.skillSpread}`}
+                    {court.proposed.source === "MANUAL" ? "Manual group" : `Skill spread ${court.proposed.skillSpread}`}
                   </p>
                   <div className="flex gap-2">
                     <Button
@@ -191,9 +204,23 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                     type="button"
                     size="sm"
                     disabled={isPending}
-                    onClick={() => runAction(proposeAssignmentAction({ date, courtId: court.id }), "Foursome proposed.")}
+                    onClick={() => runAction(proposeAssignmentAction({ date, courtId: court.id }), "Group proposed.")}
                   >
-                    Propose next foursome
+                    Propose next group
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isPending || quickQueueIds.length < 4}
+                    onClick={() =>
+                      runAction(
+                        createManualAssignmentAction({ date, courtId: court.id, registrationIds: quickQueueIds }),
+                        "Group created.",
+                      )
+                    }
+                  >
+                    Quick-queue
                   </Button>
                 </>
               )}
@@ -264,7 +291,7 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
 
       <Card>
         <CardHeader>
-          <CardTitle>Build a foursome by hand</CardTitle>
+          <CardTitle>Build a group by hand</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-muted-foreground text-xs">
@@ -294,11 +321,11 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                     if (!r.error) setManualPicks([]);
                     return r;
                   }),
-                  "Manual foursome created.",
+                  "Group created.",
                 )
               }
             >
-              Create manual foursome
+              Create group
             </Button>
           </div>
         </CardContent>

@@ -1531,6 +1531,12 @@ enum TabLineItemType {
   GAME
   RENTAL
   ADJUSTMENT
+  // Open-play queue/tabs screen batch: "+ Add-on" (Water/Shirt/Ball/Grip/
+  // Paddle Rental, sourced from the Product catalog, editable there) —
+  // distinct from RENTAL, which stays Equipment-sourced and untouched
+  // (addRentalLineItem/addRentalLineItemAction have real test/service
+  // dependencies elsewhere and are not being removed).
+  PRODUCT
 }
 
 enum TabSettlementMethod {

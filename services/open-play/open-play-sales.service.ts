@@ -20,11 +20,17 @@ export interface OpenPlaySalesSummary {
   weeknightGameRevenueCents: number;
   weeknightGameCount: number;
   equipmentRentalRevenueCents: number;
+  // Open-play queue/tabs screen batch: "+ Add-on" line items (Water,
+  // Grip Tape, Paddle Rental, ... — the Product catalog), tracked
+  // separately from equipment rentals since they're a different kind of
+  // charge (a one-time consumable sale, not gear lent out).
+  addOnRevenueCents: number;
   // Net of discounts and void reversals — typically negative or zero.
   adjustmentsCents: number;
-  // weeknightGameRevenueCents + equipmentRentalRevenueCents + adjustmentsCents,
-  // i.e. what actually got charged and settled. Write-offs are excluded —
-  // §9 "write-offs never count as revenue."
+  // weeknightGameRevenueCents + equipmentRentalRevenueCents +
+  // addOnRevenueCents + adjustmentsCents, i.e. what actually got charged
+  // and settled. Write-offs are excluded — §9 "write-offs never count
+  // as revenue."
   netRevenueCents: number;
   writeOffCents: number;
   writeOffCount: number;
@@ -62,6 +68,7 @@ export class OpenPlaySalesService {
     let weeknightGameRevenueCents = 0;
     let weeknightGameCount = 0;
     let equipmentRentalRevenueCents = 0;
+    let addOnRevenueCents = 0;
     let adjustmentsCents = 0;
     let writeOffCents = 0;
     let writeOffCount = 0;
@@ -81,6 +88,8 @@ export class OpenPlaySalesService {
             weeknightGameCount += item.qtyOrGames;
           } else if (item.type === "RENTAL") {
             equipmentRentalRevenueCents += item.amountCents;
+          } else if (item.type === "PRODUCT") {
+            addOnRevenueCents += item.amountCents;
           } else {
             adjustmentsCents += item.amountCents;
           }
@@ -147,8 +156,10 @@ export class OpenPlaySalesService {
       weeknightGameRevenueCents,
       weeknightGameCount,
       equipmentRentalRevenueCents,
+      addOnRevenueCents,
       adjustmentsCents,
-      netRevenueCents: weeknightGameRevenueCents + equipmentRentalRevenueCents + adjustmentsCents + friSatRegistrationFeeCents,
+      netRevenueCents:
+        weeknightGameRevenueCents + equipmentRentalRevenueCents + addOnRevenueCents + adjustmentsCents + friSatRegistrationFeeCents,
       writeOffCents,
       writeOffCount,
       writeOffs,

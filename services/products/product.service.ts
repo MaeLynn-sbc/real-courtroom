@@ -43,6 +43,18 @@ export class ProductService {
     });
   }
 
+  // Mirrors equipmentService.getRentalRateCentsByKey's shape — a price
+  // lookup for a line-item charge, not a full product fetch. Returns
+  // null (not a thrown error) for a missing or inactive product, same
+  // "let the caller decide how to surface it" contract as that method.
+  async getActiveProductPriceCents(productId: string): Promise<{ name: string; priceCents: number } | null> {
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product || !product.active) {
+      return null;
+    }
+    return { name: product.name, priceCents: product.priceCents };
+  }
+
   async createProduct(input: CreateProductInput, actorUserId: string) {
     const maxSortOrder = await prisma.product.aggregate({ _max: { sortOrder: true } });
     const product = await prisma.product.create({

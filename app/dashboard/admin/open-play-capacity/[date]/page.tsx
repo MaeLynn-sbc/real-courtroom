@@ -17,6 +17,7 @@ import { openPlayRegistrationService } from "@/services/open-play/open-play-regi
 import { openPlayRotationService } from "@/services/open-play/open-play-rotation.service";
 import { playerTabService } from "@/services/open-play/player-tab.service";
 import { playerService } from "@/services/player/player.service";
+import { productService } from "@/services/products/product.service";
 import { saleService } from "@/services/sales/sale.service";
 
 export const metadata: Metadata = {
@@ -64,12 +65,13 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     // exist) the same way an owner setting a per-date override does —
     // "one per date, created on demand" (BUILD-SPEC.md §5).
     const session = await openPlayCapacityService.getOrCreateSessionForDate(date);
-    const [{ registrations, skillBreakdown }, { expected, checkedIn }, board, tabs, paymentMethods] = await Promise.all([
+    const [{ registrations, skillBreakdown }, { expected, checkedIn }, board, tabs, paymentMethods, products] = await Promise.all([
       openPlayRegistrationService.getSessionRegistrations(session.id),
       openPlayCheckinService.getCheckInScreenData({ sessionId: session.id }),
       openPlayRotationService.getRotationBoardData(date),
       playerTabService.listTabsForDate(date),
       saleService.listPaymentMethods(),
+      productService.listActiveProducts(),
     ]);
     const hasUnsettledTabs = tabs.some((t) => t.status === "OPEN" && t.totalCents > 0);
 
@@ -101,7 +103,11 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
         />
         <RegistrationRosterPanel registrations={registrations} skillBreakdown={skillBreakdown} capacity={session.capacity} />
         <RotationBoard {...serializeBoard(dateParam, board)} />
-        <TabsPanel tabs={serializeTabs(tabs)} paymentMethods={paymentMethods.map((pm) => ({ id: pm.id, label: pm.label }))} />
+        <TabsPanel
+          tabs={serializeTabs(tabs)}
+          paymentMethods={paymentMethods.map((pm) => ({ id: pm.id, label: pm.label }))}
+          products={products.map((p) => ({ id: p.id, name: p.name, priceCents: p.priceCents }))}
+        />
       </div>
     );
   }
@@ -109,11 +115,12 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
   // Weeknight — BUILD-SPEC.md §0: no capacity, no waitlist, no
   // prepayment. Registration is optional and uncapped; most players just
   // walk in.
-  const [{ expected, checkedIn }, board, tabs, paymentMethods] = await Promise.all([
+  const [{ expected, checkedIn }, board, tabs, paymentMethods, products] = await Promise.all([
     openPlayCheckinService.getCheckInScreenData({ date }),
     openPlayRotationService.getRotationBoardData(date),
     playerTabService.listTabsForDate(date),
     saleService.listPaymentMethods(),
+    productService.listActiveProducts(),
   ]);
 
   return (
@@ -136,7 +143,11 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
       <WalkInRegistrationForm target={{ date: dateParam }} players={players} showRegisterOnly={false} />
       <CheckInPanel expected={serializeRegistrations(expected)} checkedIn={serializeRegistrations(checkedIn)} />
       <RotationBoard {...serializeBoard(dateParam, board)} />
-      <TabsPanel tabs={serializeTabs(tabs)} paymentMethods={paymentMethods.map((pm) => ({ id: pm.id, label: pm.label }))} />
+      <TabsPanel
+        tabs={serializeTabs(tabs)}
+        paymentMethods={paymentMethods.map((pm) => ({ id: pm.id, label: pm.label }))}
+        products={products.map((p) => ({ id: p.id, name: p.name, priceCents: p.priceCents }))}
+      />
     </div>
   );
 }

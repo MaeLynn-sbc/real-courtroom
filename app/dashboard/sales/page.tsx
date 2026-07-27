@@ -95,6 +95,10 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
             <span>{formatCurrency(summary.equipmentRentalRevenueCents)}</span>
           </div>
           <div className="flex items-center justify-between">
+            <span>Add-ons (water, grip tape, etc.)</span>
+            <span>{formatCurrency(summary.addOnRevenueCents)}</span>
+          </div>
+          <div className="flex items-center justify-between">
             <span>Adjustments (discounts, void reversals)</span>
             <span>{formatCurrency(summary.adjustmentsCents)}</span>
           </div>

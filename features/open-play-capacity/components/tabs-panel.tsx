@@ -1,12 +1,13 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import {
   addAdjustmentAction,
-  addRentalLineItemAction,
+  addProductLineItemAction,
   settleTabAction,
   writeOffTabAction,
 } from "@/actions/player-tab.actions";
@@ -14,9 +15,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatCurrency } from "@/lib/utils";
-import { EQUIPMENT_KEYS } from "@/lib/equipment-keys";
+import { cn, formatCurrency } from "@/lib/utils";
+
+// A brief, visible confirmation before a settled row actually leaves
+// the open-tabs list — see handleSettle below.
+const SETTLE_SUCCESS_DISPLAY_MS = 900;
 
 interface TabRow {
   id: string;
@@ -32,7 +37,21 @@ interface PaymentMethodOption {
   label: string;
 }
 
-export function TabsPanel({ tabs, paymentMethods }: { tabs: TabRow[]; paymentMethods: PaymentMethodOption[] }) {
+interface ProductOption {
+  id: string;
+  name: string;
+  priceCents: number;
+}
+
+export function TabsPanel({
+  tabs,
+  paymentMethods,
+  products,
+}: {
+  tabs: TabRow[];
+  paymentMethods: PaymentMethodOption[];
+  products: ProductOption[];
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [openTabId, setOpenTabId] = useState<string | null>(null);
@@ -42,6 +61,9 @@ export function TabsPanel({ tabs, paymentMethods }: { tabs: TabRow[]; paymentMet
   const [adjustDescription, setAdjustDescription] = useState("");
   const [adjustAmount, setAdjustAmount] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
+  const [addOnOpenTabId, setAddOnOpenTabId] = useState<string | null>(null);
+  const [addOnProductId, setAddOnProductId] = useState(products[0]?.id ?? "");
+  const [justSettledTabId, setJustSettledTabId] = useState<string | null>(null);
 
   function refresh() {
     router.refresh();
@@ -77,24 +99,32 @@ export function TabsPanel({ tabs, paymentMethods }: { tabs: TabRow[]; paymentMet
         return;
       }
       toast.success("Tab settled.");
-      resetSettleForm();
-      refresh();
+      // Show a clear success moment in the row itself before it leaves
+      // the open-tabs list — router.refresh() below would otherwise move
+      // it straight to "settled/written-off" with no visible transition.
+      setJustSettledTabId(tabId);
+      setTimeout(() => {
+        setJustSettledTabId(null);
+        resetSettleForm();
+        refresh();
+      }, SETTLE_SUCCESS_DISPLAY_MS);
     });
   }
 
-  function handleAddPaddle(tabId: string) {
+  function handleAddOn(tabId: string) {
+    if (!addOnProductId) {
+      toast.error("Select an add-on.");
+      return;
+    }
     startTransition(async () => {
-      const result = await addRentalLineItemAction({
-        tabId,
-        equipmentKey: EQUIPMENT_KEYS.HOUSE_PADDLE,
-        description: "Paddle rental",
-        qty: 1,
-      });
+      const result = await addProductLineItemAction({ tabId, productId: addOnProductId, qty: 1 });
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      toast.success("Paddle rental added.");
+      const product = products.find((p) => p.id === addOnProductId);
+      toast.success(`${product?.name ?? "Add-on"} added.`);
+      setAddOnOpenTabId(null);
       refresh();
     });
   }
@@ -150,100 +180,160 @@ export function TabsPanel({ tabs, paymentMethods }: { tabs: TabRow[]; paymentMet
         {openTabs.length === 0 ? (
           <p className="text-muted-foreground text-sm">No open tabs.</p>
         ) : (
-          openTabs.map((tab) => (
-            <div key={tab.id} className="rounded-lg border px-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-medium">{tab.playerName}</p>
-                  <p className="text-muted-foreground text-xs">
-                    {tab.gamesPlayed} game{tab.gamesPlayed === 1 ? "" : "s"} · {formatCurrency(tab.totalCents)}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <Button type="button" size="sm" variant="ghost" disabled={isPending} onClick={() => handleAddPaddle(tab.id)}>
-                    + Paddle
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={isPending}
-                    onClick={() => setOpenTabId(openTabId === tab.id ? null : tab.id)}
-                  >
-                    {openTabId === tab.id ? "Cancel" : "Settle"}
-                  </Button>
-                  <Button type="button" size="sm" variant="ghost" disabled={isPending} onClick={() => handleWriteOff(tab.id)}>
-                    Write off
-                  </Button>
-                </div>
-              </div>
+          openTabs.map((tab) => {
+            const isSettling = openTabId === tab.id;
+            const justSettled = justSettledTabId === tab.id;
+            return (
+              <div
+                key={tab.id}
+                className={cn(
+                  "rounded-lg border px-3 py-3 transition-colors",
+                  (isSettling || justSettled) && "border-primary/50 bg-primary/[0.04]",
+                )}
+              >
+                {justSettled ? (
+                  <div className="text-success flex items-center gap-2 py-1 text-sm font-medium">
+                    <Check className="size-4" aria-hidden="true" />
+                    {tab.playerName} — {formatCurrency(tab.totalCents)} settled.
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className={cn("font-medium", isSettling && "text-base font-semibold")}>{tab.playerName}</p>
+                        <p className="text-muted-foreground text-xs">
+                          {tab.gamesPlayed} game{tab.gamesPlayed === 1 ? "" : "s"} · {formatCurrency(tab.totalCents)}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={isPending}
+                          onClick={() => setAddOnOpenTabId(addOnOpenTabId === tab.id ? null : tab.id)}
+                        >
+                          + Add-on
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={isPending}
+                          onClick={() => setOpenTabId(isSettling ? null : tab.id)}
+                        >
+                          {isSettling ? "Cancel" : "Settle"}
+                        </Button>
+                        <Button type="button" size="sm" variant="ghost" disabled={isPending} onClick={() => handleWriteOff(tab.id)}>
+                          Write off
+                        </Button>
+                      </div>
+                    </div>
 
-              {openTabId === tab.id ? (
-                <div className="mt-3 flex flex-col gap-3 border-t pt-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Select value={method} onValueChange={(v) => setMethod(v as "CASH" | "GCASH")}>
-                      <SelectTrigger className="w-28">
-                        <SelectValue>{() => (method === "CASH" ? "Cash" : "GCash")}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="CASH">Cash</SelectItem>
-                        <SelectItem value="GCASH">GCash</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {method === "GCASH" ? (
-                      <Input
-                        placeholder="GCash reference number"
-                        value={gcashReference}
-                        onChange={(e) => setGcashReference(e.target.value)}
-                        className="w-48"
-                      />
+                    {addOnOpenTabId === tab.id ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+                        <Select value={addOnProductId} onValueChange={(v) => setAddOnProductId(v ?? "")}>
+                          <SelectTrigger className="w-44">
+                            <SelectValue>
+                              {() =>
+                                products.find((p) => p.id === addOnProductId)
+                                  ? `${products.find((p) => p.id === addOnProductId)!.name} — ${formatCurrency(products.find((p) => p.id === addOnProductId)!.priceCents)}`
+                                  : "Select an add-on"
+                              }
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products.map((product) => (
+                              <SelectItem key={product.id} value={product.id}>
+                                {product.name} — {formatCurrency(product.priceCents)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button type="button" size="sm" disabled={isPending || !addOnProductId} onClick={() => handleAddOn(tab.id)}>
+                          Add
+                        </Button>
+                      </div>
                     ) : null}
-                    <Select value={paymentMethodId} onValueChange={(v) => setPaymentMethodId(v ?? "")}>
-                      <SelectTrigger className="w-40">
-                        <SelectValue>{() => paymentMethods.find((p) => p.id === paymentMethodId)?.label ?? "Payment method"}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {paymentMethods.map((pm) => (
-                          <SelectItem key={pm.id} value={pm.id}>
-                            {pm.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button type="button" size="sm" disabled={isPending} onClick={() => handleSettle(tab.id)}>
-                      Confirm {formatCurrency(tab.totalCents)} settled
-                    </Button>
-                  </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      placeholder="Adjustment description"
-                      value={adjustDescription}
-                      onChange={(e) => setAdjustDescription(e.target.value)}
-                      className="w-44"
-                    />
-                    <Input
-                      placeholder="Amount (₱, negative for discount)"
-                      type="number"
-                      step="0.01"
-                      value={adjustAmount}
-                      onChange={(e) => setAdjustAmount(e.target.value)}
-                      className="w-48"
-                    />
-                    <Input
-                      placeholder="Reason (required)"
-                      value={adjustReason}
-                      onChange={(e) => setAdjustReason(e.target.value)}
-                      className="w-44"
-                    />
-                    <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={() => handleAddAdjustment(tab.id)}>
-                      Add adjustment
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ))
+                    {isSettling ? (
+                      <div className="mt-3 flex flex-col gap-3 border-t pt-3">
+                        <div className="flex flex-wrap items-end gap-2">
+                          <div className="flex flex-col gap-1">
+                            <Label className="text-muted-foreground text-xs">Paid via</Label>
+                            <Select value={method} onValueChange={(v) => setMethod(v as "CASH" | "GCASH")}>
+                              <SelectTrigger className="w-28">
+                                <SelectValue>{() => (method === "CASH" ? "Cash" : "GCash")}</SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="CASH">Cash</SelectItem>
+                                <SelectItem value="GCASH">GCash</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {method === "GCASH" ? (
+                            <div className="flex flex-col gap-1">
+                              <Label className="text-muted-foreground text-xs">GCash reference</Label>
+                              <Input
+                                placeholder="GCash reference number"
+                                value={gcashReference}
+                                onChange={(e) => setGcashReference(e.target.value)}
+                                className="w-48"
+                              />
+                            </div>
+                          ) : null}
+                          <div className="flex flex-col gap-1">
+                            <Label className="text-muted-foreground text-xs">Payment method</Label>
+                            <Select value={paymentMethodId} onValueChange={(v) => setPaymentMethodId(v ?? "")}>
+                              <SelectTrigger className="w-40">
+                                <SelectValue>{() => paymentMethods.find((p) => p.id === paymentMethodId)?.label ?? "Payment method"}</SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                {paymentMethods.map((pm) => (
+                                  <SelectItem key={pm.id} value={pm.id}>
+                                    {pm.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button type="button" size="sm" disabled={isPending} onClick={() => handleSettle(tab.id)}>
+                            Confirm {formatCurrency(tab.totalCents)} settled
+                          </Button>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Input
+                            placeholder="Adjustment description"
+                            value={adjustDescription}
+                            onChange={(e) => setAdjustDescription(e.target.value)}
+                            className="w-44"
+                          />
+                          <Input
+                            placeholder="Amount (₱, negative for discount)"
+                            type="number"
+                            step="0.01"
+                            value={adjustAmount}
+                            onChange={(e) => setAdjustAmount(e.target.value)}
+                            className="w-48"
+                          />
+                          <Input
+                            placeholder="Reason (required)"
+                            value={adjustReason}
+                            onChange={(e) => setAdjustReason(e.target.value)}
+                            className="w-44"
+                          />
+                          <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={() => handleAddAdjustment(tab.id)}>
+                            Add adjustment
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            );
+          })
         )}
 
         {otherTabs.length > 0 ? (

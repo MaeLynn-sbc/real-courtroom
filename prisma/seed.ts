@@ -301,13 +301,25 @@ const OPEN_PLAY_CAPACITY_DEFAULTS: Array<{ dayOfWeek: number; capacity: number }
   { dayOfWeek: 6, capacity: 40 },
 ];
 
-// v1.1: the two retail items The Courtroom actually sells outright today
+// v1.1: the retail items The Courtroom actually sells outright today
 // (SaleCategory.PRODUCT — see services/products/product.service.ts).
 // Placeholder prices, intentionally rough — the whole point of the
 // Product Catalog admin screen is that these are one click to correct.
+//
+// Open-play queue/tabs screen batch: Water/Grip Tape/Paddle Rental added
+// as the open-play tab's "+ Add-on" catalog (features/open-play-
+// capacity/components/tabs-panel.tsx) — reusing this same Product list,
+// not a second one. "Ball"/"Shirt" from that ask are already covered by
+// Pickleballs/T-Shirt above, not duplicated. Paddle Rental's price
+// matches House Paddle's existing Equipment.rentalRateCents (₱20) —
+// same price, now also sellable as a tab add-on without touching the
+// Equipment record itself or the separate addRentalLineItem path.
 const PRODUCT_DEFINITIONS: Array<{ name: string; priceCents: number; sortOrder: number }> = [
   { name: "Pickleballs", priceCents: 15000, sortOrder: 0 },
   { name: "T-Shirt", priceCents: 45000, sortOrder: 1 },
+  { name: "Water", priceCents: 3000, sortOrder: 2 },
+  { name: "Grip Tape", priceCents: 15000, sortOrder: 3 },
+  { name: "Paddle Rental", priceCents: 2000, sortOrder: 4 },
 ];
 
 const LOCKER_COUNT = 20;
