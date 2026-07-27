@@ -1,14 +1,17 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { cancelRegistrationAction, markNoShowAction } from "@/actions/open-play-registration.actions";
+import { cancelRegistrationAction, markNoShowAction, refundRegistrationAction } from "@/actions/open-play-registration.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 
@@ -67,6 +70,98 @@ function RowActions({ registrationId }: { registrationId: string }) {
   );
 }
 
+// Cancellation policy Gate 1 — staff refund path (BUILD-SPEC.md's "Staff-
+// initiated refunds must exist, separately"). Genuine business-error cash
+// back, not the customer-facing credit path (that's automatic, inside
+// releaseRegistration) — shown for CONFIRMED, CANCELLED, or REJECTED
+// registrations, since all three are real scenarios a refund applies to
+// (a wrongly-rejected valid payment, a genuine double payment, a staff-
+// cancelled night). Same toggle-open-small-form shape as GCash
+// reconciliation's OverrideStartingBalanceForm.
+function RefundAction({ registrationId }: { registrationId: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("150");
+  const [reason, setReason] = useState("");
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  if (!open) {
+    return (
+      <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(true)}>
+        Refund
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-dashed p-2">
+      <div className="flex flex-col gap-1">
+        <Label htmlFor={`refund-amount-${registrationId}`} className="text-muted-foreground text-xs">
+          Amount (₱)
+        </Label>
+        <Input
+          id={`refund-amount-${registrationId}`}
+          type="number"
+          step="0.01"
+          min="0"
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor={`refund-reason-${registrationId}`} className="text-muted-foreground text-xs">
+          Reason (required)
+        </Label>
+        <Textarea
+          id={`refund-reason-${registrationId}`}
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+        />
+      </div>
+      {serverError ? (
+        <p className="text-destructive text-xs" role="alert">
+          {serverError}
+        </p>
+      ) : null}
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          size="sm"
+          disabled={isPending}
+          onClick={() => {
+            setServerError(null);
+            const amountCents = Math.round(Number(amount) * 100);
+            if (!Number.isFinite(amountCents) || amountCents <= 0) {
+              setServerError("Enter a valid amount.");
+              return;
+            }
+            if (!reason.trim()) {
+              setServerError("Enter a reason for this refund.");
+              return;
+            }
+            startTransition(async () => {
+              const result = await refundRegistrationAction({ registrationId, amountCents, reason: reason.trim() });
+              if (result.error) {
+                setServerError(result.error);
+                return;
+              }
+              toast.success("Refund recorded.");
+              setOpen(false);
+              router.refresh();
+            });
+          }}
+        >
+          {isPending ? "Saving…" : "Save refund"}
+        </Button>
+        <Button type="button" size="sm" variant="ghost" disabled={isPending} onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function RegistrationRosterPanel({ registrations, skillBreakdown, capacity }: RegistrationRosterPanelProps) {
   const seated = registrations.filter((r) => r.status === "CONFIRMED" && r.waitlistPos === null);
   const waitlisted = registrations.filter((r) => r.waitlistPos !== null);
@@ -120,7 +215,14 @@ export function RegistrationRosterPanel({ registrations, skillBreakdown, capacit
                     )}
                   </TableCell>
                   <TableCell>
-                    {registration.status === "CONFIRMED" ? <RowActions registrationId={registration.id} /> : null}
+                    <div className="flex flex-col items-start gap-1.5">
+                      {registration.status === "CONFIRMED" ? <RowActions registrationId={registration.id} /> : null}
+                      {registration.status === "CONFIRMED" ||
+                      registration.status === "CANCELLED" ||
+                      registration.status === "REJECTED" ? (
+                        <RefundAction registrationId={registration.id} />
+                      ) : null}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

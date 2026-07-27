@@ -23,3 +23,14 @@ export const releaseRegistrationInputSchema = z.object({
 });
 
 export type ReleaseRegistrationInput = z.infer<typeof releaseRegistrationInputSchema>;
+
+// Cancellation policy Gate 1 — staff refund path. reason is required
+// (min 1), same "no anonymous refunds" shape as PlayerTab's write-off
+// schema.
+export const refundRegistrationInputSchema = z.object({
+  registrationId: z.string().min(1),
+  amountCents: z.coerce.number().int().positive("Enter a valid refund amount."),
+  reason: z.string().min(1, "Enter a reason for this refund."),
+});
+
+export type RefundRegistrationInput = z.infer<typeof refundRegistrationInputSchema>;
