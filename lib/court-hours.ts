@@ -79,7 +79,7 @@ function minutesSinceMidnight(date: Date): number {
   return date.getHours() * 60 + date.getMinutes();
 }
 
-// Bookings are short (30min-2hr) and never cross midnight in practice, except
+// Bookings are short (30min-4hr) and never cross midnight in practice, except
 // landing exactly on it (e.g. a booking ending at 12:00 AM on a day facility
 // close resolves to midnight). That case's endAt falls on the next calendar
 // day at 00:00, so it's special-cased to minute 1440 of startAt's day

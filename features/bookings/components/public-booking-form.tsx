@@ -17,7 +17,15 @@ import {
 } from "@/components/ui/select";
 import { PublicCoachAddOn } from "@/features/coaching/components/public-coach-add-on";
 
-const DURATIONS_MINUTES = [30, 60, 90, 120];
+// Presentation-only convenience list — no schema/service duration limit
+// exists (services/booking/booking.service.ts's totalAmountCents is
+// computed pro-rata from whatever startAt/endAt span is submitted).
+// Extended from the original [30, 60, 90, 120] cap, which under-
+// represented what the booking flow already supports end-to-end;
+// uniform 30-minute increments up to 4 hours, a reasonable upper bound
+// for a single-court booking (private events/extended practice) without
+// offering an unrealistically long single slot.
+const DURATIONS_MINUTES = [30, 60, 90, 120, 150, 180, 210, 240];
 
 interface PublicBookingFormCourt {
   id: string;
