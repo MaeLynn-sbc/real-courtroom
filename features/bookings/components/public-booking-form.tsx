@@ -270,7 +270,7 @@ export function PublicBookingForm({
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Duration</span>
-            <span className="font-medium">{confirmation.durationMinutes} minutes</span>
+            <span className="font-medium">{formatDurationLabel(confirmation.durationMinutes)}</span>
           </div>
           <div className="flex justify-between border-t pt-3 text-base">
             <span className="font-medium">Total</span>
