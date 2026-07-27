@@ -30,6 +30,27 @@ function formatDurationLabel(minutes: number): string {
   return `${hours} hour${hours === 1 ? "" : "s"}`;
 }
 
+// Hour-only start times — the native <input type="time"> showed three
+// scrollable columns (hour/minute/AM-PM) and let a customer pick a
+// minute this business doesn't support. 7 AM matches the facility's
+// own opening time (lib/court-hours.ts's facilityOpenTime default);
+// 10 PM is the latest hour that still fits at least a 1-hour booking
+// before the latest facility close (11 PM). A specific court/day
+// closing earlier (e.g. Court 1's 6 PM cutoff) is still enforced
+// server-side (checkAvailabilityWithClient's OUTSIDE_OPERATING_HOURS
+// check) — this list is deliberately the full facility-wide range, not
+// per-court, so it doesn't need to duplicate that per-court/per-day
+// logic just to build a dropdown.
+const TIME_OPTIONS = Array.from({ length: 16 }, (_, i) => `${String(i + 7).padStart(2, "0")}:00`);
+
+function formatTimeLabel(value: string): string {
+  const [hoursStr] = value.split(":");
+  const hours = Number(hoursStr);
+  const period = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 === 0 ? 12 : hours % 12;
+  return `${displayHour}:00 ${period}`;
+}
+
 interface PublicBookingFormCourt {
   id: string;
   name: string;
@@ -97,6 +118,7 @@ export function PublicBookingForm({
     initialDurationMinutes && DURATIONS_MINUTES.includes(Number(initialDurationMinutes))
       ? initialDurationMinutes
       : undefined;
+  const validInitialTime = initialTime && TIME_OPTIONS.includes(initialTime) ? initialTime : undefined;
 
   const { control, register, handleSubmit } = useForm<PublicBookingFormValues>({
     defaultValues: {
@@ -104,7 +126,7 @@ export function PublicBookingForm({
       guestPhone: "",
       courtId: initialCourtId ?? courts[0]?.id ?? "",
       date: initialDate ?? toLocalDateValue(new Date()),
-      time: initialTime ?? "09:00",
+      time: validInitialTime ?? "09:00",
       durationMinutes: validInitialDuration ?? "60",
     },
   });
@@ -261,7 +283,24 @@ export function PublicBookingForm({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="time">Time</Label>
-          <Input id="time" type="time" {...register("time", { required: true })} />
+          <Controller
+            control={control}
+            name="time"
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger id="time" className="w-full">
+                  <SelectValue>{(value: string) => formatTimeLabel(value)}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {TIME_OPTIONS.map((time) => (
+                    <SelectItem key={time} value={time}>
+                      {formatTimeLabel(time)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
         </div>
       </div>
 
