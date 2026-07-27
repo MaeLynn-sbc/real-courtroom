@@ -195,7 +195,7 @@ export function WalkInRegistrationForm({
         {isCapacityNight ? (
           <div className="flex flex-wrap items-end gap-3 rounded-md border border-dashed px-3 py-2">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="walkInMethod">Registration fee</Label>
+              <Label htmlFor="walkInMethod">Paid via</Label>
               <Select value={method} onValueChange={(value) => setMethod(value as "CASH" | "GCASH")}>
                 <SelectTrigger id="walkInMethod" className="w-28">
                   <SelectValue>{() => (method === "CASH" ? "Cash" : "GCash")}</SelectValue>
