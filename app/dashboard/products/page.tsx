@@ -6,7 +6,7 @@ import { productService } from "@/services/products/product.service";
 import { saleService } from "@/services/sales/sale.service";
 
 export const metadata: Metadata = {
-  title: "Products",
+  title: "Shop",
 };
 
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export default async function ProductsPage() {
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Products</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Shop</h1>
         <p className="text-muted-foreground text-sm">Sell a retail item — balls, T-shirts, and more.</p>
       </div>
       <SellProductForm

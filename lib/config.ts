@@ -47,7 +47,7 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Fri/Sat Open Play", href: "/dashboard/admin/open-play-capacity" },
       { title: "Equipment", href: "/dashboard/equipment" },
       { title: "Lockers", href: "/dashboard/lockers" },
-      { title: "Products", href: "/dashboard/products" },
+      { title: "Shop", href: "/dashboard/products" },
     ],
   },
   {
@@ -66,7 +66,7 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Roles", href: "/dashboard/admin/roles" },
       { title: "Payment Methods", href: "/dashboard/admin/payment-methods" },
       { title: "Expenses", href: "/dashboard/admin/expenses" },
-      { title: "Product Catalog", href: "/dashboard/admin/products" },
+      { title: "Shop Catalog", href: "/dashboard/admin/products" },
       { title: "Website", href: "/dashboard/admin/website" },
       { title: "Audit Logs", href: "/dashboard/admin/audit-logs" },
       { title: "Settings", href: "/dashboard/admin/settings" },

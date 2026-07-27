@@ -1,5 +1,6 @@
 "use client";
 
+import { ShoppingBag } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -16,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 
 const NO_PLAYER_VALUE = "__none__";
 
@@ -54,7 +55,7 @@ export function SellProductForm({ products, players, paymentMethods }: SellProdu
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const { control, register, handleSubmit } = useForm<SellProductFormValues>({
+  const { control, register, handleSubmit, setValue, watch } = useForm<SellProductFormValues>({
     defaultValues: {
       productId: products[0]?.id ?? "",
       quantity: "1",
@@ -62,6 +63,7 @@ export function SellProductForm({ products, players, paymentMethods }: SellProdu
       playerId: NO_PLAYER_VALUE,
     },
   });
+  const watchedProductId = watch("productId");
 
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
@@ -96,30 +98,38 @@ export function SellProductForm({ products, players, paymentMethods }: SellProdu
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="productId">Product</Label>
-        <Controller
-          control={control}
-          name="productId"
-          render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger id="productId" className="w-full">
-                <SelectValue placeholder="Select a product">
-                  {(value: string) => {
-                    const product = products.find((item) => item.id === value);
-                    return product ? `${product.name} — ${formatCurrency(product.priceCents)}` : "Select a product";
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {products.map((product) => (
-                  <SelectItem key={product.id} value={product.id}>
-                    {product.name} — {formatCurrency(product.priceCents)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        />
+        <Label>Product</Label>
+        {/* Tappable buttons instead of a dropdown — same RecordCard-style
+            language (icon, label, price) used elsewhere, selected state
+            borrowed from the open-play settle panel's own treatment. A
+            grid like this reads fine up to ~10-12 items; if the catalog
+            grows well past that, this should fall back to a searchable
+            dropdown instead of just scrolling forever. */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Product">
+          {products.map((product) => {
+            const selected = watchedProductId === product.id;
+            return (
+              <button
+                key={product.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setValue("productId", product.id)}
+                className={cn(
+                  "flex flex-col items-start gap-1.5 rounded-xl border bg-card p-3 text-left transition-colors",
+                  selected ? "border-primary/50 bg-primary/[0.04]" : "hover:bg-accent",
+                )}
+              >
+                <ShoppingBag
+                  className={cn("size-4", selected ? "text-primary" : "text-muted-foreground")}
+                  aria-hidden="true"
+                />
+                <span className={cn("text-sm", selected ? "font-semibold" : "font-medium")}>{product.name}</span>
+                <span className="text-muted-foreground text-xs">{formatCurrency(product.priceCents)}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex flex-col gap-1.5">
