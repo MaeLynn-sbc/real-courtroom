@@ -18,10 +18,11 @@ interface BookPageProps {
 }
 
 export default async function BookPage({ searchParams }: BookPageProps) {
-  const [courts, { courtId, date, time, durationMinutes }, requiresPrepayment] = await Promise.all([
+  const [courts, { courtId, date, time, durationMinutes }, requiresPrepayment, courtHours] = await Promise.all([
     courtService.listCourts(),
     searchParams,
     settingsService.getBookingRequirePrepayment(),
+    settingsService.getCourtHours(),
   ]);
   const courtOptions = courts
     .filter((court) => court.status === "ACTIVE")
@@ -48,6 +49,7 @@ export default async function BookPage({ searchParams }: BookPageProps) {
         </div>
         <PublicBookingForm
           courts={courtOptions}
+          courtHours={courtHours}
           initialCourtId={courtId}
           initialDate={date}
           initialTime={time}

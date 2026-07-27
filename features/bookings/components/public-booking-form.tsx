@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 
 import { createPublicBookingAction, type PublicBookingCoachOption } from "@/actions/public-booking.actions";
@@ -16,7 +16,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PublicCoachAddOn } from "@/features/coaching/components/public-coach-add-on";
+import { getCourtBookingWindow } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
+import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
 
 // Presentation-only convenience list — no schema/service duration limit
 // exists (services/booking/booking.service.ts's totalAmountCents is
@@ -32,16 +34,41 @@ function formatDurationLabel(minutes: number): string {
 
 // Hour-only start times — the native <input type="time"> showed three
 // scrollable columns (hour/minute/AM-PM) and let a customer pick a
-// minute this business doesn't support. 7 AM matches the facility's
-// own opening time (lib/court-hours.ts's facilityOpenTime default);
-// 10 PM is the latest hour that still fits at least a 1-hour booking
-// before the latest facility close (11 PM). A specific court/day
-// closing earlier (e.g. Court 1's 6 PM cutoff) is still enforced
-// server-side (checkAvailabilityWithClient's OUTSIDE_OPERATING_HOURS
-// check) — this list is deliberately the full facility-wide range, not
-// per-court, so it doesn't need to duplicate that per-court/per-day
-// logic just to build a dropdown.
-const TIME_OPTIONS = Array.from({ length: 16 }, (_, i) => `${String(i + 7).padStart(2, "0")}:00`);
+// minute this business doesn't support.
+//
+// Court/date-aware (found live: Court 1 closes 6 PM, but an earlier
+// flat 7 AM-10 PM list let a customer pick 8 PM and then get a real
+// server rejection — "OUTSIDE_OPERATING_HOURS" is genuinely enforced
+// server-side in that case, so nothing ever double-books, but the
+// dropdown itself was misleading). getCourtBookingWindow is the exact
+// same pure function services/booking/booking.service.ts's server-side
+// enforcement calls — same source of truth, not a second guess at it.
+// The last valid START hour is closeMinutes MINUS the selected
+// duration, so a longer booking correctly loses more trailing options
+// than a 1-hour one would.
+function getAvailableTimeOptions(
+  courtHours: CourtHoursSettings,
+  courtName: string | undefined,
+  dateValue: string,
+  durationMinutes: number,
+): string[] {
+  if (!courtName || !dateValue) {
+    return [];
+  }
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return [];
+  }
+  const window = getCourtBookingWindow(courtHours, courtName, date);
+  const lastStartMinutes = window.closeMinutes - durationMinutes;
+
+  const options: string[] = [];
+  for (let minutes = window.openMinutes; minutes <= lastStartMinutes; minutes += 60) {
+    const hours = Math.floor(minutes / 60);
+    options.push(`${String(hours).padStart(2, "0")}:00`);
+  }
+  return options;
+}
 
 function formatTimeLabel(value: string): string {
   const [hoursStr] = value.split(":");
@@ -97,6 +124,7 @@ function toLocalDateValue(date: Date): string {
 
 interface PublicBookingFormProps {
   courts: PublicBookingFormCourt[];
+  courtHours: CourtHoursSettings;
   initialCourtId?: string;
   initialDate?: string;
   initialTime?: string;
@@ -105,6 +133,7 @@ interface PublicBookingFormProps {
 
 export function PublicBookingForm({
   courts,
+  courtHours,
   initialCourtId,
   initialDate,
   initialTime,
@@ -118,16 +147,26 @@ export function PublicBookingForm({
     initialDurationMinutes && DURATIONS_MINUTES.includes(Number(initialDurationMinutes))
       ? initialDurationMinutes
       : undefined;
-  const validInitialTime = initialTime && TIME_OPTIONS.includes(initialTime) ? initialTime : undefined;
+  const initialCourtIdResolved = initialCourtId ?? courts[0]?.id ?? "";
+  const initialDateResolved = initialDate ?? toLocalDateValue(new Date());
+  const initialDurationResolved = validInitialDuration ?? "60";
+  const initialCourtName = courts.find((court) => court.id === initialCourtIdResolved)?.name;
+  const initialTimeOptions = getAvailableTimeOptions(
+    courtHours,
+    initialCourtName,
+    initialDateResolved,
+    Number(initialDurationResolved),
+  );
+  const validInitialTime = initialTime && initialTimeOptions.includes(initialTime) ? initialTime : undefined;
 
-  const { control, register, handleSubmit } = useForm<PublicBookingFormValues>({
+  const { control, register, handleSubmit, setValue } = useForm<PublicBookingFormValues>({
     defaultValues: {
       guestName: "",
       guestPhone: "",
-      courtId: initialCourtId ?? courts[0]?.id ?? "",
-      date: initialDate ?? toLocalDateValue(new Date()),
-      time: validInitialTime ?? "09:00",
-      durationMinutes: validInitialDuration ?? "60",
+      courtId: initialCourtIdResolved,
+      date: initialDateResolved,
+      time: validInitialTime ?? initialTimeOptions[0] ?? "",
+      durationMinutes: initialDurationResolved,
     },
   });
 
@@ -137,6 +176,8 @@ export function PublicBookingForm({
   // summary" preview. Never fed back into the submitted payload; the
   // server still computes and persists the real amount independently.
   const watchedCourtId = useWatch({ control, name: "courtId" });
+  const watchedDate = useWatch({ control, name: "date" });
+  const watchedTime = useWatch({ control, name: "time" });
   const watchedDurationMinutes = useWatch({ control, name: "durationMinutes" });
   const selectedCourt = courts.find((court) => court.id === watchedCourtId);
   const previewDurationHours = Number(watchedDurationMinutes) / 60;
@@ -144,6 +185,26 @@ export function PublicBookingForm({
     selectedCourt?.hourlyRateCents != null && Number.isFinite(previewDurationHours)
       ? Math.round(selectedCourt.hourlyRateCents * previewDurationHours)
       : null;
+
+  // Recomputed on every court/date/duration change — the same source of
+  // truth server-side enforcement uses (see getAvailableTimeOptions's own
+  // comment above). When the currently-selected time falls outside the
+  // freshly computed set (e.g. switching from Court 3 to Court 1, or
+  // picking a longer duration that no longer fits), snap to the first
+  // still-valid option rather than silently leaving an invalid one
+  // selected — same reasoning as the bug this whole fix closes.
+  const availableTimeOptions = getAvailableTimeOptions(
+    courtHours,
+    selectedCourt?.name,
+    watchedDate,
+    Number(watchedDurationMinutes),
+  );
+  useEffect(() => {
+    if (availableTimeOptions.length > 0 && !availableTimeOptions.includes(watchedTime)) {
+      setValue("time", availableTimeOptions[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableTimeOptions.join(","), watchedTime]);
 
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
@@ -287,12 +348,18 @@ export function PublicBookingForm({
             control={control}
             name="time"
             render={({ field }) => (
-              <Select value={field.value} onValueChange={field.onChange}>
+              <Select
+                value={field.value}
+                onValueChange={field.onChange}
+                disabled={availableTimeOptions.length === 0}
+              >
                 <SelectTrigger id="time" className="w-full">
-                  <SelectValue>{(value: string) => formatTimeLabel(value)}</SelectValue>
+                  <SelectValue placeholder="No times available">
+                    {(value: string) => (value ? formatTimeLabel(value) : "No times available")}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {TIME_OPTIONS.map((time) => (
+                  {availableTimeOptions.map((time) => (
                     <SelectItem key={time} value={time}>
                       {formatTimeLabel(time)}
                     </SelectItem>
@@ -301,6 +368,12 @@ export function PublicBookingForm({
               </Select>
             )}
           />
+          {availableTimeOptions.length === 0 && selectedCourt ? (
+            <p className="text-muted-foreground text-xs">
+              {selectedCourt.name} has no {formatDurationLabel(Number(watchedDurationMinutes)).toLowerCase()} slot
+              available that day — try a shorter duration or another court.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -351,7 +424,7 @@ export function PublicBookingForm({
         </p>
       ) : null}
 
-      <Button type="submit" size="lg" disabled={isPending || courts.length === 0}>
+      <Button type="submit" size="lg" disabled={isPending || courts.length === 0 || availableTimeOptions.length === 0}>
         {isPending ? "Booking…" : "Book Now"}
       </Button>
     </form>
