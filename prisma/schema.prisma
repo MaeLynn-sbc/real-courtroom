@@ -371,11 +371,21 @@ model Shift {
   // "float" / "cash count".
   openingCashCents Int         @default(0)
   closingCashCents Int?
-  // Stays null until a Sale model exists (v1.1 Sub-phase 2) to compute
-  // cash sales against — variance = closingCash - (openingCash + cashSales).
+  // Gate 1 (shift cash reconciliation): now actually computed and written
+  // on close — variance = closingCash - (openingCash + cashSales). Sale
+  // is shift-scoped (Sale.shiftId below) and cash-filterable via
+  // PaymentMethod.key = "CASH" (saleService.getCashSalesForShift).
   varianceCents    Int?
   openingNotes     String?
   closingNotes     String?
+  // Gate 1: denomination quantities staff actually counted at close
+  // (e.g. {"1000": 5, "500": 2, ...}, peso value -> quantity) — a real
+  // audit trail of what was counted, not just the resulting total.
+  // closingCashCents is computed FROM this server-side (never trusted
+  // from the client directly), same "don't trust client arithmetic for
+  // money" reasoning as every Sale-creating action in this app. Null for
+  // shifts closed before this existed.
+  closingCashBreakdown Json?
   startedAt        DateTime    @default(now())
   endedAt          DateTime?
   createdAt        DateTime    @default(now())

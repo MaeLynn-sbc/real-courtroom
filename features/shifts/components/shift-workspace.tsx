@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { CASH_DENOMINATIONS_PESOS, sumCashDenominationBreakdown } from "@/lib/cash-denominations";
 import type { shiftService } from "@/services/shift/shift.service";
 import { formatCurrency } from "@/lib/utils";
 
@@ -23,6 +24,7 @@ type RecentShifts = Awaited<ReturnType<typeof shiftService.listShifts>>;
 interface ShiftWorkspaceProps {
   currentShift: Shift;
   recentShifts: RecentShifts;
+  expectedCashCents: number | null;
 }
 
 function StartShiftForm() {
@@ -96,26 +98,37 @@ function StartShiftForm() {
   );
 }
 
-function EndShiftForm({ shift }: { shift: NonNullable<Shift> }) {
+function EndShiftForm({ shift, expectedCashCents }: { shift: NonNullable<Shift>; expectedCashCents: number }) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [closingCash, setClosingCash] = useState("0");
+  // Gate 1: quantity per denomination, not one manual total — keyed by
+  // the raw &lt;input&gt; string value (denomination -> what staff typed),
+  // parsed/summed via the same sumCashDenominationBreakdown the server
+  // uses, so the live preview here can never disagree with what
+  // actually gets computed and persisted.
+  const [denominationCounts, setDenominationCounts] = useState<Record<string, string>>({});
   const [closingNotes, setClosingNotes] = useState("");
+
+  const breakdown = Object.fromEntries(
+    Object.entries(denominationCounts).map(([denomination, value]) => [denomination, Number(value) || 0]),
+  );
+  const closingCashCents = sumCashDenominationBreakdown(breakdown);
+  const varianceCents = closingCashCents - expectedCashCents;
+  const hasVariance = varianceCents !== 0;
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setServerError(null);
 
-    const closingCashCents = Math.round(Number(closingCash) * 100);
-    if (!Number.isFinite(closingCashCents)) {
-      setServerError("Enter a valid amount.");
+    if (hasVariance && !closingNotes.trim()) {
+      setServerError("Counted cash doesn't match the expected amount — enter a note explaining the difference.");
       return;
     }
 
     startTransition(async () => {
       const result = await endShiftAction(shift.id, {
-        closingCashCents,
+        closingCashBreakdown: breakdown,
         closingNotes: closingNotes || undefined,
       });
       if (result.error) {
@@ -138,7 +151,7 @@ function EndShiftForm({ shift }: { shift: NonNullable<Shift> }) {
         <Badge variant="status">Open</Badge>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-3 gap-3 text-sm">
           <div>
             <p className="text-muted-foreground text-xs">Shift number</p>
             <p className="font-medium">{shift.shiftNumber}</p>
@@ -153,20 +166,58 @@ function EndShiftForm({ shift }: { shift: NonNullable<Shift> }) {
           </div>
         </div>
 
+        {/* Gate 1: shown BEFORE the count — opening cash + cash sales
+            rung up so far this shift, so closing is a real comparison,
+            not a blind entry. */}
+        <div className="bg-muted/40 flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
+          <span className="text-muted-foreground">Expected cash (opening + cash sales so far)</span>
+          <span className="font-semibold">{formatCurrency(expectedCashCents)}</span>
+        </div>
+
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 border-t pt-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="closingCash">Closing cash</Label>
-            <Input
-              id="closingCash"
-              type="number"
-              step="0.01"
-              min="0"
-              value={closingCash}
-              onChange={(event) => setClosingCash(event.target.value)}
-            />
+          <div className="flex flex-col gap-2">
+            <Label>Cash count</Label>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+              {CASH_DENOMINATIONS_PESOS.map((denomination) => (
+                <div key={denomination} className="flex items-center gap-2">
+                  <Label htmlFor={`denom-${denomination}`} className="w-16 shrink-0 font-mono text-xs">
+                    ₱{denomination}
+                  </Label>
+                  <Input
+                    id={`denom-${denomination}`}
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputMode="numeric"
+                    placeholder="0"
+                    value={denominationCounts[String(denomination)] ?? ""}
+                    onChange={(event) =>
+                      setDenominationCounts((current) => ({ ...current, [String(denomination)]: event.target.value }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
           </div>
+
+          <div className="flex flex-col gap-1 border-t pt-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Counted total</span>
+              <span className="font-semibold">{formatCurrency(closingCashCents)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Variance</span>
+              <span className={hasVariance ? "text-destructive font-semibold" : "text-success font-semibold"}>
+                {varianceCents > 0 ? "+" : ""}
+                {formatCurrency(varianceCents)}
+              </span>
+            </div>
+          </div>
+
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="closingNotes">Closing notes (optional)</Label>
+            <Label htmlFor="closingNotes">
+              Closing notes {hasVariance ? <span className="text-destructive">(required — there&apos;s a variance)</span> : "(optional)"}
+            </Label>
             <Textarea
               id="closingNotes"
               value={closingNotes}
@@ -187,10 +238,14 @@ function EndShiftForm({ shift }: { shift: NonNullable<Shift> }) {
   );
 }
 
-export function ShiftWorkspace({ currentShift, recentShifts }: ShiftWorkspaceProps) {
+export function ShiftWorkspace({ currentShift, recentShifts, expectedCashCents }: ShiftWorkspaceProps) {
   return (
     <div className="flex flex-col gap-6">
-      {currentShift ? <EndShiftForm shift={currentShift} /> : <StartShiftForm />}
+      {currentShift ? (
+        <EndShiftForm shift={currentShift} expectedCashCents={expectedCashCents ?? currentShift.openingCashCents} />
+      ) : (
+        <StartShiftForm />
+      )}
 
       <Card>
         <CardHeader>
@@ -207,6 +262,7 @@ export function ShiftWorkspace({ currentShift, recentShifts }: ShiftWorkspacePro
                   <TableHead>Status</TableHead>
                   <TableHead>Opening</TableHead>
                   <TableHead>Closing</TableHead>
+                  <TableHead>Variance</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Ended</TableHead>
                 </TableRow>
@@ -223,6 +279,18 @@ export function ShiftWorkspace({ currentShift, recentShifts }: ShiftWorkspacePro
                     <TableCell>{formatCurrency(shift.openingCashCents)}</TableCell>
                     <TableCell>
                       {shift.closingCashCents != null ? formatCurrency(shift.closingCashCents) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {shift.varianceCents == null ? (
+                        "—"
+                      ) : shift.varianceCents === 0 ? (
+                        <span className="text-success">₱0.00</span>
+                      ) : (
+                        <span className="text-destructive font-medium">
+                          {shift.varianceCents > 0 ? "+" : ""}
+                          {formatCurrency(shift.varianceCents)}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>{dateTimeFormatter.format(shift.startedAt)}</TableCell>
                     <TableCell>

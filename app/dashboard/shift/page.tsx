@@ -42,5 +42,11 @@ async function ShiftWorkspaceData({ employeeId }: { employeeId: string }) {
     shiftService.listShifts(employeeId, 10),
   ]);
 
-  return <ShiftWorkspace currentShift={currentShift} recentShifts={recentShifts} />;
+  // Gate 1: fetched here, not inside the client component, so "expected
+  // cash" is shown to staff BEFORE they start entering their physical
+  // count — a real comparison, not a number that only appears after
+  // they've already committed to a total.
+  const expectedCashCents = currentShift ? await shiftService.getExpectedCashForShift(currentShift) : null;
+
+  return <ShiftWorkspace currentShift={currentShift} recentShifts={recentShifts} expectedCashCents={expectedCashCents} />;
 }

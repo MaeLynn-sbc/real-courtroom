@@ -212,6 +212,25 @@ export class SaleService {
     };
   }
 
+  // Gate 1 (shift cash reconciliation): the cash-only counterpart to
+  // getSalesForShift above — everything that method sums across every
+  // payment method, this narrows to just PaymentMethod.key = "CASH".
+  // Powers "expected cash" on the close-shift screen: openingCashCents +
+  // this = what the drawer should hold before staff count it.
+  async getCashSalesForShift(shiftId: string): Promise<ShiftSalesSummary> {
+    const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
+    const result = await prisma.sale.aggregate({
+      where: { shiftId, status: "COMPLETED", paymentMethodId: cashMethod.id },
+      _sum: { amountCents: true },
+      _count: true,
+    });
+
+    return {
+      totalAmountCents: result._sum.amountCents ?? 0,
+      transactionCount: result._count,
+    };
+  }
+
   async listPaymentMethods(includeInactive = false): Promise<PaymentMethod[]> {
     return prisma.paymentMethod.findMany({
       where: includeInactive ? undefined : { isActive: true },

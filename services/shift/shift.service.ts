@@ -1,8 +1,10 @@
 import type { EndShiftInput, StartShiftInput } from "@/features/shifts/schemas/shift.schema";
-import type { Prisma } from "@/lib/generated/prisma/client";
+import type { Prisma, Shift } from "@/lib/generated/prisma/client";
+import { sumCashDenominationBreakdown } from "@/lib/cash-denominations";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
+import { saleService } from "@/services/sales/sale.service";
 import { formatShiftNumber } from "@/services/shift/shift-number";
 
 function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
@@ -79,8 +81,23 @@ export class ShiftService {
     return shift;
   }
 
-  // varianceCents stays null here — no Sale model exists yet to sum cash
-  // sales against (v1.1 Sub-phase 2 wires this in).
+  // Gate 1: openingCashCents + cash-only Sales for this shift — what the
+  // drawer SHOULD hold before anyone counts it. Exposed separately (not
+  // just inlined into endShift) so the close-shift screen can show this
+  // to staff BEFORE they enter their physical count, same "expected"
+  // wording end-to-end.
+  async getExpectedCashForShift(shift: Pick<Shift, "id" | "openingCashCents">): Promise<number> {
+    const cashSales = await saleService.getCashSalesForShift(shift.id);
+    return shift.openingCashCents + cashSales.totalAmountCents;
+  }
+
+  // Gate 1 (fix for the existing gap): varianceCents now actually gets
+  // computed and written — variance = closingCash - (openingCash +
+  // cashSales), exactly the formula this column's own comment described
+  // when it was added but never wired up. closingCashCents is computed
+  // HERE, from the denomination breakdown the client submitted, never
+  // trusted as a client-sent total — same reasoning as every Sale-
+  // creating action in this app not trusting client-computed amounts.
   async endShift(shiftId: string, input: EndShiftInput, actorUserId: string) {
     const existing = await prisma.shift.findUniqueOrThrow({ where: { id: shiftId } });
 
@@ -88,11 +105,26 @@ export class ShiftService {
       throw new Error("This shift is already closed.");
     }
 
+    const closingCashCents = sumCashDenominationBreakdown(input.closingCashBreakdown);
+    const expectedCashCents = await this.getExpectedCashForShift(existing);
+    const varianceCents = closingCashCents - expectedCashCents;
+
+    // "If there's a variance, require a note" — enforced here, not in
+    // the zod schema, since only this method knows the variance (it
+    // depends on a live Sale query the schema layer can't see).
+    if (varianceCents !== 0 && !input.closingNotes?.trim()) {
+      throw new Error(
+        `Counted cash doesn't match the expected amount (${varianceCents > 0 ? "+" : ""}${(varianceCents / 100).toFixed(2)} PHP). Enter a note explaining the difference before closing.`,
+      );
+    }
+
     const shift = await prisma.shift.update({
       where: { id: shiftId },
       data: {
         status: "CLOSED",
-        closingCashCents: input.closingCashCents,
+        closingCashCents,
+        closingCashBreakdown: input.closingCashBreakdown,
+        varianceCents,
         closingNotes: input.closingNotes,
         endedAt: new Date(),
       },
