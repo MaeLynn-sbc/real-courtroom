@@ -13,6 +13,8 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { env } from "../lib/env";
+import { prisma } from "../lib/prisma";
+import { settingsService } from "../services/settings/settings.service";
 
 const ROOT = join(__dirname, "..");
 const IGNORED_DIRS = new Set(["node_modules", ".next", ".git"]);
@@ -56,14 +58,44 @@ function findIntegrationTests(dir: string): string[] {
   return results;
 }
 
-function main(): void {
+// Guaranteed pre-flight reset — not a post-run cleanup. booking-
+// prepayment-switch-off.integration.ts (sorts alphabetically before
+// booking-prepayment-switch-on.integration.ts, so it always runs first
+// within any single suite invocation) was observed reading the shared
+// prepayment Setting row as a stale `true` on some back-to-back runs.
+// Root cause: booking-prepayment-switch-on.integration.ts and
+// coach-session-phase8-interaction.integration.ts — the only two files
+// that ever flip this row true — each reset it in their own
+// try/finally, which is correct against a normal JS-level throw but
+// powerless if that PRIOR run's process was killed outright (OOM, a
+// forced abort, a sandbox timeout) before the finally's own `await`
+// could finish committing. No JS-level cleanup can ever be made
+// crash-proof — only a guaranteed clean starting state can. So rather
+// than trust whatever the previous run left behind, force this row
+// back to its production default before a single test file runs.
+// Every script in this suite is already destructive/self-cleaning by
+// design (see assertNotProduction above), so resetting shared Setting
+// state here is exactly as safe as everything else this harness does.
+async function resetSharedMutableSettings(): Promise<void> {
+  const owner = await prisma.user.findFirst({ where: { username: "owner" } });
+  if (!owner) {
+    // Fresh/unseeded DB — nothing to reset. Tests that need "owner" will
+    // fail loudly on their own; that's a seeding problem, not this one.
+    return;
+  }
+  await settingsService.setBookingRequirePrepayment(false, owner.id);
+  console.log("Pre-flight: booking prepayment switch confirmed OFF before running any integration test.\n");
+}
+
+async function main(): Promise<void> {
   assertNotProduction();
+  await resetSharedMutableSettings();
 
   const tests = findIntegrationTests(ROOT).sort();
 
   if (tests.length === 0) {
     console.log("No *.integration.ts files found.");
-    return;
+    process.exit(0);
   }
 
   console.log(`Running ${tests.length} integration test file(s):\n${tests.map((t) => `  - ${t.replace(ROOT + "/", "")}`).join("\n")}\n`);
@@ -74,6 +106,13 @@ function main(): void {
   }
 
   console.log(`\nAll ${tests.length} integration test file(s) passed.`);
+  // The pre-flight reset above opened this process's own Prisma
+  // connection (findIntegrationTests never needed one before) — exit
+  // explicitly rather than leaving that pool open waiting to be GC'd.
+  process.exit(0);
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
