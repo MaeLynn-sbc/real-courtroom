@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PlayerSearchCombobox } from "@/features/players/components/player-search-combobox";
 import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 
@@ -60,20 +61,28 @@ export function WalkInRegistrationForm({
 
   const isCapacityNight = "sessionId" in target;
 
-  const playersByName = useMemo(() => new Map(players.map((player) => [player.name.toLowerCase(), player])), [players]);
+  // Search-as-you-type combobox (shared with New Booking's "Player"
+  // field) needs a `label` per option — reuse `name` rather than
+  // changing the RegistrablePlayer contract every caller already
+  // supplies.
+  const comboboxPlayers = useMemo(() => players.map((player) => ({ ...player, label: player.name })), [players]);
+
+  function handleSelectPlayer(player: RegistrablePlayer): void {
+    setPlayerName(player.name);
+    setMatchedPlayerId(player.id);
+    setPhone(player.phone);
+    if (player.openPlaySkillLevel) {
+      setSkillLevel(player.openPlaySkillLevel);
+    }
+  }
 
   function handleNameChange(value: string) {
+    // Any edit invalidates a prior match — phone/skill level are left
+    // as they are (independently editable fields, not derived), so a
+    // staff member correcting a typo doesn't lose what they've already
+    // typed elsewhere.
     setPlayerName(value);
-    const match = playersByName.get(value.trim().toLowerCase());
-    if (match) {
-      setMatchedPlayerId(match.id);
-      setPhone(match.phone);
-      if (match.openPlaySkillLevel) {
-        setSkillLevel(match.openPlaySkillLevel);
-      }
-    } else {
-      setMatchedPlayerId(undefined);
-    }
+    setMatchedPlayerId(undefined);
   }
 
   function reset() {
@@ -154,17 +163,14 @@ export function WalkInRegistrationForm({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="walkInName">Name</Label>
-            <Input
+            <PlayerSearchCombobox
               id="walkInName"
-              list="registrable-players"
-              value={playerName}
-              onChange={(event) => handleNameChange(event.target.value)}
+              players={comboboxPlayers}
+              selectedPlayerId={matchedPlayerId ?? null}
+              text={playerName}
+              onSelectPlayer={handleSelectPlayer}
+              onTextChange={handleNameChange}
             />
-            <datalist id="registrable-players">
-              {players.map((player) => (
-                <option key={player.id} value={player.name} />
-              ))}
-            </datalist>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="walkInPhone">Phone</Label>

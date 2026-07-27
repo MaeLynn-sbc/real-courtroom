@@ -20,6 +20,17 @@ import { defineConfig, devices } from "@playwright/test";
 // a retry cushion.
 const useProdServer = Boolean(process.env.CI) || process.env.PW_PROD_SERVER === "1";
 
+// Overridable so a session already running its own dev server on a
+// non-default port (e.g. to avoid colliding with someone else's browser
+// tab already open on 3000) can point the suite at it instead of
+// Playwright spawning a second, competing `next dev`/`next start`
+// process against the same .next build directory — confirmed live: two
+// such processes racing against one .next corrupts the shared build and
+// produces spurious 404s on routes that were working a moment earlier.
+// Unset (the default) behaves exactly as before: port 3000.
+const port = process.env.PW_PORT ?? "3000";
+const baseUrl = `http://localhost:${port}`;
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -46,12 +57,13 @@ export default defineConfig({
     timeout: 10_000,
   },
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: baseUrl,
     trace: "on-first-retry",
   },
   webServer: {
     command: useProdServer ? "npm run build && npm run start" : "npm run dev",
-    url: "http://localhost:3000",
+    url: baseUrl,
+    env: { PORT: port },
     reuseExistingServer: !process.env.CI,
     // A production build (compile + optimize + start) takes meaningfully
     // longer to become ready than `next dev`'s near-instant start.
