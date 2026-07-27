@@ -231,6 +231,28 @@ export class SaleService {
     };
   }
 
+  // GCash reconciliation Gate 1: date-scoped (not shift-scoped, unlike
+  // getCashSalesForShift above) — GCash is one shared account balance
+  // for the whole business, so this sums every GCash Sale across every
+  // shift that fell on the given calendar day, midnight to midnight.
+  async getGcashSalesForDate(date: Date): Promise<number> {
+    const gcashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "GCASH" } });
+    const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const startOfNextDay = new Date(startOfDay);
+    startOfNextDay.setDate(startOfNextDay.getDate() + 1);
+
+    const result = await prisma.sale.aggregate({
+      where: {
+        status: "COMPLETED",
+        paymentMethodId: gcashMethod.id,
+        createdAt: { gte: startOfDay, lt: startOfNextDay },
+      },
+      _sum: { amountCents: true },
+    });
+
+    return result._sum.amountCents ?? 0;
+  }
+
   async listPaymentMethods(includeInactive = false): Promise<PaymentMethod[]> {
     return prisma.paymentMethod.findMany({
       where: includeInactive ? undefined : { isActive: true },

@@ -11,6 +11,7 @@ import {
   FileText,
   Globe,
   History,
+  Landmark,
   LayoutDashboard,
   Lock,
   MapPin,
@@ -60,6 +61,7 @@ const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
   "/dashboard/admin/audit-logs": History,
   "/dashboard/admin/settings": Settings,
   "/dashboard/admin/diagnostics": Activity,
+  "/dashboard/admin/gcash-reconciliation": Landmark,
 };
 
 interface DashboardHeaderProps {
