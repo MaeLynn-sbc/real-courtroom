@@ -61,10 +61,14 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Expenses", href: "/dashboard/admin/expenses" },
       { title: "Product Catalog", href: "/dashboard/admin/products" },
       { title: "Website", href: "/dashboard/admin/website" },
-      // Renamed from "Open Play Capacity" — that read as Fri/Sat-only,
-      // but this same screen also covers weeknight drop-in (its own
-      // clearly labeled section on the page itself now, too).
-      { title: "Open Play (Weeknight & Fri/Sat)", href: "/dashboard/admin/open-play-capacity" },
+      // Split from the single combined "Open Play (Weeknight & Fri/Sat)"
+      // entry into two direct links — staff no longer need an extra
+      // click through the shared list page to reach the mode they
+      // actually want. Weeknight links straight to tonight's check-in
+      // via the /today redirect route; Fri/Sat links to the existing
+      // capacity/roster list page, unchanged.
+      { title: "Weeknight Open Play", href: "/dashboard/admin/open-play-capacity/today" },
+      { title: "Fri/Sat Open Play", href: "/dashboard/admin/open-play-capacity" },
       { title: "Audit Logs", href: "/dashboard/admin/audit-logs" },
       { title: "Settings", href: "/dashboard/admin/settings" },
       { title: "Reports", href: "/dashboard/reports" },
