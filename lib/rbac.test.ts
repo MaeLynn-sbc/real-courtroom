@@ -76,6 +76,17 @@ describe("canAccessRoute", () => {
       canAccessRoute("/dashboard/coaching/rates", true, [PERMISSIONS.COACHING_MANAGE_RATES]),
     ).toBe("allowed");
   });
+
+  it("gates GCash reconciliation more strictly than the /dashboard/admin parent (SYSTEM_ADMIN)", () => {
+    expect(
+      canAccessRoute("/dashboard/admin/gcash-reconciliation", true, [PERMISSIONS.SYSTEM_ADMIN]),
+    ).toBe("forbidden");
+    expect(
+      canAccessRoute("/dashboard/admin/gcash-reconciliation", true, [
+        PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION,
+      ]),
+    ).toBe("allowed");
+  });
 });
 
 describe("requiresPasswordChangeRedirect", () => {

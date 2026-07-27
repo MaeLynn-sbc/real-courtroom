@@ -10,25 +10,28 @@ import {
   type OverrideGcashStartingBalanceInput,
   type SeedGcashBalanceInput,
 } from "@/features/gcash/schemas/gcash-reconciliation.schema";
-import { requireSystemAdmin } from "@/lib/action-auth";
+import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { gcashReconciliationService } from "@/services/gcash/gcash-reconciliation.service";
+import { PERMISSIONS } from "@/types/permissions";
 
 export interface GcashReconciliationActionState {
   error: string | null;
 }
 
-// GCash reconciliation is a shared, whole-business balance, not a
-// per-employee drawer the way shift cash is — confirming or correcting
-// it is owner-tier, not self-service. No narrower "accounts" permission
-// exists yet (confirmed by direct investigation before this gate was
-// built) — gating on SYSTEM_ADMIN is the same conservative choice this
-// codebase already makes for other owner-only financial-adjacent
-// settings (e.g. coaching rate-table edits). Revisit if a dedicated
-// permission is ever wanted.
-async function requireSystemAdminEmployee() {
-  const authz = await requireSystemAdmin("You don't have permission to manage GCash reconciliation.");
+// GCash reconciliation Gate 1 follow-up: loosened from SYSTEM_ADMIN to
+// its own dedicated, owner-assignable permission — a real checkbox on
+// the roles screen, granted to nobody by default (see prisma/seed.ts's
+// PERMISSION_DEFINITIONS comment). Covers seed/confirm/override alike:
+// seeding is really just confirming day one, and override is already
+// reason-required and audit-logged regardless of who does it, so none
+// of the three warrant a narrower/separate permission from each other.
+async function requireGcashReconciliationEmployee() {
+  const authz = await requirePermission(
+    PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION,
+    "You don't have permission to manage GCash reconciliation.",
+  );
   if (!authz.ok) {
     return authz;
   }
@@ -46,7 +49,7 @@ function revalidateGcashReconciliation(): void {
 }
 
 export async function seedGcashBalanceAction(input: SeedGcashBalanceInput): Promise<GcashReconciliationActionState> {
-  const authz = await requireSystemAdminEmployee();
+  const authz = await requireGcashReconciliationEmployee();
   if (!authz.ok) {
     return { error: authz.error };
   }
@@ -66,7 +69,7 @@ export async function seedGcashBalanceAction(input: SeedGcashBalanceInput): Prom
 }
 
 export async function confirmGcashBalanceAction(input: ConfirmGcashBalanceInput): Promise<GcashReconciliationActionState> {
-  const authz = await requireSystemAdminEmployee();
+  const authz = await requireGcashReconciliationEmployee();
   if (!authz.ok) {
     return { error: authz.error };
   }
@@ -94,7 +97,7 @@ export async function confirmGcashBalanceAction(input: ConfirmGcashBalanceInput)
 export async function overrideGcashStartingBalanceAction(
   input: OverrideGcashStartingBalanceInput,
 ): Promise<GcashReconciliationActionState> {
-  const authz = await requireSystemAdminEmployee();
+  const authz = await requireGcashReconciliationEmployee();
   if (!authz.ok) {
     return { error: authz.error };
   }
