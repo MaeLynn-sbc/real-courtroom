@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -65,6 +65,102 @@ interface BookingFormProps {
   paymentMethods: BookingFormPaymentMethod[];
 }
 
+// First name of a "First Last" (or "First" / email-fallback) label —
+// matching goes off this leading token only, per spec ("j" -> J names).
+function firstToken(label: string): string {
+  return label.trim().split(/\s+/)[0] ?? "";
+}
+
+// Search-as-you-type replacement for the old "every player in a
+// scrollable dropdown" Select. One field does double duty: matching a
+// real player attaches them (same as the old dropdown's selection);
+// typing text that matches nobody is used directly as the guest name
+// (the same guest-booking path that already existed, just reached by
+// typing instead of picking a special "No player" option) — so this
+// also absorbs what used to be a separate always-visible "Guest name"
+// input, since keeping both would leave two fields able to disagree
+// about who's actually attached to the booking.
+function PlayerCombobox({
+  players,
+  selectedPlayerId,
+  guestName,
+  onSelectPlayer,
+  onGuestNameChange,
+}: {
+  players: BookingFormPlayer[];
+  selectedPlayerId: string | null;
+  guestName: string;
+  onSelectPlayer: (player: BookingFormPlayer) => void;
+  onGuestNameChange: (name: string) => void;
+}) {
+  const selectedPlayer = selectedPlayerId ? players.find((player) => player.id === selectedPlayerId) : null;
+  const displayValue = selectedPlayer ? selectedPlayer.label : guestName;
+  const [isOpen, setIsOpen] = useState(false);
+  const blurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const query = displayValue.trim();
+  const matches = query
+    ? players.filter((player) => firstToken(player.label).toLowerCase().startsWith(query.toLowerCase())).slice(0, 8)
+    : [];
+
+  function handleChange(text: string) {
+    // Any edit invalidates a prior selection — the text no longer
+    // necessarily names that player, so it reverts to guest-name mode
+    // until (if ever) it matches and gets picked again.
+    onGuestNameChange(text);
+    setIsOpen(text.trim().length > 0);
+  }
+
+  function handlePick(player: BookingFormPlayer) {
+    onSelectPlayer(player);
+    setIsOpen(false);
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        id="playerId"
+        value={displayValue}
+        placeholder="Type a name — search players or enter a guest name"
+        onChange={(event) => handleChange(event.target.value)}
+        onFocus={() => setIsOpen(query.length > 0 && matches.length > 0)}
+        onBlur={() => {
+          // Let a click on an option register before the list closes.
+          blurTimeout.current = setTimeout(() => setIsOpen(false), 150);
+        }}
+        autoComplete="off"
+      />
+      {isOpen && matches.length > 0 ? (
+        <div
+          className="bg-popover text-popover-foreground ring-foreground/10 absolute top-full z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-lg shadow-md ring-1"
+          onMouseDown={(event) => {
+            // Fires before the input's onBlur — cancel the pending close
+            // so the click below actually lands on an option.
+            event.preventDefault();
+            if (blurTimeout.current) clearTimeout(blurTimeout.current);
+          }}
+        >
+          {matches.map((player) => (
+            <button
+              key={player.id}
+              type="button"
+              onClick={() => handlePick(player)}
+              className="hover:bg-accent block w-full px-3 py-2 text-left text-sm"
+            >
+              {player.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {!selectedPlayer && guestName.trim() ? (
+        <p className="text-muted-foreground mt-1 text-xs">
+          No matching player — &quot;{guestName.trim()}&quot; will be booked as a guest.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function toLocalInputValue(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
@@ -83,6 +179,7 @@ export function BookingForm({ courts, players, paymentMethods }: BookingFormProp
     register,
     handleSubmit,
     control,
+    setValue,
     formState: { errors },
   } = useForm<BookingFormValues>({
     defaultValues: {
@@ -104,6 +201,8 @@ export function BookingForm({ courts, players, paymentMethods }: BookingFormProp
   const watchedCourtId = useWatch({ control, name: "courtId" });
   const watchedStartAt = useWatch({ control, name: "startAt" });
   const watchedEndAt = useWatch({ control, name: "endAt" });
+  const watchedPlayerId = useWatch({ control, name: "playerId" });
+  const watchedGuestName = useWatch({ control, name: "guestName" });
   const selectedCourt = courts.find((court) => court.id === watchedCourtId);
   const durationHours = isWalkIn
     ? walkInDuration / 60
@@ -222,37 +321,19 @@ export function BookingForm({ courts, players, paymentMethods }: BookingFormProp
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="playerId">Player</Label>
-        <Controller
-          control={control}
-          name="playerId"
-          render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger id="playerId" className="w-full">
-                <SelectValue placeholder="No player — guest booking">
-                  {(value: string) =>
-                    value === NO_PLAYER_VALUE
-                      ? "No player — guest booking"
-                      : (players.find((player) => player.id === value)?.label ??
-                        "No player — guest booking")
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_PLAYER_VALUE}>No player — guest booking</SelectItem>
-                {players.map((player) => (
-                  <SelectItem key={player.id} value={player.id}>
-                    {player.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+        <PlayerCombobox
+          players={players}
+          selectedPlayerId={watchedPlayerId === NO_PLAYER_VALUE ? null : watchedPlayerId}
+          guestName={watchedGuestName}
+          onSelectPlayer={(player) => {
+            setValue("playerId", player.id);
+            setValue("guestName", "");
+          }}
+          onGuestNameChange={(name) => {
+            setValue("playerId", NO_PLAYER_VALUE);
+            setValue("guestName", name);
+          }}
         />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="guestName">Guest name</Label>
-        <Input id="guestName" {...register("guestName")} />
         {errors.guestName ? (
           <p className="text-destructive text-sm">{errors.guestName.message}</p>
         ) : null}
