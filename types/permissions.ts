@@ -41,6 +41,15 @@ export const PERMISSIONS = {
   // required and audit-logged regardless of who does it, so it shares
   // this same permission rather than needing a second one).
   ACCOUNTS_CONFIRM_GCASH_RECONCILIATION: "accounts:confirm_gcash_reconciliation",
+  // Expenses tracking Gate 1: its own dedicated, owner-assignable
+  // permission (same shape as the GCash reconciliation gate's own
+  // ACCOUNTS_CONFIRM_GCASH_RECONCILIATION, built the same session) —
+  // granted to nobody by default, checkbox on the roles screen, the
+  // owner assigns it themselves. Covers recording an expense AND
+  // managing expense categories, same single-permission reasoning
+  // (category management is a lightweight admin action alongside the
+  // main expense-recording flow, not worth a second permission).
+  ACCOUNTS_RECORD_EXPENSE: "accounts:record_expense",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

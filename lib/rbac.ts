@@ -45,6 +45,12 @@ const PROTECTED_ROUTES: RouteRule[] = [
   // above) — the screen itself is now gated on the narrower, owner-
   // assignable permission, not just the action calls beneath it.
   { prefix: "/dashboard/admin/gcash-reconciliation", permission: PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION },
+  // Expenses tracking Gate 1: overrides the /dashboard/admin parent's
+  // SYSTEM_ADMIN default (same longest-prefix-match override pattern as
+  // /dashboard/admin/employees and /dashboard/admin/roles above) — the
+  // screen itself is gated on the narrower, owner-assignable permission,
+  // not just the action calls beneath it.
+  { prefix: "/dashboard/admin/expenses", permission: PERMISSIONS.ACCOUNTS_RECORD_EXPENSE },
 ];
 
 export type RouteAccessDecision = "allowed" | "unauthenticated" | "forbidden";

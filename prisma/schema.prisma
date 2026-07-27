@@ -352,6 +352,9 @@ model Employee {
   // Open-play online self-registration, Gate 1 plumbing — see
   // OpenPlayRegistrationPaymentProof, below QueueEntry.
   resolvedOpenPlayRegistrationPaymentProofs OpenPlayRegistrationPaymentProof[]
+  // Expenses tracking Gate 1 — see Expense, below GcashDailyBalance's spot
+  // in the file (or Sale, whichever lands nearest at merge time).
+  recordedExpenses                          Expense[]
 
   @@index([deletedAt])
 }
@@ -1997,8 +2000,60 @@ model PaymentMethod {
 
   sales    Sale[]
   payments Payment[]
+  expenses Expense[]
 
   @@index([isActive, sortOrder])
+}
+
+// Expenses tracking Gate 1 — money going OUT (rent, supplies, utilities,
+// anything the business pays), previously untracked anywhere in this app
+// (confirmed absent by direct investigation — the only prior mention of
+// "expense" in the whole repo was BUILD-SPEC.md's own "not in scope" note).
+// Same "real, owner-editable list with sensible defaults" pattern as
+// PaymentMethod above, not a hardcoded enum — an owner can add/rename/
+// disable categories from its own admin panel.
+model ExpenseCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  expenses Expense[]
+
+  @@index([isActive, sortOrder])
+}
+
+model Expense {
+  id                   String   @id @default(cuid())
+  // "EXP-20260722-0001" — same date + per-day-sequence pattern as every
+  // other human-facing reference code in this app (Sale, Shift, Booking).
+  expenseNumber        String   @unique
+  amountCents          Int
+  // The business date the expense applies to — staff-entered, may differ
+  // from createdAt (e.g. recording a rent payment a day after it cleared).
+  date                 DateTime
+  // Required regardless of whether a receipt is attached — "what was this
+  // for" must always be answerable from the row itself.
+  description          String
+  categoryId           String
+  paymentMethodId      String
+  recordedByEmployeeId String
+  // Optional — same private-upload mechanism already built for payment-
+  // proof screenshots (services/upload/), not a second upload path.
+  // Null when no receipt was attached.
+  receiptStorageKey    String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  category           ExpenseCategory @relation(fields: [categoryId], references: [id])
+  paymentMethod      PaymentMethod   @relation(fields: [paymentMethodId], references: [id])
+  recordedByEmployee Employee        @relation(fields: [recordedByEmployeeId], references: [id])
+
+  @@index([date])
+  @@index([categoryId])
+  @@index([paymentMethodId])
 }
 
 enum PaymentStatus {

@@ -87,6 +87,15 @@ describe("canAccessRoute", () => {
       ]),
     ).toBe("allowed");
   });
+
+  it("gates expenses on its own permission, not the /dashboard/admin parent's SYSTEM_ADMIN default", () => {
+    expect(canAccessRoute("/dashboard/admin/expenses", true, [PERMISSIONS.SYSTEM_ADMIN])).toBe(
+      "forbidden",
+    );
+    expect(
+      canAccessRoute("/dashboard/admin/expenses", true, [PERMISSIONS.ACCOUNTS_RECORD_EXPENSE]),
+    ).toBe("allowed");
+  });
 });
 
 describe("requiresPasswordChangeRedirect", () => {
