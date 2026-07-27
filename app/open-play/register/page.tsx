@@ -45,14 +45,19 @@ export default async function OpenPlayRegisterPage() {
     settingsService.getOpenPlaySettings(),
   ]);
 
-  // Filtered by the per-day toggle only — NOT by the lead-time window.
-  // Duplicating that day-count math here would risk drifting from
-  // createPublicOpenPlayRegistration's own computation; the action
-  // already returns a clear "opens on <date>" message (rendered by the
-  // form) if someone picks a night too far out, so this page doesn't
-  // need a second copy of that logic to stay correct.
-  const eligibleNights = upcomingNights
-    .filter((night) => capacityDefaults.find((row) => row.dayOfWeek === night.dayOfWeek)?.onlineRegistrationEnabled ?? false)
+  // Filtered by the per-day toggle and the per-date block — NOT by the
+  // lead-time window. Duplicating that day-count math here would risk
+  // drifting from createPublicOpenPlayRegistration's own computation;
+  // the action already returns a clear "opens on <date>" message
+  // (rendered by the form) if someone picks a night too far out, so
+  // this page doesn't need a second copy of that logic to stay
+  // correct.
+  const dayEnabledNights = upcomingNights.filter(
+    (night) => capacityDefaults.find((row) => row.dayOfWeek === night.dayOfWeek)?.onlineRegistrationEnabled ?? false,
+  );
+  const blockedNights = dayEnabledNights.filter((night) => night.onlineRegistrationBlocked);
+  const eligibleNights = dayEnabledNights
+    .filter((night) => !night.onlineRegistrationBlocked)
     .map((night) => ({ date: toLocalDateValue(night.date), label: labelFormatter.format(night.date) }));
 
   return (
@@ -65,6 +70,14 @@ export default async function OpenPlayRegisterPage() {
             Reserve your spot for an upcoming Friday or Saturday night.
           </p>
         </div>
+
+        {blockedNights.length > 0 ? (
+          <p className="border-warning/40 bg-warning/10 rounded-lg border px-3 py-2 text-sm">
+            Online registration is closed for{" "}
+            {blockedNights.map((night) => labelFormatter.format(night.date)).join(", ")} — contact us
+            directly for {blockedNights.length === 1 ? "that date" : "those dates"}.
+          </p>
+        ) : null}
 
         {eligibleNights.length === 0 ? (
           <p className="text-muted-foreground text-sm">

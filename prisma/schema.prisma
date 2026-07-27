@@ -1123,6 +1123,13 @@ model OpenPlayNightSession {
   endAt     DateTime
   capacity  Int
   status    OpenPlayNightStatus @default(OPEN)
+  // Date-specific override, independent of both the feature-wide switch
+  // and OpenPlayCapacityDefault.onlineRegistrationEnabled's day-of-week
+  // default — e.g. "this particular Friday is a tournament, no online
+  // registration that night" even though Fridays are normally open.
+  // Walk-in/staff registration is untouched by this; it only gates
+  // createPublicOpenPlayRegistration.
+  onlineRegistrationBlocked Boolean @default(false)
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
 

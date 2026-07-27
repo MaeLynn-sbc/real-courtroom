@@ -72,6 +72,12 @@ export interface UpcomingOpenPlayNight {
   // registration/waitlist rows can't exist without one.
   registeredCount: number;
   waitlistedCount: number;
+  // Date-specific override — false for any date with no session row yet
+  // (nothing has ever blocked it). See
+  // setOnlineRegistrationBlockedForDate's own comment for the full
+  // picture of how this differs from the feature-wide switch and the
+  // day-of-week default.
+  onlineRegistrationBlocked: boolean;
 }
 
 export class OpenPlayCapacityService {
@@ -134,6 +140,36 @@ export class OpenPlayCapacityService {
       entityId: updated.id,
       oldValues: existing ? { onlineRegistrationEnabled: existing.onlineRegistrationEnabled } : null,
       newValues: { dayOfWeek, onlineRegistrationEnabled: enabled },
+    });
+
+    return updated;
+  }
+
+  // Date-specific online-registration blockout — independent of both
+  // the feature-wide switch and setOnlineRegistrationEnabledForDay's
+  // day-of-week default above. "This particular Friday is a
+  // tournament, no online registration that night" even though
+  // Fridays are normally open. Walk-in/staff registration is
+  // untouched — createPublicOpenPlayRegistration is the only reader.
+  async setOnlineRegistrationBlockedForDate(
+    date: Date,
+    blocked: boolean,
+    actorUserId: string,
+  ): Promise<OpenPlayNightSession> {
+    const session = await this.getOrCreateSessionForDate(date);
+
+    const updated = await prisma.openPlayNightSession.update({
+      where: { id: session.id },
+      data: { onlineRegistrationBlocked: blocked },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_session.online_registration_blocked_toggled",
+      entityType: "OpenPlayNightSession",
+      entityId: session.id,
+      oldValues: { onlineRegistrationBlocked: session.onlineRegistrationBlocked },
+      newValues: { onlineRegistrationBlocked: blocked },
     });
 
     return updated;
@@ -412,6 +448,7 @@ export class OpenPlayCapacityService {
         status: session?.status ?? null,
         registeredCount: session ? registeredBySession.get(session.id) ?? 0 : 0,
         waitlistedCount: session ? waitlistedBySession.get(session.id) ?? 0 : 0,
+        onlineRegistrationBlocked: session?.onlineRegistrationBlocked ?? false,
       };
     });
   }

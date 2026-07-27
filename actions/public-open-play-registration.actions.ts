@@ -12,7 +12,7 @@ import { createPublicOpenPlayRegistration } from "@/services/open-play/public-op
 
 export interface PublicOpenPlayRegistrationActionState {
   error: string | null;
-  status?: "disabled" | "not-yet-open" | "registered" | "waitlisted";
+  status?: "disabled" | "date-blocked" | "not-yet-open" | "registered" | "waitlisted";
   opensAt?: Date;
   registrationId?: string;
   holdExpiresAt?: Date | null;
@@ -50,6 +50,13 @@ export async function createPublicOpenPlayRegistrationAction(
 
     if (result.status === "disabled") {
       return { error: "Online registration isn't available for this night.", status: "disabled" };
+    }
+
+    if (result.status === "date-blocked") {
+      return {
+        error: "Online registration is closed for this date — contact us directly.",
+        status: "date-blocked",
+      };
     }
 
     if (result.status === "not-yet-open") {

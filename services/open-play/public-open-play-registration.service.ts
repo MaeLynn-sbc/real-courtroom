@@ -5,6 +5,7 @@ import { settingsService } from "@/services/settings/settings.service";
 
 export type CreatePublicOpenPlayRegistrationResult =
   | { status: "disabled" }
+  | { status: "date-blocked" }
   | { status: "not-yet-open"; opensAt: Date }
   | { status: "registered"; registrationId: string; holdExpiresAt: Date | null }
   | { status: "waitlisted"; waitlistEntryId: string };
@@ -17,19 +18,26 @@ export type CreatePublicOpenPlayRegistrationResult =
 // directly. The thin action wrapper does nothing but rate-limit, call
 // this, and revalidate.
 //
-// Two independent gates, both required (BUILD-SPEC.md §6) — checked
+// Three independent gates, all required (BUILD-SPEC.md §6) — checked
 // here, not inside openPlayRegistrationService.submitOnlineRegistration,
 // which assumes the caller already decided registration is allowed:
 //   1. settingsService.getOpenPlayOnlineRegistrationEnabled() — the
-//      feature-wide switch. Off by default; reads fresh on every call,
-//      never cached, exactly like Phase 8's own booking-prepayment
-//      switch check.
+//      feature-wide switch. Reads fresh on every call, never cached,
+//      exactly like Phase 8's own booking-prepayment switch check.
 //   2. OpenPlayCapacityDefault.onlineRegistrationEnabled for the
 //      session's own day of week — the per-day narrowing on top.
-// Either gate closed returns "disabled", not an error thrown — there is
-// no pre-existing "old flow" to fall back to the way Booking's public
-// action falls back to instant-confirm when its switch is off; before
-// this feature existed there was no online registration path at all.
+//   3. OpenPlayNightSession.onlineRegistrationBlocked — a per-DATE
+//      override on top of both of the above, for the one-off case
+//      ("this Friday is a tournament") that a day-of-week default
+//      can't express. Returns its own "date-blocked" status, not the
+//      generic "disabled" the first two gates use, so the public page
+//      can show a message specific to this being a one-off closure
+//      rather than the feature being off entirely.
+// The first two gates closed return "disabled", not an error thrown —
+// there is no pre-existing "old flow" to fall back to the way Booking's
+// public action falls back to instant-confirm when its switch is off;
+// before this feature existed there was no online registration path at
+// all.
 export async function createPublicOpenPlayRegistration(
   input: PublicOpenPlayRegistrationInput,
 ): Promise<CreatePublicOpenPlayRegistrationResult> {
@@ -40,6 +48,10 @@ export async function createPublicOpenPlayRegistration(
 
   const date = new Date(`${input.date}T00:00:00`);
   const session = await openPlayCapacityService.getOrCreateSessionForDate(date);
+
+  if (session.onlineRegistrationBlocked) {
+    return { status: "date-blocked" };
+  }
 
   const defaults = await openPlayCapacityService.getCapacityDefaults();
   const dayEnabled = defaults.find((row) => row.dayOfWeek === date.getDay())?.onlineRegistrationEnabled ?? false;

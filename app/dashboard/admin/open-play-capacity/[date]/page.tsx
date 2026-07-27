@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { CheckInPanel } from "@/features/open-play-capacity/components/checkin-panel";
 import { CloseSessionButton } from "@/features/open-play-capacity/components/close-session-button";
+import { OnlineRegistrationBlockToggle } from "@/features/open-play-capacity/components/online-registration-block-toggle";
 import { RegistrationRosterPanel } from "@/features/open-play-capacity/components/registration-roster-panel";
 import { RotationBoard } from "@/features/open-play-capacity/components/rotation-board";
 import { TabsPanel } from "@/features/open-play-capacity/components/tabs-panel";
@@ -86,6 +87,9 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
             <p className="text-muted-foreground text-sm">
               Capacity {session.capacity}. Status: {session.status}.
             </p>
+            <div className="mt-2">
+              <OnlineRegistrationBlockToggle date={dateParam} blocked={session.onlineRegistrationBlocked} />
+            </div>
           </div>
           {session.status === "OPEN" ? (
             <CloseSessionButton sessionId={session.id} disabled={hasUnsettledTabs} />

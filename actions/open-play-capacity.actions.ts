@@ -4,9 +4,11 @@ import { revalidatePath } from "next/cache";
 
 import {
   capacityDefaultInputSchema,
+  onlineRegistrationBlockedForDateInputSchema,
   onlineRegistrationEnabledInputSchema,
   sessionCapacityOverrideInputSchema,
   type CapacityDefaultInput,
+  type OnlineRegistrationBlockedForDateInput,
   type OnlineRegistrationEnabledInput,
   type SessionCapacityOverrideInput,
 } from "@/features/open-play-capacity/schemas/open-play-capacity.schema";
@@ -72,6 +74,34 @@ export async function setOnlineRegistrationEnabledAction(
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "setOnlineRegistrationEnabledAction", userId: authz.userId }) };
+  }
+}
+
+export async function setOnlineRegistrationBlockedForDateAction(
+  input: OnlineRegistrationBlockedForDateInput,
+): Promise<OpenPlayCapacityActionState> {
+  const authz = await requireOpenPlayCapacityAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = onlineRegistrationBlockedForDateInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const date = new Date(`${parsed.data.date}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return { error: "Enter a valid date." };
+  }
+
+  try {
+    await openPlayCapacityService.setOnlineRegistrationBlockedForDate(date, parsed.data.blocked, authz.userId);
+    revalidateOpenPlayCapacity();
+    revalidatePath("/open-play/register");
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "setOnlineRegistrationBlockedForDateAction", userId: authz.userId }) };
   }
 }
 

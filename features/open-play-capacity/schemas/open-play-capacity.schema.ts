@@ -27,3 +27,13 @@ export const onlineRegistrationEnabledInputSchema = z.object({
 });
 
 export type OnlineRegistrationEnabledInput = z.infer<typeof onlineRegistrationEnabledInputSchema>;
+
+// Date-specific override on top of the day-of-week default above —
+// "this particular Friday is a tournament, no online registration
+// that night" even though Fridays are normally open.
+export const onlineRegistrationBlockedForDateInputSchema = z.object({
+  date: z.string().min(1, "Choose a date."),
+  blocked: z.boolean(),
+});
+
+export type OnlineRegistrationBlockedForDateInput = z.infer<typeof onlineRegistrationBlockedForDateInputSchema>;
