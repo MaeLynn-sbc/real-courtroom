@@ -141,7 +141,16 @@ export async function CourtAvailabilityGrid({ date }: { date: Date }) {
         })}
       </div>
 
+      {/* key={dateValue}: forces a full remount on every date change so
+          AvailabilityBoard's local `selection` state can never survive
+          into a different date's grid. Without this, switching dates via
+          the picker above (a client-side nav, not a full page reload)
+          left a stale "held" hour/court from the OLD date rendering as
+          selected on the NEW one — regardless of that slot's actual
+          state there — since React preserves a same-position component
+          instance's state across a soft navigation by default. */}
       <AvailabilityBoard
+        key={dateValue}
         courts={boardCourts}
         hours={hours}
         cells={cells}
