@@ -21,12 +21,14 @@ import { formatCurrency } from "@/lib/utils";
 // Presentation-only convenience list — no schema/service duration limit
 // exists (services/booking/booking.service.ts's totalAmountCents is
 // computed pro-rata from whatever startAt/endAt span is submitted).
-// Extended from the original [30, 60, 90, 120] cap, which under-
-// represented what the booking flow already supports end-to-end;
-// uniform 30-minute increments up to 4 hours, a reasonable upper bound
-// for a single-court booking (private events/extended practice) without
-// offering an unrealistically long single slot.
-const DURATIONS_MINUTES = [30, 60, 90, 120, 150, 180, 210, 240];
+// Hour-only: this business doesn't book in 30-minute increments, up to
+// a reasonable 4-hour upper bound for a single-court booking.
+const DURATIONS_MINUTES = [60, 120, 180, 240];
+
+function formatDurationLabel(minutes: number): string {
+  const hours = minutes / 60;
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
 
 interface PublicBookingFormCourt {
   id: string;
@@ -271,12 +273,12 @@ export function PublicBookingForm({
           render={({ field }) => (
             <Select value={field.value} onValueChange={field.onChange}>
               <SelectTrigger id="durationMinutes" className="w-full">
-                <SelectValue>{(value: string) => `${value} minutes`}</SelectValue>
+                <SelectValue>{(value: string) => formatDurationLabel(Number(value))}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {DURATIONS_MINUTES.map((minutes) => (
                   <SelectItem key={minutes} value={String(minutes)}>
-                    {minutes} minutes
+                    {formatDurationLabel(minutes)}
                   </SelectItem>
                 ))}
               </SelectContent>

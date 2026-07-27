@@ -23,10 +23,13 @@ import { createBookingSchema } from "@/features/bookings/schemas/booking.schema"
 import { formatCurrency } from "@/lib/utils";
 
 // Matches the public booking form's own DURATIONS_MINUTES list —
-// extended from the original [30, 60, 90, 120] cap for the same reason:
-// no schema/service duration limit exists, this was purely a UI-list
-// under-representation.
-const WALK_IN_DURATIONS_MINUTES = [30, 60, 90, 120, 150, 180, 210, 240];
+// hour-only, this business doesn't book in 30-minute increments.
+const WALK_IN_DURATIONS_MINUTES = [60, 120, 180, 240];
+
+function formatDurationLabel(minutes: number): string {
+  const hours = minutes / 60;
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
 const NO_PLAYER_VALUE = "__none__";
 
 interface BookingFormCourt {
@@ -193,12 +196,12 @@ export function BookingForm({ courts, players, paymentMethods }: BookingFormProp
             onValueChange={(value) => setWalkInDuration(Number(value))}
           >
             <SelectTrigger id="walkInDuration" className="w-full">
-              <SelectValue>{(value: string) => `${value} minutes`}</SelectValue>
+              <SelectValue>{(value: string) => formatDurationLabel(Number(value))}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {WALK_IN_DURATIONS_MINUTES.map((minutes) => (
                 <SelectItem key={minutes} value={String(minutes)}>
-                  {minutes} minutes
+                  {formatDurationLabel(minutes)}
                 </SelectItem>
               ))}
             </SelectContent>
