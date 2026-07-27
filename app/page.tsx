@@ -95,7 +95,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               <span className="font-jetbrains text-green text-[11px] font-bold tracking-[0.22em] uppercase">
                 Indoor courts · Everyone welcome
               </span>
-              <h1 className="font-display text-bone mt-4 text-[clamp(52px,7.4vw,88px)] leading-[0.86] font-black tracking-[-0.022em] text-balance uppercase">
+              <h1 className="font-display text-bone mt-4 text-[clamp(52px,14.8vw,176px)] leading-[0.86] font-black tracking-[-0.022em] text-balance uppercase">
                 {hero.title}
               </h1>
               {hero.subtitle ? (

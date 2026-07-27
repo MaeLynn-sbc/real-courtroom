@@ -225,6 +225,15 @@ line      rgba(243,241,234,0.10)
 The navy and coral are taken from the actual court surface. Keep
 that relationship — it is why the palette works.
 
+**Pink rebrand — explored, not adopted.** A full green→pink brand
+color change (with blue as a secondary accent) was built end-to-end
+on its own branch (`feature/brand-color-pink-blue`) — every token
+renamed, both public site and dashboard repainted, WCAG AA contrast
+verified in both directions, live-screenshotted at every breakpoint.
+Owner reviewed it and decided to keep green — it matches the existing
+logo, and the branch was discarded without merging. `green` stays the
+one brand accent token; nothing in this section changed as a result.
+
 ### Type
 
 Load via `next/font` from Google Fonts.
