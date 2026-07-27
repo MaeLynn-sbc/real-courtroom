@@ -345,6 +345,7 @@ model Employee {
   // Phase 8 plumbing — see BookingPaymentProof/BookingRefund, below Sale.
   resolvedBookingPaymentProofs              BookingPaymentProof[]
   issuedBookingRefunds                      BookingRefund[]
+  confirmedGcashDailyBalances               GcashDailyBalance[]
   coachSessions                             CoachSession[]                     @relation("CoachSessionsCoached")
   coachAvailabilityWindows                  CoachAvailabilityWindow[]          @relation("CoachAvailabilityWindows")
   coachRates                                CoachRate[]                        @relation("CoachRates")
@@ -361,23 +362,23 @@ enum ShiftStatus {
 }
 
 model Shift {
-  id               String      @id @default(cuid())
+  id                   String      @id @default(cuid())
   // "SHIFT-20260722-001" — same date + per-day-sequence pattern as every
   // other human-facing reference code in this app.
-  shiftNumber      String      @unique
-  employeeId       String
-  status           ShiftStatus @default(OPEN)
+  shiftNumber          String      @unique
+  employeeId           String
+  status               ShiftStatus @default(OPEN)
   // Philippine business terminology: "Opening Cash" / "Closing Cash", not
   // "float" / "cash count".
-  openingCashCents Int         @default(0)
-  closingCashCents Int?
+  openingCashCents     Int         @default(0)
+  closingCashCents     Int?
   // Gate 1 (shift cash reconciliation): now actually computed and written
   // on close — variance = closingCash - (openingCash + cashSales). Sale
   // is shift-scoped (Sale.shiftId below) and cash-filterable via
   // PaymentMethod.key = "CASH" (saleService.getCashSalesForShift).
-  varianceCents    Int?
-  openingNotes     String?
-  closingNotes     String?
+  varianceCents        Int?
+  openingNotes         String?
+  closingNotes         String?
   // Gate 1: denomination quantities staff actually counted at close
   // (e.g. {"1000": 5, "500": 2, ...}, peso value -> quantity) — a real
   // audit trail of what was counted, not just the resulting total.
@@ -386,10 +387,10 @@ model Shift {
   // money" reasoning as every Sale-creating action in this app. Null for
   // shifts closed before this existed.
   closingCashBreakdown Json?
-  startedAt        DateTime    @default(now())
-  endedAt          DateTime?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  startedAt            DateTime    @default(now())
+  endedAt              DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
   employee Employee @relation(fields: [employeeId], references: [id])
   sales    Sale[]
@@ -399,6 +400,50 @@ model Shift {
   // per day are fine — nothing prevents clocking in more than once a day.
   @@index([employeeId, status])
   @@index([startedAt])
+}
+
+// GCash reconciliation Gate 1. Deliberately date-scoped, NOT shift-
+// scoped like Shift's own cash reconciliation — GCash is one shared
+// account balance for the whole business, not a physical drawer handed
+// off between individual staff shifts, so multiple shifts in one day
+// all feed the SAME day's record rather than each getting their own.
+// One row per calendar day (@@unique below), auto-created on demand
+// with its startingBalanceCents carried forward from the most recent
+// CONFIRMED day (services/gcash/gcash-reconciliation.service.ts) — not
+// re-entered manually. The very first day ever has no prior CONFIRMED
+// row to carry forward from; that's a one-time manual seed
+// (seedFirstBalance), not silently defaulted to 0.
+enum GcashDailyBalanceStatus {
+  OPEN
+  CONFIRMED
+}
+
+model GcashDailyBalance {
+  id                          String                  @id @default(cuid())
+  date                        DateTime                @unique
+  startingBalanceCents        Int
+  // Both null until confirmed. expectedEndingBalanceCents is a SNAPSHOT
+  // taken at confirmation time (startingBalanceCents + that day's GCash
+  // sales, as of that exact moment) — not a live-recomputed field,
+  // same "written once, at close" shape as Shift.closingCashCents.
+  expectedEndingBalanceCents  Int?
+  confirmedEndingBalanceCents Int?
+  // expected - confirmed... actually confirmed - expected, matching
+  // Shift.varianceCents' own sign convention (positive = counted more
+  // than expected). Required note when non-zero — enforced at the
+  // service layer (only it knows the variance), not here.
+  varianceCents               Int?
+  notes                       String?
+  status                      GcashDailyBalanceStatus @default(OPEN)
+  confirmedByEmployeeId       String?
+  confirmedAt                 DateTime?
+  createdAt                   DateTime                @default(now())
+  updatedAt                   DateTime                @updatedAt
+
+  confirmedByEmployee Employee? @relation(fields: [confirmedByEmployeeId], references: [id])
+
+  @@index([date])
+  @@index([status])
 }
 
 // --- Court Management ------------------------------------------------------
@@ -2097,14 +2142,14 @@ model Sale {
   shiftId         String
   playerId        String?
 
-  bookingId                String? @unique
-  coachSessionId           String? @unique
-  membershipId             String? @unique
-  equipmentRentalId        String? @unique
-  lockerRentalId           String? @unique
-  tournamentRegistrationId String? @unique
-  productId                String? @unique
-  playerTabId              String? @unique
+  bookingId                   String? @unique
+  coachSessionId              String? @unique
+  membershipId                String? @unique
+  equipmentRentalId           String? @unique
+  lockerRentalId              String? @unique
+  tournamentRegistrationId    String? @unique
+  productId                   String? @unique
+  playerTabId                 String? @unique
   // Gate 2 review follow-up: the Fri/Sat ₱150 walk-in registration fee
   // (services/open-play/open-play-registration.service.ts's
   // registerWalkIn) — a SaleCategory.OPEN_PLAY Sale, but distinct from
@@ -2118,18 +2163,18 @@ model Sale {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  paymentMethod            PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
-  employee                 Employee                   @relation(fields: [employeeId], references: [id])
-  shift                    Shift                      @relation(fields: [shiftId], references: [id])
-  player                   Player?                    @relation(fields: [playerId], references: [id])
-  booking                  Booking?                   @relation(fields: [bookingId], references: [id])
-  coachSession             CoachSession?              @relation(fields: [coachSessionId], references: [id])
-  membership               Membership?                @relation(fields: [membershipId], references: [id])
-  equipmentRental          EquipmentRental?           @relation(fields: [equipmentRentalId], references: [id])
-  lockerRental             LockerRental?              @relation(fields: [lockerRentalId], references: [id])
-  tournamentRegistration   TournamentRegistration?    @relation(fields: [tournamentRegistrationId], references: [id])
-  product                  Product?                   @relation(fields: [productId], references: [id])
-  playerTab                PlayerTab?                 @relation(fields: [playerTabId], references: [id])
+  paymentMethod             PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
+  employee                  Employee                   @relation(fields: [employeeId], references: [id])
+  shift                     Shift                      @relation(fields: [shiftId], references: [id])
+  player                    Player?                    @relation(fields: [playerId], references: [id])
+  booking                   Booking?                   @relation(fields: [bookingId], references: [id])
+  coachSession              CoachSession?              @relation(fields: [coachSessionId], references: [id])
+  membership                Membership?                @relation(fields: [membershipId], references: [id])
+  equipmentRental           EquipmentRental?           @relation(fields: [equipmentRentalId], references: [id])
+  lockerRental              LockerRental?              @relation(fields: [lockerRentalId], references: [id])
+  tournamentRegistration    TournamentRegistration?    @relation(fields: [tournamentRegistrationId], references: [id])
+  product                   Product?                   @relation(fields: [productId], references: [id])
+  playerTab                 PlayerTab?                 @relation(fields: [playerTabId], references: [id])
   openPlayNightRegistration OpenPlayNightRegistration? @relation(fields: [openPlayNightRegistrationId], references: [id])
 
   @@index([category])

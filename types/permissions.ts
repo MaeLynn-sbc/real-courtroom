@@ -32,6 +32,15 @@ export const PERMISSIONS = {
   // matching the existing precedent that CMS/rates-adjacent settings
   // gate on SYSTEM_ADMIN, not a narrower permission.
   COACHING_MANAGE_RATES: "coaching:manage_rates",
+  // GCash reconciliation Gate 1 follow-up: deliberately its OWN,
+  // narrower permission instead of reusing SYSTEM_ADMIN (the gate's
+  // original, more conservative choice) — the owner asked for this
+  // specifically assignable via the roles screen, granted to nobody by
+  // default. Covers seeding the first-ever balance, confirming a day,
+  // AND overriding a starting balance (the override is already reason-
+  // required and audit-logged regardless of who does it, so it shares
+  // this same permission rather than needing a second one).
+  ACCOUNTS_CONFIRM_GCASH_RECONCILIATION: "accounts:confirm_gcash_reconciliation",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

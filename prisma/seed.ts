@@ -111,6 +111,15 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     label: "Manage Coaching Rates",
     description: "Edit the per-coach, per-group-size coaching rate table.",
   },
+  // GCash reconciliation Gate 1 follow-up: deliberately absent from
+  // every ROLE_PERMISSION_GRANTS list below — granted to nobody by
+  // default, on purpose. The owner assigns this themselves from the
+  // roles screen once it exists as a checkbox there.
+  [PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION]: {
+    label: "Confirm GCash Reconciliation",
+    description:
+      "Seed, confirm, and correct the daily GCash balance reconciliation — a shared, business-wide financial control.",
+  },
 };
 
 const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
