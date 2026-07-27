@@ -2218,7 +2218,16 @@ model Sale {
   equipmentRentalId           String? @unique
   lockerRentalId              String? @unique
   tournamentRegistrationId    String? @unique
-  productId                   String? @unique
+  // NOT unique, unlike every field above it — those all back-reference a
+  // one-time transaction row (a specific Booking, a specific
+  // EquipmentRental instance, etc.), so "one Sale per X" is correct there.
+  // productId instead points at the reusable Product catalog row itself
+  // (services/products/product.service.ts's sellProduct sets it to the
+  // same catalog id on every sale) — a `@unique` here made it impossible
+  // to ever sell the same retail item twice, confirmed live (a second
+  // sale of an already-sold product threw a real unique-constraint
+  // violation). See migration 29_sale_product_id_not_unique.
+  productId                   String?
   playerTabId                 String? @unique
   // Gate 2 review follow-up: the Fri/Sat ₱150 walk-in registration fee
   // (services/open-play/open-play-registration.service.ts's
@@ -2252,6 +2261,7 @@ model Sale {
   @@index([employeeId])
   @@index([shiftId])
   @@index([playerId])
+  @@index([productId])
 }
 
 // --- Phase 8 plumbing: GCash prepayment for public court bookings ---------
