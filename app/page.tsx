@@ -89,7 +89,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           }}
         />
         <div className="relative mx-auto max-w-6xl">
-          <div className="grid grid-cols-1 gap-x-12 gap-y-9 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-x-12 gap-y-9 lg:grid-cols-[2fr_1fr]">
             {/* LEFT: hero copy, CTAs, Find Us */}
             <div>
               <span className="font-jetbrains text-green text-[11px] font-bold tracking-[0.22em] uppercase">
