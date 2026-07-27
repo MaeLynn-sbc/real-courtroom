@@ -50,6 +50,39 @@ commit a real `.env`. `.env.example` does not list `AUTH_GOOGLE_ID` /
 implemented in this version of the app (checked: no reference anywhere
 in the codebase); don't configure them.
 
+## Domain and HTTPS (thecourtroomkalibo.com)
+
+`thecourtroomkalibo.com` is already registered and managed through
+Cloudflare. Once the droplet exists and has a public IP:
+
+1. In the Cloudflare dashboard, add (or update) an **A record** for
+   `thecourtroomkalibo.com` (and `www`, if used) pointing at the
+   droplet's public IP.
+2. Leave the record **proxied** (orange cloud, not grey "DNS only") —
+   this is what gives HTTPS automatically: Cloudflare terminates TLS at
+   its edge with its own certificate, so nothing needs to be configured
+   on the droplet itself (no separate Let's Encrypt/Certbot step) for
+   the public hostname to serve over `https://`.
+3. Under Cloudflare's SSL/TLS settings, use **Full** (or **Full
+   (strict)** if the origin presents a valid certificate of its own)
+   rather than **Flexible**, so the leg between Cloudflare and the
+   origin is encrypted too, not just the leg between Cloudflare and the
+   visitor.
+4. Confirm it: `https://thecourtroomkalibo.com` should load with a
+   valid, browser-trusted certificate within a few minutes — a
+   Cloudflare-proxied record generally doesn't need the usual DNS TTL
+   wait. If it doesn't, check that the record is actually proxied (not
+   "DNS only") before looking anywhere else.
+5. Only once the domain resolves, set `AUTH_URL=https://thecourtroomkalibo.com`
+   (see "Environment variables" above) — Auth.js uses this for callback
+   URLs, and changing it after real users have started signing in means
+   invalidating and re-issuing sessions.
+
+Per BUILD-SPEC.md §14 ("Deployment architecture"), the droplet is the
+app's actual origin — it's where `next start` runs directly, not a
+tunnel or reverse-proxy endpoint in front of a separate machine. This
+is the droplet's public IP Cloudflare needs.
+
 ## Boot failures — what they look like, and why that matters
 
 Two things can stop the app from starting at all, both validated in
@@ -126,28 +159,34 @@ behavior:
 3. **Bootstrap the first Owner account — see its own section below**
    for the full procedure and the safety guarantees around it.
 
-4. **Set every required environment variable** (table above) on the
-   hosting platform, including `AUTH_SECRET` and a correct `DATABASE_URL`.
+4. **Point the domain at the droplet — see "Domain and HTTPS" above**
+   for the concrete DNS/Cloudflare steps. Do this early: propagation and
+   certificate issuance take a few minutes, and step 5 below wants the
+   domain already resolving.
 
-5. **Start the app** with `npm run build && npm run start` (or your
+5. **Set every required environment variable** (table above) on the
+   hosting platform, including `AUTH_SECRET`, a correct `DATABASE_URL`,
+   and `AUTH_URL` now that the domain resolves.
+
+6. **Start the app** with `npm run build && npm run start` (or your
    platform's equivalent) — never `npm run dev` in production.
 
-6. **Verify the health endpoint**: `GET /api/health` should return
+7. **Verify the health endpoint**: `GET /api/health` should return
    `{"status":"ok", "database":"connected", "uptimeSeconds":..., "checkedInMs":...}`
    with a `200` status. If `status` is `"error"` (the route also returns
    `503` in that case) or `database` is `"disconnected"`, the app is up but
    can't reach Postgres — check `DATABASE_URL` and network/firewall rules
    before anything else. Configured provider names (payment/email/upload)
    aren't exposed on this public endpoint — check
-   `/dashboard/admin/diagnostics` (step 7 below) for those.
+   `/dashboard/admin/diagnostics` (step 8 below) for those.
 
-7. **Sign in as Owner and check `/dashboard/admin/diagnostics`** (requires
+8. **Sign in as Owner and check `/dashboard/admin/diagnostics`** (requires
    the `system:admin` permission — Owner/Manager have it by default). It
    surfaces the same health data plus a few operational counts (users,
    today's bookings, unresolved inventory alerts) as a one-page deployment
    sanity check.
 
-8. **Confirm rate limiting is live**: attempt to sign in with a wrong
+9. **Confirm rate limiting is live**: attempt to sign in with a wrong
    password 10+ times in under 5 minutes for the same account — the 11th
    attempt should be silently rejected the same way a wrong password is
    (no distinguishing error message, by design, so an attacker can't tell

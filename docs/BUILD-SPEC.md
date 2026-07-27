@@ -1785,96 +1785,66 @@ shortcut breaks silently.
 
 ## 14. Deployment
 
-### Deployment architecture — the court machine is the single source of truth
+### Deployment architecture — cloud-hosted on a single DigitalOcean droplet
 
-Decided, not interim — see below for how this reframes the older
-"local-first for now, droplet later" language that used to follow this
-section. The court machine stays authoritative permanently; it does not
-hand off to a separate droplet deployment once payments land.
+Decided, current, and supersedes every earlier "court machine is the
+single source of truth" / "local-first for now" plan that used to occupy
+this section — those described an on-site venue machine reached through
+a tunnel, which is **not** what's actually deployed. Confirmed by the
+owner: the app, its database, and its file storage all run in the
+cloud, not on any physical machine at the venue.
 
-**Topology.** App + Postgres run on one machine at the venue, via
-Docker. Staff dashboards, the check-in screen, and the TV display all
-reach it over local wifi by IP or local hostname — they never depend on
-the internet. The public website is the SAME app instance, reached from
-outside through a tunnel bound to thecourtroomkalibo.com.
+**Topology.** Next.js runs directly on a DigitalOcean droplet (`next
+start`, no tunnel, no reverse-proxied on-site machine behind it). The
+database is a DigitalOcean **managed Postgres** instance, not a
+self-hosted container on the droplet. Private uploads (payment-proof
+screenshots, receipts) live in DigitalOcean **Spaces**
+(`UPLOAD_PROVIDER=spaces`, see services/upload/upload-service.factory.ts
+and its `SpacesUploadService`). `thecourtroomkalibo.com`'s DNS is
+managed through Cloudflare, proxied (orange cloud) straight at the
+droplet's public IP, with Full (strict) SSL between Cloudflare and the
+droplet — see docs/DEPLOYMENT.md's "Domain and HTTPS" section for the
+exact steps.
 
-**What an internet outage breaks.**
+**What an internet outage breaks — everything, not just public
+booking.** This is the real tradeoff versus the earlier on-site plan,
+stated plainly rather than glossed over: there is no local copy of the
+app or database at the venue anymore. If the venue's internet goes
+down, staff dashboards (check-in, queue and rotation, tabs and
+settlement, cash payments), the TV display, AND the public site all
+stop working at the same time — none of it degrades gracefully to "at
+least the desk still works," because none of it runs at the desk.
+Confirm the venue's internet connection is reliable enough to be a
+single point of failure for live session operation, and have a manual
+fallback in mind (pen-and-paper court/queue tracking) for a prolonged
+outage — the app itself has no offline mode under this architecture.
 
-| Still works | Stops |
-|---|---|
-| Check-in, queue and rotation, tabs and settlement, cash payments, the TV display, all staff screens | Public booking, online Fri/Sat registration, customer GCash proof submission |
+**One database, one truth.** Still true regardless of hosting model:
+never add a second writeable database. Managed Postgres is the only
+database this app talks to.
 
-Staff must be able to run an entire live session with zero internet.
-Verify this by unplugging the router and running a full session end to
-end.
+**Backups.** DigitalOcean's managed Postgres includes its own automated
+backups and point-in-time recovery — confirm the actual retention
+window for the provisioned plan tier in the DO control panel, since it
+varies by plan and isn't hardcoded here. That doesn't make a **tested
+restore** optional: an untested backup is not a backup, regardless of
+who's automating it. Document and periodically re-run a real restore
+into a scratch database.
 
-**No second writeable copy — ever.** Do not add a cloud database that
-also accepts writes. Two writeable sources cannot both honour capacity
-limits, and no sync strategy fixes that. One database, one lock, one
-truth.
-
-**Degraded public site.** When the tunnel is down, customers see a clear
-"online booking temporarily unavailable, please call 0962 857 2974"
-page — never a browser error.
-
-**Local resilience — matters more under this model, not less.** The
-venue machine holds all booking and payment data, permanently, not just
-during an interim phase.
-
-- Nightly `pg_dump` to DigitalOcean Spaces, 30-day retention
-- A tested restore into a scratch database, documented
-- Backups must run even when the internet is down: dump locally first,
-  upload when connectivity returns
-- Docker restart policy `unless-stopped`, so a power cut recovers
-  unattended
-- UPS on the machine if possible — a hard shutdown mid-write is the
-  realistic way to corrupt Postgres
-
-**Staff screens tolerate blips.** Local wifi drops too. Dashboard
-screens keep the last loaded state and show a "reconnecting" indicator
-rather than an error page — the TV display already has this rule (§12);
-apply the same behaviour to the check-in screen, which staff keep open
-for the whole session.
-
-### Local-first is viable for the interim
-
-The app and Postgres can run on one machine at the court via Docker.
-Everything on the local wifi reaches it by IP — staff dashboard on a
-phone or tablet, TV display on the laptop. **Fully functional offline**
-for walk-ins, court bookings taken at the desk, the queue, and the TV.
-
-**What local-first cannot do without the tunnel above:** the public
-website. No booking from home, no Fri/Sat registration, no GCash proof
-submission until thecourtroomkalibo.com is pointed at the venue machine.
-
-Sensible sequence: run locally for staff and TV now, turn on the public
-tunnel when payments land — the same app instance and database the
-whole time, per the architecture decision above, not a second
-deployment.
-
-Two risks to accept knowingly — the court machine is permanently the
-single point of failure holding all booking data, so **offsite nightly
-backups matter from day one**; and there is no "moving to a droplet
-later" to fall back on if local hardware fails without those backups.
+**Staff screens tolerate blips, but not outages.** A brief network hiccup
+between the droplet and a staff device should still show a
+"reconnecting" indicator rather than an error page — the TV display
+already has this rule (§12); the check-in screen (kept open for a whole
+session) should behave the same way. That's different from — and does
+not fix — the outage case above, where the droplet itself is
+unreachable from the venue.
 
 ### Production target
 
-**Not where the app runs** — per the architecture decision above, the
-app and its one database stay on the court machine permanently. The
-existing DigitalOcean account (~$24/month, likely 4GB, room alongside
-Semcore under 1GB) is the tunnel endpoint / reverse proxy for
-thecourtroomkalibo.com and the target for offsite `pg_dump` backups
-(Spaces), not a second running copy of the app. Revisit only if the
-tunnel approach itself proves insufficient once bookings prove the
-business — not as a default "move to the droplet" step.
-
-Domain: **thecourtroomkalibo.com**. Point the tunnel at the venue
-machine around Phase 8, once payments work and a customer could
-genuinely use it.
-
-Non-negotiable: nightly `pg_dump` to Spaces, 30-day retention, and a
-**tested restore** to a scratch database. An untested backup is not a
-backup.
+DigitalOcean droplet (~$24/month, likely 4GB) runs the app directly —
+this is where `next start` actually executes, not a tunnel endpoint in
+front of something else. Domain: **thecourtroomkalibo.com**, pointed at
+the droplet per docs/DEPLOYMENT.md's "Domain and HTTPS" section.
 
 ### PWA, not native
 
