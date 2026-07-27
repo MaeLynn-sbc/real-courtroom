@@ -2544,3 +2544,28 @@ domain only become necessary at Phase 8.
     of the current lightweight prefill.
   Sequenced after Item A (Fri/Sat registration fee — done) and the
   current open-play online-registration Gate 3 work. Not built now.
+- **TV display voice announcements — court assignments, free browser
+  TTS. PARKED, spec only.** When the rotation engine assigns players to
+  a court (the same event the TV display already renders live), speak
+  it out loud on the display — e.g. "Court 2: Miguel Santos and
+  partner, please proceed." Browser-native Web Speech API — free,
+  built into Chrome, no external service, no API key, no per-use cost,
+  runs directly on the kiosk box showing the display. Scope when this
+  gets its turn:
+  1. Trigger only on a genuinely NEW court assignment compared against
+     the display's previous poll — never re-announce on every ~30s
+     refresh.
+  2. Content: court number + player name(s), kept short — test what
+     reads clearly out loud vs. what's fine written on screen; very
+     long names may need shortening for speech specifically, separate
+     from how the display already shortens them visually.
+  3. Must queue, not overlap — two assignments landing close together
+     announce one after another, never talk over itself.
+  4. A simple on/off control on the display itself (UI toggle, not just
+     relying on the kiosk's physical volume) — never force audio on
+     with no way to silence it.
+  5. Confirm the actual kiosk box's browser supports Web Speech API on
+     the real device before building — most do, but verify, don't
+     assume.
+  Sequenced after GCash reconciliation, expenses (if pursued), and
+  anything else ahead of it in the current queue. Not built now.
