@@ -41,14 +41,16 @@ interface OpenPlayNightPageProps {
 function toRegistrablePlayers(
   players: Awaited<ReturnType<typeof playerService.listPlayers>>,
 ): RegistrablePlayer[] {
-  return players
-    .filter((player) => player.phone)
-    .map((player) => ({
-      id: player.id,
-      name: player.user.name ?? player.user.email ?? "Unnamed player",
-      phone: player.phone ?? "",
-      openPlaySkillLevel: player.openPlaySkillLevel,
-    }));
+  // No phone filter — a player missing a phone number should still be
+  // searchable/selectable (prefills an empty phone field, same as a
+  // guest); excluding them made the combobox unusable whenever players
+  // don't have phones on file.
+  return players.map((player) => ({
+    id: player.id,
+    name: player.user.name ?? player.user.email ?? "Unnamed player",
+    phone: player.phone ?? "",
+    openPlaySkillLevel: player.openPlaySkillLevel,
+  }));
 }
 
 export default async function OpenPlayNightPage({ params }: OpenPlayNightPageProps) {
