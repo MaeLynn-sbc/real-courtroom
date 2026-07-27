@@ -587,6 +587,31 @@
   }
 }
 
+/* ---------------- voice announcement mute toggle ---------------- */
+.announceToggle {
+  position: fixed;
+  left: 2.2vw;
+  bottom: 0.6vh;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.5vw;
+  font-family: var(--mono);
+  font-size: 1.1vh;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--slate);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.5vh 1vw;
+  cursor: pointer;
+}
+.announceToggle.on {
+  color: var(--green);
+  border-color: var(--green);
+}
+
 /* ---------------- start-display gate (BUILD-SPEC.md §13) ---------------- */
 .startGate {
   position: fixed;

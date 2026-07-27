@@ -21,6 +21,39 @@ const RELOAD_AFTER_MS = 6 * 60 * 60 * 1000;
 const RELOAD_CHECK_INTERVAL_MS = 60_000;
 const ENDING_SOON_MS = 2 * 60 * 1000;
 
+// Voice announcements (Web Speech API — browser-native, no external
+// service, works offline once the page has loaded). This file already
+// depends on the Wake Lock API (see acquireWakeLock below), which only
+// Chromium browsers implement — the kiosk device is therefore already
+// known to run Chromium, and Chromium's speechSynthesis support is
+// mature, so there's no separate "does the kiosk support this" check
+// to do beyond the runtime "speechSynthesis" in window guard already
+// used below (every call site no-ops cleanly if it's ever missing).
+const ANNOUNCEMENTS_MUTED_STORAGE_KEY = "tv-display-announcements-muted";
+
+// Only "op" (open play, rotation-engine assigned) counts as an
+// announceable assignment — "res" is a pre-scheduled booking someone
+// already knew about, not a just-happened rotation event. Returns null
+// for every other state so a court leaving "op" naturally drops out of
+// the tracked-signatures map (see previousAssignmentsRef below).
+function courtAssignmentSignature(court: DisplayCourt): string | null {
+  if (court.state !== "op") return null;
+  return court.players.map((player) => player.name).join("|");
+}
+
+// "Court 2: Miguel Santos and partner, please proceed." — the full
+// name for one player, "and partner"/"and partners" for the rest
+// rather than reading every name back to back, matching the owner's
+// own worked example: short, and doesn't risk the voice stumbling
+// through a whole foursome's names in one breath.
+function formatAssignmentAnnouncement(court: DisplayCourt): string {
+  const names = court.players.map((player) => player.name);
+  if (names.length === 0) return "";
+  if (names.length === 1) return `${court.name}: ${names[0]}, please proceed.`;
+  if (names.length === 2) return `${court.name}: ${names[0]} and partner, please proceed.`;
+  return `${court.name}: ${names[0]} and partners, please proceed.`;
+}
+
 const clockFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
 const dateFormatter = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
@@ -65,6 +98,80 @@ export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const mountedAtRef = useRef(Date.now());
 
+  // Voice announcements. Seeded from initialData (not empty) so the
+  // first live poll only announces a genuinely NEW assignment relative
+  // to what's already on screen at load — not every game already in
+  // progress when the TV was turned on.
+  const previousAssignmentsRef = useRef<Record<string, string>>(
+    Object.fromEntries(
+      initialData.courts
+        .map((court) => [court.id, courtAssignmentSignature(court)] as const)
+        .filter((entry): entry is [string, string] => entry[1] !== null),
+    ),
+  );
+  const speechQueueRef = useRef<string[]>([]);
+  const isSpeakingRef = useRef(false);
+  const mutedRef = useRef(false);
+  const [announcementsMuted, setAnnouncementsMutedState] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
+
+  useEffect(() => {
+    const supported = typeof window !== "undefined" && "speechSynthesis" in window;
+    setSpeechSupported(supported);
+    const stored = window.localStorage.getItem(ANNOUNCEMENTS_MUTED_STORAGE_KEY);
+    const initialMuted = stored === "true";
+    mutedRef.current = initialMuted;
+    setAnnouncementsMutedState(initialMuted);
+  }, []);
+
+  const processSpeechQueue = useCallback(() => {
+    if (isSpeakingRef.current) return;
+    const next = speechQueueRef.current.shift();
+    if (!next) return;
+    isSpeakingRef.current = true;
+    const utterance = new SpeechSynthesisUtterance(next);
+    utterance.rate = 0.95;
+    // Queue the next one (if any) whether this one finished cleanly or
+    // errored out — a stuck utterance must never silently jam the rest
+    // of the queue forever.
+    utterance.onend = () => {
+      isSpeakingRef.current = false;
+      processSpeechQueue();
+    };
+    utterance.onerror = () => {
+      isSpeakingRef.current = false;
+      processSpeechQueue();
+    };
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  // Announcements land one at a time via this queue (speechSynthesis
+  // itself has no built-in queueing — calling speak() while already
+  // speaking just talks over the current utterance) so two assignments
+  // landing in the same poll never overlap.
+  const enqueueAnnouncement = useCallback(
+    (text: string) => {
+      if (!text || mutedRef.current || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+      speechQueueRef.current.push(text);
+      processSpeechQueue();
+    },
+    [processSpeechQueue],
+  );
+
+  function toggleAnnouncementsMuted() {
+    const next = !mutedRef.current;
+    mutedRef.current = next;
+    setAnnouncementsMutedState(next);
+    window.localStorage.setItem(ANNOUNCEMENTS_MUTED_STORAGE_KEY, String(next));
+    if (next && typeof window !== "undefined" && "speechSynthesis" in window) {
+      // Muting is immediate — stop mid-sentence and drop anything
+      // queued, rather than finishing the current announcement first.
+      window.speechSynthesis.cancel();
+      speechQueueRef.current = [];
+      isSpeakingRef.current = false;
+    }
+  }
+
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
@@ -93,6 +200,25 @@ export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
         }
         const json = (await response.json()) as DisplayData;
         if (cancelled) return;
+
+        // New-assignment detection: compare this poll's per-court "op"
+        // signature against the last one seen. Only a genuine change
+        // (a court newly in "op", or the same court's player set
+        // changing) announces — an unchanged group still mid-game on a
+        // routine 30s refresh never re-announces.
+        for (const court of json.courts) {
+          const signature = courtAssignmentSignature(court);
+          const previousSignature = previousAssignmentsRef.current[court.id];
+          if (signature && signature !== previousSignature) {
+            enqueueAnnouncement(formatAssignmentAnnouncement(court));
+          }
+          if (signature) {
+            previousAssignmentsRef.current[court.id] = signature;
+          } else {
+            delete previousAssignmentsRef.current[court.id];
+          }
+        }
+
         setData(json);
         setLastUpdatedAt(Date.now());
         setReconnecting(false);
@@ -109,7 +235,7 @@ export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, []);
+  }, [enqueueAnnouncement]);
 
   // Long names shrink, never truncate (BUILD-SPEC.md §12) — same pass
   // as the reference file's fitNames(), scoped to this component's own
@@ -284,6 +410,21 @@ export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
         <i />
         <span>{liveLabel}</span>
       </div>
+
+      {/* Separate from the TV's own hardware volume — this only mutes
+          the spoken court-assignment announcements, not the display
+          itself. Hidden entirely when the browser has no speechSynthesis
+          to control. */}
+      {speechSupported ? (
+        <button
+          type="button"
+          onClick={toggleAnnouncementsMuted}
+          className={cls(styles.announceToggle, !announcementsMuted && styles.on)}
+          aria-pressed={!announcementsMuted}
+        >
+          {announcementsMuted ? "Announcements off" : "Announcements on"}
+        </button>
+      ) : null}
     </div>
   );
 }
