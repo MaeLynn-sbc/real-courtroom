@@ -22,7 +22,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { createBookingSchema } from "@/features/bookings/schemas/booking.schema";
 import { formatCurrency } from "@/lib/utils";
 
-const WALK_IN_DURATIONS_MINUTES = [30, 60, 90, 120];
+// Matches the public booking form's own DURATIONS_MINUTES list —
+// extended from the original [30, 60, 90, 120] cap for the same reason:
+// no schema/service duration limit exists, this was purely a UI-list
+// under-representation.
+const WALK_IN_DURATIONS_MINUTES = [30, 60, 90, 120, 150, 180, 210, 240];
 const NO_PLAYER_VALUE = "__none__";
 
 interface BookingFormCourt {
