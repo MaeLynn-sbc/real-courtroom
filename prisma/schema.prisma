@@ -2474,6 +2474,11 @@ model Product {
   priceCents Int
   active     Boolean  @default(true)
   sortOrder  Int      @default(0)
+  // Owner-editable count, decremented atomically on each sale
+  // (productService.sellProduct) — deliberately simple given the small
+  // product list: count in/count out only, no low-stock alerts, reorder
+  // points, or purchase-order tracking.
+  stockCount Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

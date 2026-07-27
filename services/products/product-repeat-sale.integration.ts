@@ -37,6 +37,11 @@ async function main(): Promise<void> {
   }
 
   await prisma.sale.deleteMany({ where: { productId: product.id } });
+  // Stock is irrelevant to what this test proves (repeat sales don't
+  // collide on productId) — temporarily set it high enough that the
+  // separate stock guard never interferes, restored in cleanup below.
+  const originalStockCount = product.stockCount;
+  await prisma.product.update({ where: { id: product.id }, data: { stockCount: 1000 } });
 
   const saleContext = { employeeId: ownerEmployee.id, shiftId: shift.id, paymentMethodId: cash.id };
 
@@ -55,6 +60,7 @@ async function main(): Promise<void> {
   assert(count === 3, `expected 3 separate Sale rows for the same product, got ${count}`);
 
   await prisma.sale.deleteMany({ where: { productId: product.id } });
+  await prisma.product.update({ where: { id: product.id }, data: { stockCount: originalStockCount } });
   console.log(`PASS: the same product can be sold repeatedly — ${count} separate Sale rows created, no unique-constraint collision.`);
   process.exit(0);
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 export const createProductSchema = z.object({
   name: z.string().min(1, "Enter a product name.").max(200),
   priceCents: z.coerce.number().int().nonnegative("Price can't be negative."),
+  stockCount: z.coerce.number().int().nonnegative("Stock can't be negative.").default(0),
 });
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;
@@ -11,6 +12,7 @@ export const updateProductSchema = z.object({
   name: z.string().min(1, "Enter a product name.").max(200),
   priceCents: z.coerce.number().int().nonnegative("Price can't be negative."),
   active: z.boolean(),
+  stockCount: z.coerce.number().int().nonnegative("Stock can't be negative."),
 });
 
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;

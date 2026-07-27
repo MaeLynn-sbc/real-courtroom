@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RecordCard, recordCardAccentButtonClass } from "@/components/ui/record-card";
 import { Switch } from "@/components/ui/switch";
+import { formatCurrency } from "@/lib/utils";
 import type { productService } from "@/services/products/product.service";
 
 type Products = Awaited<ReturnType<typeof productService.listProducts>>;
@@ -38,21 +39,34 @@ function AddProductForm() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState("");
-  const [priceCents, setPriceCents] = useState("");
+  const [price, setPrice] = useState("");
+  const [stockCount, setStockCount] = useState("0");
 
   function onSubmit(event: React.FormEvent) {
     event.preventDefault();
     setServerError(null);
 
+    const priceCents = Math.round(Number(price) * 100);
+    if (!Number.isFinite(priceCents) || priceCents < 0) {
+      setServerError("Enter a valid price.");
+      return;
+    }
+    const stock = Number(stockCount);
+    if (!Number.isFinite(stock) || stock < 0) {
+      setServerError("Enter a valid starting stock count.");
+      return;
+    }
+
     startTransition(async () => {
-      const result = await createProductAction({ name, priceCents: Number(priceCents) });
+      const result = await createProductAction({ name, priceCents, stockCount: stock });
       if (result.error) {
         setServerError(result.error);
         return;
       }
       toast.success("Product added.");
       setName("");
-      setPriceCents("");
+      setPrice("");
+      setStockCount("0");
       router.refresh();
     });
   }
@@ -64,19 +78,31 @@ function AddProductForm() {
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="productName">Name</Label>
               <Input id="productName" value={name} onChange={(event) => setName(event.target.value)} />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="productPrice">Price (cents)</Label>
+              <Label htmlFor="productPrice">Price (₱)</Label>
               <Input
                 id="productPrice"
                 type="number"
                 min="0"
-                value={priceCents}
-                onChange={(event) => setPriceCents(event.target.value)}
+                step="0.01"
+                value={price}
+                onChange={(event) => setPrice(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="productStock">Starting stock</Label>
+              <Input
+                id="productStock"
+                type="number"
+                min="0"
+                step="1"
+                value={stockCount}
+                onChange={(event) => setStockCount(event.target.value)}
               />
             </div>
           </div>
@@ -109,16 +135,29 @@ function ProductRow({
 }) {
   const router = useRouter();
   const [name, setName] = useState(product.name);
-  const [priceCents, setPriceCents] = useState(String(product.priceCents));
+  const [price, setPrice] = useState((product.priceCents / 100).toFixed(2));
   const [active, setActive] = useState(product.active);
+  const [stockCount, setStockCount] = useState(String(product.stockCount));
   const [isPending, startTransition] = useTransition();
 
   function handleSave() {
+    const priceCents = Math.round(Number(price) * 100);
+    if (!Number.isFinite(priceCents) || priceCents < 0) {
+      toast.error("Enter a valid price.");
+      return;
+    }
+    const stock = Number(stockCount);
+    if (!Number.isFinite(stock) || stock < 0) {
+      toast.error("Enter a valid stock count.");
+      return;
+    }
+
     startTransition(async () => {
       const result = await updateProductAction(product.id, {
         name,
-        priceCents: Number(priceCents),
+        priceCents,
         active,
+        stockCount: stock,
       });
       if (result.error) {
         toast.error(result.error);
@@ -153,13 +192,34 @@ function ProductRow({
         <div className="flex flex-col gap-2">
           <div className="flex items-end gap-2">
             <Input value={name} onChange={(event) => setName(event.target.value)} className="flex-1" />
-            <Input
-              type="number"
-              min="0"
-              value={priceCents}
-              onChange={(event) => setPriceCents(event.target.value)}
-              className="w-28"
-            />
+            <div className="flex flex-col gap-1">
+              <Label htmlFor={`price-${product.id}`} className="text-muted-foreground text-[11px]">
+                Price (₱)
+              </Label>
+              <Input
+                id={`price-${product.id}`}
+                type="number"
+                min="0"
+                step="0.01"
+                value={price}
+                onChange={(event) => setPrice(event.target.value)}
+                className="w-24"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor={`stock-${product.id}`} className="text-muted-foreground text-[11px]">
+                Stock
+              </Label>
+              <Input
+                id={`stock-${product.id}`}
+                type="number"
+                min="0"
+                step="1"
+                value={stockCount}
+                onChange={(event) => setStockCount(event.target.value)}
+                className="w-20"
+              />
+            </div>
             <Button
               type="button"
               size="sm"
@@ -170,6 +230,9 @@ function ProductRow({
               {isPending ? "Saving…" : "Save"}
             </Button>
           </div>
+          <p className="text-muted-foreground text-xs">
+            {formatCurrency(product.priceCents)} · {product.stockCount} in stock
+          </p>
           {/* The header pill (RecordCard) shows current state; this is the
               actual control that changes it — same split as payment-methods'
               own row. */}

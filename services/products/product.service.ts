@@ -20,11 +20,13 @@ interface AuditLogEntry {
   newValues?: unknown;
 }
 
-// v1.1: a simple retail catalog (SaleCategory.PRODUCT) — deliberately no
-// stock/quantity tracking, unlike Equipment. Selling a product goes
-// through saleService.createSale/logSaleCreated, the same two-step call
-// every other sale-producing service makes, so product sales show up in
-// revenue reports and player/shift history automatically.
+// v1.1: a simple retail catalog (SaleCategory.PRODUCT). Selling a
+// product goes through saleService.createSale/logSaleCreated, the same
+// two-step call every other sale-producing service makes, so product
+// sales show up in revenue reports and player/shift history
+// automatically. Stock tracking (added later) is deliberately simple —
+// a single owner-editable count field, decremented atomically per sale,
+// no low-stock alerts/reorder points/purchase orders.
 export interface SellProductSaleContext {
   employeeId: string;
   shiftId: string;
@@ -61,6 +63,7 @@ export class ProductService {
       data: {
         name: input.name,
         priceCents: input.priceCents,
+        stockCount: input.stockCount,
         sortOrder: (maxSortOrder._max.sortOrder ?? -1) + 1,
       },
     });
@@ -85,6 +88,7 @@ export class ProductService {
         name: input.name,
         priceCents: input.priceCents,
         active: input.active,
+        stockCount: input.stockCount,
       },
     });
 
@@ -121,21 +125,43 @@ export class ProductService {
     actorUserId: string,
     saleContext: SellProductSaleContext,
   ): Promise<Sale> {
-    const product = await prisma.product.findUniqueOrThrow({ where: { id: input.productId } });
-    if (!product.active) {
+    const precheck = await prisma.product.findUniqueOrThrow({ where: { id: input.productId } });
+    if (!precheck.active) {
       throw new Error("This product is not currently available for sale.");
     }
 
     const quantity = input.quantity ?? 1;
-    const sale = await saleService.createSale({
-      category: "PRODUCT",
-      amountCents: product.priceCents * quantity,
-      paymentMethodId: saleContext.paymentMethodId,
-      employeeId: saleContext.employeeId,
-      shiftId: saleContext.shiftId,
-      playerId: input.playerId,
-      productId: product.id,
-      description: quantity > 1 ? `${product.name} x${quantity}` : product.name,
+    // Fast, friendly rejection for the common (non-racing) case only —
+    // not load-bearing. The updateMany inside the transaction below is
+    // what actually enforces "never sell past stock," same pattern as
+    // playerTabService.settleTab's own precheck + atomic-guard split.
+    if (precheck.stockCount < quantity) {
+      throw new Error(`Not enough stock — only ${precheck.stockCount} of "${precheck.name}" left.`);
+    }
+
+    const sale = await prisma.$transaction(async (tx) => {
+      const claim = await tx.product.updateMany({
+        where: { id: input.productId, stockCount: { gte: quantity } },
+        data: { stockCount: { decrement: quantity } },
+      });
+      if (claim.count === 0) {
+        const current = await tx.product.findUniqueOrThrow({ where: { id: input.productId } });
+        throw new Error(`Not enough stock — only ${current.stockCount} of "${current.name}" left.`);
+      }
+
+      return saleService.createSale(
+        {
+          category: "PRODUCT",
+          amountCents: precheck.priceCents * quantity,
+          paymentMethodId: saleContext.paymentMethodId,
+          employeeId: saleContext.employeeId,
+          shiftId: saleContext.shiftId,
+          playerId: input.playerId,
+          productId: precheck.id,
+          description: quantity > 1 ? `${precheck.name} x${quantity}` : precheck.name,
+        },
+        tx,
+      );
     });
 
     await saleService.logSaleCreated(sale, actorUserId);
