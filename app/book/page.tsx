@@ -44,7 +44,7 @@ export default async function BookPage({ searchParams }: BookPageProps) {
           <p className="text-muted-foreground mt-2 text-lg">
             {requiresPrepayment
               ? "Reserve your court in a minute — pay via GCash to confirm your slot."
-              : "Reserve your court in a minute — pay when you arrive."}
+              : "Reserve your court — quick and easy."}
           </p>
         </div>
         <PublicBookingForm
