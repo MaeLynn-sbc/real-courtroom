@@ -354,6 +354,23 @@ export class SettingsService {
     }
   }
 
+  // BUILD-SPEC.md §13's setup page: owner-only "Regenerate URL" — issues
+  // a new slug and invalidates the old one (the TV display's own auth
+  // model IS the slug; the old URL simply 404s once this overwrites it,
+  // same as any other unguessable-token rotation in this app). Always an
+  // update (never create — getOrCreateDisplaySlug already guarantees a
+  // row exists by the time anyone can reach a page offering this
+  // button).
+  async regenerateDisplaySlug(actorUserId: string): Promise<string> {
+    const slug = randomUUID();
+    const setting = await prisma.setting.update({
+      where: { key: DISPLAY_SLUG_KEY },
+      data: { value: slug, updatedById: actorUserId },
+    });
+    await this.writeSettingAuditLog("setting.updated", setting.id, setting.key, setting.value, actorUserId);
+    return slug;
+  }
+
   private async getJsonValue<T>(key: string, fallback: T): Promise<T> {
     const row = await prisma.setting.findUnique({ where: { key } });
     return row ? (row.value as T) : fallback;
