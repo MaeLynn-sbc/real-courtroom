@@ -10,6 +10,7 @@ import type {
 } from "@/lib/generated/prisma/client";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import { canTransitionOpenPlayWaitlistEntryStatus } from "@/services/open-play/open-play-waitlist-status";
+import { playerService } from "@/services/player/player.service";
 import { saleService } from "@/services/sales/sale.service";
 import { settingsService } from "@/services/settings/settings.service";
 import { getSmsService } from "@/services/sms/sms-service.factory";
@@ -181,6 +182,53 @@ export async function createOpenPlayRegistrationFeeSale(
   );
 }
 
+// Gate 2 review follow-up: a walk-in for a MATCHED existing player (not
+// a brand-new guest — `playerId` is only ever set once the search
+// combobox resolves one) syncs the phone/skill level staff just typed
+// back onto that Player's saved profile, via the same
+// playerService.updatePlayer the Players admin screen already uses —
+// not duplicated here. Overwrites rather than fill-only-if-empty: staff
+// are re-entering this in front of the player right now, so a changed
+// value is far more likely a real correction (new number, improved
+// rating) than noise — the same "an edit invalidates the prior value"
+// stance the search combobox itself already takes on a manual text
+// edit. Best-effort: registration creation has already committed by
+// the time this runs, so a sync failure (e.g. no email on file —
+// User.email is nullable, but updatePlayer's shared profile schema
+// still requires one) is logged and swallowed, never allowed to
+// surface as a failure of the walk-in itself.
+async function syncPlayerProfileFromWalkIn(
+  playerId: string,
+  playerName: string,
+  phone: string,
+  skillLevel: OpenPlaySkillLevel,
+  actorUserId: string,
+): Promise<void> {
+  try {
+    const player = await playerService.getPlayerById(playerId);
+    if (!player || !player.user.email) {
+      return;
+    }
+    await playerService.updatePlayer(
+      playerId,
+      {
+        name: player.user.name ?? playerName,
+        email: player.user.email,
+        phone,
+        bio: player.bio ?? undefined,
+        dateOfBirth: player.dateOfBirth ?? undefined,
+        skillLevel: player.skillLevel ?? undefined,
+        openPlaySkillLevel: skillLevel,
+        dominantHand: player.dominantHand ?? undefined,
+        position: player.position ?? undefined,
+      },
+      actorUserId,
+    );
+  } catch (error) {
+    logger.warn({ err: error, playerId }, "Failed to sync player profile from walk-in registration");
+  }
+}
+
 export class OpenPlayRegistrationService {
   // Phase 4 only builds the staff walk-in path (cash, paid immediately —
   // see the OpenPlayNightRegistrationStatus enum comment in schema.prisma)
@@ -269,6 +317,10 @@ export class OpenPlayRegistrationService {
       },
     });
 
+    if (input.playerId) {
+      await syncPlayerProfileFromWalkIn(input.playerId, input.playerName, input.phone, input.skillLevel, actorUserId);
+    }
+
     return registration;
   }
 
@@ -302,6 +354,10 @@ export class OpenPlayRegistrationService {
       entityId: registration.id,
       newValues: { date, skillLevel: registration.skillLevel },
     });
+
+    if (input.playerId) {
+      await syncPlayerProfileFromWalkIn(input.playerId, input.playerName, input.phone, input.skillLevel, actorUserId);
+    }
 
     return registration;
   }
