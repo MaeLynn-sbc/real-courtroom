@@ -1,8 +1,10 @@
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import type {
+  OpenPlayCredit,
   OpenPlayNightRegistration,
   OpenPlayNightRegistrationSource,
+  OpenPlayRefund,
   OpenPlayWaitlistEntry,
   Prisma,
 } from "@/lib/generated/prisma/client";
@@ -87,6 +89,16 @@ export type ReleaseStatus = "CANCELLED" | "NO_SHOW" | "CHECKED_OUT" | "REJECTED"
 // per this gate's explicit instruction to reuse holdExpiresAt's pattern,
 // not invent a second one.
 const HOLD_DURATION_MINUTES = 30;
+
+// Cancellation policy Gate 1 (BUILD-SPEC.md's open-play "Cancellation
+// policy" section). Both are the spec's own explicit proposed defaults —
+// implemented as the actual behavior rather than left further open,
+// since a concrete policy needs a concrete number and the spec already
+// named one for each: "at least 4 hours before the session's start
+// time" (the cutoff), and "90 days from issue" (credit expiry, under
+// "Credit expiry — does it lapse?").
+const CANCELLATION_CREDIT_CUTOFF_HOURS = 4;
+const OPEN_PLAY_CREDIT_EXPIRY_DAYS = 90;
 
 // Shared by registerWalkIn (a seat taken by cash-paid-immediately staff
 // registration) and submitOnlineRegistration/inviteNextWaitlistEntry (a
@@ -548,8 +560,62 @@ export class OpenPlayRegistrationService {
     });
   }
 
-  async cancelRegistration(registrationId: string, actorUserId: string): Promise<OpenPlayNightRegistration> {
+  // actorUserId is nullable — widened for cancelRegistrationAsCustomer
+  // below, which passes null (same "no real staff user, unauthenticated
+  // public path" convention already used by submitOnlineRegistration and
+  // markNoShow's system release, not the booking-side "attribute to the
+  // seeded Website identity" convention, which this file never adopted).
+  // Every staff-initiated call site still passes a real user id.
+  async cancelRegistration(registrationId: string, actorUserId: string | null): Promise<OpenPlayNightRegistration> {
     return this.releaseRegistration(registrationId, "CANCELLED", actorUserId);
+  }
+
+  // Cancellation policy Gate 1, customer-facing half: phone is the only
+  // "auth" a public, unauthenticated customer has — same normalize-and-
+  // compare shape as bookingService.findByReferenceAndPhone (strip non-
+  // digits, exact match), duplicated rather than imported (this
+  // codebase's established per-service small-helper precedent). Scoped
+  // to source === "WEBSITE" deliberately: this is "a cancellation path
+  // for an online registration" per the instruction that created it, not
+  // a general walk-in-cancellation UI — a walk-in customer isn't using a
+  // public self-service page for a same-night registration. Delegates to
+  // cancelRegistration (actorUserId: null) so the SAME credit-or-forfeit
+  // logic in releaseRegistration applies, not a second, diverging path.
+  async cancelRegistrationAsCustomer(registrationId: string, phone: string): Promise<OpenPlayNightRegistration> {
+    const normalize = (value: string) => value.replace(/\D/g, "");
+    const providedPhone = normalize(phone);
+
+    const registration = await prisma.openPlayNightRegistration.findUnique({ where: { id: registrationId } });
+    if (
+      !registration ||
+      registration.source !== "WEBSITE" ||
+      !providedPhone ||
+      normalize(registration.phone) !== providedPhone
+    ) {
+      throw new Error("We couldn't find a registration matching that phone number.");
+    }
+
+    return this.cancelRegistration(registrationId, null);
+  }
+
+  // The lookup half of the same flow — finds the ONE confirmed,
+  // WEBSITE-sourced registration for a phone+night combination, so a
+  // public "find my registration" page can show it before the customer
+  // confirms cancellation. Same normalize-and-compare shape as above.
+  async findConfirmedRegistrationForCancellation(
+    phone: string,
+    date: Date,
+  ): Promise<OpenPlayNightRegistration | null> {
+    const normalize = (value: string) => value.replace(/\D/g, "");
+    const providedPhone = normalize(phone);
+    if (!providedPhone) {
+      return null;
+    }
+
+    const candidates = await prisma.openPlayNightRegistration.findMany({
+      where: { date, status: "CONFIRMED", source: "WEBSITE" },
+    });
+    return candidates.find((candidate) => normalize(candidate.phone) === providedPhone) ?? null;
   }
 
   // actorUserId is nullable here specifically for reconcileNoShows'
@@ -589,15 +655,19 @@ export class OpenPlayRegistrationService {
       const existing = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
 
       // Weeknight (sessionId null) has no capacity/waitlist at all — just
-      // flip the status, nothing to lock or promote.
+      // flip the status, nothing to lock or promote. Also never eligible
+      // for a cancellation credit: weeknight has no registration fee, so
+      // no Sale ever exists to base one on (see createOpenPlayRegistrationFeeSale,
+      // Fri/Sat-only by construction) — issuedCredit is always null here.
       if (!existing.sessionId) {
-        return tx.openPlayNightRegistration.update({
+        const updated = await tx.openPlayNightRegistration.update({
           where: { id: registrationId },
           data: {
             status,
             checkedOutAt: status === "CHECKED_OUT" ? new Date() : existing.checkedOutAt,
           },
         });
+        return { updated, issuedCredit: null };
       }
 
       await lockSessionRow(tx, existing.sessionId);
@@ -642,8 +712,10 @@ export class OpenPlayRegistrationService {
       const releasableStatuses: (typeof current.status)[] = ["CONFIRMED", "AWAITING_PAYMENT", "PENDING_VERIFICATION"];
       if (!releasableStatuses.includes(current.status)) {
         // Already released by a concurrent (or earlier) call — idempotent
-        // no-op, same treatment as check-in's double-tap.
-        return current;
+        // no-op, same treatment as check-in's double-tap. No credit here
+        // either: a genuine second release attempt does not issue a
+        // second credit for the same cancellation.
+        return { updated: current, issuedCredit: null };
       }
 
       const releasedHadSeat = current.waitlistPos === null;
@@ -656,6 +728,23 @@ export class OpenPlayRegistrationService {
           checkedOutAt: status === "CHECKED_OUT" ? new Date() : current.checkedOutAt,
         },
       });
+
+      // Cancellation policy Gate 1: the fee is non-refundable either way
+      // (no cash ever moves here) — this only decides whether the
+      // customer walks away with an OpenPlayCredit. Gated strictly on
+      // status === "CANCELLED": a NO_SHOW forfeits by definition (BUILD-
+      // SPEC's own reasoning — a no-show is definitionally past the
+      // cutoff), REJECTED never had a real payment behind it (Sale is
+      // only created on approval, never on submission), and CHECKED_OUT
+      // is an end-of-night operational state, not a cancellation. Only
+      // CONFIRMED (paid) registrations are eligible — current.status,
+      // not existing.status, since current is the fresh re-read taken
+      // after the session lock above (same staleness reasoning as
+      // releasedHadSeat/releasedWaitlistPos, just below).
+      const issuedCredit =
+        status === "CANCELLED" && current.status === "CONFIRMED"
+          ? await this.issueCancellationCreditIfEligible(tx, current)
+          : null;
 
       if (releasedHadSeat) {
         const head = await tx.openPlayNightRegistration.findFirst({
@@ -690,18 +779,123 @@ export class OpenPlayRegistrationService {
         });
       }
 
-      return updated;
+      return { updated, issuedCredit };
     });
 
     await this.writeAuditLog({
       actorUserId,
       action: "open_play_night_registration.released",
       entityType: "OpenPlayNightRegistration",
-      entityId: released.id,
+      entityId: released.updated.id,
       newValues: { status },
     });
 
-    return released;
+    if (released.issuedCredit) {
+      await this.writeAuditLog({
+        actorUserId,
+        action: "open_play_night_registration.cancellation_credit_issued",
+        entityType: "OpenPlayCredit",
+        entityId: released.issuedCredit.id,
+        newValues: released.issuedCredit,
+      });
+    }
+
+    return released.updated;
+  }
+
+  // Cancellation policy Gate 1 (BUILD-SPEC.md's open-play "Cancellation
+  // policy" section). Called only from releaseRegistration's Fri/Sat
+  // branch, only when status is being set to CANCELLED on a registration
+  // that was CONFIRMED. The fee is non-refundable EITHER WAY — this
+  // never touches the original Sale, only decides whether an
+  // OpenPlayCredit is issued alongside the cancellation:
+  //   - Before the cutoff (4 hours before session start): credit, so
+  //     cancelling has an upside over a silent no-show (the whole reason
+  //     the policy needs this half at all — see the model's own comment).
+  //   - At or after the cutoff: no credit — by then a freed seat can't
+  //     realistically be refilled, same practical outcome as a no-show.
+  //   - No Sale exists for this registration at all (fee setting was 0
+  //     at registration time, or — structurally impossible today, but
+  //     checked anyway — a CONFIRMED registration that never got billed):
+  //     nothing to credit.
+  private async issueCancellationCreditIfEligible(
+    tx: Prisma.TransactionClient,
+    current: OpenPlayNightRegistration,
+  ): Promise<OpenPlayCredit | null> {
+    const sale = await tx.sale.findUnique({ where: { openPlayNightRegistrationId: current.id } });
+    if (!sale) {
+      return null;
+    }
+
+    const session = await tx.openPlayNightSession.findUniqueOrThrow({
+      where: { id: current.sessionId! },
+      select: { startAt: true },
+    });
+    const cutoff = new Date(session.startAt.getTime() - CANCELLATION_CREDIT_CUTOFF_HOURS * 60 * 60 * 1000);
+    if (new Date() >= cutoff) {
+      return null;
+    }
+
+    const issuedAt = new Date();
+    return tx.openPlayCredit.create({
+      data: {
+        phone: current.phone,
+        amountCents: sale.amountCents,
+        reason: `Cancelled registration ${current.id}`,
+        sourceRegistrationId: current.id,
+        issuedAt,
+        expiresAt: new Date(issuedAt.getTime() + OPEN_PLAY_CREDIT_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
+      },
+    });
+  }
+
+  // Staff-initiated refund path (BUILD-SPEC.md's "Staff-initiated
+  // refunds must exist, separately" — item 2 of the cancellation policy
+  // section). Distinct from the customer-facing non-refundable/credit
+  // policy above: this is real cash back for the BUSINESS's own error
+  // (a valid payment wrongly rejected, a genuine double payment, a
+  // staff-cancelled night) — never reachable from customer cancellation,
+  // which always goes through issueCancellationCreditIfEligible instead.
+  // Same "no anonymous refunds" shape as PlayerTab's write-off and
+  // BookingRefund: a real Employee and a required reason, both enforced
+  // here (not just at the schema layer) since this method is the actual
+  // money-moving boundary. Deliberately does NOT touch the registration's
+  // own status — a refund is a fact about money, not a re-statement of
+  // what already happened to the registration (which may already be
+  // REJECTED, CANCELLED, or still CONFIRMED, depending on which of the
+  // three error scenarios this is).
+  async refundRegistration(
+    registrationId: string,
+    amountCents: number,
+    reason: string,
+    employeeId: string,
+    actorUserId: string,
+  ): Promise<OpenPlayRefund> {
+    if (!reason.trim()) {
+      throw new Error("A refund reason is required.");
+    }
+    if (amountCents <= 0) {
+      throw new Error("Enter a valid refund amount.");
+    }
+
+    // Fails loudly (findUniqueOrThrow) rather than silently refunding a
+    // registration that doesn't exist — same "trust nothing from the
+    // caller past this point" posture as every other money-write here.
+    await prisma.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+
+    const refund = await prisma.openPlayRefund.create({
+      data: { registrationId, amountCents, reason: reason.trim(), employeeId },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_registration.refunded",
+      entityType: "OpenPlayRefund",
+      entityId: refund.id,
+      newValues: refund,
+    });
+
+    return refund;
   }
 
   async getSessionRegistrations(sessionId: string): Promise<SessionRegistrations> {

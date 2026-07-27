@@ -12,10 +12,33 @@ import { settingsService } from "@/services/settings/settings.service";
 
 // BUILD-SPEC.md §6 "Registration and check-in" — check-in is what enters
 // a player into the queue, not registration. Everything here operates on
-// OpenPlayNightRegistration rows Phase 4 already produces (always
-// CONFIRMED, cash-walk-in) — no payment-status gating exists yet.
+// OpenPlayNightRegistration rows.
 
 const UNDO_WINDOW_MS = 60_000;
+
+// Payment-before-play gap (found by a report-only code audit, fixed
+// here): a registration created via the online path can sit at
+// AWAITING_PAYMENT (nobody's paid yet) or PENDING_VERIFICATION (proof
+// submitted, not yet staff-approved) for a real stretch of time. Before
+// this fix, checkIn() had no status check at all — only
+// getCheckInScreenData's list query filtered to CONFIRMED, which
+// controls what shows up on the staff UI, not what checkInAction will
+// actually do if called directly against an unpaid/unverified
+// registration's id. A walk-in never hits this: registerWalkIn/
+// registerWeeknightWalkIn always create CONFIRMED rows before
+// registerAndCheckIn calls checkIn.
+export class RegistrationNotConfirmedError extends Error {
+  constructor(status: string) {
+    super(
+      status === "AWAITING_PAYMENT"
+        ? "This registration hasn't been paid yet — it can't be checked in."
+        : status === "PENDING_VERIFICATION"
+          ? "This registration's payment hasn't been verified yet — it can't be checked in."
+          : `This registration can't be checked in (status: ${status}).`,
+    );
+    this.name = "RegistrationNotConfirmedError";
+  }
+}
 
 interface AuditLogEntry {
   actorUserId: string | null;
@@ -133,6 +156,18 @@ export class OpenPlayCheckinService {
 
       if (existing.checkedInAt) {
         return { registration: existing, queueEntriesCreated: [] as QueueEntry[], alreadyCheckedIn: true };
+      }
+
+      // The guard itself (see RegistrationNotConfirmedError above) —
+      // checked before the party lock/promotion logic below, so an
+      // unpaid/unverified registration is refused before any of that
+      // runs. This is the SAME status check the party branch already
+      // applies to every OTHER member when deciding "has everyone
+      // arrived" (status = 'CONFIRMED' in the raw SQL/findMany below) —
+      // extended here to cover the registration actually being checked
+      // in, which that existing check never did.
+      if (existing.status !== "CONFIRMED") {
+        throw new RegistrationNotConfirmedError(existing.status);
       }
 
       // Hardening phase fix (BUILD-SPEC.md §0 process rule): the party

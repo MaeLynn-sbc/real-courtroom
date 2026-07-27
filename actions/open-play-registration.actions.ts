@@ -3,12 +3,14 @@
 import { revalidatePath } from "next/cache";
 
 import {
+  refundRegistrationInputSchema,
   registerWalkInInputSchema,
   releaseRegistrationInputSchema,
+  type RefundRegistrationInput,
   type RegisterWalkInInput,
   type ReleaseRegistrationInput,
 } from "@/features/open-play-capacity/schemas/open-play-registration.schema";
-import { requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
+import { requireEmployee, requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
 import { PERMISSIONS } from "@/types/permissions";
@@ -125,4 +127,36 @@ export async function markCheckedOutAction(input: ReleaseRegistrationInput): Pro
     (id, userId) => openPlayRegistrationService.markCheckedOut(id, userId),
     "markCheckedOutAction",
   );
+}
+
+// Cancellation policy Gate 1 — staff refund path. Same permission as
+// every other open-play money-adjustment action (writeOffTabAction's
+// own precedent: OPEN_PLAY_MANAGE, not a dedicated new permission) and
+// same Employee-attribution requirement (requireEmployee, not just
+// requirePermission) — a refund needs a real Employee behind it, same
+// "no anonymous refunds" reasoning as write-offs.
+export async function refundRegistrationAction(input: RefundRegistrationInput): Promise<OpenPlayRegistrationActionState> {
+  const authz = await requireEmployee(PERMISSIONS.OPEN_PLAY_MANAGE, "You don't have permission to refund open play registrations.");
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = refundRegistrationInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid refund." };
+  }
+
+  try {
+    await openPlayRegistrationService.refundRegistration(
+      parsed.data.registrationId,
+      parsed.data.amountCents,
+      parsed.data.reason,
+      authz.employeeId,
+      authz.userId,
+    );
+    revalidateSession();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "refundRegistrationAction", userId: authz.userId }) };
+  }
 }

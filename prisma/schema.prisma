@@ -345,6 +345,9 @@ model Employee {
   // Phase 8 plumbing — see BookingPaymentProof/BookingRefund, below Sale.
   resolvedBookingPaymentProofs              BookingPaymentProof[]
   issuedBookingRefunds                      BookingRefund[]
+  // Open-play cancellation policy Gate 1 — see OpenPlayRefund, below
+  // OpenPlayCredit.
+  issuedOpenPlayRefunds                     OpenPlayRefund[]
   coachSessions                             CoachSession[]                     @relation("CoachSessionsCoached")
   coachAvailabilityWindows                  CoachAvailabilityWindow[]          @relation("CoachAvailabilityWindows")
   coachRates                                CoachRate[]                        @relation("CoachRates")
@@ -361,23 +364,23 @@ enum ShiftStatus {
 }
 
 model Shift {
-  id               String      @id @default(cuid())
+  id                   String      @id @default(cuid())
   // "SHIFT-20260722-001" — same date + per-day-sequence pattern as every
   // other human-facing reference code in this app.
-  shiftNumber      String      @unique
-  employeeId       String
-  status           ShiftStatus @default(OPEN)
+  shiftNumber          String      @unique
+  employeeId           String
+  status               ShiftStatus @default(OPEN)
   // Philippine business terminology: "Opening Cash" / "Closing Cash", not
   // "float" / "cash count".
-  openingCashCents Int         @default(0)
-  closingCashCents Int?
+  openingCashCents     Int         @default(0)
+  closingCashCents     Int?
   // Gate 1 (shift cash reconciliation): now actually computed and written
   // on close — variance = closingCash - (openingCash + cashSales). Sale
   // is shift-scoped (Sale.shiftId below) and cash-filterable via
   // PaymentMethod.key = "CASH" (saleService.getCashSalesForShift).
-  varianceCents    Int?
-  openingNotes     String?
-  closingNotes     String?
+  varianceCents        Int?
+  openingNotes         String?
+  closingNotes         String?
   // Gate 1: denomination quantities staff actually counted at close
   // (e.g. {"1000": 5, "500": 2, ...}, peso value -> quantity) — a real
   // audit trail of what was counted, not just the resulting total.
@@ -386,10 +389,10 @@ model Shift {
   // money" reasoning as every Sale-creating action in this app. Null for
   // shifts closed before this existed.
   closingCashBreakdown Json?
-  startedAt        DateTime    @default(now())
-  endedAt          DateTime?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  startedAt            DateTime    @default(now())
+  endedAt              DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
   employee Employee @relation(fields: [employeeId], references: [id])
   sales    Sale[]
@@ -1184,6 +1187,12 @@ model OpenPlayNightRegistration {
   // any — null for a WALK_IN registration or a direct (non-waitlisted)
   // WEBSITE registration. The inverse of OpenPlayWaitlistEntry.registrationId.
   waitlistEntry         OpenPlayWaitlistEntry?
+  // Cancellation policy Gate 1 — mirrors Booking's creditsIssued/
+  // creditsRedeemed/refunds exactly (see BookingCredit/BookingRefund,
+  // below Sale).
+  creditsIssued         OpenPlayCredit[]                   @relation("OpenPlayCreditSource")
+  creditsRedeemed       OpenPlayCredit[]                   @relation("OpenPlayCreditRedemption")
+  refunds               OpenPlayRefund[]
   // Not expressible in schema.prisma — Prisma has no CHECK-constraint or
   // trigger syntax, so these are hand-written into
   // prisma/migrations/11_registration_session_constraints/migration.sql
@@ -2097,14 +2106,14 @@ model Sale {
   shiftId         String
   playerId        String?
 
-  bookingId                String? @unique
-  coachSessionId           String? @unique
-  membershipId             String? @unique
-  equipmentRentalId        String? @unique
-  lockerRentalId           String? @unique
-  tournamentRegistrationId String? @unique
-  productId                String? @unique
-  playerTabId              String? @unique
+  bookingId                   String? @unique
+  coachSessionId              String? @unique
+  membershipId                String? @unique
+  equipmentRentalId           String? @unique
+  lockerRentalId              String? @unique
+  tournamentRegistrationId    String? @unique
+  productId                   String? @unique
+  playerTabId                 String? @unique
   // Gate 2 review follow-up: the Fri/Sat ₱150 walk-in registration fee
   // (services/open-play/open-play-registration.service.ts's
   // registerWalkIn) — a SaleCategory.OPEN_PLAY Sale, but distinct from
@@ -2118,18 +2127,18 @@ model Sale {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  paymentMethod            PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
-  employee                 Employee                   @relation(fields: [employeeId], references: [id])
-  shift                    Shift                      @relation(fields: [shiftId], references: [id])
-  player                   Player?                    @relation(fields: [playerId], references: [id])
-  booking                  Booking?                   @relation(fields: [bookingId], references: [id])
-  coachSession             CoachSession?              @relation(fields: [coachSessionId], references: [id])
-  membership               Membership?                @relation(fields: [membershipId], references: [id])
-  equipmentRental          EquipmentRental?           @relation(fields: [equipmentRentalId], references: [id])
-  lockerRental             LockerRental?              @relation(fields: [lockerRentalId], references: [id])
-  tournamentRegistration   TournamentRegistration?    @relation(fields: [tournamentRegistrationId], references: [id])
-  product                  Product?                   @relation(fields: [productId], references: [id])
-  playerTab                PlayerTab?                 @relation(fields: [playerTabId], references: [id])
+  paymentMethod             PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
+  employee                  Employee                   @relation(fields: [employeeId], references: [id])
+  shift                     Shift                      @relation(fields: [shiftId], references: [id])
+  player                    Player?                    @relation(fields: [playerId], references: [id])
+  booking                   Booking?                   @relation(fields: [bookingId], references: [id])
+  coachSession              CoachSession?              @relation(fields: [coachSessionId], references: [id])
+  membership                Membership?                @relation(fields: [membershipId], references: [id])
+  equipmentRental           EquipmentRental?           @relation(fields: [equipmentRentalId], references: [id])
+  lockerRental              LockerRental?              @relation(fields: [lockerRentalId], references: [id])
+  tournamentRegistration    TournamentRegistration?    @relation(fields: [tournamentRegistrationId], references: [id])
+  product                   Product?                   @relation(fields: [productId], references: [id])
+  playerTab                 PlayerTab?                 @relation(fields: [playerTabId], references: [id])
   openPlayNightRegistration OpenPlayNightRegistration? @relation(fields: [openPlayNightRegistrationId], references: [id])
 
   @@index([category])
@@ -2283,6 +2292,59 @@ model BookingRefund {
   employee Employee @relation(fields: [employeeId], references: [id])
 
   @@index([bookingId])
+  @@index([employeeId])
+}
+
+// Open-play cancellation policy Gate 1 (BUILD-SPEC.md's open-play
+// "Cancellation policy" section) — mirrors BookingCredit exactly, same
+// phone-keyed identity (a public open-play registration's real customer
+// identity is `phone`, not always a registered Player, same reasoning
+// as BookingCredit's own comment above). Issued automatically by
+// releaseRegistration when a CONFIRMED (paid) registration is cancelled
+// before the 4-hour-before-session cutoff; nothing issues it after the
+// cutoff or on a no-show — those forfeit the fee with no credit, per
+// policy. expiresAt defaults to 90 days from issuedAt (BUILD-SPEC's own
+// proposed default for the previously-open "credit expiry" question).
+// Redemption (spending a credit toward a new registration) is not built
+// yet — this gate only builds issuance; noted, not built, same as the
+// GCash-formula dependency note left by the expenses gate.
+model OpenPlayCredit {
+  id          String    @id @default(cuid())
+  phone       String
+  amountCents Int
+  reason      String
+  issuedAt    DateTime  @default(now())
+  expiresAt   DateTime?
+  usedAt      DateTime?
+
+  sourceRegistrationId String
+  sourceRegistration   OpenPlayNightRegistration  @relation("OpenPlayCreditSource", fields: [sourceRegistrationId], references: [id])
+  usedByRegistrationId String?
+  usedByRegistration   OpenPlayNightRegistration? @relation("OpenPlayCreditRedemption", fields: [usedByRegistrationId], references: [id])
+
+  @@index([phone])
+  @@index([sourceRegistrationId])
+}
+
+// A REAL cash refund for the business's OWN error (wrongly-rejected valid
+// payment, genuine double payment, a staff-cancelled night) — never
+// reachable from customer-initiated cancellation, which goes through
+// OpenPlayCredit above instead. Same shape as BookingRefund, same "no
+// anonymous refunds" reasoning as PlayerTab's write-off fields:
+// employeeId/reason are both required columns, not conditionally-nullable.
+model OpenPlayRefund {
+  id             String   @id @default(cuid())
+  registrationId String
+  amountCents    Int
+  reason         String
+  employeeId     String
+  refundedAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  registration OpenPlayNightRegistration @relation(fields: [registrationId], references: [id])
+  employee     Employee                  @relation(fields: [employeeId], references: [id])
+
+  @@index([registrationId])
   @@index([employeeId])
 }
 
