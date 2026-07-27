@@ -38,6 +38,13 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Bookings", href: "/dashboard/bookings" },
       { title: "Verify Payments", href: "/dashboard/bookings/verify-payments" },
       { title: "Verify Open Play Payments", href: "/dashboard/admin/open-play-capacity/verify-payments" },
+      // Weeknight/Fri-Sat Open Play live here, not in Administration —
+      // staff touch these every day, same reasoning as the rest of
+      // Operations (see this file's own v1.1 comment above). Weeknight
+      // links straight to tonight's check-in via the /today redirect
+      // route; Fri/Sat links to the existing capacity/roster list page.
+      { title: "Weeknight Open Play", href: "/dashboard/admin/open-play-capacity/today" },
+      { title: "Fri/Sat Open Play", href: "/dashboard/admin/open-play-capacity" },
       { title: "Equipment", href: "/dashboard/equipment" },
       { title: "Lockers", href: "/dashboard/lockers" },
       { title: "Products", href: "/dashboard/products" },
@@ -61,14 +68,6 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Expenses", href: "/dashboard/admin/expenses" },
       { title: "Product Catalog", href: "/dashboard/admin/products" },
       { title: "Website", href: "/dashboard/admin/website" },
-      // Split from the single combined "Open Play (Weeknight & Fri/Sat)"
-      // entry into two direct links — staff no longer need an extra
-      // click through the shared list page to reach the mode they
-      // actually want. Weeknight links straight to tonight's check-in
-      // via the /today redirect route; Fri/Sat links to the existing
-      // capacity/roster list page, unchanged.
-      { title: "Weeknight Open Play", href: "/dashboard/admin/open-play-capacity/today" },
-      { title: "Fri/Sat Open Play", href: "/dashboard/admin/open-play-capacity" },
       { title: "Audit Logs", href: "/dashboard/admin/audit-logs" },
       { title: "Settings", href: "/dashboard/admin/settings" },
       { title: "Reports", href: "/dashboard/reports" },
