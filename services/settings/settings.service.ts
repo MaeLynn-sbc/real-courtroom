@@ -196,20 +196,25 @@ export class SettingsService {
     return this.setBooleanFlag(BOOKING_REQUIRE_PREPAYMENT_KEY, value, actorUserId);
   }
 
-  // Open-play online self-registration, Gate 1 (BUILD-SPEC.md §6,
-  // "PARKED" subsection): the switch this whole feature will gate behind
-  // once a later gate wires a public registration action to read it —
-  // same "absence of a row means false" doctrine, same required-OFF
-  // default, same single-point-of-control reasoning as
-  // getBookingRequirePrepayment above. Built now, alongside the schema,
-  // so Gate 2 has one point of control to wire into rather than
-  // inventing it mid-service. Nothing reads this yet — proven in the
-  // Gate 1 report by the existing staff registration flow's own test
-  // suite and a live smoke test both being unaffected by this method
-  // merely existing.
+  // Open-play online self-registration. Originally built required-OFF
+  // (BUILD-SPEC.md §6 "PARKED" subsection) using the same shared
+  // getBooleanFlags helper every other flag here uses (missing row ->
+  // false). Owner's final, informed decision at deploy time: this ships
+  // ON by default, not off. getBooleanFlags' own "no row -> false" is
+  // shared by every boolean flag in this service (booking prepayment,
+  // feature modules, public visibility, ...) — flipping that default
+  // would silently turn ON every other flag too, so this method
+  // deliberately does NOT go through it. Direct query instead: no row
+  // at all (a genuinely fresh database, or this key never explicitly
+  // touched) -> true; a row that exists reflects a real, later decision
+  // (an owner explicitly toggling it, e.g. via
+  // setOpenPlayOnlineRegistrationEnabled below) and always wins.
   async getOpenPlayOnlineRegistrationEnabled(): Promise<boolean> {
-    const flags = await this.getBooleanFlags([OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY]);
-    return flags[OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY] ?? false;
+    const row = await prisma.setting.findUnique({ where: { key: OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY } });
+    if (!row) {
+      return true;
+    }
+    return row.value === true;
   }
 
   async setOpenPlayOnlineRegistrationEnabled(value: boolean, actorUserId: string) {

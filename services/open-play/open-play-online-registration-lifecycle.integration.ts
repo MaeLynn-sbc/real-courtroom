@@ -45,15 +45,28 @@ async function main(): Promise<void> {
   await cleanUpTestSession();
 
   try {
-    // ============== BOTH GATES OFF (the real default) ==============
+    // ============== FRESH-DATABASE DEFAULT IS NOW ON ==============
+    // Owner's final, informed deploy-time decision: this ships ON by
+    // default, not off (was the original Gate 1 plan). Proven directly
+    // against a genuinely no-row state, not assumed.
+    await prisma.setting.deleteMany({ where: { key: "openPlay.onlineRegistrationEnabled" } });
+    const freshDefault = await settingsService.getOpenPlayOnlineRegistrationEnabled();
+    assert(freshDefault === true, `expected the fresh-database default to be true, got ${freshDefault}`);
+    console.log("PASS: with no Setting row at all (a genuinely fresh database), the feature-wide switch reads true.");
+
+    // ============== FEATURE-WIDE SWITCH EXPLICITLY OFF ==============
+    // The switch still needs to work as a real off-switch even though
+    // the default flipped — explicitly off here, not relying on any
+    // ambient state.
+    await settingsService.setOpenPlayOnlineRegistrationEnabled(false, owner.id);
     const offResult = await createPublicOpenPlayRegistration({
       playerName: "Gate Off Guest",
       phone: "09170000001",
       skillLevel: "INTERMEDIATE",
       date: dateValue(TEST_DATE),
     });
-    assert(offResult.status === "disabled", `expected disabled with the feature-wide switch off, got ${offResult.status}`);
-    console.log("PASS: feature-wide switch off -> disabled, no session/registration touched.");
+    assert(offResult.status === "disabled", `expected disabled with the feature-wide switch explicitly off, got ${offResult.status}`);
+    console.log("PASS: feature-wide switch explicitly off -> disabled, no session/registration touched.");
 
     // ============== SWITCH ON, DAY TOGGLE OFF ==============
     await settingsService.setOpenPlayOnlineRegistrationEnabled(true, owner.id);
@@ -165,14 +178,17 @@ async function main(): Promise<void> {
     await cleanUpTestSession();
     console.log("\nPASS: full open-play online registration lifecycle proven against real rows.");
   } finally {
-    await settingsService.setOpenPlayOnlineRegistrationEnabled(false, owner.id);
+    // Restore to the real (now-ON) production default, not off — this
+    // is shared, persistent state, and off is no longer what a real
+    // deployment should read.
+    await settingsService.setOpenPlayOnlineRegistrationEnabled(true, owner.id);
     await openPlayCapacityService.setOnlineRegistrationEnabledForDay(5, true, owner.id);
     await settingsService.setOpenPlaySettings(
       { ...(await settingsService.getOpenPlaySettings()), onlineRegistrationLeadTimeDays: 4 },
       owner.id,
     );
     const restored = await settingsService.getOpenPlayOnlineRegistrationEnabled();
-    console.log(`Feature-wide switch restored to OFF (verified: ${restored === false}).`);
+    console.log(`Feature-wide switch restored to ON (verified: ${restored === true}).`);
   }
 
   process.exit(0);

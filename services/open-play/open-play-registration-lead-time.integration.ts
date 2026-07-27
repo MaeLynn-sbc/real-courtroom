@@ -119,11 +119,11 @@ async function main(): Promise<void> {
     await cleanUpTestSession();
     console.log("\nPASS: registration lead-time window enforced precisely at its boundary, both directions.");
   } finally {
-    await settingsService.setOpenPlayOnlineRegistrationEnabled(false, owner.id);
+    await settingsService.setOpenPlayOnlineRegistrationEnabled(true, owner.id);
     await openPlayCapacityService.setOnlineRegistrationEnabledForDay(5, true, owner.id);
     await settingsService.setOpenPlaySettings(originalSettings, owner.id);
     const restored = await settingsService.getOpenPlayOnlineRegistrationEnabled();
-    console.log(`Feature-wide switch restored to OFF (verified: ${restored === false}).`);
+    console.log(`Feature-wide switch restored to ON (verified: ${restored === true}).`);
   }
 
   process.exit(0);

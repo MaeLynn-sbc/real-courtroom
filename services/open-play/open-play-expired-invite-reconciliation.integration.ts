@@ -127,14 +127,14 @@ async function main(): Promise<void> {
 
     await cleanUpTestSession();
   } finally {
-    await settingsService.setOpenPlayOnlineRegistrationEnabled(false, owner.id);
+    await settingsService.setOpenPlayOnlineRegistrationEnabled(true, owner.id);
     await settingsService.setOpenPlaySettings(
       { ...(await settingsService.getOpenPlaySettings()), onlineRegistrationLeadTimeDays: 4 },
       owner.id,
     );
     await openPlayCapacityService.setOnlineRegistrationEnabledForDay(5, true, owner.id);
     const restored = await settingsService.getOpenPlayOnlineRegistrationEnabled();
-    console.log(`Feature-wide switch restored to OFF (verified: ${restored === false}).`);
+    console.log(`Feature-wide switch restored to ON (verified: ${restored === true}).`);
   }
 
   process.exit(0);
