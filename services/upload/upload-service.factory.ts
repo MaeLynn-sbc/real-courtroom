@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import { LocalUploadService } from "@/services/upload/local-upload.service";
+import { SpacesUploadService } from "@/services/upload/spaces-upload.service";
 import type { UploadService } from "@/services/upload/upload-service.interface";
 
 let cachedService: UploadService | undefined;
@@ -9,15 +10,15 @@ export function getUploadService(): UploadService {
     return cachedService;
   }
 
-  // *** SWAP POINT (deploy) *** — Digital Ocean Spaces isn't provisioned
-  // yet. When it is: add "spaces" to UPLOAD_PROVIDER's enum in lib/env.ts,
-  // add a SpacesUploadService implementing UploadService (all four
-  // methods, including the private-upload/get/delete/getSignedUrl quartet
-  // added for Phase 8 — see upload-service.interface.ts), and a case here.
-  // No application code outside this file changes.
+  // *** SWAP POINT (deploy) *** — no application code outside this file
+  // changes when the provider changes; lib/env.ts's UPLOAD_PROVIDER
+  // selects which implementation this factory hands back.
   switch (env.UPLOAD_PROVIDER) {
     case "local":
       cachedService = new LocalUploadService();
+      break;
+    case "spaces":
+      cachedService = new SpacesUploadService();
       break;
     default:
       throw new Error(`Unsupported UPLOAD_PROVIDER: ${env.UPLOAD_PROVIDER}`);

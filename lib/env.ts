@@ -12,7 +12,19 @@ const envSchema = z.object({
   FEATURE_EQUIPMENT_RENTALS: z.string().default("false"),
   PAYMENT_PROVIDER: z.enum(["local"]).default("local"),
   EMAIL_PROVIDER: z.enum(["console"]).default("console"),
-  UPLOAD_PROVIDER: z.enum(["local"]).default("local"),
+  UPLOAD_PROVIDER: z.enum(["local", "spaces"]).default("local"),
+  // Pre-deploy: DigitalOcean Spaces credentials — only actually required
+  // when UPLOAD_PROVIDER=spaces (enforced below via superRefine, not a
+  // plain `z.string()`, so a local/dev setup with UPLOAD_PROVIDER=local
+  // never needs these set at all). SPACES_ENDPOINT is the full regional
+  // endpoint (e.g. "https://sgp1.digitaloceanspaces.com") — Spaces'
+  // S3-compatible API needs it explicitly; it isn't derivable from the
+  // bucket name alone the way some other providers' SDKs assume.
+  SPACES_KEY: z.string().min(1).optional(),
+  SPACES_SECRET: z.string().min(1).optional(),
+  SPACES_BUCKET: z.string().min(1).optional(),
+  SPACES_REGION: z.string().min(1).optional(),
+  SPACES_ENDPOINT: z.string().min(1).optional(),
   // Open-play online self-registration, Gate 1 — see services/sms/. No
   // real provider wired this gate (BUILD-SPEC.md §6 names Semaphore for
   // later); "console" logs instead of sending, same convention as
@@ -21,6 +33,16 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
+}).superRefine((value, ctx) => {
+  if (value.UPLOAD_PROVIDER !== "spaces") {
+    return;
+  }
+  const required = ["SPACES_KEY", "SPACES_SECRET", "SPACES_BUCKET", "SPACES_REGION", "SPACES_ENDPOINT"] as const;
+  for (const key of required) {
+    if (!value[key]) {
+      ctx.addIssue({ code: "custom", path: [key], message: `${key} is required when UPLOAD_PROVIDER=spaces` });
+    }
+  }
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -39,7 +39,12 @@ missing required variable rather than failing later.
 | `FEATURE_PAYMENTS` / `FEATURE_TOURNAMENTS` / `FEATURE_MEMBERSHIPS` / `FEATURE_EQUIPMENT_RENTALS` | No | No | Defined (`lib/feature-flags.ts`) but not yet checked anywhere — reserved for future modules. Value doesn't currently matter. |
 | `PAYMENT_PROVIDER` | No | No | Only `"local"` exists today. |
 | `EMAIL_PROVIDER` | No | No | Only `"console"` exists today — no real email is sent in this version of the app. |
-| `UPLOAD_PROVIDER` | No | No | Only `"local"` exists today. |
+| `UPLOAD_PROVIDER` | Yes, in production | No | `"local"` (dev) or `"spaces"` (production — DigitalOcean Spaces). Set `"spaces"` in production; the five `SPACES_*` variables below become required the moment this is `"spaces"` (`lib/env.ts` enforces it at boot, same hard-fail-with-a-clear-message behavior as every other required var here). |
+| `SPACES_KEY` / `SPACES_SECRET` | Only when `UPLOAD_PROVIDER="spaces"` | **Yes** | The Spaces access key ID / secret access key (DigitalOcean control panel → API → Spaces Keys). Same secrecy as `DATABASE_URL` — never log, never commit. |
+| `SPACES_BUCKET` | Only when `UPLOAD_PROVIDER="spaces"` | No | The bucket name (e.g. `thecourtroom`). Must already exist and be **private** (no public file listing) — payment-proof screenshots and receipts go in it. |
+| `SPACES_REGION` | Only when `UPLOAD_PROVIDER="spaces"` | No | The Spaces region slug (e.g. `sgp1`). |
+| `SPACES_ENDPOINT` | Only when `UPLOAD_PROVIDER="spaces"` | No | The full regional endpoint URL (e.g. `https://sgp1.digitaloceanspaces.com`) — Spaces' S3-compatible API needs this explicitly, it isn't derived from the region alone. |
+| `SMS_PROVIDER` | No | No | Only `"console"` exists today — SMS is logged, not actually sent, in this version of the app (see `services/sms/`). |
 | `LOG_LEVEL` | No | No | One of `fatal/error/warn/info/debug/trace`. Use `info` or `warn` in production; `debug`/`trace` are verbose. |
 | `ALLOW_PROD_SEED` | No | No (but gates a secret-adjacent action) | Must be `"true"` to run `npm run db:seed` when `NODE_ENV=production`. See "Bootstrap: the first Owner account" below. |
 | `OWNER_INITIAL_PASSWORD` | No | **Yes, if set** | Only read during the first-ever production seed run (the Owner row doesn't exist yet). If unset, a random one is generated and printed once instead — see "Bootstrap" below. |
