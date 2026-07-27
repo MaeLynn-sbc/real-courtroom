@@ -52,7 +52,7 @@ function nextWeekday(targetDay: number): Date {
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {
-  const [{ date: dateParam }, hero, galleryImages, announcements, courtHours, paddleRentalCents] =
+  const [{ date: dateParam }, hero, galleryImages, announcements, courtHours, paddleRentalCents, businessInfo] =
     await Promise.all([
       searchParams,
       settingsService.getHomepageHero(),
@@ -60,6 +60,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       announcementService.listPublished(),
       settingsService.getCourtHours(),
       equipmentService.getRentalRateCentsByKey(EQUIPMENT_KEYS.HOUSE_PADDLE),
+      settingsService.getBusinessInfo(),
     ]);
   const latestAnnouncement = announcements[0];
   const date = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();
@@ -118,11 +119,15 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
 
           <div className="border-line mt-7 flex flex-wrap gap-7 border-t pt-6">
-            <div>
+            <div className="max-w-[26ch]">
               <b className="font-display block text-[32px] leading-none font-extrabold tracking-[0.01em]">3</b>
               <span className="font-jetbrains text-slate text-[10px] tracking-[0.16em] uppercase">
                 Indoor courts
               </span>
+              <p className="text-slate mt-1.5 text-[13px] leading-snug">
+                3 premium silica-coated courts — the same surface pros play on. Better grip, better bounce,
+                easier on your knees.
+              </p>
             </div>
             <div>
               <b className="font-display block text-[32px] leading-none font-extrabold tracking-[0.01em]">
@@ -261,6 +266,43 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
         </div>
       </section>
+
+      {/* ============================ FIND US ============================ */}
+      {businessInfo.address || businessInfo.phone || businessInfo.mapsUrl ? (
+        <section className="border-line border-t px-6 py-[clamp(56px,7vw,90px)]">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-end justify-between gap-8">
+            <div>
+              <span className="font-jetbrains text-green text-[11px] font-bold tracking-[0.22em] uppercase">
+                Come play
+              </span>
+              <h2 className="font-display text-bone mt-2 text-[clamp(30px,4.4vw,52px)] leading-[0.94] font-extrabold tracking-[-0.01em] uppercase">
+                Find us
+              </h2>
+              {businessInfo.address ? (
+                <p className="text-slate mt-3 max-w-[40ch] text-sm">{businessInfo.address}</p>
+              ) : null}
+              {businessInfo.phone ? (
+                <a
+                  href={`tel:${businessInfo.phone}`}
+                  className="text-bone hover:text-green mt-1 block text-sm font-semibold transition-colors"
+                >
+                  {businessInfo.phone}
+                </a>
+              ) : null}
+            </div>
+            {businessInfo.mapsUrl ? (
+              <a
+                href={businessInfo.mapsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={`${PILL_BUTTON} bg-green text-navy-900 hover:-translate-y-px`}
+              >
+                Get directions
+              </a>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       {galleryImages.length > 0 ? (
         <section className="border-line border-t px-6 py-16">
