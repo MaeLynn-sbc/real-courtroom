@@ -351,6 +351,9 @@ model Employee {
   // Open-play online self-registration, Gate 1 plumbing — see
   // OpenPlayRegistrationPaymentProof, below QueueEntry.
   resolvedOpenPlayRegistrationPaymentProofs OpenPlayRegistrationPaymentProof[]
+  // Expenses tracking Gate 1 — see Expense, below GcashDailyBalance's spot
+  // in the file (or Sale, whichever lands nearest at merge time).
+  recordedExpenses                          Expense[]
 
   @@index([deletedAt])
 }
@@ -361,23 +364,23 @@ enum ShiftStatus {
 }
 
 model Shift {
-  id               String      @id @default(cuid())
+  id                   String      @id @default(cuid())
   // "SHIFT-20260722-001" — same date + per-day-sequence pattern as every
   // other human-facing reference code in this app.
-  shiftNumber      String      @unique
-  employeeId       String
-  status           ShiftStatus @default(OPEN)
+  shiftNumber          String      @unique
+  employeeId           String
+  status               ShiftStatus @default(OPEN)
   // Philippine business terminology: "Opening Cash" / "Closing Cash", not
   // "float" / "cash count".
-  openingCashCents Int         @default(0)
-  closingCashCents Int?
+  openingCashCents     Int         @default(0)
+  closingCashCents     Int?
   // Gate 1 (shift cash reconciliation): now actually computed and written
   // on close — variance = closingCash - (openingCash + cashSales). Sale
   // is shift-scoped (Sale.shiftId below) and cash-filterable via
   // PaymentMethod.key = "CASH" (saleService.getCashSalesForShift).
-  varianceCents    Int?
-  openingNotes     String?
-  closingNotes     String?
+  varianceCents        Int?
+  openingNotes         String?
+  closingNotes         String?
   // Gate 1: denomination quantities staff actually counted at close
   // (e.g. {"1000": 5, "500": 2, ...}, peso value -> quantity) — a real
   // audit trail of what was counted, not just the resulting total.
@@ -386,10 +389,10 @@ model Shift {
   // money" reasoning as every Sale-creating action in this app. Null for
   // shifts closed before this existed.
   closingCashBreakdown Json?
-  startedAt        DateTime    @default(now())
-  endedAt          DateTime?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  startedAt            DateTime    @default(now())
+  endedAt              DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
   employee Employee @relation(fields: [employeeId], references: [id])
   sales    Sale[]
@@ -1952,8 +1955,60 @@ model PaymentMethod {
 
   sales    Sale[]
   payments Payment[]
+  expenses Expense[]
 
   @@index([isActive, sortOrder])
+}
+
+// Expenses tracking Gate 1 — money going OUT (rent, supplies, utilities,
+// anything the business pays), previously untracked anywhere in this app
+// (confirmed absent by direct investigation — the only prior mention of
+// "expense" in the whole repo was BUILD-SPEC.md's own "not in scope" note).
+// Same "real, owner-editable list with sensible defaults" pattern as
+// PaymentMethod above, not a hardcoded enum — an owner can add/rename/
+// disable categories from its own admin panel.
+model ExpenseCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  expenses Expense[]
+
+  @@index([isActive, sortOrder])
+}
+
+model Expense {
+  id                   String   @id @default(cuid())
+  // "EXP-20260722-0001" — same date + per-day-sequence pattern as every
+  // other human-facing reference code in this app (Sale, Shift, Booking).
+  expenseNumber        String   @unique
+  amountCents          Int
+  // The business date the expense applies to — staff-entered, may differ
+  // from createdAt (e.g. recording a rent payment a day after it cleared).
+  date                 DateTime
+  // Required regardless of whether a receipt is attached — "what was this
+  // for" must always be answerable from the row itself.
+  description          String
+  categoryId           String
+  paymentMethodId      String
+  recordedByEmployeeId String
+  // Optional — same private-upload mechanism already built for payment-
+  // proof screenshots (services/upload/), not a second upload path.
+  // Null when no receipt was attached.
+  receiptStorageKey    String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  category           ExpenseCategory @relation(fields: [categoryId], references: [id])
+  paymentMethod      PaymentMethod   @relation(fields: [paymentMethodId], references: [id])
+  recordedByEmployee Employee        @relation(fields: [recordedByEmployeeId], references: [id])
+
+  @@index([date])
+  @@index([categoryId])
+  @@index([paymentMethodId])
 }
 
 enum PaymentStatus {
@@ -2097,14 +2152,14 @@ model Sale {
   shiftId         String
   playerId        String?
 
-  bookingId                String? @unique
-  coachSessionId           String? @unique
-  membershipId             String? @unique
-  equipmentRentalId        String? @unique
-  lockerRentalId           String? @unique
-  tournamentRegistrationId String? @unique
-  productId                String? @unique
-  playerTabId              String? @unique
+  bookingId                   String? @unique
+  coachSessionId              String? @unique
+  membershipId                String? @unique
+  equipmentRentalId           String? @unique
+  lockerRentalId              String? @unique
+  tournamentRegistrationId    String? @unique
+  productId                   String? @unique
+  playerTabId                 String? @unique
   // Gate 2 review follow-up: the Fri/Sat ₱150 walk-in registration fee
   // (services/open-play/open-play-registration.service.ts's
   // registerWalkIn) — a SaleCategory.OPEN_PLAY Sale, but distinct from
@@ -2118,18 +2173,18 @@ model Sale {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  paymentMethod            PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
-  employee                 Employee                   @relation(fields: [employeeId], references: [id])
-  shift                    Shift                      @relation(fields: [shiftId], references: [id])
-  player                   Player?                    @relation(fields: [playerId], references: [id])
-  booking                  Booking?                   @relation(fields: [bookingId], references: [id])
-  coachSession             CoachSession?              @relation(fields: [coachSessionId], references: [id])
-  membership               Membership?                @relation(fields: [membershipId], references: [id])
-  equipmentRental          EquipmentRental?           @relation(fields: [equipmentRentalId], references: [id])
-  lockerRental             LockerRental?              @relation(fields: [lockerRentalId], references: [id])
-  tournamentRegistration   TournamentRegistration?    @relation(fields: [tournamentRegistrationId], references: [id])
-  product                  Product?                   @relation(fields: [productId], references: [id])
-  playerTab                PlayerTab?                 @relation(fields: [playerTabId], references: [id])
+  paymentMethod             PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
+  employee                  Employee                   @relation(fields: [employeeId], references: [id])
+  shift                     Shift                      @relation(fields: [shiftId], references: [id])
+  player                    Player?                    @relation(fields: [playerId], references: [id])
+  booking                   Booking?                   @relation(fields: [bookingId], references: [id])
+  coachSession              CoachSession?              @relation(fields: [coachSessionId], references: [id])
+  membership                Membership?                @relation(fields: [membershipId], references: [id])
+  equipmentRental           EquipmentRental?           @relation(fields: [equipmentRentalId], references: [id])
+  lockerRental              LockerRental?              @relation(fields: [lockerRentalId], references: [id])
+  tournamentRegistration    TournamentRegistration?    @relation(fields: [tournamentRegistrationId], references: [id])
+  product                   Product?                   @relation(fields: [productId], references: [id])
+  playerTab                 PlayerTab?                 @relation(fields: [playerTabId], references: [id])
   openPlayNightRegistration OpenPlayNightRegistration? @relation(fields: [openPlayNightRegistrationId], references: [id])
 
   @@index([category])

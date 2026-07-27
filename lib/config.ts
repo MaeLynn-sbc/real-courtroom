@@ -58,6 +58,7 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Employees", href: "/dashboard/admin/employees" },
       { title: "Roles", href: "/dashboard/admin/roles" },
       { title: "Payment Methods", href: "/dashboard/admin/payment-methods" },
+      { title: "Expenses", href: "/dashboard/admin/expenses" },
       { title: "Product Catalog", href: "/dashboard/admin/products" },
       { title: "Website", href: "/dashboard/admin/website" },
       // Renamed from "Open Play Capacity" — that read as Fri/Sat-only,

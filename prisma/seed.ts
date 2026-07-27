@@ -111,6 +111,14 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     label: "Manage Coaching Rates",
     description: "Edit the per-coach, per-group-size coaching rate table.",
   },
+  // Expenses tracking Gate 1: deliberately absent from every
+  // ROLE_PERMISSION_GRANTS list below — granted to nobody by default.
+  // The owner assigns this themselves from the roles screen once it
+  // exists as a checkbox there.
+  [PERMISSIONS.ACCOUNTS_RECORD_EXPENSE]: {
+    label: "Record Expenses",
+    description: "Record business expenses and manage expense categories.",
+  },
 };
 
 const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
@@ -214,6 +222,20 @@ const PAYMENT_METHOD_DEFINITIONS: Array<{ key: string; label: string; sortOrder:
   // in person, online payment is explicitly deferred (see
   // ARCHITECTURE.md's PHASE 12 addendum, Part I).
   { key: PAY_AT_VENUE_PAYMENT_METHOD_KEY, label: "Pay at Venue", sortOrder: 4 },
+];
+
+// Expenses tracking Gate 1: ExpenseCategory is a real, admin-editable table
+// (same shape as PaymentMethod above) — this is only the out-of-the-box
+// seed; the Expenses screen lets an Owner add more. Unlike PaymentMethod,
+// ExpenseCategory has no separate `key` field (just a unique `name`), so
+// upserts below key on `name` directly.
+const EXPENSE_CATEGORY_DEFINITIONS: Array<{ name: string; sortOrder: number }> = [
+  { name: "Rent", sortOrder: 0 },
+  { name: "Utilities", sortOrder: 1 },
+  { name: "Supplies", sortOrder: 2 },
+  { name: "Salaries/Payroll", sortOrder: 3 },
+  { name: "Maintenance", sortOrder: 4 },
+  { name: "Other", sortOrder: 5 },
 ];
 
 const MEMBERSHIP_PLAN_DEFINITIONS: Record<string, MembershipPlanDefinition> = {
@@ -605,6 +627,15 @@ async function main(): Promise<void> {
     });
   }
   logger.info({ count: PAYMENT_METHOD_DEFINITIONS.length }, "Seeded payment methods");
+
+  for (const definition of EXPENSE_CATEGORY_DEFINITIONS) {
+    await prisma.expenseCategory.upsert({
+      where: { name: definition.name },
+      update: { sortOrder: definition.sortOrder },
+      create: definition,
+    });
+  }
+  logger.info({ count: EXPENSE_CATEGORY_DEFINITIONS.length }, "Seeded expense categories");
 
   for (const definition of PRODUCT_DEFINITIONS) {
     await prisma.product.upsert({

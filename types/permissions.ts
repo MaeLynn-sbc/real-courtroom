@@ -32,6 +32,15 @@ export const PERMISSIONS = {
   // matching the existing precedent that CMS/rates-adjacent settings
   // gate on SYSTEM_ADMIN, not a narrower permission.
   COACHING_MANAGE_RATES: "coaching:manage_rates",
+  // Expenses tracking Gate 1: its own dedicated, owner-assignable
+  // permission (same shape as the GCash reconciliation gate's own
+  // ACCOUNTS_CONFIRM_GCASH_RECONCILIATION, built the same session) —
+  // granted to nobody by default, checkbox on the roles screen, the
+  // owner assigns it themselves. Covers recording an expense AND
+  // managing expense categories, same single-permission reasoning
+  // (category management is a lightweight admin action alongside the
+  // main expense-recording flow, not worth a second permission).
+  ACCOUNTS_RECORD_EXPENSE: "accounts:record_expense",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

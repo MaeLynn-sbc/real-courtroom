@@ -39,6 +39,12 @@ const PROTECTED_ROUTES: RouteRule[] = [
   { prefix: "/dashboard/coaching", permission: PERMISSIONS.BOOKINGS_MANAGE },
   { prefix: "/dashboard/coaching/availability", permission: PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY },
   { prefix: "/dashboard/coaching/rates", permission: PERMISSIONS.COACHING_MANAGE_RATES },
+  // Expenses tracking Gate 1: overrides the /dashboard/admin parent's
+  // SYSTEM_ADMIN default (same longest-prefix-match override pattern as
+  // /dashboard/admin/employees and /dashboard/admin/roles above) — the
+  // screen itself is gated on the narrower, owner-assignable permission,
+  // not just the action calls beneath it.
+  { prefix: "/dashboard/admin/expenses", permission: PERMISSIONS.ACCOUNTS_RECORD_EXPENSE },
 ];
 
 export type RouteAccessDecision = "allowed" | "unauthenticated" | "forbidden";
