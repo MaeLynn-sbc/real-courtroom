@@ -42,15 +42,19 @@ function toTimeValue(hour: number): string {
 // mirrors docs/design-reference.html's .slot styling. Four states read
 // as four genuinely distinct color families, not shades of one hue:
 //   - available (open, tap to hold): solid --bone fill, dark navy-900
-//     text — reverted back to this from a border-only/no-fill look the
-//     owner tried live and didn't want; 16.24:1 contrast (navy-900 on
-//     bone), comfortably clears WCAG AA's 4.5:1 for normal text.
-//   - booked: cool blue (Tailwind's sky-*, not a custom brand token —
-//     same precedent as the dashboard's RecordCard ramps using stock
-//     Tailwind shades for functional/state color, not brand identity).
-//   - open play (walk-in, not booked through this grid): coral — the
-//     existing kitchen/non-volley-zone accent, already warm and
-//     already distinct from both green and blue, left as it was.
+//     text, label in caps — 16.24:1 contrast (navy-900 on bone),
+//     comfortably clears WCAG AA's 4.5:1 for normal text.
+//   - booked: solid sky-400 (Tailwind, not a custom brand token — same
+//     precedent as the dashboard's RecordCard ramps using stock
+//     Tailwind shades for functional/state color, not brand identity),
+//     navy-900 text. Was a ~15%-opacity tint that read as too faint/
+//     transparent to the owner live; solid fill fixes that — 8.57:1
+//     contrast.
+//   - open play (walk-in, not booked through this grid): solid
+//     emerald-700, white text — deliberately a DIFFERENT green from
+//     the brand --green used by the Held/selected state and the
+//     Available stripe accent below, so an open-play cell is never
+//     mistaken for a currently-held one. 5.48:1 contrast.
 //   - past / unavailable (maintenance): neutral/muted, deliberately not
 //     part of the four-color system — not bookable states competing
 //     for attention, just dimmed out.
@@ -60,13 +64,13 @@ function cellClasses(state: BoardCell["state"], isSelected: boolean): string {
   }
   switch (state) {
     case "available":
-      return "bg-bone text-navy-900 border-bone font-bold hover:-translate-y-px after:bg-green after:opacity-70 cursor-pointer";
+      return "bg-bone text-navy-900 border-bone font-bold uppercase tracking-[0.04em] hover:-translate-y-px after:bg-green after:opacity-70 cursor-pointer";
     case "openPlay":
-      return "bg-coral/[0.13] border-coral/30 text-coral text-[10px] font-bold tracking-[0.1em] uppercase after:bg-coral after:opacity-60 cursor-default";
+      return "bg-emerald-700 border-emerald-500 text-white text-[12px] font-bold tracking-[0.1em] uppercase after:bg-emerald-300 after:opacity-70 cursor-default";
     case "past":
       return "bg-navy-700/25 border-transparent text-slate/40 cursor-not-allowed after:bg-slate after:opacity-10";
     case "booked":
-      return "bg-sky-500/15 border-sky-400/40 text-sky-300 font-bold cursor-not-allowed after:bg-sky-400 after:opacity-50";
+      return "bg-sky-400 border-sky-500 text-navy-900 font-bold cursor-not-allowed after:bg-sky-600 after:opacity-70";
     default:
       // unavailable (maintenance)
       return "bg-navy-700/40 border-transparent text-slate/50 cursor-not-allowed after:bg-slate after:opacity-20";
@@ -141,11 +145,10 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Compact grid: thin rows (min-h-[24px], was 46px) so all ~16-17
-          operating-hour rows fit on one screen without scrolling — thin
-          bars instead of tall boxes. Header/time-label content is
-          unchanged, just compressed vertically (py-1 instead of py-3/
-          py-1.5) to match. */}
+      {/* Chunky grid: tall rows (min-h-[46px]) so each slot reads as a
+          solid block, not a thin bar — reverted from an earlier compact
+          pass (24px rows) the owner didn't want. Header/time-label sizing
+          scaled up to match (py-3/py-1.5, bigger type). */}
       <div className="border-line bg-navy-800 overflow-hidden rounded-2xl border">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] border-collapse">
@@ -153,7 +156,7 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
               <tr>
                 <th
                   scope="col"
-                  className="bg-navy-700 border-line text-slate font-jetbrains sticky top-16 z-10 border-b px-4 py-1 text-left text-[10px] font-normal tracking-[0.16em] uppercase"
+                  className="bg-navy-700 border-line text-slate font-jetbrains sticky top-16 z-10 border-b px-4 py-3 text-left text-[11px] font-normal tracking-[0.16em] uppercase"
                 >
                   Time
                 </th>
@@ -161,10 +164,10 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
                   <th
                     key={court.id}
                     scope="col"
-                    className="bg-navy-700 border-line font-display text-bone sticky top-16 z-10 border-b px-2 py-1 text-center text-[14px] font-extrabold tracking-[0.06em] uppercase"
+                    className="bg-navy-700 border-line font-display text-bone sticky top-16 z-10 border-b px-2 py-3 text-center text-[16px] font-extrabold tracking-[0.06em] uppercase"
                   >
                     {court.name}
-                    <small className="font-jetbrains text-slate mt-0.5 block text-[9px] font-normal tracking-[0.16em] normal-case">
+                    <small className="font-jetbrains text-slate mt-0.5 block text-[10px] font-normal tracking-[0.16em] normal-case">
                       Indoor
                     </small>
                   </th>
@@ -174,7 +177,7 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
             <tbody>
               {hours.map((hour) => (
                 <tr key={hour} className="border-line border-t">
-                  <td className="bg-navy-700 font-jetbrains text-bone w-28 px-4 py-0.5 text-xs font-medium whitespace-nowrap sm:w-32">
+                  <td className="bg-navy-700 font-jetbrains text-bone w-28 px-4 py-1.5 text-sm font-medium whitespace-nowrap sm:w-32">
                     {hourLabel(hour)}
                   </td>
                   {courts.map((court) => {
@@ -184,11 +187,11 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
 
                     if (cell.state !== "available" && !isSelected) {
                       return (
-                        <td key={court.id} className="p-1">
+                        <td key={court.id} className="p-1.5">
                           <div
                             className={cn(
-                              "font-jetbrains relative flex min-h-[24px] items-center justify-center overflow-hidden rounded-md border text-[11px] font-medium",
-                              "after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:content-['']",
+                              "font-jetbrains relative flex min-h-[46px] items-center justify-center overflow-hidden rounded-lg border text-[13px] font-medium",
+                              "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:content-['']",
                               cellClasses(cell.state, false),
                             )}
                             aria-label={`Court ${court.name}, ${hourLabel(hour)}, ${label.toLowerCase()}`}
@@ -200,7 +203,7 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
                     }
 
                     return (
-                      <td key={court.id} className="p-1">
+                      <td key={court.id} className="p-1.5">
                         <button
                           type="button"
                           onClick={() => handleCellClick(court.id, hour)}
@@ -209,8 +212,8 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
                             isSelected ? "held, tap to release" : `available, ${formatCurrency(court.priceCents ?? 0)}`
                           }`}
                           className={cn(
-                            "font-jetbrains relative flex min-h-[24px] w-full items-center justify-center overflow-hidden rounded-md border text-[11px] font-medium transition-all",
-                            "after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:content-['']",
+                            "font-jetbrains relative flex min-h-[46px] w-full items-center justify-center overflow-hidden rounded-lg border text-[13px] font-medium transition-all",
+                            "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:content-['']",
                             "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green",
                             cellClasses(cell.state, isSelected),
                           )}
@@ -233,11 +236,11 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
           Open — tap to hold
         </span>
         <span className="flex items-center gap-1.5">
-          <i className="bg-sky-500/25 border-sky-400/40 inline-block size-3.5 rounded border" aria-hidden="true" />
+          <i className="bg-sky-400 inline-block size-3.5 rounded" aria-hidden="true" />
           Already booked
         </span>
         <span className="flex items-center gap-1.5">
-          <i className="bg-coral/30 inline-block size-3.5 rounded" aria-hidden="true" />
+          <i className="bg-emerald-700 inline-block size-3.5 rounded" aria-hidden="true" />
           Open play — walk in
         </span>
       </div>

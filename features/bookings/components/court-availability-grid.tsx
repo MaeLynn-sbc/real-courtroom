@@ -4,6 +4,7 @@ import { AvailabilityBoard, type BoardCell, type BoardCourt } from "@/features/b
 import { getCourtBookingWindow } from "@/lib/court-hours";
 import { cn } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
+import { generateHomeScheduleQrCode } from "@/services/booking/qr-code";
 import { courtService } from "@/services/court/court.service";
 import { settingsService } from "@/services/settings/settings.service";
 
@@ -38,10 +39,11 @@ function overlapsAny(slotStart: Date, slotEnd: Date, ranges: { startAt: Date; en
 // Prisma-backed read and the court-hours rule check. Only the rendering
 // (below, and in AvailabilityBoard) changed.
 export async function CourtAvailabilityGrid({ date }: { date: Date }) {
-  const [courts, schedule, courtHours] = await Promise.all([
+  const [courts, schedule, courtHours, scheduleQrCode] = await Promise.all([
     courtService.listCourts(),
     bookingService.getPublicDaySchedule(date),
     settingsService.getCourtHours(),
+    generateHomeScheduleQrCode(),
   ]);
 
   const activeCourts = courts.filter((court) => court.status === "ACTIVE");
@@ -107,56 +109,87 @@ export async function CourtAvailabilityGrid({ date }: { date: Date }) {
         </p>
       </div>
 
-      <div
-        role="group"
-        aria-label="Choose a date"
-        className="flex gap-2 overflow-x-auto pb-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {dayOptions.map((day, index) => {
-          const value = toLocalDateValue(day);
-          const isActive = value === dateValue;
-          return (
-            <Link
-              key={value}
-              href={`/?date=${value}`}
-              aria-pressed={isActive}
-              className={cn(
-                "border-line bg-navy-800 hover:border-green/60 flex min-w-[70px] shrink-0 flex-col items-center gap-0.5 rounded-xl border px-3.5 py-2.5 text-center transition-colors",
-                isActive && "bg-green border-green hover:border-green",
-              )}
-            >
-              <small
-                className={cn(
-                  "font-jetbrains text-[10px] tracking-[0.14em] uppercase",
-                  isActive ? "text-navy-900/70" : "text-slate",
-                )}
-              >
-                {index === 0 ? "Today" : weekdayFormatter.format(day)}
-              </small>
-              <b className={cn("font-display text-[22px] leading-[1.15] font-extrabold", isActive && "text-navy-900")}>
-                {day.getDate()}
-              </b>
-            </Link>
-          );
-        })}
-      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
+        {/* LEFT: Book Now + QR sidebar, in this same section so it's
+            visible right alongside the grid, not buried elsewhere on the
+            page (the hero above already has its own "Book Now" CTA —
+            this one is scoped to the docket for someone already looking
+            at the schedule). lg:sticky keeps it in view while a tall
+            grid scrolls on desktop; stacks above the grid on mobile. */}
+        <div className="border-line bg-navy-800 flex flex-col items-center gap-4 self-start rounded-2xl border p-5 text-center lg:sticky lg:top-24">
+          <Link
+            href="/book"
+            className="bg-green text-navy-900 inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-bold uppercase tracking-[0.04em] transition-transform hover:-translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+          >
+            Book Now
+          </Link>
+          <div className="bg-bone rounded-xl p-2">
+            {/* eslint-disable-next-line @next/next/no-img-element -- data: URL, not an optimizable remote image */}
+            <img src={scheduleQrCode} alt="QR code linking to this live schedule" width={140} height={140} />
+          </div>
+          <p className="text-slate text-[11px] leading-snug">Scan to open this live schedule on your phone.</p>
+        </div>
 
-      {/* key={dateValue}: forces a full remount on every date change so
-          AvailabilityBoard's local `selection` state can never survive
-          into a different date's grid. Without this, switching dates via
-          the picker above (a client-side nav, not a full page reload)
-          left a stale "held" hour/court from the OLD date rendering as
-          selected on the NEW one — regardless of that slot's actual
-          state there — since React preserves a same-position component
-          instance's state across a soft navigation by default. */}
-      <AvailabilityBoard
-        key={dateValue}
-        courts={boardCourts}
-        hours={hours}
-        cells={cells}
-        dateValue={dateValue}
-        dateLabel={dateHeadingFormatter.format(date)}
-      />
+        {/* RIGHT: date picker + grid */}
+        <div className="flex flex-col gap-4">
+          <div
+            role="group"
+            aria-label="Choose a date"
+            className="flex gap-2 overflow-x-auto pb-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {dayOptions.map((day, index) => {
+              const value = toLocalDateValue(day);
+              const isActive = value === dateValue;
+              return (
+                <Link
+                  key={value}
+                  href={`/?date=${value}`}
+                  aria-pressed={isActive}
+                  className={cn(
+                    "border-line bg-navy-800 hover:border-green/60 flex min-w-[70px] shrink-0 flex-col items-center gap-0.5 rounded-xl border px-3.5 py-2.5 text-center transition-colors",
+                    isActive && "bg-green border-green hover:border-green",
+                  )}
+                >
+                  <small
+                    className={cn(
+                      "font-jetbrains text-[10px] tracking-[0.14em] uppercase",
+                      isActive ? "text-navy-900/70" : "text-slate",
+                    )}
+                  >
+                    {index === 0 ? "Today" : weekdayFormatter.format(day)}
+                  </small>
+                  <b
+                    className={cn(
+                      "font-display text-[22px] leading-[1.15] font-extrabold",
+                      isActive && "text-navy-900",
+                    )}
+                  >
+                    {day.getDate()}
+                  </b>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* key={dateValue}: forces a full remount on every date change
+              so AvailabilityBoard's local `selection` state can never
+              survive into a different date's grid. Without this,
+              switching dates via the picker above (a client-side nav, not
+              a full page reload) left a stale "held" hour/court from the
+              OLD date rendering as selected on the NEW one — regardless
+              of that slot's actual state there — since React preserves a
+              same-position component instance's state across a soft
+              navigation by default. */}
+          <AvailabilityBoard
+            key={dateValue}
+            courts={boardCourts}
+            hours={hours}
+            cells={cells}
+            dateValue={dateValue}
+            dateLabel={dateHeadingFormatter.format(date)}
+          />
+        </div>
+      </div>
     </div>
   );
 }

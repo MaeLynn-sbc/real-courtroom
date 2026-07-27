@@ -15,3 +15,13 @@ export async function generateBookingCheckInQrCode(token: string): Promise<strin
 
   return generateQrCodeDataUrl(checkInUrl);
 }
+
+// Points straight at the public homepage's live availability grid
+// (CourtAvailabilityGrid) — scanning it opens the same schedule a
+// customer would see standing in front of the venue, no staff auth
+// required (unlike generateBookingCheckInQrCode above).
+export async function generateHomeScheduleQrCode(): Promise<string> {
+  const baseUrl = env.AUTH_URL ?? "http://localhost:3000";
+  const scheduleUrl = new URL("/", baseUrl).toString();
+  return generateQrCodeDataUrl(scheduleUrl);
+}
