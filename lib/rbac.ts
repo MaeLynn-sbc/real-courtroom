@@ -64,6 +64,21 @@ const PROTECTED_ROUTES: RouteRule[] = [
   // stay owner-only independently, via their own requireSystemAdmin
   // call inside each action — unaffected by this route-level change.
   { prefix: "/dashboard/admin/tv-display", permission: PERMISSIONS.DASHBOARD_ACCESS },
+  // Open Play's day-to-day sub-routes (today's check-in redirect, every
+  // [date] roster page, payment verification and its [proofId] page) —
+  // overrides the /dashboard/admin parent's SYSTEM_ADMIN default with
+  // the SAME permission actions/open-play-checkin.actions.ts and
+  // actions/open-play-registration-payment-proof.actions.ts already
+  // require for their own mutations (OPEN_PLAY_MANAGE), which staff
+  // were silently locked out of ever reaching. The TRAILING SLASH is
+  // load-bearing: it's what keeps this rule from also matching the
+  // bare /dashboard/admin/open-play-capacity defaults page (no
+  // trailing segment, so it never starts with a prefix that has one) —
+  // that page is deliberately SYSTEM_ADMIN-only, per
+  // open-play-capacity.actions.ts's own comment: "Business-policy
+  // configuration (same category as Court Hours)... not by the
+  // OPEN_PLAY_MANAGE permission the (separate) rotation feature uses."
+  { prefix: "/dashboard/admin/open-play-capacity/", permission: PERMISSIONS.OPEN_PLAY_MANAGE },
 ];
 
 export type RouteAccessDecision = "allowed" | "unauthenticated" | "forbidden";

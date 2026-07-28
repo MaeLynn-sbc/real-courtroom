@@ -109,6 +109,48 @@ describe("canAccessRoute", () => {
     ).toBe("allowed");
     expect(canAccessRoute("/dashboard/admin/tv-display", true, [])).toBe("forbidden");
   });
+
+  // The bare capacity-defaults page is deliberately SYSTEM_ADMIN — see
+  // actions/open-play-capacity.actions.ts's own comment: "Business-
+  // policy configuration (same category as Court Hours)... not by the
+  // OPEN_PLAY_MANAGE permission the (separate) rotation feature uses."
+  // Its sub-routes (today's check-in redirect, any [date] roster page,
+  // and payment verification) are day-to-day operations — actions/
+  // open-play-checkin.actions.ts and actions/open-play-registration-
+  // payment-proof.actions.ts both actually require OPEN_PLAY_MANAGE for
+  // their mutations — so the trailing-slash prefix rule covers exactly
+  // those sub-routes without loosening the bare defaults page, which
+  // has no trailing segment and so never matches a ".../" prefix.
+  it("gates open-play-capacity's day-to-day sub-routes on OPEN_PLAY_MANAGE, while the bare defaults page stays SYSTEM_ADMIN-only", () => {
+    const openPlayManage = [PERMISSIONS.OPEN_PLAY_MANAGE];
+
+    expect(canAccessRoute("/dashboard/admin/open-play-capacity/today", true, openPlayManage)).toBe(
+      "allowed",
+    );
+    expect(
+      canAccessRoute("/dashboard/admin/open-play-capacity/2026-07-29", true, openPlayManage),
+    ).toBe("allowed");
+    expect(
+      canAccessRoute("/dashboard/admin/open-play-capacity/verify-payments", true, openPlayManage),
+    ).toBe("allowed");
+    expect(
+      canAccessRoute(
+        "/dashboard/admin/open-play-capacity/verify-payments/abc123",
+        true,
+        openPlayManage,
+      ),
+    ).toBe("allowed");
+
+    // The bare defaults page — no trailing segment — must NOT be
+    // unlocked by OPEN_PLAY_MANAGE; it stays behind the parent's
+    // SYSTEM_ADMIN default, deliberately.
+    expect(canAccessRoute("/dashboard/admin/open-play-capacity", true, openPlayManage)).toBe(
+      "forbidden",
+    );
+    expect(
+      canAccessRoute("/dashboard/admin/open-play-capacity", true, [PERMISSIONS.SYSTEM_ADMIN]),
+    ).toBe("allowed");
+  });
 });
 
 describe("requiresPasswordChangeRedirect", () => {
