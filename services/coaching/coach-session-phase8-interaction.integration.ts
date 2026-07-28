@@ -226,9 +226,12 @@ async function main(): Promise<void> {
     await cleanUp(court.id, coach.id);
     console.log("\nPASS: Coaching x Phase 8 interaction proven — both merge-time gaps fixed and verified against real rows.");
   } finally {
-    await settingsService.setBookingRequirePrepayment(false, owner.id);
+    // Restore the real deploy default (true — see
+    // getBookingRequirePrepayment's own comment), not the old off
+    // default.
+    await settingsService.setBookingRequirePrepayment(true, owner.id);
     const restored = await settingsService.getBookingRequirePrepayment();
-    console.log(`Switch restored to OFF (verified: ${restored === false}).`);
+    console.log(`Switch restored to ON (verified: ${restored === true}).`);
   }
 
   process.exit(0);

@@ -10,9 +10,11 @@ import { Switch } from "@/components/ui/switch";
 
 // Phase 8 (BUILD-SPEC.md §8) — the single owner-facing control for the
 // switch built in Gate 2 (settingsService.getBookingRequirePrepayment).
-// Default OFF; flipping it on requires GCash prepayment for every new
-// public court booking, with staff verification via /dashboard/bookings/
-// verify-payments.
+// Default ON as of the owner's deploy decision (requires GCash
+// prepayment for every new public court booking, with staff
+// verification via /dashboard/bookings/verify-payments); flipping it
+// off returns to instant pay-at-court confirmation, same as before
+// Phase 8.
 export function PaymentSettingsPanel({ requirePrepayment }: { requirePrepayment: boolean }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -39,7 +41,7 @@ export function PaymentSettingsPanel({ requirePrepayment }: { requirePrepayment:
           <div>
             <p className="font-medium">Require GCash prepayment for public bookings</p>
             <p className="text-muted-foreground text-xs">
-              When on, a booking made through the public website holds the slot for 30 minutes and
+              When on, a booking made through the public website holds the slot for 4 hours and
               waits on staff to verify a submitted GCash payment before it confirms. Staff bookings
               are never affected.
             </p>

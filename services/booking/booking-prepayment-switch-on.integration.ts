@@ -1,7 +1,9 @@
 /**
- * Full lifecycle with the prepayment switch ON (test-only — the switch
- * is turned back off in this file's own cleanup, regardless of outcome,
- * so it never leaks into any other test or the real running app).
+ * Full lifecycle with the prepayment switch ON (already the deploy
+ * default — see getBookingRequirePrepayment's own comment — but this
+ * test sets it explicitly anyway and restores it in its own cleanup,
+ * regardless of outcome, so it never depends on or leaks a change to
+ * that ambient default).
  *
  * Forward path: submit -> hold has no expiry after submission -> staff
  * verifies -> booking confirms.
@@ -63,6 +65,14 @@ async function main(): Promise<void> {
   const gcashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "GCASH" } });
 
   await cleanUp(court.id);
+
+  // Prove the fresh-database default directly, not just the ambient
+  // dev-DB state: delete any Setting row for this key entirely, then
+  // confirm the getter reads true with genuinely nothing there.
+  await prisma.setting.deleteMany({ where: { key: "booking.requirePrepayment" } });
+  const freshDefault = await settingsService.getBookingRequirePrepayment();
+  assert(freshDefault === true, `expected the fresh-database default to be true, got ${freshDefault}`);
+  console.log("Fresh-database default confirmed: true (no Setting row at all).");
 
   try {
     await settingsService.setBookingRequirePrepayment(true, owner.id);
@@ -168,11 +178,13 @@ async function main(): Promise<void> {
     await cleanUp(court.id);
     console.log("\nPASS: full switch-on lifecycle proven — forward (confirm) and reverse (reject/release) both correct.");
   } finally {
-    // Always restore the real default, regardless of outcome — this is
-    // shared, persistent state (a Setting row), not test-local data.
-    await settingsService.setBookingRequirePrepayment(false, owner.id);
+    // Always restore the real deploy default (true — see
+    // getBookingRequirePrepayment's own comment), regardless of
+    // outcome — this is shared, persistent state (a Setting row), not
+    // test-local data.
+    await settingsService.setBookingRequirePrepayment(true, owner.id);
     const restored = await settingsService.getBookingRequirePrepayment();
-    console.log(`Switch restored to OFF (verified: ${restored === false}).`);
+    console.log(`Switch restored to ON (verified: ${restored === true}).`);
   }
 
   process.exit(0);

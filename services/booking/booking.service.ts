@@ -39,8 +39,14 @@ export interface CreateBookingSaleContext {
 // would be meaningless here.
 export type CreateBookingHoldInput = Omit<CreateBookingInput, "paymentMethodId">;
 
-// BUILD-SPEC.md §8 "Slot holding": 30 minutes from checkout start.
-const HOLD_DURATION_MINUTES = 30;
+// BUILD-SPEC.md §8 "Slot holding": 4 hours from checkout start (owner's
+// deploy decision — was 30 minutes originally; changed here only, court
+// bookings specifically. This constant is private to this file and used
+// nowhere else — open play's own hold window
+// (services/open-play/open-play-registration.service.ts's own,
+// separately-defined HOLD_DURATION_MINUTES) is untouched and stays 30
+// minutes.
+const HOLD_DURATION_MINUTES = 4 * 60;
 
 export type AvailabilityConflictType =
   | "COURT_DISABLED"

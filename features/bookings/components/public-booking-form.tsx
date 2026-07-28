@@ -107,7 +107,7 @@ interface BookingConfirmation {
   // Phase 8: true only when the owner-controlled GCash-prepayment switch
   // is on. Must not be silently ignored here — showing "Booking
   // confirmed... payment collected at the venue" for what's actually a
-  // 30-minute hold waiting on GCash proof would tell a customer their
+  // 4-hour hold waiting on GCash proof would tell a customer their
   // slot is secured when it isn't yet.
   requiresPayment: boolean;
   // Independent of requiresPayment above — offered whether this booking
@@ -278,7 +278,7 @@ export function PublicBookingForm({
           </div>
           {confirmation.requiresPayment ? (
             <p className="text-warning-foreground bg-warning/15 rounded-lg p-2 pt-2 text-xs">
-              This slot is held for 30 minutes, not yet confirmed. Send your GCash payment and
+              This slot is held for 4 hours, not yet confirmed. Send your GCash payment and
               save your reference number — call us or visit the desk with it, and we&apos;ll get
               your booking verified. Save your reference and phone number to look this up later.
             </p>

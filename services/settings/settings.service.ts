@@ -182,14 +182,25 @@ export class SettingsService {
   // whether the public booking path requires GCash prepayment. Every
   // other piece of Phase 8 code reads THIS, never a second copy of the
   // decision — actions/public-booking.actions.ts is the only call site.
-  // Same "absence of a row means false" doctrine as the flag groups
-  // above, which is exactly the required default: OFF until someone with
-  // SYSTEM_ADMIN explicitly turns it on (actions/payment-settings.
-  // actions.ts — §15 "Owner-only payment settings," same permission tier
-  // every other owner-only setting in this codebase already uses).
+  //
+  // Owner's final, informed decision at deploy time: court bookings ship
+  // requiring prepayment, same as open play's own switch below — not
+  // the original built-OFF default. getBooleanFlags' own "no row ->
+  // false" is shared by every boolean flag in this service (module
+  // toggles, public visibility, ...); flipping that shared default
+  // would silently turn ON every other flag too, so — same fix as
+  // getOpenPlayOnlineRegistrationEnabled just below — this method
+  // deliberately does NOT go through it. Direct query instead: no row
+  // at all (a genuinely fresh database, or this key never explicitly
+  // touched) -> true; a row that exists reflects a real, later decision
+  // (an owner explicitly toggling it via setBookingRequirePrepayment)
+  // and always wins.
   async getBookingRequirePrepayment(): Promise<boolean> {
-    const flags = await this.getBooleanFlags([BOOKING_REQUIRE_PREPAYMENT_KEY]);
-    return flags[BOOKING_REQUIRE_PREPAYMENT_KEY] ?? false;
+    const row = await prisma.setting.findUnique({ where: { key: BOOKING_REQUIRE_PREPAYMENT_KEY } });
+    if (!row) {
+      return true;
+    }
+    return row.value === true;
   }
 
   async setBookingRequirePrepayment(value: boolean, actorUserId: string) {

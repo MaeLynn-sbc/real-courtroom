@@ -1066,9 +1066,11 @@ prepayment before it holds a confirmed slot:
   (e.g. `TCR-4821`) at checkout.
 - Customer submits their GCash reference number and a confirmation
   receipt screenshot. Status `pending_verification`.
-- The slot is held 30 minutes from the start of checkout. No proof
+- The slot is held **4 hours** from the start of checkout (owner's
+  deploy decision — was 30 minutes during initial build). No proof
   submitted in that window → the hold expires and the slot returns to
-  available.
+  available. Open play's own hold below is unaffected and stays 30
+  minutes.
 - **Nothing confirms until a human checks.** Staff verify each payment
   actually landed in the GCash account before a booking becomes
   `confirmed` — this is unchanged from the existing Fri/Sat open play
@@ -1343,10 +1345,11 @@ Payment
 
 ### Slot holding
 
-On checkout start, create with `holdExpiresAt = now + 30 minutes`.
-A held slot is unavailable to everyone else. Create the hold inside
-the same locked transaction that checks availability. Expired holds
-release automatically.
+On checkout start, create with `holdExpiresAt = now + 4 hours` (owner's
+deploy decision — was 30 minutes during initial build; open play's own
+hold is separate and stays 30 minutes). A held slot is unavailable to
+everyone else. Create the hold inside the same locked transaction that
+checks availability. Expired holds release automatically.
 
 ---
 
