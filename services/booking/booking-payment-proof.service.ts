@@ -402,7 +402,10 @@ export class BookingPaymentProofService {
   async getProofById(proofId: string) {
     return prisma.bookingPaymentProof.findUnique({
       where: { id: proofId },
-      include: { booking: { include: { court: true } }, resolvedByEmployee: true },
+      include: {
+        booking: { include: { court: true, coachSession: { include: { coach: true } } } },
+        resolvedByEmployee: true,
+      },
     });
   }
 

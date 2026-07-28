@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
 import { formatCurrency } from "@/lib/utils";
 import type { bookingPaymentProofService } from "@/services/booking/booking-payment-proof.service";
 
@@ -26,7 +27,10 @@ export function PaymentVerificationDetail({ proof }: PaymentVerificationDetailPr
   const [isApproving, startApprove] = useTransition();
   const [isRejecting, startReject] = useTransition();
 
-  const expectedAmountCents = proof.booking.totalAmountCents ?? 0;
+  const courtCents = proof.booking.totalAmountCents ?? 0;
+  const coachSession = proof.booking.coachSession;
+  const coachCents = coachSession && coachSession.status !== "CANCELLED" ? coachSession.rateCents : 0;
+  const expectedAmountCents = getExpectedPaymentTotalCents(proof.booking);
   const amountMismatches = proof.submittedAmountCents !== expectedAmountCents;
 
   function handleCopyReference() {
@@ -146,6 +150,21 @@ export function PaymentVerificationDetail({ proof }: PaymentVerificationDetailPr
           <CardTitle>Amount</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
+          {coachCents > 0 ? (
+            <>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Court hire</span>
+                <span>{formatCurrency(courtCents)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  Coaching{coachSession?.coach ? ` (${coachSession.coach.firstName} ${coachSession.coach.lastName})` : ""}
+                </span>
+                <span>{formatCurrency(coachCents)}</span>
+              </div>
+              <div className="border-border my-1 border-t" />
+            </>
+          ) : null}
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Expected</span>
             <span className="font-medium">{formatCurrency(expectedAmountCents)}</span>

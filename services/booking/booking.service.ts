@@ -588,11 +588,22 @@ export class BookingService {
     const courtIds = courts.map((court) => court.id);
     const { startOfDay, endOfDay } = dayRange(date);
 
+    // Same exclusion checkAvailabilityWithClient already applies to the
+    // real availability check — this query feeds the PUBLIC-FACING
+    // display (the homepage grid, /availability) and previously didn't
+    // share it, so a slot could show "Booked" for up to the full hold
+    // window after its hold had actually expired (lazily excluded
+    // everywhere else, but nothing recomputes THIS query on its own).
+    // No sweep added — still lazy, evaluated fresh on every call, same
+    // as the real check.
+    const now = new Date();
+
     const [bookings, maintenanceWindows] = await Promise.all([
       prisma.booking.findMany({
         where: {
           courtId: { in: courtIds },
-          status: { notIn: ["CANCELLED", "NO_SHOW"] },
+          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+          OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
           startAt: { lt: endOfDay },
           endAt: { gt: startOfDay },
         },
