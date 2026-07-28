@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { cn, formatCurrency } from "@/lib/utils";
@@ -102,6 +102,38 @@ function cellLabel(state: BoardCell["state"], isSelected: boolean): string {
 export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }: AvailabilityBoardProps) {
   const router = useRouter();
   const [selection, setSelection] = useState<Selection | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Found live on a phone: the grid's real width (560px min) overflows
+  // any phone viewport, but overflow-x-auto alone gives zero visual
+  // signal that anything's off-screen — Court 3 (or even the tail of
+  // Court 2) reads as simply not existing, not as "scroll for more."
+  // Driven by an actual measured overflow check, not a guessed CSS
+  // breakpoint, so it's correct regardless of exact viewport width or
+  // how many courts there are. atEnd additionally hides the hint once
+  // the visitor has already scrolled all the way — it's done its job.
+  const [hasOverflow, setHasOverflow] = useState(false);
+  const [isAtEnd, setIsAtEnd] = useState(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    function checkOverflow() {
+      if (!el) return;
+      setHasOverflow(el.scrollWidth > el.clientWidth + 1);
+      setIsAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 4);
+    }
+
+    checkOverflow();
+    const resizeObserver = new ResizeObserver(checkOverflow);
+    resizeObserver.observe(el);
+    el.addEventListener("scroll", checkOverflow, { passive: true });
+    return () => {
+      resizeObserver.disconnect();
+      el.removeEventListener("scroll", checkOverflow);
+    };
+  }, []);
 
   const selectedHours = useMemo(
     () => (selection ? [...selection.hours].sort((a, b) => a - b) : []),
@@ -149,8 +181,20 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
           solid block, not a thin bar — reverted from an earlier compact
           pass (24px rows) the owner didn't want. Header/time-label sizing
           scaled up to match (py-3/py-1.5, bigger type). */}
-      <div className="border-line bg-navy-800 overflow-hidden rounded-2xl border">
-        <div className="overflow-x-auto">
+      {hasOverflow ? (
+        <p className="text-slate font-jetbrains flex items-center gap-1.5 text-[11px] tracking-[0.08em] uppercase">
+          <span aria-hidden="true">←→</span>
+          Swipe to see all {courts.length} courts
+        </p>
+      ) : null}
+      <div className="border-line bg-navy-800 relative overflow-hidden rounded-2xl border">
+        <div
+          ref={scrollRef}
+          role="region"
+          aria-label="Court availability grid — scroll horizontally to see every court"
+          tabIndex={hasOverflow ? 0 : -1}
+          className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-green"
+        >
           <table className="w-full min-w-[560px] border-collapse">
             <thead>
               <tr>
@@ -248,6 +292,22 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
             </tbody>
           </table>
         </div>
+        {/* Fade + chevron on the scrollable edge — supporting visual cue
+            for the text hint above, not a substitute for it (a purely
+            visual affordance is exactly what was missed before: the
+            grid already cut off mid-word with nothing signalling more
+            content, and a sighted user could still miss a subtle edge
+            fade the same way). pointer-events-none so it never blocks
+            taps on the last visible column; hidden once scrolled to the
+            end since it's done its job by then. */}
+        {hasOverflow && !isAtEnd ? (
+          <div
+            aria-hidden="true"
+            className="from-navy-800 pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l to-transparent pr-1.5"
+          >
+            <span className="text-bone text-lg leading-none">›</span>
+          </div>
+        ) : null}
       </div>
 
       <div className="font-jetbrains text-slate flex flex-wrap gap-5 text-[11px]">
