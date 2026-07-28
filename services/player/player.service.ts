@@ -56,7 +56,26 @@ export class PlayerService {
       // list to search client-side, not a paginated view) — high enough
       // that it never matters at this app's actual scale, just a backstop
       // against an unbounded query as the roster grows.
-      take: 200,
+      //
+      // KNOWN STOPGAP, not a real fix: this is ordered alphabetically by
+      // name, so once the roster passes this cap, whoever sorts after it
+      // silently stops appearing in every picker built on this method —
+      // no error, no indication, they just become unfindable by search.
+      // Raised from 200 to 1000 (2026-07-29) as a deliberately cheap
+      // stopgap, not a solution — chosen specifically because the real
+      // fix is a meaningfully bigger change: replacing this "fetch
+      // everything, filter client-side" pattern with live server-side
+      // search (playerService.searchPlayers already exists and does a
+      // real database `contains` query, no cap). That rework changes
+      // PlayerSearchCombobox's prop contract (a static players: T[] array
+      // becomes an onSearch callback) across both its callers — New
+      // Booking's player field and open-play walk-in registration — and
+      // needs a loading state plus request-sequencing (an older, slower
+      // response must not clobber a newer one) that don't exist today,
+      // for a limit this venue isn't remotely close to. Revisit the real
+      // fix once the roster is genuinely approaching four figures, not
+      // before.
+      take: 1000,
     });
   }
 
