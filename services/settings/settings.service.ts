@@ -49,6 +49,16 @@ const DISPLAY_SLUG_KEY = "display.slug";
 // single-point-of-control, required-OFF-by-default shape either way.
 const OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY = "openPlay.onlineRegistrationEnabled";
 
+// Equipment page toggle — hides just the LOW_STOCK alert type from the
+// Equipment page's own banner (services/inventory/inventory-alerts.service.ts's
+// fixed threshold flags any item with availableQuantity <= 2 as "low
+// stock" even when nothing is actually rented out, e.g. a 2-of-2-owned
+// Ball Machine). UNRESOLVED_DAMAGE/OVERDUE_EQUIPMENT_RENTAL alerts are
+// real operational problems and are unaffected by this — see
+// app/dashboard/equipment/page.tsx's own filter. Default false (shown,
+// today's behavior) via getBooleanFlags' shared "no row -> false".
+const EQUIPMENT_HIDE_LOW_STOCK_ALERT_KEY = "equipment.hideLowStockAlert";
+
 function isUniqueConstraintViolation(error: unknown): boolean {
   return (
     typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002"
@@ -231,6 +241,15 @@ export class SettingsService {
 
   async setOpenPlayOnlineRegistrationEnabled(value: boolean, actorUserId: string) {
     return this.setBooleanFlag(OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY, value, actorUserId);
+  }
+
+  async getEquipmentHideLowStockAlert(): Promise<boolean> {
+    const flags = await this.getBooleanFlags([EQUIPMENT_HIDE_LOW_STOCK_ALERT_KEY]);
+    return flags[EQUIPMENT_HIDE_LOW_STOCK_ALERT_KEY];
+  }
+
+  async setEquipmentHideLowStockAlert(value: boolean, actorUserId: string) {
+    return this.setBooleanFlag(EQUIPMENT_HIDE_LOW_STOCK_ALERT_KEY, value, actorUserId);
   }
 
   private async getBooleanFlags(keys: readonly string[]): Promise<Record<string, boolean>> {

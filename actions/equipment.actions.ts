@@ -18,6 +18,7 @@ import { requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-au
 import { toActionError } from "@/lib/errors";
 import { equipmentRentalService } from "@/services/equipment/equipment-rental.service";
 import { equipmentService } from "@/services/equipment/equipment.service";
+import { settingsService } from "@/services/settings/settings.service";
 import { PERMISSIONS } from "@/types/permissions";
 
 export interface EquipmentActionState {
@@ -212,5 +213,24 @@ export async function resolveEquipmentMaintenanceAction(
         userId: authz.userId,
       }),
     };
+  }
+}
+
+// Same permission as everything else on the Equipment page — this is a
+// display preference for that one page's banner, not a system-wide
+// setting, so it doesn't need a narrower/wider gate than the page
+// itself already has.
+export async function setEquipmentHideLowStockAlertAction(value: boolean): Promise<EquipmentActionState> {
+  const authz = await requireEquipmentManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  try {
+    await settingsService.setEquipmentHideLowStockAlert(value, authz.userId);
+    revalidatePath("/dashboard/equipment");
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "setEquipmentHideLowStockAlertAction", userId: authz.userId }) };
   }
 }

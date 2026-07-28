@@ -7,8 +7,10 @@ import { InventoryAlertsBanner } from "@/components/shared/inventory-alerts-bann
 import { buttonVariants } from "@/components/ui/button";
 import { EquipmentList } from "@/features/equipment/components/equipment-list";
 import { EquipmentSummaryCards } from "@/features/equipment/components/equipment-summary-cards";
+import { LowStockAlertToggle } from "@/features/equipment/components/low-stock-alert-toggle";
 import { equipmentService } from "@/services/equipment/equipment.service";
 import { inventoryAlertsService } from "@/services/inventory/inventory-alerts.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
   title: "Equipment",
@@ -20,15 +22,17 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function EquipmentPage() {
-  const [items, summary, alerts] = await Promise.all([
+  const [items, summary, alerts, hideLowStockAlert] = await Promise.all([
     equipmentService.listEquipment(),
     equipmentService.getInventorySummary(),
     inventoryAlertsService.getAlerts(),
+    settingsService.getEquipmentHideLowStockAlert(),
   ]);
 
-  const equipmentAlerts = alerts.filter(
-    (alert) => alert.type === "LOW_STOCK" || alert.type === "UNRESOLVED_DAMAGE" || alert.type === "OVERDUE_EQUIPMENT_RENTAL",
-  );
+  const equipmentAlerts = alerts.filter((alert) => {
+    if (alert.type === "LOW_STOCK") return !hideLowStockAlert;
+    return alert.type === "UNRESOLVED_DAMAGE" || alert.type === "OVERDUE_EQUIPMENT_RENTAL";
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -51,6 +55,9 @@ export default async function EquipmentPage() {
       </div>
 
       <EquipmentSummaryCards summary={summary} />
+      <div className="flex justify-end">
+        <LowStockAlertToggle hidden={hideLowStockAlert} />
+      </div>
       <InventoryAlertsBanner alerts={equipmentAlerts} />
 
       {items.length === 0 ? (
