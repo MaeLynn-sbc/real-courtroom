@@ -107,19 +107,24 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     label: "Manage Coaching Rates",
     description: "Edit the per-coach, per-group-size coaching rate table.",
   },
-  // GCash reconciliation Gate 1 follow-up: deliberately absent from
-  // every ROLE_PERMISSION_GRANTS list below — granted to nobody by
-  // default, on purpose. The owner assigns this themselves from the
-  // roles screen once it exists as a checkbox there.
+  // GCash reconciliation Gate 1 follow-up: originally deliberately
+  // absent from every ROLE_PERMISSION_GRANTS list below — the intent was
+  // "granted to nobody by default, the owner assigns it themselves from
+  // the roles screen." Pre-deploy audit found the flaw in that plan: the
+  // OWNER role itself had no self-service way to grant it without
+  // already knowing the roles screen exists, so the owner hit
+  // Unauthorized on their own sidebar link on day one. Now granted to
+  // OWNER directly below; still absent from every other role, so a
+  // narrower role must still be granted it explicitly via the roles
+  // screen.
   [PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION]: {
     label: "Confirm GCash Reconciliation",
     description:
       "Seed, confirm, and correct the daily GCash balance reconciliation — a shared, business-wide financial control.",
   },
-  // Expenses tracking Gate 1: deliberately absent from every
-  // ROLE_PERMISSION_GRANTS list below — granted to nobody by default.
-  // The owner assigns this themselves from the roles screen once it
-  // exists as a checkbox there.
+  // Expenses tracking Gate 1: same fix, same reasoning as
+  // ACCOUNTS_CONFIRM_GCASH_RECONCILIATION directly above — granted to
+  // OWNER below, still absent from every other role.
   [PERMISSIONS.ACCOUNTS_RECORD_EXPENSE]: {
     label: "Record Expenses",
     description: "Record business expenses and manage expense categories.",
@@ -147,6 +152,15 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     // setting — SYSTEM_ADMIN tier, which both roles already hold.
     PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY,
     PERMISSIONS.COACHING_MANAGE_RATES,
+    // Pre-deploy audit fix: these two were deliberately granted to
+    // nobody by default (see their own comments in PERMISSION_DEFINITIONS
+    // above) so a narrower role wouldn't get them without an explicit
+    // choice — but that left OWNER itself with no way in, since there
+    // was no self-service path to grant a permission you don't already
+    // hold. OWNER gets both directly; MANAGER and below still need an
+    // explicit roles-screen grant.
+    PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION,
+    PERMISSIONS.ACCOUNTS_RECORD_EXPENSE,
   ],
   [SYSTEM_ROLES.MANAGER]: [
     PERMISSIONS.DASHBOARD_ACCESS,
