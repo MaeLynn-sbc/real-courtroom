@@ -17,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { createBookingSchema } from "@/features/bookings/schemas/booking.schema";
 import { PlayerSearchCombobox } from "@/features/players/components/player-search-combobox";
@@ -161,9 +160,32 @@ export function BookingForm({ courts, players, paymentMethods }: BookingFormProp
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
-        <Switch id="isWalkIn" checked={isWalkIn} onCheckedChange={setIsWalkIn} />
-        <Label htmlFor="isWalkIn">Walk-in (starts now)</Label>
+      <div className="flex flex-col gap-1.5">
+        <Label>Booking type</Label>
+        {/* Two explicit options rather than a single unlabeled switch —
+            found live: staff had no visual hint the "off" state
+            contained real date/time fields (booking-form.tsx used to
+            just silently swap sections), so advance bookings were
+            effectively undiscoverable. Default stays walk-in (owner
+            decision — more common at the desk). */}
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={isWalkIn ? "default" : "outline"}
+            onClick={() => setIsWalkIn(true)}
+          >
+            Walk-in (starts now)
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={!isWalkIn ? "default" : "outline"}
+            onClick={() => setIsWalkIn(false)}
+          >
+            Advance booking
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-1.5">
