@@ -339,7 +339,6 @@ export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
           <div className={styles.title}>
             Court <span>Status</span>
           </div>
-          <div className={styles.sub}>Live · Updates every 30 seconds</div>
         </div>
         <div className={styles.clock}>
           <b>{clockFormatter.format(now)}</b>
@@ -435,7 +434,6 @@ function CourtCard({ court, now }: { court: DisplayCourt; now: number }) {
       <div className={cls(styles.court, styles.free)}>
         <div className={styles["court-head"]}>
           <span className={styles["court-no"]}>{court.name}</span>
-          <span className={styles.pill}>Available</span>
         </div>
         <div className={styles["big-open"]}>Available</div>
         <div className={styles.sched}>

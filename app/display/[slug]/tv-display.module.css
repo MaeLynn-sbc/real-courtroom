@@ -73,21 +73,17 @@
 .title {
   font-family: var(--display);
   font-weight: 900;
-  font-size: 4vh;
+  /* Grown from 4vh — was 4vh title + 1.4vh "LIVE · UPDATES EVERY 30
+     SECONDS" subtitle beneath it; the subtitle is gone (visual only,
+     the actual 30s refresh is unchanged), so the heading itself now
+     fills that vertical space instead of sitting above an empty gap. */
+  font-size: 5.6vh;
   line-height: 1;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 .title span {
   color: var(--green);
-}
-.sub {
-  font-family: var(--mono);
-  font-size: 1.4vh;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: var(--slate);
-  margin-top: 0.4vh;
 }
 .clock {
   margin-left: auto;
@@ -145,11 +141,18 @@
   flex-shrink: 0;
 }
 .court-no {
-  font-family: var(--mono);
-  font-size: 1.5vh;
-  letter-spacing: 0.24em;
+  /* Same face/weight/tracking as .title (the "COURT STATUS" heading)
+     — reads as a heading now, not a small mono caption. 80% opacity
+     keeps it sitting behind the big AVAILABLE/BOOKED wordmark and the
+     player names rather than competing with them. */
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 4vh;
+  line-height: 1;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--slate);
+  color: var(--bone);
+  opacity: 0.8;
 }
 .pill {
   font-family: var(--mono);
@@ -359,9 +362,6 @@
 }
 .court.free {
   border-color: rgba(143, 194, 79, 0.4);
-}
-.court.free .pill {
-  color: var(--green);
 }
 .court.free::after {
   background: var(--green);
