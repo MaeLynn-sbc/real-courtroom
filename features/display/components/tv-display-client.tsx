@@ -41,17 +41,25 @@ function courtAssignmentSignature(court: DisplayCourt): string | null {
   return court.players.map((player) => player.name).join("|");
 }
 
-// "Court 2: Miguel Santos and partner, please proceed." — the full
-// name for one player, "and partner"/"and partners" for the rest
-// rather than reading every name back to back, matching the owner's
-// own worked example: short, and doesn't risk the voice stumbling
-// through a whole foursome's names in one breath.
-function formatAssignmentAnnouncement(court: DisplayCourt): string {
+// Natural spoken list, in the order names appear on the assignment —
+// "Ana", "Ana and Ben", "Ana, Ben, and Carla". No abbreviation to "and
+// partner(s)": four-name groups were tested live and read acceptably,
+// so there's no pacing reason to shorten them.
+export function joinNamesForSpeech(names: string[]): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+}
+
+// "Attention: Ana, Ben, Carla, and Dana, please proceed to Court 2." —
+// court name spoken last, exactly as stored (Court.name is already
+// "Court 1"/"Court 2"/"Court 3", never an internal id), so the sentence
+// itself reads it as a plain number, not a code.
+export function formatAssignmentAnnouncement(court: DisplayCourt): string {
   const names = court.players.map((player) => player.name);
   if (names.length === 0) return "";
-  if (names.length === 1) return `${court.name}: ${names[0]}, please proceed.`;
-  if (names.length === 2) return `${court.name}: ${names[0]} and partner, please proceed.`;
-  return `${court.name}: ${names[0]} and partners, please proceed.`;
+  return `Attention: ${joinNamesForSpeech(names)}, please proceed to ${court.name}.`;
 }
 
 const clockFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
