@@ -47,10 +47,6 @@ const ROLE_DEFINITIONS: Record<SystemRoleName, RoleDefinition> = {
     label: "Tournament Staff",
     description: "Runs tournaments, brackets, and scoring.",
   },
-  [SYSTEM_ROLES.CAFE_STAFF]: {
-    label: "Cafe Staff",
-    description: "Cafe operations — no dedicated module yet.",
-  },
   [SYSTEM_ROLES.MEMBER]: {
     label: "Member",
     description: "A registered player of The Courtroom.",
@@ -178,7 +174,6 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.DASHBOARD_ACCESS,
     PERMISSIONS.TOURNAMENTS_MANAGE,
   ],
-  [SYSTEM_ROLES.CAFE_STAFF]: [PERMISSIONS.DASHBOARD_ACCESS],
   [SYSTEM_ROLES.MEMBER]: [PERMISSIONS.DASHBOARD_ACCESS],
 };
 

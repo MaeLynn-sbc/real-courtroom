@@ -11,8 +11,6 @@ export const SYSTEM_ROLES = {
   // TOURNAMENT_DIRECTOR since renaming it would touch permission-wiring
   // code paths, only the seeded label changed.
   TOURNAMENT_DIRECTOR: "TOURNAMENT_DIRECTOR",
-  // v1.1: new — no cafe module exists yet, DASHBOARD_ACCESS only for now.
-  CAFE_STAFF: "CAFE_STAFF",
   MEMBER: "MEMBER",
 } as const;
 
