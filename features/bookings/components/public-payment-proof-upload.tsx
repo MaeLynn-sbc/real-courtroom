@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 
 import { submitPublicBookingPaymentProofAction } from "@/actions/public-booking-payment-proof.actions";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,10 @@ interface PublicPaymentProofUploadProps {
   amountDueCents: number;
   guestPhone: string;
   gcashInfo: GcashPaymentInfo;
+  // Fires once, right after a successful submission — lets the parent
+  // lock the coach add-on (see public-booking-form.tsx): once proof is
+  // submitted, the amount is committed and can no longer safely change.
+  onSubmitted?: () => void;
 }
 
 // The customer-facing half of submitPublicBookingPaymentProofAction —
@@ -42,9 +46,22 @@ export function PublicPaymentProofUpload({
   amountDueCents,
   guestPhone,
   gcashInfo,
+  onSubmitted,
 }: PublicPaymentProofUploadProps) {
   const [gcashReference, setGcashReference] = useState("");
   const [submittedAmount, setSubmittedAmount] = useState(String(amountDueCents / 100));
+  // amountDueCents can change after mount now (adding/removing a coach
+  // recomputes it in the parent) — resync the pre-fill to match, but only
+  // until the customer actually edits the field by hand. Without the
+  // guard, a customer who'd already typed a corrected amount would have
+  // it silently overwritten the moment they added a coach.
+  const [hasEditedAmount, setHasEditedAmount] = useState(false);
+  useEffect(() => {
+    if (!hasEditedAmount) {
+      setSubmittedAmount(String(amountDueCents / 100));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amountDueCents]);
   const [file, setFile] = useState<File | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -83,6 +100,7 @@ export function PublicPaymentProofUpload({
         return;
       }
       setSubmittedFileName(file.name);
+      onSubmitted?.();
     });
   }
 
@@ -170,7 +188,10 @@ export function PublicPaymentProofUpload({
             type="number"
             step="0.01"
             value={submittedAmount}
-            onChange={(event) => setSubmittedAmount(event.target.value)}
+            onChange={(event) => {
+              setHasEditedAmount(true);
+              setSubmittedAmount(event.target.value);
+            }}
           />
         </div>
         <div className="flex flex-col gap-1.5">

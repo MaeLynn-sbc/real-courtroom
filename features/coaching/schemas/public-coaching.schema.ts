@@ -17,3 +17,12 @@ export const publicAddCoachSchema = z.object({
   groupSize: z.coerce.number().int().min(1, "Group size must be at least 1."),
 });
 export type PublicAddCoachInput = z.infer<typeof publicAddCoachSchema>;
+
+// bookingId alone — same "bookingId as the capability" trust model as
+// publicAddCoachSchema above, no separate ownership token. Which coach
+// session to remove is looked up server-side (coach-session.service.ts's
+// removeCoachSession), never taken from the client.
+export const publicRemoveCoachSchema = z.object({
+  bookingId: z.string().min(1),
+});
+export type PublicRemoveCoachInput = z.infer<typeof publicRemoveCoachSchema>;

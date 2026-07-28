@@ -1,12 +1,24 @@
 import {
   publicAddCoachSchema,
+  publicRemoveCoachSchema,
   type PublicAddCoachInput,
+  type PublicRemoveCoachInput,
 } from "@/features/coaching/schemas/public-coaching.schema";
 import { coachSessionService, CoachSessionConflictError } from "@/services/coaching/coach-session.service";
 
 export interface PublicAddCoachResult {
   error: string | null;
   coachSessionId?: string;
+  // The actual rateCents charged (fresh from CoachRate at creation time,
+  // see createCoachSession's own snapshot comment) — the client's amount-
+  // due recompute uses this, not its own local guess at the selected
+  // rate, so a stale client-side rate list can never under/overstate the
+  // real GCash amount due.
+  priceCents?: number;
+}
+
+export interface PublicRemoveCoachResult {
+  error: string | null;
 }
 
 // Extracted from actions/public-coaching.actions.ts specifically so this
@@ -46,7 +58,32 @@ export async function addPublicCoachToBooking(
       "PUBLIC",
       actorUserId,
     );
-    return { error: null, coachSessionId: coachSession.id };
+    return { error: null, coachSessionId: coachSession.id, priceCents: coachSession.rateCents };
+  } catch (error) {
+    if (error instanceof CoachSessionConflictError) {
+      return { error: error.message };
+    }
+    throw error;
+  }
+}
+
+// Same split as addPublicCoachToBooking above: the payment-submitted
+// guard and the actual cancellation live in coachSessionService.
+// removeCoachSession, called with only bookingId — which coach session
+// that resolves to is looked up server-side, never taken from the
+// client (see publicRemoveCoachSchema's own comment).
+export async function removePublicCoachFromBooking(
+  input: PublicRemoveCoachInput,
+  actorUserId: string,
+): Promise<PublicRemoveCoachResult> {
+  const parsed = publicRemoveCoachSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await coachSessionService.removeCoachSession(parsed.data.bookingId, actorUserId);
+    return { error: null };
   } catch (error) {
     if (error instanceof CoachSessionConflictError) {
       return { error: error.message };

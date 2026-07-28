@@ -14,7 +14,8 @@ export type CoachSessionConflictType =
   | "NOT_A_COACH"
   | "OUTSIDE_AVAILABILITY"
   | "COACH_DOUBLE_BOOKED"
-  | "NO_RATE_SET";
+  | "NO_RATE_SET"
+  | "PAYMENT_ALREADY_SUBMITTED";
 
 function describeConflict(type: CoachSessionConflictType): string {
   switch (type) {
@@ -30,6 +31,8 @@ function describeConflict(type: CoachSessionConflictType): string {
       return "This coach is already booked for an overlapping time.";
     case "NO_RATE_SET":
       return "No rate is set for this coach at this group size.";
+    case "PAYMENT_ALREADY_SUBMITTED":
+      return "Payment has already been submitted for this booking — contact us to add or remove a coach.";
   }
 }
 
@@ -108,8 +111,32 @@ export class CoachSessionService {
         throw new CoachSessionConflictError("BOOKING_NOT_FOUND");
       }
 
+      // Ordering guard (public flow only): once a BookingPaymentProof row
+      // exists for this booking, the customer has already committed to a
+      // specific amount — attaching a coach after that point would
+      // silently make what they sent wrong, with no way to reconcile it.
+      // A proof-row check, not a status check, is what actually
+      // distinguishes this from the always-safe "pay at venue" case: a
+      // non-prepayment booking goes straight to CONFIRMED and never has a
+      // proof row at all, so it's untouched by this guard. Staff (source
+      // "STAFF") are never subject to this — they manage bookings
+      // regardless of payment state.
+      if (source === "PUBLIC") {
+        const proofSubmitted = await tx.bookingPaymentProof.findFirst({ where: { bookingId: input.bookingId } });
+        if (proofSubmitted) {
+          throw new CoachSessionConflictError("PAYMENT_ALREADY_SUBMITTED");
+        }
+      }
+
+      // bookingId is @unique on CoachSession — one row per booking, ever.
+      // A CANCELLED row (removeCoachSession only ever cancels, never
+      // deletes, to keep its full history) isn't a live conflict, but it
+      // does mean the row below must be an UPDATE reactivating it, not a
+      // fresh INSERT — a second create() with the same bookingId would
+      // hit the unique constraint. Anything else existing (CONFIRMED,
+      // etc.) is a real, live conflict.
       const existing = await tx.coachSession.findUnique({ where: { bookingId: input.bookingId } });
-      if (existing) {
+      if (existing && existing.status !== "CANCELLED") {
         throw new CoachSessionConflictError("ALREADY_HAS_COACH_SESSION");
       }
 
@@ -189,23 +216,24 @@ export class CoachSessionService {
       // Customer identity is read through the parent booking, not
       // re-entered — one source of truth for "who," same reasoning as
       // "when" living on the booking (Gate 1 review).
-      const coachSession = await tx.coachSession.create({
-        data: {
-          sessionReference,
-          bookingId: input.bookingId,
-          coachId: input.coachId,
-          bookedById: booking.bookedById,
-          playerId: booking.playerId,
-          groupSize: input.groupSize,
-          rateCents: rate.priceCents,
-          status: "CONFIRMED",
-          source,
-          isOutsideAvailability,
-          guestName: booking.guestName,
-          guestPhone: booking.guestPhone,
-          guestEmail: booking.guestEmail,
-        },
-      });
+      const sharedData = {
+        sessionReference,
+        coachId: input.coachId,
+        bookedById: booking.bookedById,
+        playerId: booking.playerId,
+        groupSize: input.groupSize,
+        rateCents: rate.priceCents,
+        status: "CONFIRMED" as const,
+        source,
+        isOutsideAvailability,
+        guestName: booking.guestName,
+        guestPhone: booking.guestPhone,
+        guestEmail: booking.guestEmail,
+        cancelledAt: null,
+      };
+      const coachSession = existing
+        ? await tx.coachSession.update({ where: { id: existing.id }, data: sharedData })
+        : await tx.coachSession.create({ data: { bookingId: input.bookingId, ...sharedData } });
 
       await tx.coachSessionHistory.create({
         data: { coachSessionId: coachSession.id, status: "CONFIRMED", changedById: actorUserId },
@@ -226,6 +254,29 @@ export class CoachSessionService {
     });
 
     return coachSession;
+  }
+
+  // The public flow's own "remove" — only ever called from that path (see
+  // public-coach-session.ts), so unlike createCoachSession this applies
+  // the payment-submitted guard unconditionally rather than gating it on
+  // a source argument. Same signal as the add-side guard: a booking with
+  // any BookingPaymentProof row is off-limits, since removing a coach the
+  // customer already paid for would make the amount they sent wrong in
+  // the other direction. No-op (not an error) if there's nothing to
+  // remove — the caller can't distinguish "already removed" from "never
+  // added" and shouldn't need to.
+  async removeCoachSession(bookingId: string, actorUserId: string): Promise<void> {
+    const proofSubmitted = await prisma.bookingPaymentProof.findFirst({ where: { bookingId } });
+    if (proofSubmitted) {
+      throw new CoachSessionConflictError("PAYMENT_ALREADY_SUBMITTED");
+    }
+
+    const session = await prisma.coachSession.findUnique({ where: { bookingId } });
+    if (!session || session.status === "CANCELLED") {
+      return;
+    }
+
+    await this.cancelCoachSession(session.id, actorUserId);
   }
 }
 

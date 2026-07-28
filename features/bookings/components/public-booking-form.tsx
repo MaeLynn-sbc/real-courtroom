@@ -15,7 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PublicCoachAddOn } from "@/features/coaching/components/public-coach-add-on";
+import { PublicCoachAddOn, type PublicCoachAddOnConfirmed } from "@/features/coaching/components/public-coach-add-on";
+import { ContactFallbackLinks } from "@/features/bookings/components/contact-fallback-links";
 import { PublicPaymentProofUpload } from "@/features/bookings/components/public-payment-proof-upload";
 import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
@@ -164,6 +165,12 @@ export function PublicBookingForm({
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null);
+  // Lifted out of PublicCoachAddOn so the payment amount/instructions can
+  // recompute live when a coach is added or removed — see
+  // coach-session.service.ts's ordering-guard comment for why this can
+  // only ever change before hasSubmittedProof flips true.
+  const [coachSession, setCoachSession] = useState<PublicCoachAddOnConfirmed | null>(null);
+  const [hasSubmittedProof, setHasSubmittedProof] = useState(false);
 
   const validInitialDuration =
     initialDurationMinutes && DURATIONS_MINUTES.includes(Number(initialDurationMinutes))
@@ -265,6 +272,9 @@ export function PublicBookingForm({
   });
 
   if (confirmation) {
+    const coachFeeCents = coachSession?.priceCents ?? 0;
+    const totalDueCents = confirmation.totalAmountCents + coachFeeCents;
+
     return (
       <Card className="mx-auto max-w-md">
         <CardHeader>
@@ -297,10 +307,27 @@ export function PublicBookingForm({
             <span className="text-muted-foreground">Duration</span>
             <span className="font-medium">{formatDurationLabel(confirmation.durationMinutes)}</span>
           </div>
-          <div className="flex justify-between border-t pt-3 text-base">
-            <span className="font-medium">Total</span>
-            <span className="font-semibold tabular-nums">{formatCurrency(confirmation.totalAmountCents)}</span>
-          </div>
+          {coachSession ? (
+            <>
+              <div className="flex justify-between border-t pt-3">
+                <span className="text-muted-foreground">Court hire</span>
+                <span className="font-medium tabular-nums">{formatCurrency(confirmation.totalAmountCents)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Coaching ({coachSession.coachName})</span>
+                <span className="font-medium tabular-nums">{formatCurrency(coachSession.priceCents)}</span>
+              </div>
+              <div className="flex justify-between border-t pt-2 text-base">
+                <span className="font-medium">Total</span>
+                <span className="font-semibold tabular-nums">{formatCurrency(totalDueCents)}</span>
+              </div>
+            </>
+          ) : (
+            <div className="flex justify-between border-t pt-3 text-base">
+              <span className="font-medium">Total</span>
+              <span className="font-semibold tabular-nums">{formatCurrency(totalDueCents)}</span>
+            </div>
+          )}
           {confirmation.requiresPayment ? (
             <>
               <p className="text-warning-foreground bg-warning/15 rounded-lg p-2 pt-2 text-xs">
@@ -310,26 +337,15 @@ export function PublicBookingForm({
               <PublicPaymentProofUpload
                 bookingId={confirmation.bookingId}
                 bookingReference={confirmation.bookingReference}
-                amountDueCents={confirmation.totalAmountCents}
+                amountDueCents={totalDueCents}
                 guestPhone={confirmation.guestPhone}
                 gcashInfo={gcashInfo}
+                onSubmitted={() => setHasSubmittedProof(true)}
               />
               {contactPhone || contactFacebookUrl ? (
                 <p className="text-muted-foreground pt-1 text-xs">
                   Wrong file, or haven&apos;t heard back?{" "}
-                  {contactFacebookUrl ? (
-                    <a
-                      href={contactFacebookUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline"
-                    >
-                      Message us on Facebook
-                    </a>
-                  ) : null}
-                  {contactFacebookUrl && contactPhone ? " or call " : null}
-                  {!contactFacebookUrl && contactPhone ? "Call " : null}
-                  {contactPhone}.
+                  <ContactFallbackLinks phone={contactPhone} facebookUrl={contactFacebookUrl} />.
                 </p>
               ) : null}
             </>
@@ -343,9 +359,18 @@ export function PublicBookingForm({
           {/* Offered regardless of requiresPayment above — a held slot
               can still have a coach attached before payment clears, same
               as coach-session.service.ts's createCoachSession itself
-              never gating on Booking.status. */}
+              never gating on Booking.status. Locked once hasSubmittedProof
+              flips true — see that same service's ordering-guard comment. */}
           <div className="border-t pt-3">
-            <PublicCoachAddOn bookingId={confirmation.bookingId} availableCoaches={confirmation.availableCoaches} />
+            <PublicCoachAddOn
+              bookingId={confirmation.bookingId}
+              availableCoaches={confirmation.availableCoaches}
+              requiresPayment={confirmation.requiresPayment}
+              hasSubmittedProof={hasSubmittedProof}
+              contactPhone={contactPhone}
+              contactFacebookUrl={contactFacebookUrl}
+              onCoachSessionChange={setCoachSession}
+            />
           </div>
         </CardContent>
       </Card>
