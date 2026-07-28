@@ -1,4 +1,5 @@
 import type { Booking, BookingPaymentProof, Prisma } from "@/lib/generated/prisma/client";
+import { getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
@@ -100,6 +101,12 @@ export interface ResolveBookingPaymentProofContext {
 export interface ApproveBookingPaymentProofContext extends ResolveBookingPaymentProofContext {
   shiftId: string;
   paymentMethodId: string;
+  // Required only when the submitted amount doesn't match
+  // getExpectedPaymentTotalCents(booking) — re-checked server-side
+  // below, never trusted from the client's own mismatch flag. A
+  // matching payment ignores this entirely and keeps today's
+  // one-click approve.
+  overrideReason?: string;
 }
 
 export interface ResolveBookingPaymentProofResult {
@@ -241,9 +248,24 @@ export class BookingPaymentProofService {
         return { alreadyResolved: true as const, proof, booking: null, sale: null };
       }
 
-      const booking = await tx.booking.findUniqueOrThrow({ where: { id: proof.bookingId } });
+      const booking = await tx.booking.findUniqueOrThrow({
+        where: { id: proof.bookingId },
+        include: { coachSession: true },
+      });
       if (booking.status !== "PENDING_VERIFICATION") {
         throw new BookingNotAwaitingVerificationError();
+      }
+
+      // Re-derived server-side from the booking itself, not trusted from
+      // whatever mismatch flag the client sent — the same amount the
+      // verification screen already shows as "Expected"
+      // (lib/booking-payment-total.ts's getExpectedPaymentTotalCents).
+      // A blank/whitespace-only reason on a genuine mismatch is
+      // rejected the same way rejectBookingPaymentProof already
+      // requires a real rejection reason below.
+      const expectedAmountCents = getExpectedPaymentTotalCents(booking);
+      if (proof.submittedAmountCents !== expectedAmountCents && !context.overrideReason?.trim()) {
+        throw new Error("A reason is required to approve a payment that doesn't match the expected amount.");
       }
 
       const confirmedBooking = await tx.booking.update({
@@ -275,7 +297,11 @@ export class BookingPaymentProofService {
         action: "booking_payment_proof.approved",
         entityType: "BookingPaymentProof",
         entityId: result.proof.id,
-        newValues: result.proof,
+        // overrideReason folded into the same JSON blob rather than a
+        // new column on BookingPaymentProof — this audit row is already
+        // the record of who approved this proof and when; the mismatch
+        // reason belongs right next to that, not in a separate table.
+        newValues: { ...result.proof, overrideReason: context.overrideReason?.trim() || null },
       });
       await saleService.logSaleCreated(result.sale, context.actorUserId);
       await sendBookingProofSms(
@@ -407,6 +433,20 @@ export class BookingPaymentProofService {
         resolvedByEmployee: true,
       },
     });
+  }
+
+  // The mismatch-approval reason isn't a column on BookingPaymentProof
+  // (see approveBookingPaymentProof's own comment) — it's read back from
+  // the same audit log row the approval itself wrote, so anyone
+  // reviewing this proof later sees why a mismatched amount was
+  // approved without having to separately go dig through Audit Logs.
+  async getApprovalOverrideReason(proofId: string): Promise<string | null> {
+    const entry = await prisma.auditLog.findFirst({
+      where: { entityType: "BookingPaymentProof", entityId: proofId, action: "booking_payment_proof.approved" },
+      orderBy: { createdAt: "desc" },
+    });
+    const newValues = entry?.newValues as { overrideReason?: string | null } | null | undefined;
+    return newValues?.overrideReason ?? null;
   }
 
   private async writeBookingHistory(

@@ -18,13 +18,19 @@ type Proof = NonNullable<Awaited<ReturnType<typeof bookingPaymentProofService.ge
 
 interface PaymentVerificationDetailProps {
   proof: Proof;
+  // Only ever non-null when this proof was APPROVED despite a mismatch
+  // — read back from the audit log entry approveBookingPaymentProof
+  // itself wrote (see the service's getApprovalOverrideReason). Not a
+  // column on BookingPaymentProof.
+  approvalOverrideReason: string | null;
 }
 
-export function PaymentVerificationDetail({ proof }: PaymentVerificationDetailProps) {
+export function PaymentVerificationDetail({ proof, approvalOverrideReason }: PaymentVerificationDetailProps) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
   const [phoneCopied, setPhoneCopied] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
   const [isApproving, startApprove] = useTransition();
   const [isRejecting, startReject] = useTransition();
 
@@ -59,8 +65,15 @@ export function PaymentVerificationDetail({ proof }: PaymentVerificationDetailPr
   }
 
   function handleApprove() {
+    if (amountMismatches && !overrideReason.trim()) {
+      toast.error("Enter a reason for approving a payment that doesn't match the expected amount.");
+      return;
+    }
     startApprove(async () => {
-      const result = await approveBookingPaymentProofAction(proof.id);
+      const result = await approveBookingPaymentProofAction(
+        proof.id,
+        amountMismatches ? overrideReason.trim() : undefined,
+      );
       if (result.error) {
         toast.error(result.error);
         return;
@@ -131,6 +144,11 @@ export function PaymentVerificationDetail({ proof }: PaymentVerificationDetailPr
           </p>
           {proof.rejectionReason ? (
             <p className="text-muted-foreground mt-1">Reason: {proof.rejectionReason}</p>
+          ) : null}
+          {proof.status === "APPROVED" && approvalOverrideReason ? (
+            <p className="text-muted-foreground mt-1">
+              Approved despite a mismatch — reason: {approvalOverrideReason}
+            </p>
           ) : null}
         </div>
       ) : null}
@@ -247,7 +265,31 @@ export function PaymentVerificationDetail({ proof }: PaymentVerificationDetailPr
 
       {isPending ? (
         <div className="flex flex-col gap-4">
-          <Button type="button" onClick={handleApprove} disabled={isApproving || isRejecting}>
+          {amountMismatches ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Reason for approving a mismatch</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                <p className="text-muted-foreground text-xs">
+                  The submitted amount doesn&apos;t match the expected total. A benign mismatch
+                  (rounding, a GCash send fee, a deliberate tip) is fine to approve — just say why.
+                </p>
+                <Textarea
+                  placeholder="Why approve this mismatch? e.g. &quot;Customer rounded up ₱5&quot;"
+                  value={overrideReason}
+                  onChange={(event) => setOverrideReason(event.target.value)}
+                  disabled={isApproving || isRejecting}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Button
+            type="button"
+            onClick={handleApprove}
+            disabled={isApproving || isRejecting || (amountMismatches && !overrideReason.trim())}
+          >
             {isApproving ? "Approving…" : "Approve — confirm this booking"}
           </Button>
 

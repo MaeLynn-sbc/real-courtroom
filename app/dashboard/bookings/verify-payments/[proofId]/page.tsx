@@ -22,5 +22,10 @@ export default async function VerifyPaymentDetailPage({ params }: VerifyPaymentD
     notFound();
   }
 
-  return <PaymentVerificationDetail proof={proof} />;
+  // Cheap even when there's nothing to find — only a real mismatch
+  // approval ever writes this audit row (see getApprovalOverrideReason's
+  // own comment).
+  const approvalOverrideReason = await bookingPaymentProofService.getApprovalOverrideReason(proofId);
+
+  return <PaymentVerificationDetail proof={proof} approvalOverrideReason={approvalOverrideReason} />;
 }

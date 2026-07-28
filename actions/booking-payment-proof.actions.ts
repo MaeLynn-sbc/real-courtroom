@@ -30,6 +30,7 @@ async function resolveGcashPaymentMethodId(): Promise<string> {
 
 export async function approveBookingPaymentProofAction(
   proofId: string,
+  overrideReason?: string,
 ): Promise<BookingPaymentProofActionState> {
   const authz = await requireEmployeeWithOpenShift(
     PERMISSIONS.BOOKINGS_MANAGE,
@@ -46,6 +47,7 @@ export async function approveBookingPaymentProofAction(
       shiftId: authz.shiftId,
       paymentMethodId,
       actorUserId: authz.userId,
+      overrideReason,
     });
 
     revalidatePath("/dashboard/bookings");
