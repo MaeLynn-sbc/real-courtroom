@@ -457,7 +457,20 @@ export class BookingService {
       });
       const durationHours = (input.endAt.getTime() - input.startAt.getTime()) / 3_600_000;
       const totalAmountCents = Math.round((court.hourlyRateCents ?? 0) * durationHours);
-      const holdExpiresAt = new Date(now.getTime() + HOLD_DURATION_MINUTES * 60_000);
+      // Capped at the booking's own start — an unpaid hold that outlives
+      // the session it's holding protects nothing (found live: a
+      // booking made ~15 min before a 2-hour-away start got a hold
+      // expiring ~2 hours INTO the session). Never zero/negative in
+      // practice: the only caller, createPublicBooking, is only ever
+      // reached after actions/public-booking.actions.ts's own
+      // startAt.getTime() <= Date.now() check has already rejected an
+      // elapsed start — so input.startAt is always strictly after `now`
+      // here too, just possibly by a short margin for a last-minute
+      // booking. That booking gets a correspondingly short hold, never
+      // an invalid one.
+      const holdExpiresAt = new Date(
+        Math.min(now.getTime() + HOLD_DURATION_MINUTES * 60_000, input.startAt.getTime()),
+      );
 
       return tx.booking.create({
         data: {
