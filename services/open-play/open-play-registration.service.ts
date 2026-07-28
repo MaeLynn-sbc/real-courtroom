@@ -15,6 +15,7 @@ import { saleService } from "@/services/sales/sale.service";
 import { settingsService } from "@/services/settings/settings.service";
 import { getSmsService } from "@/services/sms/sms-service.factory";
 import { OPEN_PLAY_SKILL_LEVEL_ORDER } from "@/types/open-play-skill-levels";
+import { SYSTEM_ROLES } from "@/types/roles";
 
 // BUILD-SPEC.md §5. Concurrency: SELECT ... FOR UPDATE on the session
 // row (the spec's first-named technique, not the Serializable-isolation-
@@ -230,6 +231,116 @@ async function syncPlayerProfileFromWalkIn(
 }
 
 export class OpenPlayRegistrationService {
+  // Gate 2 review follow-up: an unmatched walk-in (no playerId — nobody
+  // picked a search-combobox match) used to become a permanent guest —
+  // playerName/phone stored as plain text, playerId left null forever,
+  // no Player row ever created. The form promises "find a returning
+  // player" but nobody could ever become one through this path.
+  //
+  // Phone number, not name, is the identity signal. Compares the LAST
+  // 10 DIGITS, not the whole normalized string — found live, proven-
+  // failing-first against this exact method: cancelRegistrationAsCustomer/
+  // findConfirmedRegistrationForCancellation's own "strip non-digits,
+  // exact match" shape (the starting point here) does NOT resolve
+  // "0962 857 2974" and "+63 962 857 2974" as the same number — 11
+  // digits starting with a trunk 0 vs. 12 digits starting with the
+  // country code 63 never compare equal as full strings. That
+  // distinction is fine for THAT flow (a customer typing their own
+  // number back, likely the same way both times) but wrong for THIS
+  // one — a 0-vs-+63 prefix swap is exactly the kind of "typed
+  // differently" a real PH mobile number sees across two separate
+  // walk-ins, and this app is Asia/Manila-only, never a second country's
+  // numbers to accidentally conflate. Last-10-digits is exact and
+  // unambiguous for a PH mobile number specifically (always 10 digits
+  // after the trunk 0 or +63), not a fuzzy heuristic.
+  //
+  // Deliberately NOT fuzzy name-matching: a phone match is a far more
+  // reliable identity signal, and name-similarity heuristics risk the
+  // worse failure of silently merging two different people who happen
+  // to share a common name. Search staying accurate (the
+  // PlayerSearchCombobox word-match fix) is what carries "find them by
+  // name later," not a fuzzy match here.
+  //
+  // A brand-new player created here gets no email and no passwordHash
+  // — playerService.createPlayer's shared profile schema requires a
+  // valid email (Players double as portal-login Users), but this
+  // venue's walk-in form never collects one, and a desk walk-in has no
+  // reason to want a portal login. Same MEMBER role, same audit trail,
+  // just skipping a requirement that doesn't apply to this path.
+  //
+  // Deliberately called BEFORE registerWalkIn's session-locking
+  // transaction opens, not inside it — found live, proven-failing-first
+  // against open-play-registration.concurrency.integration.ts (10
+  // concurrent registerWalkIn calls, capacity 5): with this method's
+  // findMany scan plus user/player creates running while serialized
+  // behind lockSessionRow's row lock, the queued-up later calls blew
+  // Prisma's 5s interactive-transaction timeout (observed 5016ms,
+  // P2028). Player lookup/creation has nothing to do with the session's
+  // capacity, so it doesn't belong behind that lock — a lock should be
+  // held as briefly as possible under real concurrent load. Accepts
+  // `prisma` itself (not a `tx`) for exactly this reason at both call
+  // sites now; typed as Prisma.TransactionClient because PrismaClient
+  // structurally satisfies it, so this same method still works
+  // unchanged for a caller that DOES want it inside an existing
+  // transaction.
+  //
+  // Trade-off accepted: if the session-locking transaction that follows
+  // throws (e.g. "session not found" — essentially never in practice),
+  // a newly-created player here is not rolled back with it. That's a
+  // harmless leftover (one extra, still-correct, still-findable Player
+  // row with no registration attached), not a broken state — a
+  // meaningfully better trade than serializing real desk traffic behind
+  // a long-held lock. Separately, and out of scope for this pass: two
+  // walk-ins registering the SAME brand-new phone number at the exact
+  // same instant could each independently fail to find the other's
+  // not-yet-committed row and both create a player — Player.phone has
+  // no unique constraint, so nothing here prevents it. Not exercised by
+  // the concurrency test (every concurrent call uses a distinct phone
+  // number) and low-probability for a staffed front desk; a real fix
+  // would need either a DB-level uniqueness decision (phone is
+  // legitimately shared across some players — family members, spouses)
+  // or an application-level lock keyed on phone, neither of which this
+  // task asked for.
+  private async findOrCreatePlayerForWalkIn(
+    tx: Prisma.TransactionClient,
+    input: { playerName: string; phone: string; skillLevel: OpenPlaySkillLevel },
+    actorUserId: string,
+  ): Promise<{ playerId: string; isNewPlayer: boolean }> {
+    const last10Digits = (value: string) => value.replace(/\D/g, "").slice(-10);
+    const normalizedPhone = last10Digits(input.phone);
+
+    if (normalizedPhone.length === 10) {
+      const candidates = await tx.player.findMany({
+        where: { deletedAt: null, phone: { not: null } },
+        select: { id: true, phone: true },
+      });
+      const existing = candidates.find(
+        (candidate) => candidate.phone && last10Digits(candidate.phone) === normalizedPhone,
+      );
+      if (existing) {
+        return { playerId: existing.id, isNewPlayer: false };
+      }
+    }
+
+    const memberRole = await tx.role.findUniqueOrThrow({ where: { name: SYSTEM_ROLES.MEMBER } });
+    const user = await tx.user.create({
+      data: { name: input.playerName, email: null, roleId: memberRole.id },
+    });
+    const player = await tx.player.create({
+      data: { userId: user.id, phone: input.phone, openPlaySkillLevel: input.skillLevel },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "player.created_from_open_play_walk_in",
+      entityType: "Player",
+      entityId: player.id,
+      newValues: { name: input.playerName, phone: input.phone },
+    });
+
+    return { playerId: player.id, isNewPlayer: true };
+  }
+
   // Phase 4 only builds the staff walk-in path (cash, paid immediately —
   // see the OpenPlayNightRegistrationStatus enum comment in schema.prisma)
   // — status always lands on CONFIRMED; waitlistPos non-null means "paid,
@@ -249,6 +360,19 @@ export class OpenPlayRegistrationService {
   ): Promise<OpenPlayNightRegistration> {
     if (saleContext?.method === "GCASH" && !saleContext.gcashReference?.trim()) {
       throw new Error("A GCash reference number is required.");
+    }
+
+    // Resolved before the session lock below opens, deliberately — see
+    // findOrCreatePlayerForWalkIn's own comment for why this must not
+    // run inside lockSessionRow's serialized section.
+    let resolvedPlayerId: string;
+    let isNewPlayer = false;
+    if (input.playerId) {
+      resolvedPlayerId = input.playerId;
+    } else {
+      const result = await this.findOrCreatePlayerForWalkIn(prisma, input, actorUserId);
+      resolvedPlayerId = result.playerId;
+      isNewPlayer = result.isNewPlayer;
     }
 
     const registration = await prisma.$transaction(async (tx) => {
@@ -282,7 +406,7 @@ export class OpenPlayRegistrationService {
         data: {
           sessionId,
           date: session.date,
-          playerId: input.playerId,
+          playerId: resolvedPlayerId,
           playerName: input.playerName,
           phone: input.phone,
           skillLevel: input.skillLevel,
@@ -323,8 +447,12 @@ export class OpenPlayRegistrationService {
       },
     });
 
-    if (input.playerId) {
-      await syncPlayerProfileFromWalkIn(input.playerId, input.playerName, input.phone, input.skillLevel, actorUserId);
+    // Sync onto an EXISTING player — whether matched originally via the
+    // search combobox, or just resolved via phone lookup above — never
+    // for a player this same call just created, which already has
+    // exactly this data and nothing to correct.
+    if (!isNewPlayer) {
+      await syncPlayerProfileFromWalkIn(resolvedPlayerId, input.playerName, input.phone, input.skillLevel, actorUserId);
     }
 
     return registration;
@@ -338,11 +466,29 @@ export class OpenPlayRegistrationService {
     input: RegisterWalkInInput,
     actorUserId: string,
   ): Promise<OpenPlayNightRegistration> {
+    // Same resolution as registerWalkIn's Fri/Sat path, and same reason
+    // it runs standalone rather than inside a transaction with the
+    // registration insert below — see findOrCreatePlayerForWalkIn's own
+    // comment. This path has no session lock to worry about, but a
+    // plain sequential await here is simpler than a transaction wrapper
+    // that no longer buys atomicity worth paying for (a leftover
+    // unlinked player on the rare failure of the insert below is
+    // harmless — see that same comment).
+    let resolvedPlayerId: string;
+    let isNewPlayer = false;
+    if (input.playerId) {
+      resolvedPlayerId = input.playerId;
+    } else {
+      const result = await this.findOrCreatePlayerForWalkIn(prisma, input, actorUserId);
+      resolvedPlayerId = result.playerId;
+      isNewPlayer = result.isNewPlayer;
+    }
+
     const registration = await prisma.openPlayNightRegistration.create({
       data: {
         sessionId: null,
         date,
-        playerId: input.playerId,
+        playerId: resolvedPlayerId,
         playerName: input.playerName,
         phone: input.phone,
         skillLevel: input.skillLevel,
@@ -361,8 +507,8 @@ export class OpenPlayRegistrationService {
       newValues: { date, skillLevel: registration.skillLevel },
     });
 
-    if (input.playerId) {
-      await syncPlayerProfileFromWalkIn(input.playerId, input.playerName, input.phone, input.skillLevel, actorUserId);
+    if (!isNewPlayer) {
+      await syncPlayerProfileFromWalkIn(resolvedPlayerId, input.playerName, input.phone, input.skillLevel, actorUserId);
     }
 
     return registration;
