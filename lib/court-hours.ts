@@ -114,6 +114,14 @@ function rangesOverlap(slotStart: Date, slotEnd: Date, ranges: CourtSlotRange[])
   return ranges.some((range) => slotStart < range.endAt && slotEnd > range.startAt);
 }
 
+// Single shared definition of "past" for an hourly slot — used by the
+// homepage grid (classifyCourtSlot below) and the /book time dropdown
+// alike, so they can never disagree about which hours are still
+// selectable.
+export function isHourInThePast(slotStart: Date, now: number): boolean {
+  return slotStart.getTime() <= now;
+}
+
 // One hour's state for one court on the public homepage grid. Order is
 // load-bearing, found live: a real, active booking's already-elapsed
 // hours were showing as generically "Past" instead of "Booked" —
@@ -149,7 +157,7 @@ export function classifyCourtSlot(params: {
   if (rangesOverlap(slotStart, slotEnd, bookedRanges)) {
     return "booked";
   }
-  if (slotStart.getTime() <= now) {
+  if (isHourInThePast(slotStart, now)) {
     return "past";
   }
   return "available";

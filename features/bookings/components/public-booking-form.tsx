@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { PublicCoachAddOn } from "@/features/coaching/components/public-coach-add-on";
 import { PublicPaymentProofUpload } from "@/features/bookings/components/public-payment-proof-upload";
-import { getCourtBookingWindow } from "@/lib/court-hours";
+import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
 
@@ -47,11 +47,21 @@ function formatDurationLabel(minutes: number): string {
 // The last valid START hour is closeMinutes MINUS the selected
 // duration, so a longer booking correctly loses more trailing options
 // than a 1-hour one would.
+//
+// Also filters out any hour whose start has already passed (found live:
+// at 9:40 AM the dropdown still offered 7/8/9 AM today, even though the
+// homepage grid already classified those as "Past"). isHourInThePast is
+// the exact same function classifyCourtSlot uses for the grid — same
+// source of truth, so the grid and this dropdown can't disagree about
+// what counts as past. No separate "is this today" branch needed: a
+// future date's slot starts are never <= now, so this naturally only
+// ever removes options on today.
 function getAvailableTimeOptions(
   courtHours: CourtHoursSettings,
   courtName: string | undefined,
   dateValue: string,
   durationMinutes: number,
+  now: number,
 ): string[] {
   if (!courtName || !dateValue) {
     return [];
@@ -66,6 +76,10 @@ function getAvailableTimeOptions(
   const options: string[] = [];
   for (let minutes = window.openMinutes; minutes <= lastStartMinutes; minutes += 60) {
     const hours = Math.floor(minutes / 60);
+    const slotStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, 0);
+    if (isHourInThePast(slotStart, now)) {
+      continue;
+    }
     options.push(`${String(hours).padStart(2, "0")}:00`);
   }
   return options;
@@ -164,6 +178,7 @@ export function PublicBookingForm({
     initialCourtName,
     initialDateResolved,
     Number(initialDurationResolved),
+    Date.now(),
   );
   const validInitialTime = initialTime && initialTimeOptions.includes(initialTime) ? initialTime : undefined;
 
@@ -206,6 +221,7 @@ export function PublicBookingForm({
     selectedCourt?.name,
     watchedDate,
     Number(watchedDurationMinutes),
+    Date.now(),
   );
   useEffect(() => {
     if (availableTimeOptions.length > 0 && !availableTimeOptions.includes(watchedTime)) {
@@ -405,8 +421,9 @@ export function PublicBookingForm({
           />
           {availableTimeOptions.length === 0 && selectedCourt ? (
             <p className="text-muted-foreground text-xs">
-              {selectedCourt.name} has no {formatDurationLabel(Number(watchedDurationMinutes)).toLowerCase()} slot
-              available that day — try a shorter duration or another court.
+              {watchedDate === toLocalDateValue(new Date())
+                ? "No times left today — try tomorrow or another court."
+                : `${selectedCourt.name} has no ${formatDurationLabel(Number(watchedDurationMinutes)).toLowerCase()} slot available that day — try a shorter duration or another court.`}
             </p>
           ) : null}
         </div>
