@@ -18,12 +18,6 @@ export interface PlayerSearchOption {
   label: string;
 }
 
-// First name of a "First Last" (or "First" / email-fallback) label —
-// matching goes off this leading token only, e.g. "j" -> J names.
-function firstToken(label: string): string {
-  return label.trim().split(/\s+/)[0] ?? "";
-}
-
 interface PlayerSearchComboboxProps<T extends PlayerSearchOption> {
   id?: string;
   players: T[];
@@ -52,9 +46,25 @@ export function PlayerSearchCombobox<T extends PlayerSearchOption>({
   const [isOpen, setIsOpen] = useState(false);
   const blurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Found live: "Coach Dhudz Quinto" never matched typing "Dhudz" — the
+  // old match only checked the FIRST word of the label as a prefix.
+  // Plain substring match against the whole label instead: matches any
+  // word (not just the first), and doesn't require the match to start a
+  // word either (a typo-tolerant "contains", not "starts with"). A
+  // staff-facing picker over an already-capped, already-short list —
+  // broader matching here is a pure usability win, not a performance or
+  // relevance concern the way it might be on a public-facing search.
+  // Found live: "Coach Dhudz Quinto" never matched typing "Dhudz" — the
+  // old match only checked the FIRST word of the label as a prefix.
+  // Plain substring match against the whole label instead: matches any
+  // word (not just the first), and doesn't require the match to start a
+  // word either (a typo-tolerant "contains", not "starts with"). A
+  // staff-facing picker over an already-capped, already-short list —
+  // broader matching here is a pure usability win, not a performance or
+  // relevance concern the way it might be on a public-facing search.
   const query = displayValue.trim();
   const matches = query
-    ? players.filter((player) => firstToken(player.label).toLowerCase().startsWith(query.toLowerCase())).slice(0, 8)
+    ? players.filter((player) => player.label.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
     : [];
 
   function handleChange(value: string) {
