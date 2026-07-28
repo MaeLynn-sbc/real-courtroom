@@ -106,6 +106,28 @@ export class CoachSessionService {
   // both read "available" before either writes.
   async createCoachSession(input: CreateCoachSessionInput, source: CoachSessionSource, actorUserId: string) {
     return runSerializableWithRetry(async (tx) => {
+      // Race protection (public coach-add vs. a concurrent payment-proof
+      // submission): an explicit row lock, not just this transaction's
+      // own Serializable isolation. Proven live (services/coaching/
+      // coach-session-payment-race.integration.ts): a plain SELECT here,
+      // even under Serializable isolation, does NOT block a concurrent
+      // UPDATE on the same row — confirmed directly against raw Postgres,
+      // not assumed. submitBookingPaymentProof's transaction runs at the
+      // default isolation level and simply proceeds, unblocked, while
+      // this transaction is still mid-flight; without a lock, the proof
+      // check below can read "no proof yet," a proof can then commit
+      // underneath it, and this transaction still inserts the coach
+      // session using its now-stale read — the exact "silently allowed"
+      // outcome the guard exists to prevent. SELECT ... FOR UPDATE takes
+      // a real row lock: submitBookingPaymentProof's own write to this
+      // same Booking row (its WHERE-guarded updateMany) blocks until
+      // this transaction commits or rolls back, so whichever of the two
+      // reaches this row first is guaranteed to fully finish before the
+      // other can proceed. Taken unconditionally (both STAFF and PUBLIC)
+      // since locking has no observable effect beyond ordering — STAFF's
+      // own behavior is otherwise completely unchanged.
+      await tx.$queryRaw`SELECT id FROM "Booking" WHERE id = ${input.bookingId} FOR UPDATE`;
+
       const booking = await tx.booking.findUnique({ where: { id: input.bookingId } });
       if (!booking) {
         throw new CoachSessionConflictError("BOOKING_NOT_FOUND");
@@ -120,7 +142,9 @@ export class CoachSessionService {
       // non-prepayment booking goes straight to CONFIRMED and never has a
       // proof row at all, so it's untouched by this guard. Staff (source
       // "STAFF") are never subject to this — they manage bookings
-      // regardless of payment state.
+      // regardless of payment state. Safe to check now: the row lock
+      // above guarantees this read sees any proof a concurrent submission
+      // already committed, not a stale pre-submission snapshot.
       if (source === "PUBLIC") {
         const proofSubmitted = await tx.bookingPaymentProof.findFirst({ where: { bookingId: input.bookingId } });
         if (proofSubmitted) {
