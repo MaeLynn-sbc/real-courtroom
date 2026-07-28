@@ -59,11 +59,21 @@
 }
 
 /* ---------------- header ---------------- */
+/* Three zones: [brand: logo+title] | [sub, centered] | [clock] — grid
+   instead of a plain flex row so the middle zone can sit truly
+   centered in the header bar, independent of how wide the brand/clock
+   zones are. */
 .top {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 1.4vw;
   flex-shrink: 0;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 1.4vw;
 }
 .logo {
   height: 7vh;
@@ -81,21 +91,20 @@
 .title span {
   color: var(--green);
 }
-/* "LIVE · UPDATES EVERY 30 SECONDS" — back, inline after the heading
-   instead of on its own line beneath it. Same --display face as the
+/* "LIVE · UPDATES EVERY 30 SECONDS" — centered in the header bar,
+   between the brand and the clock. Same --display face as the
    heading (not the old mono caption treatment), but slim: light
-   weight, small, muted, so it reads as a trailing tag riding the
-   heading's baseline rather than a second heading of its own. */
-.title .sub {
+   weight, small, muted. */
+.sub {
+  text-align: center;
   color: var(--slate);
+  font-family: var(--display);
   font-weight: 300;
   font-size: 1.7vh;
   letter-spacing: 0.14em;
-  margin-left: 0.6vw;
-  vertical-align: middle;
+  text-transform: uppercase;
 }
 .clock {
-  margin-left: auto;
   text-align: right;
 }
 .clock b {
