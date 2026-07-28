@@ -4,6 +4,7 @@ import type {
   BusinessInfo,
   CourtHoursSettings,
   GalleryImage,
+  GcashPaymentInfo,
   HomepageHero,
   OpenPlaySettings,
   OtherRateLine,
@@ -284,6 +285,22 @@ export class SettingsService {
 
   async setGalleryImages(value: GalleryImage[], actorUserId: string) {
     return this.setJsonValue(CMS_KEYS.GALLERY_IMAGES, value, actorUserId);
+  }
+
+  // Owner decision: one static GCash QR + account name/number, shown to
+  // every customer on the payment step (both court bookings and open
+  // play). No row yet -> nulls/blanks, same "absence means not
+  // configured yet" doctrine as every other CMS default here.
+  async getGcashPaymentInfo(): Promise<GcashPaymentInfo> {
+    return this.getJsonValue(CMS_KEYS.GCASH_PAYMENT_INFO, {
+      qrImageUrl: null,
+      accountName: "",
+      accountNumber: "",
+    } as GcashPaymentInfo);
+  }
+
+  async setGcashPaymentInfo(value: GcashPaymentInfo, actorUserId: string) {
+    return this.setJsonValue(CMS_KEYS.GCASH_PAYMENT_INFO, value, actorUserId);
   }
 
   // Merges over DEFAULT_COURT_HOURS (rather than returning the stored row

@@ -9,4 +9,5 @@ export const CMS_KEYS = {
   GALLERY_IMAGES: "cms.gallery.images",
   COURT_HOURS: "cms.courtHours",
   OPEN_PLAY_SETTINGS: "cms.openPlaySettings",
+  GCASH_PAYMENT_INFO: "cms.gcashPaymentInfo",
 } as const;

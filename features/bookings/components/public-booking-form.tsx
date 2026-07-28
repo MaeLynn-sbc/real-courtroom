@@ -16,9 +16,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PublicCoachAddOn } from "@/features/coaching/components/public-coach-add-on";
+import { PublicPaymentProofUpload } from "@/features/bookings/components/public-payment-proof-upload";
 import { getCourtBookingWindow } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
-import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
+import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
 
 // Presentation-only convenience list — no schema/service duration limit
 // exists (services/booking/booking.service.ts's totalAmountCents is
@@ -101,6 +102,7 @@ interface BookingConfirmation {
   time: string;
   durationMinutes: number;
   guestName: string;
+  guestPhone: string;
   // Already computed and persisted server-side (pro-rata) — see
   // services/booking/booking.service.ts's totalAmountCents.
   totalAmountCents: number;
@@ -125,6 +127,9 @@ function toLocalDateValue(date: Date): string {
 interface PublicBookingFormProps {
   courts: PublicBookingFormCourt[];
   courtHours: CourtHoursSettings;
+  gcashInfo: GcashPaymentInfo;
+  contactPhone: string;
+  contactFacebookUrl: string;
   initialCourtId?: string;
   initialDate?: string;
   initialTime?: string;
@@ -134,6 +139,9 @@ interface PublicBookingFormProps {
 export function PublicBookingForm({
   courts,
   courtHours,
+  gcashInfo,
+  contactPhone,
+  contactFacebookUrl,
   initialCourtId,
   initialDate,
   initialTime,
@@ -232,6 +240,7 @@ export function PublicBookingForm({
         time: values.time,
         durationMinutes: Number(values.durationMinutes),
         guestName: values.guestName,
+        guestPhone: values.guestPhone,
         totalAmountCents: result.totalAmountCents ?? 0,
         requiresPayment: result.requiresPayment ?? false,
         availableCoaches: result.availableCoaches ?? [],
@@ -277,11 +286,37 @@ export function PublicBookingForm({
             <span className="font-semibold tabular-nums">{formatCurrency(confirmation.totalAmountCents)}</span>
           </div>
           {confirmation.requiresPayment ? (
-            <p className="text-warning-foreground bg-warning/15 rounded-lg p-2 pt-2 text-xs">
-              This slot is held for 4 hours, not yet confirmed. Send your GCash payment and
-              save your reference number — call us or visit the desk with it, and we&apos;ll get
-              your booking verified. Save your reference and phone number to look this up later.
-            </p>
+            <>
+              <p className="text-warning-foreground bg-warning/15 rounded-lg p-2 pt-2 text-xs">
+                This slot is held for 4 hours, not yet confirmed. Pay via GCash below to confirm
+                it. Save your reference and phone number to look this up later.
+              </p>
+              <PublicPaymentProofUpload
+                bookingId={confirmation.bookingId}
+                bookingReference={confirmation.bookingReference}
+                amountDueCents={confirmation.totalAmountCents}
+                guestPhone={confirmation.guestPhone}
+                gcashInfo={gcashInfo}
+              />
+              {contactPhone || contactFacebookUrl ? (
+                <p className="text-muted-foreground pt-1 text-xs">
+                  Wrong file, or haven&apos;t heard back?{" "}
+                  {contactFacebookUrl ? (
+                    <a
+                      href={contactFacebookUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                    >
+                      Message us on Facebook
+                    </a>
+                  ) : null}
+                  {contactFacebookUrl && contactPhone ? " or call " : null}
+                  {!contactFacebookUrl && contactPhone ? "Call " : null}
+                  {contactPhone}.
+                </p>
+              ) : null}
+            </>
           ) : (
             <p className="text-muted-foreground pt-2 text-xs">
               Save your reference and phone number — you can look up this booking anytime from the

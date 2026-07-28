@@ -37,6 +37,7 @@ function revalidatePublicSite(): void {
   revalidatePath("/contact");
   revalidatePath("/rates");
   revalidatePath("/open-play");
+  revalidatePath("/book");
 }
 
 export async function setHomepageHeroAction(input: HomepageHero): Promise<CmsActionState> {

@@ -39,6 +39,18 @@ export type GalleryImage = z.infer<typeof galleryImageSchema>;
 
 export const galleryImagesSchema = z.array(galleryImageSchema).max(50);
 
+// Owner decision: ONE static GCash QR image, shown to every customer —
+// no per-booking dynamic QR. accountName/accountNumber are shown right
+// alongside the QR (a customer scanning wrong, or paying by manually
+// searching the account, needs both).
+export const gcashPaymentInfoSchema = z.object({
+  qrImageUrl: z.string().max(500).nullable(),
+  accountName: z.string().max(200),
+  accountNumber: z.string().max(50),
+});
+
+export type GcashPaymentInfo = z.infer<typeof gcashPaymentInfoSchema>;
+
 // Plain "HH:MM" 24-hour time. "00:00" is a valid value everywhere this is
 // used — for courtCloseTimes specifically it doubles as a sentinel (see
 // courtHoursSchema below), not a real midnight cutoff.

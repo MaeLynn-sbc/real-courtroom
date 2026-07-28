@@ -23,6 +23,7 @@ interface PaymentVerificationDetailProps {
 export function PaymentVerificationDetail({ proof }: PaymentVerificationDetailProps) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
+  const [phoneCopied, setPhoneCopied] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [isApproving, startApprove] = useTransition();
   const [isRejecting, startReject] = useTransition();
@@ -41,6 +42,20 @@ export function PaymentVerificationDetail({ proof }: PaymentVerificationDetailPr
         setTimeout(() => setCopied(false), 2000);
       })
       .catch(() => toast.error("Couldn't copy — select and copy the reference manually."));
+  }
+
+  function handleCopyPhone() {
+    const phone = proof.booking.guestPhone;
+    if (!phone) {
+      return;
+    }
+    navigator.clipboard
+      .writeText(phone)
+      .then(() => {
+        setPhoneCopied(true);
+        setTimeout(() => setPhoneCopied(false), 2000);
+      })
+      .catch(() => toast.error("Couldn't copy — select and copy the phone number manually."));
   }
 
   function handleApprove() {
@@ -119,6 +134,40 @@ export function PaymentVerificationDetail({ proof }: PaymentVerificationDetailPr
           ) : null}
         </div>
       ) : null}
+
+      {/* Semaphore isn't wired yet (SMS_PROVIDER=console — see
+          services/sms/sms-service.factory.ts) — every confirmation
+          message is sent by a staff member manually until it is, so
+          the customer's phone number has to be right here, easy to
+          copy, next to the proof staff are verifying. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Customer</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Name</span>
+            <span className="font-medium">{proof.booking.guestName ?? "—"}</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyPhone}
+            disabled={!proof.booking.guestPhone}
+            className="border-input hover:bg-accent flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <span className="font-mono text-lg font-semibold tracking-wide select-all">
+              {proof.booking.guestPhone ?? "No phone on file"}
+            </span>
+            {proof.booking.guestPhone ? (
+              phoneCopied ? (
+                <Check className="text-success size-5 shrink-0" aria-hidden="true" />
+              ) : (
+                <Copy className="text-muted-foreground size-5 shrink-0" aria-hidden="true" />
+              )
+            ) : null}
+          </button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

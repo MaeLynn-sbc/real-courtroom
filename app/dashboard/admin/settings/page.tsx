@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 
+import { GcashPaymentInfoPanel } from "@/features/settings/components/gcash-payment-info-panel";
 import { ModuleTogglesPanel } from "@/features/settings/components/module-toggles-panel";
+import { PaymentContactInfoPanel } from "@/features/settings/components/payment-contact-info-panel";
 import { PaymentSettingsPanel } from "@/features/settings/components/payment-settings-panel";
 import { SettingsWorkspace } from "@/features/settings/components/settings-workspace";
 import { settingsService } from "@/services/settings/settings.service";
@@ -16,10 +18,12 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [settings, enabledModules, requirePrepayment] = await Promise.all([
+  const [settings, enabledModules, requirePrepayment, gcashInfo, businessInfo] = await Promise.all([
     settingsService.listSettings(),
     settingsService.getEnabledModules(),
     settingsService.getBookingRequirePrepayment(),
+    settingsService.getGcashPaymentInfo(),
+    settingsService.getBusinessInfo(),
   ]);
 
   return (
@@ -31,6 +35,8 @@ export default async function SettingsPage() {
 
       <ModuleTogglesPanel enabledModules={enabledModules} />
       <PaymentSettingsPanel requirePrepayment={requirePrepayment} />
+      <GcashPaymentInfoPanel info={gcashInfo} />
+      <PaymentContactInfoPanel businessInfo={businessInfo} />
       <SettingsWorkspace settings={settings} />
     </div>
   );
