@@ -102,3 +102,55 @@ export function isWithinCourtBookingWindow(
 
   return startMinutes >= window.openMinutes && endMinutes <= window.closeMinutes;
 }
+
+export type CourtSlotState = "unavailable" | "openPlay" | "past" | "booked" | "available";
+
+export interface CourtSlotRange {
+  startAt: Date;
+  endAt: Date;
+}
+
+function rangesOverlap(slotStart: Date, slotEnd: Date, ranges: CourtSlotRange[]): boolean {
+  return ranges.some((range) => slotStart < range.endAt && slotEnd > range.startAt);
+}
+
+// One hour's state for one court on the public homepage grid. Order is
+// load-bearing, found live: a real, active booking's already-elapsed
+// hours were showing as generically "Past" instead of "Booked" —
+// "past" was checked BEFORE "booked" in the original inline version of
+// this logic, so an hour that was both past AND booked always lost to
+// the past branch, and the booked check never ran. The TV display (a
+// structurally different query — "what's the current booking for this
+// court right now," not a per-hour classification) never had this bug
+// because it has no competing "past" concept at all. Fixed here by
+// checking booked BEFORE past — a booking that already happened (or is
+// happening) is still meaningfully "booked," never generically "past."
+// Maintenance and outside-the-booking-window (open play) both still
+// take priority over booked, same as before — a booking can't
+// genuinely overlap either of those in practice, but the order
+// documents the real precedence. "Past" is deliberately checked LAST,
+// so it only ever fires for a genuinely free, elapsed hour.
+export function classifyCourtSlot(params: {
+  hour: number;
+  slotStart: Date;
+  slotEnd: Date;
+  now: number;
+  window: CourtBookingWindow;
+  maintenanceRanges: CourtSlotRange[];
+  bookedRanges: CourtSlotRange[];
+}): CourtSlotState {
+  const { hour, slotStart, slotEnd, now, window, maintenanceRanges, bookedRanges } = params;
+  if (rangesOverlap(slotStart, slotEnd, maintenanceRanges)) {
+    return "unavailable";
+  }
+  if (hour * 60 < window.openMinutes || (hour + 1) * 60 > window.closeMinutes) {
+    return "openPlay";
+  }
+  if (rangesOverlap(slotStart, slotEnd, bookedRanges)) {
+    return "booked";
+  }
+  if (slotStart.getTime() <= now) {
+    return "past";
+  }
+  return "available";
+}

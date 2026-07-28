@@ -1,4 +1,4 @@
-import { getCourtBookingWindow, isWithinCourtBookingWindow } from "@/lib/court-hours";
+import { classifyCourtSlot, getCourtBookingWindow, isWithinCourtBookingWindow } from "@/lib/court-hours";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
 
 const SETTINGS: CourtHoursSettings = {
@@ -88,5 +88,64 @@ describe("isWithinCourtBookingWindow", () => {
     const startAt = new Date(2026, 6, 20, 19, 0);
     const endAt = new Date(2026, 6, 20, 20, 0);
     expect(isWithinCourtBookingWindow(SETTINGS, "Court 1", startAt, endAt)).toBe(false);
+  });
+});
+
+describe("classifyCourtSlot", () => {
+  // Court 3, Monday, 7am-11pm window (from SETTINGS above).
+  const window = getCourtBookingWindow(SETTINGS, "Court 3", MONDAY);
+  const booking = {
+    startAt: new Date(2026, 6, 20, 7, 0),
+    endAt: new Date(2026, 6, 20, 10, 0),
+  };
+
+  function slot(hour: number) {
+    return {
+      hour,
+      slotStart: new Date(2026, 6, 20, hour, 0),
+      slotEnd: new Date(2026, 6, 20, hour + 1, 0),
+      window,
+      maintenanceRanges: [],
+      bookedRanges: [booking],
+    };
+  }
+
+  // The bug this test exists to pin: the original inline version of
+  // this logic checked "past" before "booked," so an elapsed hour
+  // inside a real, active booking read as generically "Past" instead
+  // of "Booked" on the homepage grid — found live (a Court 3 booking
+  // 7-10am; at 9:40am, 8am and 9am both showed "Past," not "Booked").
+  it("reads BOOKED, not past, for an elapsed hour inside a real booking", () => {
+    const now = new Date(2026, 6, 20, 9, 40).getTime(); // 9:40am — 7,8,9am all elapsed
+    expect(classifyCourtSlot({ ...slot(7), now })).toBe("booked");
+    expect(classifyCourtSlot({ ...slot(8), now })).toBe("booked");
+    expect(classifyCourtSlot({ ...slot(9), now })).toBe("booked");
+  });
+
+  it("reads PAST for a genuinely free, elapsed hour", () => {
+    const now = new Date(2026, 6, 20, 11, 15).getTime(); // 11:15am — 10am is free and elapsed
+    expect(classifyCourtSlot({ ...slot(10), now })).toBe("past");
+  });
+
+  it("reads AVAILABLE for a free hour that hasn't happened yet", () => {
+    const now = new Date(2026, 6, 20, 9, 40).getTime();
+    expect(classifyCourtSlot({ ...slot(14), now })).toBe("available");
+  });
+
+  it("excludes the booking's own end hour (exclusive end boundary)", () => {
+    const now = new Date(2026, 6, 20, 9, 40).getTime();
+    // The booking ends AT 10am — the 10am slot itself must not overlap it.
+    expect(classifyCourtSlot({ ...slot(10), now })).not.toBe("booked");
+  });
+
+  it("still reads UNAVAILABLE for maintenance even if also past and booked", () => {
+    const now = new Date(2026, 6, 20, 9, 40).getTime();
+    expect(
+      classifyCourtSlot({
+        ...slot(8),
+        now,
+        maintenanceRanges: [{ startAt: new Date(2026, 6, 20, 8, 0), endAt: new Date(2026, 6, 20, 9, 0) }],
+      }),
+    ).toBe("unavailable");
   });
 });

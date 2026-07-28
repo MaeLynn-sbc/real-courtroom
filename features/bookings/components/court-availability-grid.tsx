@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { AvailabilityBoard, type BoardCell, type BoardCourt } from "@/features/bookings/components/availability-board";
-import { getCourtBookingWindow } from "@/lib/court-hours";
+import { classifyCourtSlot, getCourtBookingWindow } from "@/lib/court-hours";
 import { cn } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
 import { generateHomeScheduleQrCode } from "@/services/booking/qr-code";
@@ -30,14 +30,14 @@ function addDays(date: Date, days: number): Date {
   return result;
 }
 
-function overlapsAny(slotStart: Date, slotEnd: Date, ranges: { startAt: Date; endAt: Date }[]): boolean {
-  return ranges.some((range) => slotStart < range.endAt && slotEnd > range.startAt);
-}
-
-// Data fetching and cell classification (open/booked/open-play/past) are
-// unchanged from before the design port — this file still owns every
-// Prisma-backed read and the court-hours rule check. Only the rendering
-// (below, and in AvailabilityBoard) changed.
+// Data fetching still lives here — this file owns every Prisma-backed
+// read. Per-hour STATE classification is now lib/court-hours.ts's
+// classifyCourtSlot (extracted after a real bug: the inline version
+// checked "past" before "booked," so an elapsed hour inside a real
+// booking showed as generically "Past" instead of "Booked" — see that
+// function's own comment). Extracted rather than just reordered so the
+// precedence has a real, unit-tested home instead of being an easy-to-
+// re-break inline if/else chain.
 export async function CourtAvailabilityGrid({ date }: { date: Date }) {
   const [courts, schedule, courtHours, scheduleQrCode] = await Promise.all([
     courtService.listCourts(),
@@ -75,18 +75,15 @@ export async function CourtAvailabilityGrid({ date }: { date: Date }) {
       const courtSchedule = scheduleByCourtId.get(court.id);
       const window = getCourtBookingWindow(courtHours, court.name, date);
 
-      let state: BoardCell["state"];
-      if (overlapsAny(slotStart, slotEnd, courtSchedule?.maintenanceRanges ?? [])) {
-        state = "unavailable";
-      } else if (hour * 60 < window.openMinutes || (hour + 1) * 60 > window.closeMinutes) {
-        state = "openPlay";
-      } else if (slotStart.getTime() <= now) {
-        state = "past";
-      } else if (overlapsAny(slotStart, slotEnd, courtSchedule?.bookedRanges ?? [])) {
-        state = "booked";
-      } else {
-        state = "available";
-      }
+      const state = classifyCourtSlot({
+        hour,
+        slotStart,
+        slotEnd,
+        now,
+        window,
+        maintenanceRanges: courtSchedule?.maintenanceRanges ?? [],
+        bookedRanges: courtSchedule?.bookedRanges ?? [],
+      });
 
       cells[`${hour}:${court.id}`] = { state };
     }

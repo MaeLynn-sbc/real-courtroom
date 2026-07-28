@@ -175,6 +175,26 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
               </tr>
             </thead>
             <tbody>
+              {/* Spacer row — absorbs the sticky header's static-to-stuck
+                  scroll transition instead of the real first row. Found
+                  live: the sticky <th> cells (top-16, ~65-66px stuck
+                  height once engaged) are taller than one data row
+                  (~59px). Scrolling the page so the table's own top
+                  lands near the viewport top makes the header snap into
+                  its stuck position while the first real row (7:00 AM)
+                  is still in that same on-screen band — the opaque,
+                  higher-z-index header then fully covers it, not
+                  partially: the row exists, is "visible" by any DOM-
+                  only check, and is completely unreachable to an actual
+                  viewer. A height greater than the header's stuck
+                  height guarantees the transition consumes THIS row
+                  (which has nothing to lose) before it can ever reach
+                  7:00 AM. Same background as the card, no border, no
+                  content — invisible at rest, only ever matters mid-
+                  scroll. */}
+              <tr aria-hidden="true">
+                <td colSpan={courts.length + 1} className="bg-navy-800 h-[72px] p-0" />
+              </tr>
               {hours.map((hour) => (
                 <tr key={hour} className="border-line border-t">
                   <td className="bg-navy-700 font-jetbrains text-bone w-28 px-4 py-1.5 text-sm font-medium whitespace-nowrap sm:w-32">
