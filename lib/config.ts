@@ -45,6 +45,12 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       // route; Fri/Sat links to the existing capacity/roster list page.
       { title: "Weeknight Open Play", href: "/dashboard/admin/open-play-capacity/today" },
       { title: "Fri/Sat Open Play", href: "/dashboard/admin/open-play-capacity" },
+      // Previously reachable only by typing the URL directly or via a
+      // booking's own "add a coach" step — no nav entry at all. Route
+      // protection (lib/rbac.ts: BOOKINGS_MANAGE) is unchanged by this;
+      // see dashboard-sidebar.tsx's own note on why this list isn't
+      // itself permission-filtered.
+      { title: "Coaching", href: "/dashboard/coaching" },
       { title: "Equipment", href: "/dashboard/equipment" },
       { title: "Lockers", href: "/dashboard/lockers" },
       { title: "Shop", href: "/dashboard/products" },

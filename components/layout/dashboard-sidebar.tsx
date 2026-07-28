@@ -10,6 +10,7 @@ import {
   Dumbbell,
   FileText,
   Globe,
+  GraduationCap,
   History,
   Landmark,
   LayoutDashboard,
@@ -40,6 +41,7 @@ const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
   "/dashboard/bookings": CalendarDays,
   "/dashboard/bookings/verify-payments": Receipt,
   "/dashboard/admin/open-play-capacity/verify-payments": Banknote,
+  "/dashboard/coaching": GraduationCap,
   "/dashboard/tournaments": Trophy,
   "/dashboard/players": Users,
   "/dashboard/memberships": CreditCard,
@@ -74,6 +76,17 @@ function getActiveHref(pathname: string, hrefs: readonly string[]): string | und
   return matches.reduce((longest, href) => (href.length > longest.length ? href : longest));
 }
 
+// This list is NOT visually permission-filtered — every signed-in staff
+// member sees the same full nav regardless of role, same as it's always
+// been for every entry here (Roles, Audit Logs, Employees, ...).
+// Real access control lives at the route level (lib/rbac.ts's
+// canAccessRoute, enforced by middleware.ts), which every one of these
+// hrefs is already registered against — Coaching included
+// (BOOKINGS_MANAGE). Clicking a link you can't use lands on that route's
+// own access-denied handling, not a broken/missing page. Hiding items
+// per-role would need session/permission data threaded into this client
+// component, which doesn't happen anywhere else in this file today —
+// out of scope for adding one more link.
 export function DashboardSidebar() {
   const pathname = usePathname();
   const activeHref = getActiveHref(
