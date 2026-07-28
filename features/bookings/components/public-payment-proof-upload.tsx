@@ -57,8 +57,11 @@ export function PublicPaymentProofUpload({
     event.preventDefault();
     setServerError(null);
 
-    if (!gcashReference.trim() || !file) {
-      setServerError("Enter the GCash reference number and attach a screenshot.");
+    // Reference is optional as long as a screenshot is attached — the
+    // screenshot is the actual proof; the reference just helps staff
+    // find the transaction faster.
+    if (!file) {
+      setServerError("Attach a screenshot of your payment confirmation.");
       return;
     }
     const amountCents = Math.round(Number(submittedAmount) * 100);
@@ -71,7 +74,7 @@ export function PublicPaymentProofUpload({
       const dataBase64 = await fileToBase64(file);
       const result = await submitPublicBookingPaymentProofAction({
         bookingId,
-        gcashReference: gcashReference.trim(),
+        gcashReference: gcashReference.trim() || null,
         submittedAmountCents: amountCents,
         screenshot: { fileName: file.name, contentType: file.type || "image/png", dataBase64 },
       });
@@ -152,9 +155,10 @@ export function PublicPaymentProofUpload({
 
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="publicGcashReference">GCash reference number</Label>
+          <Label htmlFor="publicGcashReference">GCash reference number (optional)</Label>
           <Input
             id="publicGcashReference"
+            placeholder="Leave blank if you're not sure"
             value={gcashReference}
             onChange={(event) => setGcashReference(event.target.value)}
           />
@@ -171,10 +175,28 @@ export function PublicPaymentProofUpload({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="publicScreenshot">Payment screenshot</Label>
-          <Input
+          {/* The native file input's own trailing text ("No file
+              chosen") isn't a DOM node — it's rendered by the browser
+              and can't be restyled or reworded via CSS. Hidden here and
+              replaced with a custom label (acting as the clickable
+              button) plus a plain-text status span this component
+              fully controls. */}
+          <div className="flex items-center gap-3">
+            <label
+              htmlFor="publicScreenshot"
+              className="cursor-pointer rounded-lg bg-blue-100 px-3 py-1.5 text-sm font-medium text-blue-900 transition-colors hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
+            >
+              Choose file
+            </label>
+            <span className="text-muted-foreground truncate text-sm">
+              {file ? file.name : "Upload proof of payment"}
+            </span>
+          </div>
+          <input
             id="publicScreenshot"
             type="file"
             accept="image/*"
+            className="sr-only"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </div>

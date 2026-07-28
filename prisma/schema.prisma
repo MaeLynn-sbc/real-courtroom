@@ -2308,7 +2308,16 @@ model BookingPaymentProof {
   // as OpenPlayNightRegistration's hand-written CHECK constraint/trigger
   // (see that model's comment). Any future migration touching this
   // table must not let a plain `migrate diff` silently drop it.
-  gcashReference       String
+  // Nullable as of migration 32 — the customer-facing upload step
+  // treats the reference as optional as long as a screenshot is
+  // attached (the screenshot IS the proof; the reference is a
+  // convenience for staff to look the transaction up in the GCash
+  // app faster). Postgres unique indexes never consider NULL equal to
+  // another NULL, so multiple NULL-reference proofs coexisting as
+  // PENDING/APPROVED never collide against this same partial index —
+  // no WHERE-clause change needed alongside the column becoming
+  // nullable.
+  gcashReference       String?
   // The storage-interface key returned by UploadService.uploadPrivate()
   // (services/upload/upload-service.interface.ts) — never a directly-
   // servable public URL. Retrieval goes through getSignedUrl()/get(), so

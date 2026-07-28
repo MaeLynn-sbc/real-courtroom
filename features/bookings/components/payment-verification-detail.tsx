@@ -41,6 +41,9 @@ export function PaymentVerificationDetail({ proof, approvalOverrideReason }: Pay
   const amountMismatches = proof.submittedAmountCents !== expectedAmountCents;
 
   function handleCopyReference() {
+    if (!proof.gcashReference) {
+      return;
+    }
     navigator.clipboard
       .writeText(proof.gcashReference)
       .then(() => {
@@ -195,19 +198,26 @@ export function PaymentVerificationDetail({ proof, approvalOverrideReason }: Pay
           <button
             type="button"
             onClick={handleCopyReference}
-            className="border-input hover:bg-accent flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors"
+            disabled={!proof.gcashReference}
+            className="border-input hover:bg-accent flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span className="font-mono text-2xl font-semibold tracking-wide select-all">
-              {proof.gcashReference}
+              {proof.gcashReference ?? "Not provided"}
             </span>
-            {copied ? (
-              <Check className="text-success size-5 shrink-0" aria-hidden="true" />
-            ) : (
-              <Copy className="text-muted-foreground size-5 shrink-0" aria-hidden="true" />
-            )}
+            {proof.gcashReference ? (
+              copied ? (
+                <Check className="text-success size-5 shrink-0" aria-hidden="true" />
+              ) : (
+                <Copy className="text-muted-foreground size-5 shrink-0" aria-hidden="true" />
+              )
+            ) : null}
           </button>
           <p className="text-muted-foreground mt-1.5 text-xs">
-            {copied ? "Copied." : "Tap to copy — paste into the GCash app to find this transaction."}
+            {!proof.gcashReference
+              ? "The customer didn't provide one — verify against the screenshot below."
+              : copied
+                ? "Copied."
+                : "Tap to copy — paste into the GCash app to find this transaction."}
           </p>
         </CardContent>
       </Card>

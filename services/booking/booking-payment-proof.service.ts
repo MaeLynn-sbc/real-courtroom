@@ -84,7 +84,10 @@ interface ScreenshotInput {
 // field.
 export interface SubmitBookingPaymentProofInput {
   bookingId: string;
-  gcashReference: string;
+  // Optional as long as a screenshot is attached — see this method's
+  // own comment on gcashReference below, and the schema's comment on
+  // why the column itself is nullable (migration 32).
+  gcashReference: string | null;
   submittedAmountCents: number;
   screenshot: ScreenshotInput;
   status?: string;

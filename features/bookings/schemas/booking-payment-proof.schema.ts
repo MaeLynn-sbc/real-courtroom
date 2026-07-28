@@ -12,7 +12,19 @@ import { z } from "zod";
 // resting on "the schema happened to strip it."
 export const submitBookingPaymentProofSchema = z.object({
   bookingId: z.string().min(1),
-  gcashReference: z.string().min(1, "Enter the GCash reference number."),
+  // Optional as long as a screenshot is attached (screenshot is
+  // required below, unconditionally) — the screenshot IS the proof;
+  // the reference is a convenience for staff to find the transaction
+  // in the GCash app faster, not a hard requirement. Blank/whitespace
+  // normalizes to null, matching the now-nullable column
+  // (prisma/migrations/32_gcash_reference_optional).
+  gcashReference: z
+    .string()
+    .nullish()
+    .transform((value) => {
+      const trimmed = value?.trim();
+      return trimmed ? trimmed : null;
+    }),
   // What the customer states they sent — compared against the booking's
   // totalAmountCents on the verification screen so staff don't have to
   // eyeball two numbers (§8). Never trusted as proof on its own; the
