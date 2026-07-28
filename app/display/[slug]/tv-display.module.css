@@ -73,10 +73,6 @@
 .title {
   font-family: var(--display);
   font-weight: 900;
-  /* Grown from 4vh — was 4vh title + 1.4vh "LIVE · UPDATES EVERY 30
-     SECONDS" subtitle beneath it; the subtitle is gone (visual only,
-     the actual 30s refresh is unchanged), so the heading itself now
-     fills that vertical space instead of sitting above an empty gap. */
   font-size: 5.6vh;
   line-height: 1;
   letter-spacing: 0.02em;
@@ -84,6 +80,19 @@
 }
 .title span {
   color: var(--green);
+}
+/* "LIVE · UPDATES EVERY 30 SECONDS" — back, inline after the heading
+   instead of on its own line beneath it. Same --display face as the
+   heading (not the old mono caption treatment), but slim: light
+   weight, small, muted, so it reads as a trailing tag riding the
+   heading's baseline rather than a second heading of its own. */
+.title .sub {
+  color: var(--slate);
+  font-weight: 300;
+  font-size: 1.7vh;
+  letter-spacing: 0.14em;
+  margin-left: 0.6vw;
+  vertical-align: middle;
 }
 .clock {
   margin-left: auto;

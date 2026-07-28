@@ -337,7 +337,7 @@ export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
         <div className={styles.logo} role="img" aria-label="The Courtroom" />
         <div>
           <div className={styles.title}>
-            Court <span>Status</span>
+            Court <span>Status</span> <span className={styles.sub}>Live · Updates every 30 seconds</span>
           </div>
         </div>
         <div className={styles.clock}>
