@@ -3,6 +3,23 @@ import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
 import { bookingPaymentProofService } from "@/services/booking/booking-payment-proof.service";
 import { openPlayRegistrationPaymentProofService } from "@/services/open-play/open-play-registration-payment-proof.service";
 
+// Every /dashboard/* route is behind middleware.ts's own auth gate
+// (matcher: ["/dashboard/:path*"]) — a statically prerendered page here
+// is unreachable by construction (a signed-out build-time render could
+// never be served to anyone; middleware redirects to /login first), so
+// there is no upside to static generation anywhere under this layout,
+// only the downside below. This layout queries the database directly
+// (the pending-verification counts) with no dynamic-API usage of its
+// own to force Next off the static path, so `next build` was free to
+// prerender any child page that also looked static on its own (found
+// live: /dashboard/admin/open-play-capacity/today and 8 other pages) —
+// meaning the build depended on live database connectivity, and failed
+// outright against a database it couldn't open a TLS connection to.
+// Forcing dynamic here, once, covers every current and future page
+// under /dashboard without relying on each one remembering its own
+// per-page opt-out.
+export const dynamic = "force-dynamic";
+
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   // Phase 8 Gate 3 (§8): "A pending-verification count badge must appear
   // on every dashboard page (not just a dedicated verification screen)."
