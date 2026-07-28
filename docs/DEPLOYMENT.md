@@ -400,16 +400,35 @@ dev data, not something to risk against a real one):
    `.env` by choice, a different risk than automation pointing the
    documented command at the wrong database.
 
-## TV display — not yet built
+## TV display
 
-BUILD-SPEC.md's build order names the TV display, `/api/display`, and
-the TV setup page as Phase 10 — checked, and confirmed nothing exists
-yet (`docs/tv-display.html` is a static design mockup only, matching
-`docs/design-reference.html`'s role — no route, no component, no API
-handler anywhere in the codebase). There is nothing to document yet
-about its URL, auth, or offline/reboot recovery behavior, since none of
-that has been built. This section is a placeholder for Phase 10 — fill
-it in when that phase lands, before any venue TV is pointed at this app.
+Built — `app/display/[slug]/page.tsx`, `app/api/display/route.ts`,
+and the setup page at `/dashboard/admin/tv-display`
+(`app/dashboard/admin/tv-display/page.tsx`).
+
+**Auth.** Deliberately auth-free (`middleware.ts`'s matcher only covers
+`/dashboard/:path*`) — a smart TV browser can't stay signed in. The
+only gate is an unguessable slug (`settingsService.getOrCreateDisplaySlug`)
+in the URL path; `/api/display` itself is unparameterized and already
+public-safe on its own. "Staff can view, owner can edit" — no
+permission check on the setup page itself, only on the "Regenerate
+URL" mutation (`PERMISSIONS.SYSTEM_ADMIN`), so the button is hidden
+for staff who can't use it but the page loads for anyone signed in.
+
+**URL.** The setup page builds it from `env.AUTH_URL`, falling back to
+`http://localhost:3000` only if `AUTH_URL` is unset — set `AUTH_URL`
+correctly (see "Environment variables" above) before pointing a real
+TV at the generated URL/QR code, or it'll be a localhost link.
+Regenerating the slug (owner-only) immediately invalidates the old
+URL — the TV needs to be re-pointed at the new one before it goes
+stale.
+
+**Offline/reconnect.** The client polls `/api/display` every 30s and
+shows a "reconnecting" indicator on a failed poll rather than an error
+page (BUILD-SPEC.md §12's rule); it also force-reloads the page every
+6 hours regardless of state, as a defense against a stuck long-running
+tab. Neither of these survives the droplet itself being unreachable —
+see "What an internet outage breaks" above.
 
 ## Rolling back
 
