@@ -34,6 +34,7 @@ export default async function TvDisplaySetupPage() {
 
   const baseUrl = env.AUTH_URL ?? "http://localhost:3000";
   const displayUrl = new URL(`/display/${slug}`, baseUrl).toString();
+  const shortDisplayUrl = new URL("/tv", baseUrl).toString();
   const openPlayRegistrationUrl = new URL("/open-play/register", baseUrl).toString();
 
   return (
@@ -48,6 +49,7 @@ export default async function TvDisplaySetupPage() {
 
       <TvDisplaySetupPanel
         displayUrl={displayUrl}
+        shortDisplayUrl={shortDisplayUrl}
         displayQrDataUrl={displayQrDataUrl}
         openPlayRegistrationUrl={openPlayRegistrationUrl}
         openPlayQrDataUrl={openPlayQrDataUrl}

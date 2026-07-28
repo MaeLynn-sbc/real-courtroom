@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 
 interface TvDisplaySetupPanelProps {
   displayUrl: string;
+  shortDisplayUrl: string;
   displayQrDataUrl: string;
   openPlayRegistrationUrl: string;
   openPlayQrDataUrl: string;
@@ -36,6 +37,7 @@ function CopyButton({ value }: { value: string }) {
 
 export function TvDisplaySetupPanel({
   displayUrl,
+  shortDisplayUrl,
   displayQrDataUrl,
   openPlayRegistrationUrl,
   openPlayQrDataUrl,
@@ -114,6 +116,17 @@ export function TvDisplaySetupPanel({
                   {isPending ? "Regenerating…" : "Regenerate URL"}
                 </Button>
               ) : null}
+            </div>
+          </div>
+          <div className="border-t pt-4">
+            <p className="text-sm font-medium">Short URL, for typing on the TV&apos;s remote</p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Fixed and memorable, unlike the URL above — which also means it isn&apos;t a secret the way that one
+              is. Same live data either way; this one just doesn&apos;t change when you regenerate the URL above.
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="bg-muted flex-1 overflow-x-auto rounded-md px-3 py-2 text-sm">{shortDisplayUrl}</code>
+              <CopyButton value={shortDisplayUrl} />
             </div>
           </div>
         </CardContent>
