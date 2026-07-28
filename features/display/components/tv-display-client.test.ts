@@ -1,4 +1,4 @@
-import { formatAssignmentAnnouncement, joinNamesForSpeech } from "./tv-display-client";
+import { formatAssignmentAnnouncement, isTimeUpFlashing, joinNamesForSpeech } from "./tv-display-client";
 import type { DisplayCourtActive } from "@/services/display/display.service";
 
 function court(names: string[], name = "Court 2"): DisplayCourtActive {
@@ -46,5 +46,29 @@ describe("formatAssignmentAnnouncement", () => {
 
   it("returns an empty string for a court with no players (nothing to announce)", () => {
     expect(formatAssignmentAnnouncement(court([], "Court 1"))).toBe("");
+  });
+});
+
+describe("isTimeUpFlashing", () => {
+  const endAt = "2026-07-28T10:00:00.000Z";
+  const endMs = new Date(endAt).getTime();
+  const flashDurationMs = 180_000; // 3 minutes
+
+  it("is false before the end time — nothing to flash yet", () => {
+    expect(isTimeUpFlashing(endAt, endMs - 1, flashDurationMs)).toBe(false);
+  });
+
+  it("is true exactly at the end time", () => {
+    expect(isTimeUpFlashing(endAt, endMs, flashDurationMs)).toBe(true);
+  });
+
+  it("stays true for the rest of the flash window", () => {
+    expect(isTimeUpFlashing(endAt, endMs + 1, flashDurationMs)).toBe(true);
+    expect(isTimeUpFlashing(endAt, endMs + flashDurationMs, flashDurationMs)).toBe(true);
+  });
+
+  it("is false once the flash window has elapsed — stops on its own", () => {
+    expect(isTimeUpFlashing(endAt, endMs + flashDurationMs + 1, flashDurationMs)).toBe(false);
+    expect(isTimeUpFlashing(endAt, endMs + 60 * 60_000, flashDurationMs)).toBe(false);
   });
 });

@@ -3,7 +3,11 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { regenerateDisplaySlugAction, setAnnouncementRepeatCountAction } from "@/actions/display.actions";
+import {
+  regenerateDisplaySlugAction,
+  setAnnouncementRepeatCountAction,
+  setTimeUpFlashDurationAction,
+} from "@/actions/display.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,6 +21,7 @@ interface TvDisplaySetupPanelProps {
   openPlayQrDataUrl: string;
   canRegenerate: boolean;
   announcementRepeatCount: number;
+  timeUpFlashDurationSeconds: number;
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -43,12 +48,15 @@ export function TvDisplaySetupPanel({
   openPlayQrDataUrl,
   canRegenerate,
   announcementRepeatCount,
+  timeUpFlashDurationSeconds,
 }: TvDisplaySetupPanelProps) {
   const [url, setUrl] = useState(displayUrl);
   const [qrDataUrl, setQrDataUrl] = useState(displayQrDataUrl);
   const [isPending, startTransition] = useTransition();
   const [repeatCountInput, setRepeatCountInput] = useState(String(announcementRepeatCount));
   const [isSavingRepeatCount, startRepeatCountTransition] = useTransition();
+  const [flashDurationInput, setFlashDurationInput] = useState(String(timeUpFlashDurationSeconds));
+  const [isSavingFlashDuration, startFlashDurationTransition] = useTransition();
 
   function handleSaveRepeatCount() {
     const value = Number(repeatCountInput);
@@ -59,6 +67,18 @@ export function TvDisplaySetupPanel({
         return;
       }
       toast.success("Announcement repeat count saved.");
+    });
+  }
+
+  function handleSaveFlashDuration() {
+    const value = Number(flashDurationInput);
+    startFlashDurationTransition(async () => {
+      const result = await setTimeUpFlashDurationAction(value);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Time's-up flash duration saved.");
     });
   }
 
@@ -205,6 +225,43 @@ export function TvDisplaySetupPanel({
             <p className="text-sm">
               Currently plays <span className="font-medium">{announcementRepeatCount}</span> time
               {announcementRepeatCount === 1 ? "" : "s"}. Only an owner can change this.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Time&apos;s-up flash</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-muted-foreground text-sm">
+            When a court booking reaches its end time, that court&apos;s card flashes on the display so it&apos;s
+            noticeable from across the room. How many seconds it keeps flashing before stopping on its own.
+          </p>
+          {canRegenerate ? (
+            <div className="flex items-end gap-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="timeUpFlashDuration">Flash duration (seconds)</Label>
+                <Input
+                  id="timeUpFlashDuration"
+                  type="number"
+                  min={30}
+                  max={600}
+                  step={1}
+                  className="w-24"
+                  value={flashDurationInput}
+                  onChange={(event) => setFlashDurationInput(event.target.value)}
+                />
+              </div>
+              <Button type="button" size="sm" disabled={isSavingFlashDuration} onClick={handleSaveFlashDuration}>
+                {isSavingFlashDuration ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm">
+              Currently flashes for <span className="font-medium">{timeUpFlashDurationSeconds}</span> seconds.
+              Only an owner can change this.
             </p>
           )}
         </CardContent>

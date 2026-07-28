@@ -31,10 +31,17 @@ export default async function DisplayPage({ params }: DisplayPageProps) {
     notFound();
   }
 
-  const [initialData, announcementRepeatCount] = await Promise.all([
+  const [initialData, announcementRepeatCount, timeUpFlashDurationSeconds] = await Promise.all([
     displayService.getDisplayData(),
     settingsService.getAnnouncementRepeatCount(),
+    settingsService.getTimeUpFlashDurationSeconds(),
   ]);
 
-  return <TvDisplayClient initialData={initialData} announcementRepeatCount={announcementRepeatCount} />;
+  return (
+    <TvDisplayClient
+      initialData={initialData}
+      announcementRepeatCount={announcementRepeatCount}
+      timeUpFlashDurationSeconds={timeUpFlashDurationSeconds}
+    />
+  );
 }

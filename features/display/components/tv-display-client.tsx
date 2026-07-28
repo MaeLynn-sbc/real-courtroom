@@ -108,12 +108,26 @@ function computeTiming(startAt: string, endAt: string, now: number): CourtTiming
   };
 }
 
+// A court booking has just reached its end time — the whole-card flash
+// (styles.timeUp), a distinct and more urgent visual than the "ending
+// soon" countdown-text blink above (that window's own `left` is
+// clamped to 0 by computeTiming, so it stays true once time is
+// actually up too — this is an additional overlay, not a replacement).
+// Scoped to state === "res" by the caller: a court reservation has a
+// hard end time in a way open play's rotating games don't.
+export function isTimeUpFlashing(endAt: string, now: number, flashDurationMs: number): boolean {
+  const overtimeMs = now - new Date(endAt).getTime();
+  return overtimeMs >= 0 && overtimeMs <= flashDurationMs;
+}
+
 export function TvDisplayClient({
   initialData,
   announcementRepeatCount,
+  timeUpFlashDurationSeconds,
 }: {
   initialData: DisplayData;
   announcementRepeatCount: number;
+  timeUpFlashDurationSeconds: number;
 }) {
   const [data, setData] = useState(initialData);
   const [now, setNow] = useState(() => Date.now());
@@ -430,7 +444,12 @@ export function TvDisplayClient({
 
       <div className={styles.courts}>
         {data.courts.map((court) => (
-          <CourtCard key={court.id} court={court} now={now} />
+          <CourtCard
+            key={court.id}
+            court={court}
+            now={now}
+            timeUpFlashDurationMs={timeUpFlashDurationSeconds * 1000}
+          />
         ))}
       </div>
 
@@ -510,7 +529,15 @@ export function TvDisplayClient({
   );
 }
 
-function CourtCard({ court, now }: { court: DisplayCourt; now: number }) {
+function CourtCard({
+  court,
+  now,
+  timeUpFlashDurationMs,
+}: {
+  court: DisplayCourt;
+  now: number;
+  timeUpFlashDurationMs: number;
+}) {
   if (court.state === "free") {
     return (
       <div className={cls(styles.court, styles.free)}>
@@ -531,8 +558,11 @@ function CourtCard({ court, now }: { court: DisplayCourt; now: number }) {
   const timing = computeTiming(court.startAt, court.endAt, now);
 
   if (court.state === "res") {
+    const timeUp = isTimeUpFlashing(court.endAt, now, timeUpFlashDurationMs);
     return (
-      <div className={cls(styles.court, styles.res, timing.ending && styles.ending)}>
+      <div
+        className={cls(styles.court, styles.res, timing.ending && styles.ending, timeUp && styles.timeUp)}
+      >
         <div className={styles["court-head"]}>
           <span className={styles["court-no"]}>{court.name}</span>
         </div>

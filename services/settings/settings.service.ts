@@ -48,6 +48,19 @@ interface AnnouncementRepeatSettings {
 }
 const DEFAULT_ANNOUNCEMENT_REPEAT: AnnouncementRepeatSettings = { repeatCount: 2 };
 
+// TV display "time's up" flash: how long a court's card keeps flashing
+// after its booking's end time before stopping on its own. Same small-
+// object convention as DISPLAY_ANNOUNCEMENT_REPEAT_KEY just above.
+// Default 180s (3 minutes) — long enough to be clearly noticed from
+// across the room even if nobody's looking right at that moment it
+// starts, short enough it isn't still flashing by the time anyone
+// walks over to check.
+const DISPLAY_TIME_UP_FLASH_KEY = "display.timeUpFlash";
+interface TimeUpFlashSettings {
+  durationSeconds: number;
+}
+const DEFAULT_TIME_UP_FLASH: TimeUpFlashSettings = { durationSeconds: 180 };
+
 // Open-play online self-registration, Gate 1 — see
 // getOpenPlayOnlineRegistrationEnabled/setOpenPlayOnlineRegistrationEnabled.
 // Named differently from BOOKING_REQUIRE_PREPAYMENT_KEY on purpose:
@@ -439,6 +452,18 @@ export class SettingsService {
 
   async setAnnouncementRepeatCount(value: number, actorUserId: string) {
     return this.setJsonValue(DISPLAY_ANNOUNCEMENT_REPEAT_KEY, { repeatCount: value }, actorUserId);
+  }
+
+  async getTimeUpFlashDurationSeconds(): Promise<number> {
+    const stored = await this.getJsonValue<TimeUpFlashSettings>(
+      DISPLAY_TIME_UP_FLASH_KEY,
+      DEFAULT_TIME_UP_FLASH,
+    );
+    return stored.durationSeconds;
+  }
+
+  async setTimeUpFlashDurationSeconds(value: number, actorUserId: string) {
+    return this.setJsonValue(DISPLAY_TIME_UP_FLASH_KEY, { durationSeconds: value }, actorUserId);
   }
 
   private async getJsonValue<T>(key: string, fallback: T): Promise<T> {

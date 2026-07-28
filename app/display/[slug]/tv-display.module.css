@@ -323,6 +323,34 @@
   }
 }
 
+/* A booking has reached its end time (tv-display-client.tsx's
+   isTimeUpFlashing) — distinct from, and layered on top of, .ending
+   above: .ending's own countdown clamps to 0 and stays true once time
+   is actually up too, so this card can carry both classes at once.
+   A partial colour-mix tint, not a solid fill, specifically so it
+   doesn't wash out .ending's already-coral countdown text at the top
+   of the cycle — still unmistakable as "something needs attention"
+   from across the room, without the text disappearing into a
+   same-colour background at the peak of the fade. 2s per cycle
+   (0.5Hz) stays under the "no faster than 1 cycle/sec" seizure-risk
+   floor, and it's an opacity/colour fade (ease-in-out), not a hard
+   on/off toggle. Scoped to the one card via .timeUp on .court itself
+   — the rest of the screen (other courts mid-game) is untouched.
+   Stops automatically: tv-display-client.tsx only applies this class
+   for a bounded window after the end time, not indefinitely. */
+.court.timeUp {
+  animation: timeUpFlash 2s ease-in-out infinite;
+}
+@keyframes timeUpFlash {
+  0%,
+  100% {
+    background: var(--navy-800);
+  }
+  50% {
+    background: color-mix(in srgb, var(--coral) 40%, var(--navy-800));
+  }
+}
+
 .sched {
   font-family: var(--mono);
   font-size: 1.9vh;
