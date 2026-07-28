@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { checkInAction, undoCheckInAction } from "@/actions/open-play-checkin.actions";
+import { markNoShowAction } from "@/actions/open-play-registration.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,9 +31,17 @@ function timeFormat(iso: string): string {
 export function CheckInPanel({
   expected,
   checkedIn,
+  // Fri/Sat only — weeknight has no capacity/waitlist, so "releasing a
+  // seat" is meaningless there (see the [date]/page.tsx branch this is
+  // called from). Owner decision (Fri/Sat waitlist rework): no
+  // automatic no-show release anymore — this button is now the only way
+  // a not-yet-arrived registration's seat gets freed, other than the
+  // roster panel's own equivalent "No-show" action.
+  isCapacityNight = false,
 }: {
   expected: CheckInRegistration[];
   checkedIn: CheckInRegistration[];
+  isCapacityNight?: boolean;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -70,6 +79,24 @@ export function CheckInPanel({
     });
   }
 
+  // Same releaseRegistration path markNoShow always ran through — the
+  // walk-in waiting roster keeps first claim on the freed seat exactly
+  // as it does for an automatic no-show, since this calls the identical
+  // service method, just staff-triggered instead of reconcileNoShows.
+  // No refund — the owner's non-refundable policy on release is
+  // unchanged (releaseRegistration never auto-refunds).
+  function handleRelease(registrationId: string, playerName: string) {
+    startTransition(async () => {
+      const result = await markNoShowAction({ registrationId });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${playerName}'s seat released — no refund.`);
+      router.refresh();
+    });
+  }
+
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Card>
@@ -87,22 +114,38 @@ export function CheckInPanel({
           ) : (
             <div className="flex flex-col gap-2">
               {filteredExpected.map((registration) => (
-                <button
+                <div
                   key={registration.id}
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => handleCheckIn(registration.id, registration.playerName)}
-                  className="hover:border-primary flex items-center justify-between gap-3 rounded-lg border px-3 py-3 text-left transition-colors"
+                  className="hover:border-primary flex items-center justify-between gap-3 rounded-lg border px-3 py-3 transition-colors"
                 >
-                  <div>
+                  <button
+                    type="button"
+                    disabled={isPending}
+                    onClick={() => handleCheckIn(registration.id, registration.playerName)}
+                    className="flex-1 text-left"
+                  >
                     <p className="font-medium">{registration.playerName}</p>
                     <p className="text-muted-foreground text-xs">
                       {registration.phone} · {OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}
                       {registration.partyId ? " · party" : ""}
                     </p>
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">Tap to check in</Badge>
+                    {isCapacityNight ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={isPending}
+                        onClick={() => handleRelease(registration.id, registration.playerName)}
+                        title="Release this seat — no refund. The walk-in waiting roster gets first claim."
+                      >
+                        Release seat
+                      </Button>
+                    ) : null}
                   </div>
-                  <Badge variant="outline">Tap to check in</Badge>
-                </button>
+                </div>
               ))}
             </div>
           )}

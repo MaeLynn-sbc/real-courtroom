@@ -118,7 +118,7 @@ export function WalkInRegistrationForm({
         playerId: matchedPlayerId,
       };
 
-      let result: { error: string | null };
+      let result: { error: string | null; waitlisted?: boolean };
       if (action === "register" && "sessionId" in target) {
         result = await registerWalkInAction({
           sessionId: target.sessionId,
@@ -143,7 +143,17 @@ export function WalkInRegistrationForm({
         toast.error(result.error);
         return;
       }
-      toast.success(action === "register" ? `${playerName.trim()} registered.` : `${playerName.trim()} checked in.`);
+      // Owner decision (Fri/Sat waitlist rework): a "walk-in" submission
+      // that landed on the waiting roster (capacity full) was never
+      // checked in — there's no seat to check into — so it needs its
+      // own message, not the normal "checked in" one.
+      const message =
+        action === "register"
+          ? `${playerName.trim()} registered.`
+          : result.waitlisted
+            ? `${playerName.trim()} added to the waiting roster — no charge.`
+            : `${playerName.trim()} checked in.`;
+      toast.success(message);
       reset();
       router.refresh();
     });

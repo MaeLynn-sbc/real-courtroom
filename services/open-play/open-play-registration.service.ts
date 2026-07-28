@@ -293,7 +293,13 @@ export class OpenPlayRegistrationService {
         },
       });
 
-      if (saleContext) {
+      // Owner decision (Fri/Sat waitlist rework): a desk walk-in on a
+      // full night is added to the waiting roster at ZERO charge, not
+      // charged the ₱150 up front — only a walk-in that takes a real
+      // seat (waitlistPos null) owes the fee at registration time. A
+      // waitlisted walk-in pays later, at the moment staff promote them
+      // into a freed seat (see markNoShow/the manual release path).
+      if (saleContext && created.waitlistPos === null) {
         await createOpenPlayRegistrationFeeSale(
           tx,
           { id: created.id, playerId: created.playerId, playerName: created.playerName },

@@ -40,6 +40,22 @@ export class RegistrationNotConfirmedError extends Error {
   }
 }
 
+// Owner decision (Fri/Sat waitlist rework): a waitlisted walk-in is
+// registered at zero charge, with no real seat — it must not be
+// checkable-in until staff explicitly promote it (which clears
+// waitlistPos and, separately, collects the ₱150 fee). Same "guard the
+// service method itself, not just the UI list" reasoning as
+// RegistrationNotConfirmedError just above — getCheckInScreenData's own
+// filter (below) already excludes a waitlisted row from what staff SEE,
+// but this stops checkInAction from succeeding against one even if
+// called directly.
+export class RegistrationWaitlistedError extends Error {
+  constructor() {
+    super("This registration is on the waiting roster, not seated yet — it can't be checked in until promoted.");
+    this.name = "RegistrationWaitlistedError";
+  }
+}
+
 interface AuditLogEntry {
   actorUserId: string | null;
   action: string;
@@ -168,6 +184,9 @@ export class OpenPlayCheckinService {
       // in, which that existing check never did.
       if (existing.status !== "CONFIRMED") {
         throw new RegistrationNotConfirmedError(existing.status);
+      }
+      if (existing.waitlistPos !== null) {
+        throw new RegistrationWaitlistedError();
       }
 
       // Hardening phase fix (BUILD-SPEC.md §0 process rule): the party
@@ -319,15 +338,36 @@ export class OpenPlayCheckinService {
         ? await openPlayRegistrationService.registerWalkIn(target.sessionId, input, actorUserId, target.saleContext)
         : await openPlayRegistrationService.registerWeeknightWalkIn(target.date, input, actorUserId);
 
+    // Owner decision (Fri/Sat waitlist rework): a walk-in that lands on
+    // the waiting roster (capacity full) has no seat to check into — the
+    // "Walk-in (register & check in)" button is the same one staff use
+    // for every walk-in regardless of whether the night turns out to be
+    // full, so this must succeed as a registration without attempting
+    // (and failing) a check-in RegistrationWaitlistedError would
+    // otherwise correctly reject. Weeknight registrations never have a
+    // waitlistPos (no capacity there), so this only ever short-circuits
+    // the Fri/Sat branch.
+    if (registration.waitlistPos !== null) {
+      return { registration, queueEntriesCreated: [], alreadyCheckedIn: false };
+    }
+
     return this.checkIn(registration.id, actorUserId);
   }
 
-  // Lazy reconciliation, not a cron job (this codebase's established
-  // pattern — see membershipService.reconcileExpiredMemberships) — called
-  // at the top of the check-in screen's/roster's read path, not on a
-  // schedule. Fri/Sat only (weeknight has no capacity to protect).
-  // actorUserId is null on the audit trail: no human triggered this,
-  // same precedent as membership expiry's changedById: null.
+  // Owner decision (Fri/Sat waitlist rework): NO automatic no-show
+  // release. Players legitimately arrive late (8pm+); a seat must never
+  // free itself just because someone hasn't checked in yet by some
+  // cutoff. This method is intentionally no longer called automatically
+  // — see getCheckInScreenData below, which used to call it on every
+  // read and no longer does. Kept in place (not deleted) as a real,
+  // directly-callable method: markNoShowAction/the roster's own
+  // "No-show" button already call openPlayRegistrationService.markNoShow
+  // for a single registration, and this is the same release path, just
+  // scoped to "everyone overdue" — useful if a genuine batch-release
+  // need ever comes back, but nothing wires it in on its own anymore.
+  // settingsService.getOpenPlaySettings().noShowReleaseMinutes is
+  // likewise kept, not deleted, even though nothing currently reads it
+  // — see setOpenPlaySettings' own admin UI for the still-visible field.
   async reconcileNoShows(sessionId: string): Promise<void> {
     const session = await prisma.openPlayNightSession.findUnique({ where: { id: sessionId } });
     if (!session) {
@@ -357,7 +397,10 @@ export class OpenPlayCheckinService {
   // checkedInAt, never registeredAt" — checkedIn is sorted accordingly.
   async getCheckInScreenData(where: { sessionId: string } | { date: Date }): Promise<CheckInScreenData> {
     if ("sessionId" in where) {
-      await this.reconcileNoShows(where.sessionId);
+      // reconcileNoShows is deliberately NOT called here anymore — owner
+      // decision, see that method's own comment. Seats free by explicit
+      // staff action only (the roster's "No-show" button, or the manual
+      // release action on Expected rows).
       // Open-play online self-registration, Gate 2 review follow-up:
       // same lazy-on-read pattern as reconcileNoShows immediately above,
       // for a different stale-state class (a lapsed online invite with
@@ -370,8 +413,13 @@ export class OpenPlayCheckinService {
     const filter: Prisma.OpenPlayNightRegistrationWhereInput =
       "sessionId" in where ? { sessionId: where.sessionId } : { sessionId: null, date: where.date };
 
+    // waitlistPos: null — a waitlisted walk-in (Fri/Sat) has no real
+    // seat and hasn't paid; it must never appear as "expected to arrive"
+    // alongside genuinely seated registrations. No-op for weeknight rows
+    // (always waitlistPos null, no capacity there), so this is safe to
+    // apply to both branches via the same shared query.
     const registrations = await prisma.openPlayNightRegistration.findMany({
-      where: { ...filter, status: "CONFIRMED" },
+      where: { ...filter, status: "CONFIRMED", waitlistPos: null },
       orderBy: { registeredAt: "asc" },
     });
 

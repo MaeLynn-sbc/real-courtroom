@@ -106,6 +106,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
         <CheckInPanel
           expected={serializeRegistrations(expected)}
           checkedIn={serializeRegistrations(checkedIn)}
+          isCapacityNight
         />
         <RegistrationRosterPanel registrations={registrations} skillBreakdown={skillBreakdown} capacity={session.capacity} />
         <RotationBoard {...serializeBoard(dateParam, board)} />

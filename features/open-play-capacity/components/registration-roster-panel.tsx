@@ -207,11 +207,16 @@ export function RegistrationRosterPanel({ registrations, skillBreakdown, capacit
                     {registration.status !== "CONFIRMED" ? (
                       <Badge variant="destructive">{registration.status.replace("_", " ")}</Badge>
                     ) : registration.waitlistPos !== null ? (
-                      <Badge variant="warning">Waitlist #{registration.waitlistPos}</Badge>
+                      // Owner decision (Fri/Sat waitlist rework): a
+                      // waitlisted walk-in is registered at zero charge —
+                      // "Unpaid" here is that fact, not a warning about a
+                      // missed payment. Pays at the desk only once
+                      // promoted into a real seat.
+                      <Badge variant="warning">Waitlist #{registration.waitlistPos} · Unpaid</Badge>
                     ) : (
                       // BUILD-SPEC.md §2 — status/active, not action green;
                       // a roster table, not a record-card list.
-                      <Badge variant="status">Confirmed</Badge>
+                      <Badge variant="status">Confirmed · Paid</Badge>
                     )}
                   </TableCell>
                   <TableCell>

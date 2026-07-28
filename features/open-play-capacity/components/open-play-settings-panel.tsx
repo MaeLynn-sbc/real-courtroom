@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -16,6 +17,10 @@ export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
   const router = useRouter();
   const [settings, setSettings] = useState<OpenPlaySettings>(props);
   const [isPending, startTransition] = useTransition();
+  // Collapsed by default (item 5, Fri/Sat waitlist rework) — same
+  // reasoning as CapacityDefaultsPanel: rarely-touched setup, not
+  // day-to-day operational content.
+  const [isOpen, setIsOpen] = useState(false);
 
   function save() {
     startTransition(async () => {
@@ -32,138 +37,182 @@ export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Check-in & Rotation Settings</CardTitle>
+        <button
+          type="button"
+          onClick={() => setIsOpen((open) => !open)}
+          aria-expanded={isOpen}
+          className="flex w-full items-center justify-between gap-2 text-left"
+        >
+          <CardTitle>Check-in & Rotation Settings</CardTitle>
+          {isOpen ? (
+            <ChevronDown className="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
+          )}
+        </button>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="noShowReleaseMinutes">No-show release (minutes after session start)</Label>
-          <p className="text-muted-foreground text-xs">
-            A Fri/Sat registration not checked in within this window is marked no-show, freeing their seat for
-            the waitlist. Never auto-refunded — flagged for staff.
-          </p>
-          <Input
-            id="noShowReleaseMinutes"
-            type="number"
-            min={1}
-            className="w-24"
-            value={settings.noShowReleaseMinutes}
-            onChange={(event) => setSettings((s) => ({ ...s, noShowReleaseMinutes: Number(event.target.value) }))}
-          />
-        </div>
+      {isOpen ? (
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="noShowReleaseMinutes">
+              No-show release (minutes after session start)
+            </Label>
+            <p className="text-muted-foreground text-xs">
+              Not currently used to auto-release seats — owner decision: players legitimately arrive
+              late, so no-shows are released by explicit staff action only (the roster&apos;s
+              &quot;No-show&quot; button). This value is kept for reference only right now.
+            </p>
+            <Input
+              id="noShowReleaseMinutes"
+              type="number"
+              min={1}
+              className="w-24"
+              value={settings.noShowReleaseMinutes}
+              onChange={(event) =>
+                setSettings((s) => ({ ...s, noShowReleaseMinutes: Number(event.target.value) }))
+              }
+            />
+          </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="maxWaitMinutes">Max wait before starvation guard (minutes)</Label>
-          <p className="text-muted-foreground text-xs">
-            A waiting player past this long is force-anchored on the next court regardless of skill fit — the
-            one advanced player on a beginner-heavy night still plays.
-          </p>
-          <Input
-            id="maxWaitMinutes"
-            type="number"
-            min={1}
-            className="w-24"
-            value={settings.maxWaitMinutes}
-            onChange={(event) => setSettings((s) => ({ ...s, maxWaitMinutes: Number(event.target.value) }))}
-          />
-        </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="maxWaitMinutes">Max wait before starvation guard (minutes)</Label>
+            <p className="text-muted-foreground text-xs">
+              A waiting player past this long is force-anchored on the next court regardless of
+              skill fit — the one advanced player on a beginner-heavy night still plays.
+            </p>
+            <Input
+              id="maxWaitMinutes"
+              type="number"
+              min={1}
+              className="w-24"
+              value={settings.maxWaitMinutes}
+              onChange={(event) =>
+                setSettings((s) => ({ ...s, maxWaitMinutes: Number(event.target.value) }))
+              }
+            />
+          </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="skillWindow">Skill window (starting distance)</Label>
-          <p className="text-muted-foreground text-xs">
-            Auto-pairing starts by matching within this many skill levels of the anchor, then widens if a
-            court would otherwise sit idle.
-          </p>
-          <Input
-            id="skillWindow"
-            type="number"
-            min={0}
-            className="w-24"
-            value={settings.skillWindow}
-            onChange={(event) => setSettings((s) => ({ ...s, skillWindow: Number(event.target.value) }))}
-          />
-        </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="skillWindow">Skill window (starting distance)</Label>
+            <p className="text-muted-foreground text-xs">
+              Auto-pairing starts by matching within this many skill levels of the anchor, then
+              widens if a court would otherwise sit idle.
+            </p>
+            <Input
+              id="skillWindow"
+              type="number"
+              min={0}
+              className="w-24"
+              value={settings.skillWindow}
+              onChange={(event) =>
+                setSettings((s) => ({ ...s, skillWindow: Number(event.target.value) }))
+              }
+            />
+          </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="weeknightGameRateCents">Weeknight game rate (₱, per game)</Label>
-          <p className="text-muted-foreground text-xs">
-            Snapshotted onto each weeknight player&apos;s tab as they check in — changing this never rewrites
-            an already-open tab.
-          </p>
-          <Input
-            id="weeknightGameRateCents"
-            type="number"
-            min={0}
-            step={0.01}
-            className="w-24"
-            value={settings.weeknightGameRateCents / 100}
-            onChange={(event) => setSettings((s) => ({ ...s, weeknightGameRateCents: Math.round(Number(event.target.value) * 100) }))}
-          />
-        </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="weeknightGameRateCents">Weeknight game rate (₱, per game)</Label>
+            <p className="text-muted-foreground text-xs">
+              Snapshotted onto each weeknight player&apos;s tab as they check in — changing this
+              never rewrites an already-open tab.
+            </p>
+            <Input
+              id="weeknightGameRateCents"
+              type="number"
+              min={0}
+              step={0.01}
+              className="w-24"
+              value={settings.weeknightGameRateCents / 100}
+              onChange={(event) =>
+                setSettings((s) => ({
+                  ...s,
+                  weeknightGameRateCents: Math.round(Number(event.target.value) * 100),
+                }))
+              }
+            />
+          </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="friSatRegistrationFeeCents">Fri/Sat registration fee (₱, per walk-in)</Label>
-          <p className="text-muted-foreground text-xs">
-            Charged as a real Sale when staff register a Fri/Sat walk-in — cash or GCash, attributed to the
-            employee and shift that took the payment, same as every other money-moving action in this app.
-          </p>
-          <Input
-            id="friSatRegistrationFeeCents"
-            type="number"
-            min={0}
-            step={0.01}
-            className="w-24"
-            value={settings.friSatRegistrationFeeCents / 100}
-            onChange={(event) =>
-              setSettings((s) => ({ ...s, friSatRegistrationFeeCents: Math.round(Number(event.target.value) * 100) }))
-            }
-          />
-        </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="friSatRegistrationFeeCents">
+              Fri/Sat registration fee (₱, per walk-in)
+            </Label>
+            <p className="text-muted-foreground text-xs">
+              Charged as a real Sale when staff register a Fri/Sat walk-in — cash or GCash,
+              attributed to the employee and shift that took the payment, same as every other
+              money-moving action in this app.
+            </p>
+            <Input
+              id="friSatRegistrationFeeCents"
+              type="number"
+              min={0}
+              step={0.01}
+              className="w-24"
+              value={settings.friSatRegistrationFeeCents / 100}
+              onChange={(event) =>
+                setSettings((s) => ({
+                  ...s,
+                  friSatRegistrationFeeCents: Math.round(Number(event.target.value) * 100),
+                }))
+              }
+            />
+          </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="onlineRegistrationLeadTimeDays">Online registration opens (days before the session)</Label>
-          <p className="text-muted-foreground text-xs">
-            A Fri/Sat night&apos;s online registration only opens this many days ahead of it — a submission for a
-            later night is rejected with an &quot;opens on&quot; date, not silently accepted.
-          </p>
-          <Input
-            id="onlineRegistrationLeadTimeDays"
-            type="number"
-            min={1}
-            className="w-24"
-            value={settings.onlineRegistrationLeadTimeDays}
-            onChange={(event) =>
-              setSettings((s) => ({ ...s, onlineRegistrationLeadTimeDays: Number(event.target.value) }))
-            }
-          />
-        </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="onlineRegistrationLeadTimeDays">
+              Online registration opens (days before the session)
+            </Label>
+            <p className="text-muted-foreground text-xs">
+              A Fri/Sat night&apos;s online registration only opens this many days ahead of it — a
+              submission for a later night is rejected with an &quot;opens on&quot; date, not
+              silently accepted.
+            </p>
+            <Input
+              id="onlineRegistrationLeadTimeDays"
+              type="number"
+              min={1}
+              className="w-24"
+              value={settings.onlineRegistrationLeadTimeDays}
+              onChange={(event) =>
+                setSettings((s) => ({
+                  ...s,
+                  onlineRegistrationLeadTimeDays: Number(event.target.value),
+                }))
+              }
+            />
+          </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="targetGameMinutes">Target game length (minutes, informational)</Label>
-          <Input
-            id="targetGameMinutes"
-            type="number"
-            min={1}
-            className="w-24"
-            value={settings.targetGameMinutes}
-            onChange={(event) => setSettings((s) => ({ ...s, targetGameMinutes: Number(event.target.value) }))}
-          />
-        </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="targetGameMinutes">Target game length (minutes, informational)</Label>
+            <Input
+              id="targetGameMinutes"
+              type="number"
+              min={1}
+              className="w-24"
+              value={settings.targetGameMinutes}
+              onChange={(event) =>
+                setSettings((s) => ({ ...s, targetGameMinutes: Number(event.target.value) }))
+              }
+            />
+          </div>
 
-        <div className="flex items-center gap-2">
-          <Switch
-            id="autoConfirmProposals"
-            checked={settings.autoConfirmProposals}
-            onCheckedChange={(checked) => setSettings((s) => ({ ...s, autoConfirmProposals: checked }))}
-          />
-          <Label htmlFor="autoConfirmProposals">Auto-confirm proposed foursomes</Label>
-        </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="autoConfirmProposals"
+              checked={settings.autoConfirmProposals}
+              onCheckedChange={(checked) =>
+                setSettings((s) => ({ ...s, autoConfirmProposals: checked }))
+              }
+            />
+            <Label htmlFor="autoConfirmProposals">Auto-confirm proposed foursomes</Label>
+          </div>
 
-        <div>
-          <Button type="button" size="sm" disabled={isPending} onClick={save}>
-            Save
-          </Button>
-        </div>
-      </CardContent>
+          <div>
+            <Button type="button" size="sm" disabled={isPending} onClick={save}>
+              Save
+            </Button>
+          </div>
+        </CardContent>
+      ) : null}
     </Card>
   );
 }

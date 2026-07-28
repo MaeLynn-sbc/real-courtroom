@@ -17,6 +17,11 @@ import { PERMISSIONS } from "@/types/permissions";
 
 export interface OpenPlayCheckinActionState {
   error: string | null;
+  // Set true only by registerAndCheckInAction, only when the walk-in
+  // landed on the waiting roster instead of a real seat (owner decision,
+  // Fri/Sat waitlist rework) — lets the form show "added to the waiting
+  // roster" instead of "checked in," since no check-in was attempted.
+  waitlisted?: boolean;
 }
 
 function requireOpenPlayManage() {
@@ -114,7 +119,7 @@ export async function registerAndCheckInAction(
     }
 
     try {
-      await openPlayCheckinService.registerAndCheckIn(
+      const result = await openPlayCheckinService.registerAndCheckIn(
         {
           sessionId: parsed.data.sessionId,
           saleContext: {
@@ -129,7 +134,7 @@ export async function registerAndCheckInAction(
         authz.userId,
       );
       revalidateCheckIn();
-      return { error: null };
+      return { error: null, waitlisted: result.registration.waitlistPos !== null };
     } catch (error) {
       return { error: toActionError(error, { action: "registerAndCheckInAction", userId: authz.userId }) };
     }
