@@ -127,6 +127,11 @@ export function TvDisplaySetupPanel({
             <div className="mt-2 flex items-center gap-2">
               <code className="bg-muted flex-1 overflow-x-auto rounded-md px-3 py-2 text-sm">{shortDisplayUrl}</code>
               <CopyButton value={shortDisplayUrl} />
+              <a href={shortDisplayUrl} target="_blank" rel="noreferrer">
+                <Button type="button" variant="outline" size="sm">
+                  Open
+                </Button>
+              </a>
             </div>
           </div>
         </CardContent>
