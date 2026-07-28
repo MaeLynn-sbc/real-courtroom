@@ -13,6 +13,26 @@ export const createAvailabilityWindowSchema = z
   });
 export type CreateAvailabilityWindowInput = z.infer<typeof createAvailabilityWindowSchema>;
 
+// The week-grid UI's write path — "these whole hours (0-23), on this
+// one calendar day, are the complete set this coach is available."
+// hours is deliberately unbounded here (0-23, no min/max tied to court
+// hours) — the grid itself only ever offers hours inside the facility's
+// open/close window, so a wider range never reaches this schema in
+// practice, and this validation's job is "is this shape sane," not
+// re-deriving business hours a second time.
+export const setDayAvailabilitySchema = z.object({
+  coachId: z.string().min(1),
+  date: z.coerce.date(),
+  hours: z.array(z.number().int().min(0).max(23)),
+});
+export type SetDayAvailabilityInput = z.infer<typeof setDayAvailabilitySchema>;
+
+export const copyWeekAvailabilitySchema = z.object({
+  coachId: z.string().min(1),
+  weekStart: z.coerce.date(),
+});
+export type CopyWeekAvailabilityInput = z.infer<typeof copyWeekAvailabilitySchema>;
+
 export const upsertCoachRateSchema = z.object({
   coachId: z.string().min(1),
   groupSize: z.coerce.number().int().min(1, "Group size must be at least 1."),

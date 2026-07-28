@@ -4,6 +4,8 @@ import { auth } from "@/auth";
 import { CoachAvailabilityManager } from "@/features/coaching/components/coach-availability-manager";
 import { prisma } from "@/lib/prisma";
 import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
+import { coachSessionService } from "@/services/coaching/coach-session.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
   title: "Coaching Availability",
@@ -69,13 +71,20 @@ async function CoachAvailabilityManagerData({
   selectedCoachId: string;
   isOwnCalendar: boolean;
 }) {
-  const windows = selectedCoachId ? await coachAvailabilityService.listWindows(selectedCoachId) : [];
+  const [windows, activeSessions, courtHours] = await Promise.all([
+    selectedCoachId ? coachAvailabilityService.listWindows(selectedCoachId) : Promise.resolve([]),
+    selectedCoachId ? coachSessionService.listActiveSessionsForCoach(selectedCoachId) : Promise.resolve([]),
+    settingsService.getCourtHours(),
+  ]);
+
   return (
     <CoachAvailabilityManager
       coaches={coaches}
       selectedCoachId={selectedCoachId}
       isOwnCalendar={isOwnCalendar}
       windows={windows}
+      activeSessions={activeSessions}
+      courtHours={courtHours}
     />
   );
 }

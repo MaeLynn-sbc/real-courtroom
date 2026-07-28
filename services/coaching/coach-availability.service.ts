@@ -1,6 +1,31 @@
-import type { CreateAvailabilityWindowInput } from "@/features/coaching/schemas/coaching.schema";
+import type {
+  CopyWeekAvailabilityInput,
+  CreateAvailabilityWindowInput,
+  SetDayAvailabilityInput,
+} from "@/features/coaching/schemas/coaching.schema";
+import { expandWindowToHours, mergeHoursIntoWindows } from "@/lib/hour-windows";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+
+// Local calendar-day boundaries (midnight to midnight) — deliberately
+// NOT lib/business-date.ts's business-date rollover (that's for
+// grouping sales/reporting around a 3AM cutover, an unrelated concept).
+// A coach's "Tuesday" is the calendar day, matching how the week-strip
+// UI and every other date-only value in this file already thinks about
+// dates. Local Date getters, never toISOString() — this session's own
+// long-standing Asia/Manila date-shifting pitfall.
+function dayRange(date: Date): { startOfDay: Date; endOfDay: Date } {
+  const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const endOfDay = new Date(startOfDay);
+  endOfDay.setDate(endOfDay.getDate() + 1);
+  return { startOfDay, endOfDay };
+}
+
+function addDays(date: Date, days: number): Date {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
 
 // Part B (post-Gate-3 review): the two active coaches are family
 // (father/son) who coordinate schedules directly, and the non-coach
@@ -38,6 +63,27 @@ export class NotACoachError extends Error {
     super("This employee isn't marked as a coach.");
     this.name = "NotACoachError";
   }
+}
+
+// Shared by every write path below (createWindow, setDayAvailability,
+// copyWeekAvailability) — the exact ownership + isCoach check, in one
+// place, so a future change to either rule can't drift between them.
+// Returns editingOwnCalendar for the caller's own audit-log metadata.
+async function assertCanEditCoach(
+  coachId: string,
+  callerEmployeeId: string,
+): Promise<{ editingOwnCalendar: boolean }> {
+  const editingOwnCalendar = coachId === callerEmployeeId;
+  if (!editingOwnCalendar && !ALLOW_CROSS_COACH_AVAILABILITY_EDITS) {
+    throw new CoachAvailabilityOwnershipError();
+  }
+
+  const coach = await prisma.employee.findUniqueOrThrow({ where: { id: coachId } });
+  if (!coach.isCoach) {
+    throw new NotACoachError();
+  }
+
+  return { editingOwnCalendar };
 }
 
 export class CoachAvailabilityService {
@@ -80,15 +126,7 @@ export class CoachAvailabilityService {
   }
 
   async createWindow(input: CreateAvailabilityWindowInput, callerEmployeeId: string, actorUserId: string) {
-    const editingOwnCalendar = input.coachId === callerEmployeeId;
-    if (!editingOwnCalendar && !ALLOW_CROSS_COACH_AVAILABILITY_EDITS) {
-      throw new CoachAvailabilityOwnershipError();
-    }
-
-    const coach = await prisma.employee.findUniqueOrThrow({ where: { id: input.coachId } });
-    if (!coach.isCoach) {
-      throw new NotACoachError();
-    }
+    const { editingOwnCalendar } = await assertCanEditCoach(input.coachId, callerEmployeeId);
 
     const window = await prisma.coachAvailabilityWindow.create({
       data: {
@@ -130,6 +168,127 @@ export class CoachAvailabilityService {
       oldValues: window,
       metadata: { callerEmployeeId, editingOwnCalendar },
     });
+  }
+
+  // The week-grid UI's one write path: "here is the complete set of
+  // whole hours this coach is available on this calendar day" —
+  // reconciled against whatever's currently stored, not appended to it.
+  // Replaces the day's windows wholesale (delete then recreate) rather
+  // than diffing individual rows; at the volume one coach's one day
+  // ever holds (a handful of windows, if that) this is simpler and
+  // exactly as correct as an incremental diff, and it's what makes
+  // "contiguous hours become one row" trivial — mergeHoursIntoWindows
+  // just recomputes the minimal set fresh every time instead of trying
+  // to grow/shrink/split existing rows in place.
+  async setDayAvailability(
+    input: SetDayAvailabilityInput,
+    callerEmployeeId: string,
+    actorUserId: string,
+  ): Promise<{ id: string; startAt: Date; endAt: Date }[]> {
+    const { editingOwnCalendar } = await assertCanEditCoach(input.coachId, callerEmployeeId);
+
+    const { startOfDay, endOfDay } = dayRange(input.date);
+
+    const { existingHours, created } = await prisma.$transaction(async (tx) => {
+      const existing = await tx.coachAvailabilityWindow.findMany({
+        where: { coachId: input.coachId, startAt: { gte: startOfDay, lt: endOfDay } },
+      });
+
+      if (existing.length > 0) {
+        await tx.coachAvailabilityWindow.deleteMany({
+          where: { id: { in: existing.map((window) => window.id) } },
+        });
+      }
+
+      const mergedWindows = mergeHoursIntoWindows(input.hours);
+      const createdRows = await Promise.all(
+        mergedWindows.map((window) =>
+          tx.coachAvailabilityWindow.create({
+            data: {
+              coachId: input.coachId,
+              startAt: new Date(
+                startOfDay.getFullYear(),
+                startOfDay.getMonth(),
+                startOfDay.getDate(),
+                window.startHour,
+              ),
+              endAt: new Date(
+                startOfDay.getFullYear(),
+                startOfDay.getMonth(),
+                startOfDay.getDate(),
+                window.endHour,
+              ),
+            },
+          }),
+        ),
+      );
+
+      const existingHoursFlat = existing.flatMap((window) =>
+        expandWindowToHours({
+          startHour: window.startAt.getHours(),
+          endHour: window.endAt.getHours(),
+        }),
+      );
+
+      return { existingHours: existingHoursFlat, created: createdRows };
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "coach_availability_window.day_set",
+      entityId: input.coachId,
+      oldValues: { date: startOfDay, hours: existingHours },
+      newValues: { date: startOfDay, hours: input.hours },
+      metadata: { callerEmployeeId, editingOwnCalendar },
+    });
+
+    return created;
+  }
+
+  // "Copy last week" — makes the target week's 7 days an exact mirror
+  // of the 7 days immediately before it, day-for-day (Tuesday copies
+  // from the previous Tuesday, etc.), including clearing a target day
+  // that has no counterpart in the source week. Idempotent: running it
+  // twice in a row leaves the same result, since each day is a wholesale
+  // replace (same reconciliation setDayAvailability uses), not an
+  // additive copy that would pile up duplicate windows on a second run.
+  async copyWeekAvailability(
+    input: CopyWeekAvailabilityInput,
+    callerEmployeeId: string,
+    actorUserId: string,
+  ): Promise<void> {
+    await assertCanEditCoach(input.coachId, callerEmployeeId);
+
+    const targetWeekStart = dayRange(input.weekStart).startOfDay;
+    const sourceWeekStart = addDays(targetWeekStart, -7);
+    const sourceWeekEnd = addDays(sourceWeekStart, 7);
+
+    const sourceWindows = await prisma.coachAvailabilityWindow.findMany({
+      where: { coachId: input.coachId, startAt: { gte: sourceWeekStart, lt: sourceWeekEnd } },
+      orderBy: { startAt: "asc" },
+    });
+
+    for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+      const sourceDay = addDays(sourceWeekStart, dayOffset);
+      const targetDay = addDays(targetWeekStart, dayOffset);
+
+      const hoursForDay = sourceWindows
+        .filter((window) => window.startAt.getFullYear() === sourceDay.getFullYear()
+          && window.startAt.getMonth() === sourceDay.getMonth()
+          && window.startAt.getDate() === sourceDay.getDate())
+        .flatMap((window) =>
+          expandWindowToHours({ startHour: window.startAt.getHours(), endHour: window.endAt.getHours() }),
+        );
+
+      // Every day gets set, including an empty array for a day with no
+      // source windows — that's what makes the target week a true
+      // mirror rather than a leftover mix of old and copied data.
+      await this.setDayAvailability(
+        { coachId: input.coachId, date: targetDay, hours: hoursForDay },
+        callerEmployeeId,
+        actorUserId,
+      );
+    }
   }
 
   private async writeAuditLog(entry: {

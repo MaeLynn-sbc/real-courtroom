@@ -3,11 +3,13 @@
 import { revalidatePath } from "next/cache";
 
 import {
-  createAvailabilityWindowSchema,
+  copyWeekAvailabilitySchema,
   createCoachSessionSchema,
+  setDayAvailabilitySchema,
   upsertCoachRateSchema,
-  type CreateAvailabilityWindowInput,
+  type CopyWeekAvailabilityInput,
   type CreateCoachSessionInput,
+  type SetDayAvailabilityInput,
   type UpsertCoachRateInput,
 } from "@/features/coaching/schemas/coaching.schema";
 import { requireEmployee, requirePermission } from "@/lib/action-auth";
@@ -44,44 +46,52 @@ function requireBookingsManage() {
   return requirePermission(PERMISSIONS.BOOKINGS_MANAGE, "You don't have permission to manage bookings.");
 }
 
-export async function createAvailabilityWindowAction(
-  input: CreateAvailabilityWindowInput,
-): Promise<CoachingActionState> {
+// The week-grid's one write path — replaces the ownership-only
+// createAvailabilityWindowAction/deleteAvailabilityWindowAction pair
+// (removed; nothing else called them — coachAvailabilityService's own
+// createWindow/deleteWindow stay, still used as test fixtures
+// throughout services/coaching/*.integration.ts). Ownership (coachId
+// must be the caller's own employeeId, unless
+// ALLOW_CROSS_COACH_AVAILABILITY_EDITS) is enforced inside the
+// service, not just here — see assertCanEditCoach and
+// coach-availability-ownership.integration.ts.
+export async function setDayAvailabilityAction(input: SetDayAvailabilityInput): Promise<CoachingActionState> {
   const authz = await requireCoachingOwnAvailability();
   if (!authz.ok) {
     return { error: authz.error };
   }
 
-  const parsed = createAvailabilityWindowSchema.safeParse(input);
+  const parsed = setDayAvailabilitySchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid availability window." };
+    return { error: parsed.error.issues[0]?.message ?? "Invalid availability." };
   }
 
   try {
-    // Ownership (coachId must equal the caller's own employeeId) is
-    // enforced inside the service, not just here — see
-    // CoachAvailabilityService.createWindow and
-    // coach-availability-ownership.integration.ts.
-    await coachAvailabilityService.createWindow(parsed.data, authz.employeeId, authz.userId);
+    await coachAvailabilityService.setDayAvailability(parsed.data, authz.employeeId, authz.userId);
     revalidatePath("/dashboard/coaching/availability");
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "createAvailabilityWindowAction", userId: authz.userId }) };
+    return { error: toActionError(error, { action: "setDayAvailabilityAction", userId: authz.userId }) };
   }
 }
 
-export async function deleteAvailabilityWindowAction(windowId: string): Promise<CoachingActionState> {
+export async function copyWeekAvailabilityAction(input: CopyWeekAvailabilityInput): Promise<CoachingActionState> {
   const authz = await requireCoachingOwnAvailability();
   if (!authz.ok) {
     return { error: authz.error };
   }
 
+  const parsed = copyWeekAvailabilitySchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid week." };
+  }
+
   try {
-    await coachAvailabilityService.deleteWindow(windowId, authz.employeeId, authz.userId);
+    await coachAvailabilityService.copyWeekAvailability(parsed.data, authz.employeeId, authz.userId);
     revalidatePath("/dashboard/coaching/availability");
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "deleteAvailabilityWindowAction", userId: authz.userId }) };
+    return { error: toActionError(error, { action: "copyWeekAvailabilityAction", userId: authz.userId }) };
   }
 }
 

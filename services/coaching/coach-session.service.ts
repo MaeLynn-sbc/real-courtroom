@@ -73,6 +73,27 @@ export class CoachSessionService {
     });
   }
 
+  // For the coach-availability editor's "warn, don't block" step
+  // (clearing hours that have a real coaching session in them) — the
+  // client checks locally, hour by hour, whether the change would
+  // remove availability under an active session, so it can ask for
+  // confirmation before calling setDayAvailabilityAction. Excludes
+  // CANCELLED/NO_SHOW: a session that isn't actually happening anymore
+  // is nothing to warn about.
+  async listActiveSessionsForCoach(coachId: string) {
+    return prisma.coachSession.findMany({
+      where: { coachId, status: { notIn: ["CANCELLED", "NO_SHOW"] } },
+      select: {
+        id: true,
+        sessionReference: true,
+        guestName: true,
+        player: { select: { user: { select: { name: true, email: true } } } },
+        booking: { select: { startAt: true, endAt: true, court: { select: { name: true } } } },
+      },
+      orderBy: { booking: { startAt: "asc" } },
+    });
+  }
+
   // The one creation path both the (not-yet-built) public flow and the
   // staff desk flow will call — source distinguishes them, set by the
   // caller (action layer), never inferred here. Mirrors
