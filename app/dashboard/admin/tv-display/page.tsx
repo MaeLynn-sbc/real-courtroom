@@ -20,7 +20,11 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function TvDisplaySetupPage() {
-  const [session, slug] = await Promise.all([auth(), settingsService.getOrCreateDisplaySlug()]);
+  const [session, slug, announcementRepeatCount] = await Promise.all([
+    auth(),
+    settingsService.getOrCreateDisplaySlug(),
+    settingsService.getAnnouncementRepeatCount(),
+  ]);
   const canRegenerate = hasPermission(session?.user.permissions ?? [], PERMISSIONS.SYSTEM_ADMIN);
 
   const [displayQrDataUrl, openPlayQrDataUrl] = await Promise.all([
@@ -48,6 +52,7 @@ export default async function TvDisplaySetupPage() {
         openPlayRegistrationUrl={openPlayRegistrationUrl}
         openPlayQrDataUrl={openPlayQrDataUrl}
         canRegenerate={canRegenerate}
+        announcementRepeatCount={announcementRepeatCount}
       />
     </div>
   );

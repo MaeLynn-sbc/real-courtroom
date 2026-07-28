@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { createAnnouncementRepeater } from "@/features/display/lib/announcement-repeater";
 import type { DisplayCourt, DisplayData } from "@/services/display/display.service";
 
 import styles from "@/app/display/[slug]/tv-display.module.css";
@@ -30,6 +31,19 @@ const ENDING_SOON_MS = 2 * 60 * 1000;
 // to do beyond the runtime "speechSynthesis" in window guard already
 // used below (every call site no-ops cleanly if it's ever missing).
 const ANNOUNCEMENTS_MUTED_STORAGE_KEY = "tv-display-announcements-muted";
+
+// Gap between repeated readings of the same announcement (see
+// scheduleAnnouncement below). Measured from when the FIRST reading was
+// enqueued, not from when it finishes being spoken — utterance length
+// varies with the name count (a 4-name group takes noticeably longer to
+// read than 1), and timing from enqueue keeps this simple without
+// needing a second onend hook just for repeats. 6s comfortably exceeds
+// even a 4-name utterance at rate=0.95 (a few seconds), so the repeat
+// never overlaps the first reading — the actual silent gap after
+// speech ends will vary from roughly 1-5s depending on name count, but
+// the second reading is never queued before the first has had a full
+// utterance's worth of time.
+const ANNOUNCEMENT_REPEAT_GAP_MS = 6_000;
 
 // Only "op" (open play, rotation-engine assigned) counts as an
 // announceable assignment — "res" is a pre-scheduled booking someone
@@ -94,7 +108,13 @@ function computeTiming(startAt: string, endAt: string, now: number): CourtTiming
   };
 }
 
-export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
+export function TvDisplayClient({
+  initialData,
+  announcementRepeatCount,
+}: {
+  initialData: DisplayData;
+  announcementRepeatCount: number;
+}) {
   const [data, setData] = useState(initialData);
   const [now, setNow] = useState(() => Date.now());
   const [lastUpdatedAt, setLastUpdatedAt] = useState(() => Date.now());
@@ -122,6 +142,17 @@ export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
   const mutedRef = useRef(false);
   const [announcementsMuted, setAnnouncementsMutedState] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
+
+  // Read via a ref (not the prop directly) inside the repeater's
+  // recursive setTimeout chain so a changed prop can't leave a chain
+  // that was already scheduled with a stale total count — not a real
+  // concern today (this only ever changes via a full page reload,
+  // TvDisplaySetupPanel's admin control lives on a different page
+  // entirely) but keeps the invariant explicit rather than assumed.
+  const announcementRepeatCountRef = useRef(announcementRepeatCount);
+  useEffect(() => {
+    announcementRepeatCountRef.current = announcementRepeatCount;
+  }, [announcementRepeatCount]);
 
   useEffect(() => {
     const supported = typeof window !== "undefined" && "speechSynthesis" in window;
@@ -166,6 +197,36 @@ export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
     [processSpeechQueue],
   );
 
+  // Pure scheduling logic (features/display/lib/announcement-repeater.ts)
+  // — created once, read via refs (enqueueAnnouncement's identity is
+  // stable across renders, announcementRepeatCountRef always has the
+  // latest count) so this never needs to be recreated when the prop
+  // changes. scheduleAnnouncement is this component's one entry point
+  // for a genuinely new court assignment (called from the poll loop
+  // below): plays it once immediately, then queues the configured
+  // number of repeats, cancelling any still-pending repeat chain from a
+  // PREVIOUS announcement first — a fresh assignment always wins over
+  // finishing a stale repeat, rather than the two interleaving or
+  // repeats piling up.
+  const announcementRepeater = useMemo(
+    () =>
+      createAnnouncementRepeater({
+        speak: (text) => enqueueAnnouncement(text),
+        gapMs: ANNOUNCEMENT_REPEAT_GAP_MS,
+        getRepeatCount: () => announcementRepeatCountRef.current,
+      }),
+    [enqueueAnnouncement],
+  );
+
+  const scheduleAnnouncement = useCallback(
+    (court: DisplayCourt) => {
+      const text = formatAssignmentAnnouncement(court);
+      if (!text) return;
+      announcementRepeater.schedule(text);
+    },
+    [announcementRepeater],
+  );
+
   function toggleAnnouncementsMuted() {
     const next = !mutedRef.current;
     mutedRef.current = next;
@@ -177,6 +238,13 @@ export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
       window.speechSynthesis.cancel();
       speechQueueRef.current = [];
       isSpeakingRef.current = false;
+      // Also drop any pending repeat — without this, muting mid-gap
+      // wouldn't actually prevent the repeat, just delay it until right
+      // after unmuting, which isn't what "mute" should mean. (Belt and
+      // suspenders: enqueueAnnouncement already no-ops while muted, so
+      // a missed clear here couldn't have caused an audible bug — but
+      // it would leave a dangling timer doing nothing until it fires.)
+      announcementRepeater.cancelPending();
     }
   }
 
@@ -218,7 +286,7 @@ export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
           const signature = courtAssignmentSignature(court);
           const previousSignature = previousAssignmentsRef.current[court.id];
           if (signature && signature !== previousSignature) {
-            enqueueAnnouncement(formatAssignmentAnnouncement(court));
+            scheduleAnnouncement(court);
           }
           if (signature) {
             previousAssignmentsRef.current[court.id] = signature;
@@ -242,8 +310,13 @@ export function TvDisplayClient({ initialData }: { initialData: DisplayData }) {
     return () => {
       cancelled = true;
       clearTimeout(timeoutId);
+      // Belt and suspenders for the 6h reload (a hard window.location.
+      // reload(), which wipes all timers on its own) and any other way
+      // this component could unmount — a pending repeat has no page
+      // left to matter to once this effect tears down.
+      announcementRepeater.cancelPending();
     };
-  }, [enqueueAnnouncement]);
+  }, [scheduleAnnouncement, announcementRepeater]);
 
   // Long names shrink, never truncate (BUILD-SPEC.md §12) — same pass
   // as the reference file's fitNames(), scoped to this component's own

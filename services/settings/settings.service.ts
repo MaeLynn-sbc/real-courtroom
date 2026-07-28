@@ -37,6 +37,17 @@ const BOOKING_REQUIRE_PREPAYMENT_KEY = "booking.requirePrepayment";
 // itself is intentionally login-free per BUILD-SPEC.md §12/§13.
 const DISPLAY_SLUG_KEY = "display.slug";
 
+// TV display voice announcements: how many times each court-assignment
+// announcement plays (a noisy indoor court means people miss the first
+// pass). Stored as a small object rather than a bare number to match
+// this file's own JSON-value convention (getJsonValue/setJsonValue),
+// not because the shape needs to grow.
+const DISPLAY_ANNOUNCEMENT_REPEAT_KEY = "display.announcementRepeat";
+interface AnnouncementRepeatSettings {
+  repeatCount: number;
+}
+const DEFAULT_ANNOUNCEMENT_REPEAT: AnnouncementRepeatSettings = { repeatCount: 2 };
+
 // Open-play online self-registration, Gate 1 — see
 // getOpenPlayOnlineRegistrationEnabled/setOpenPlayOnlineRegistrationEnabled.
 // Named differently from BOOKING_REQUIRE_PREPAYMENT_KEY on purpose:
@@ -416,6 +427,18 @@ export class SettingsService {
     });
     await this.writeSettingAuditLog("setting.updated", setting.id, setting.key, setting.value, actorUserId);
     return slug;
+  }
+
+  async getAnnouncementRepeatCount(): Promise<number> {
+    const stored = await this.getJsonValue<AnnouncementRepeatSettings>(
+      DISPLAY_ANNOUNCEMENT_REPEAT_KEY,
+      DEFAULT_ANNOUNCEMENT_REPEAT,
+    );
+    return stored.repeatCount;
+  }
+
+  async setAnnouncementRepeatCount(value: number, actorUserId: string) {
+    return this.setJsonValue(DISPLAY_ANNOUNCEMENT_REPEAT_KEY, { repeatCount: value }, actorUserId);
   }
 
   private async getJsonValue<T>(key: string, fallback: T): Promise<T> {

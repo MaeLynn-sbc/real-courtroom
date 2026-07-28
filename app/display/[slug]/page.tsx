@@ -31,7 +31,10 @@ export default async function DisplayPage({ params }: DisplayPageProps) {
     notFound();
   }
 
-  const initialData = await displayService.getDisplayData();
+  const [initialData, announcementRepeatCount] = await Promise.all([
+    displayService.getDisplayData(),
+    settingsService.getAnnouncementRepeatCount(),
+  ]);
 
-  return <TvDisplayClient initialData={initialData} />;
+  return <TvDisplayClient initialData={initialData} announcementRepeatCount={announcementRepeatCount} />;
 }

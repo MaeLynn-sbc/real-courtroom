@@ -3,9 +3,11 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { regenerateDisplaySlugAction } from "@/actions/display.actions";
+import { regenerateDisplaySlugAction, setAnnouncementRepeatCountAction } from "@/actions/display.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface TvDisplaySetupPanelProps {
   displayUrl: string;
@@ -13,6 +15,7 @@ interface TvDisplaySetupPanelProps {
   openPlayRegistrationUrl: string;
   openPlayQrDataUrl: string;
   canRegenerate: boolean;
+  announcementRepeatCount: number;
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -37,10 +40,25 @@ export function TvDisplaySetupPanel({
   openPlayRegistrationUrl,
   openPlayQrDataUrl,
   canRegenerate,
+  announcementRepeatCount,
 }: TvDisplaySetupPanelProps) {
   const [url, setUrl] = useState(displayUrl);
   const [qrDataUrl, setQrDataUrl] = useState(displayQrDataUrl);
   const [isPending, startTransition] = useTransition();
+  const [repeatCountInput, setRepeatCountInput] = useState(String(announcementRepeatCount));
+  const [isSavingRepeatCount, startRepeatCountTransition] = useTransition();
+
+  function handleSaveRepeatCount() {
+    const value = Number(repeatCountInput);
+    startRepeatCountTransition(async () => {
+      const result = await setAnnouncementRepeatCountAction(value);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Announcement repeat count saved.");
+    });
+  }
 
   function handleRegenerate() {
     if (!confirm("This invalidates the current URL — the TV will need to be pointed at the new one. Continue?")) {
@@ -134,6 +152,43 @@ export function TvDisplaySetupPanel({
               <CopyButton value={openPlayRegistrationUrl} />
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Voice announcements</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-muted-foreground text-sm">
+            How many times each court-assignment announcement plays, with a short pause between — a court is
+            noisy and people miss the first pass. Set to 1 to go back to a single announcement.
+          </p>
+          {canRegenerate ? (
+            <div className="flex items-end gap-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="announcementRepeatCount">Repeat count</Label>
+                <Input
+                  id="announcementRepeatCount"
+                  type="number"
+                  min={1}
+                  max={5}
+                  step={1}
+                  className="w-24"
+                  value={repeatCountInput}
+                  onChange={(event) => setRepeatCountInput(event.target.value)}
+                />
+              </div>
+              <Button type="button" size="sm" disabled={isSavingRepeatCount} onClick={handleSaveRepeatCount}>
+                {isSavingRepeatCount ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm">
+              Currently plays <span className="font-medium">{announcementRepeatCount}</span> time
+              {announcementRepeatCount === 1 ? "" : "s"}. Only an owner can change this.
+            </p>
+          )}
         </CardContent>
       </Card>
 
