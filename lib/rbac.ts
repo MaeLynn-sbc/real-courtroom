@@ -51,6 +51,19 @@ const PROTECTED_ROUTES: RouteRule[] = [
   // screen itself is gated on the narrower, owner-assignable permission,
   // not just the action calls beneath it.
   { prefix: "/dashboard/admin/expenses", permission: PERMISSIONS.ACCOUNTS_RECORD_EXPENSE },
+  // TV Display: overrides the /dashboard/admin parent's SYSTEM_ADMIN
+  // default (same longest-prefix-match override pattern as the three
+  // rules above) — the page's own comment and BUILD-SPEC.md §13 both
+  // say "staff can view, owner can edit," but nothing had ever added
+  // the override making that true; every signed-in staff member was
+  // silently blocked from a page that documents itself as viewable by
+  // any of them. DASHBOARD_ACCESS (every role holds it) is the
+  // correct floor here, not a narrower permission — viewing the URL/QR
+  // isn't itself a privileged action. The two mutations
+  // (regenerateDisplaySlugAction, setAnnouncementRepeatCountAction)
+  // stay owner-only independently, via their own requireSystemAdmin
+  // call inside each action — unaffected by this route-level change.
+  { prefix: "/dashboard/admin/tv-display", permission: PERMISSIONS.DASHBOARD_ACCESS },
 ];
 
 export type RouteAccessDecision = "allowed" | "unauthenticated" | "forbidden";

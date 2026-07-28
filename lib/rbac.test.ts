@@ -96,6 +96,19 @@ describe("canAccessRoute", () => {
       canAccessRoute("/dashboard/admin/expenses", true, [PERMISSIONS.ACCOUNTS_RECORD_EXPENSE]),
     ).toBe("allowed");
   });
+
+  // The page itself says "staff can view, owner can edit" (BUILD-SPEC.md
+  // §13) — any signed-in staff member should reach it, same floor as
+  // /dashboard itself, not the /dashboard/admin parent's SYSTEM_ADMIN
+  // default. The two mutations (regenerateDisplaySlugAction,
+  // setAnnouncementRepeatCountAction) enforce owner-only independently,
+  // inside each action — this route rule only ever governed the view.
+  it("gates TV Display on plain DASHBOARD_ACCESS, not the /dashboard/admin parent's SYSTEM_ADMIN default", () => {
+    expect(
+      canAccessRoute("/dashboard/admin/tv-display", true, [PERMISSIONS.DASHBOARD_ACCESS]),
+    ).toBe("allowed");
+    expect(canAccessRoute("/dashboard/admin/tv-display", true, [])).toBe("forbidden");
+  });
 });
 
 describe("requiresPasswordChangeRedirect", () => {
