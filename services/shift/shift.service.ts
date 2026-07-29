@@ -4,6 +4,7 @@ import { sumCashDenominationBreakdown } from "@/lib/cash-denominations";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
+import { WEBSITE_SYSTEM_USER_EMAIL } from "@/lib/system-identities";
 import { saleService } from "@/services/sales/sale.service";
 import { formatShiftNumber } from "@/services/shift/shift-number";
 
@@ -38,11 +39,53 @@ export class ShiftService {
     });
   }
 
+  // Employee included (firstName/lastName, no extra join cost — plain
+  // columns) so this same shape works whether the caller is looking at
+  // their own name-redundant history or (listAllShiftsForReview, below)
+  // everyone's — one row type for the Recent Shifts table either way.
   async listShifts(employeeId: string, limit = 10) {
     return prisma.shift.findMany({
       where: { employeeId },
+      include: { employee: { select: { firstName: true, lastName: true } } },
       orderBy: { startedAt: "desc" },
       take: limit,
+    });
+  }
+
+  // REPORTS_MANAGE follow-up: staff still only ever see listShifts's
+  // own-employee-scoped history above — this is the permission-gated
+  // path so an owner/manager can review ANY employee's shift, not just
+  // their own, the actual reason the shift-detail page's denomination
+  // breakdown was worth building. The permission check itself belongs
+  // to the caller (app/dashboard/shift/page.tsx), same split as
+  // getShiftById's own ownership check — this method only knows "all
+  // shifts," not "who's allowed to ask for them."
+  async listAllShiftsForReview(limit = 20) {
+    return prisma.shift.findMany({
+      include: { employee: { select: { firstName: true, lastName: true } } },
+      orderBy: { startedAt: "desc" },
+      take: limit,
+    });
+  }
+
+  // "Who's on duty" — every currently OPEN shift, oldest-clocked-in
+  // first (matches how a physical sign-in sheet reads). One open shift
+  // per employee is enforced in startShift, so this is naturally one
+  // row per on-duty employee, never a duplicate.
+  //
+  // Excludes the seeded "Website" system identity (services/booking/
+  // website-identity.ts) — it self-heals a PERPETUAL open Shift for
+  // attributing public-website bookings, "not a real cash drawer" per
+  // its own comment, and would otherwise show as permanently on duty
+  // forever, defeating the point of an at-a-glance "who's actually at
+  // the desk right now" indicator. Filtered by the system user's
+  // seeded email (the same identifier website-identity.ts itself uses
+  // to resolve it), not a name-based guess.
+  async listOpenShiftsWithEmployee() {
+    return prisma.shift.findMany({
+      where: { status: "OPEN", employee: { user: { email: { not: WEBSITE_SYSTEM_USER_EMAIL } } } },
+      include: { employee: { select: { firstName: true, lastName: true } } },
+      orderBy: { startedAt: "asc" },
     });
   }
 

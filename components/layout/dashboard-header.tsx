@@ -23,6 +23,7 @@ import {
   ShoppingBag,
   TrendingDown,
   Trophy,
+  UserCheck,
   UserCog,
   Users,
   Wallet,
@@ -33,10 +34,26 @@ import { UserNav } from "@/components/layout/user-nav";
 import { Logo } from "@/components/shared/logo";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationBell } from "@/features/notifications/components/notification-bell";
 import { dashboardNavGroups, siteConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import type { shiftService } from "@/services/shift/shift.service";
+
+const onDutyTimeFormatter = new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit" });
+
+// null = the viewer doesn't hold SYSTEM_ADMIN, so app/dashboard/layout.tsx
+// never even queried open shifts — distinct from an empty array, which
+// means "permitted, nobody's clocked in right now." Both render
+// differently below (indicator hidden vs. shown with a 0).
+type OnDutyShifts = Awaited<ReturnType<typeof shiftService.listOpenShiftsWithEmployee>> | null;
 
 const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
   "/dashboard": LayoutDashboard,
@@ -69,9 +86,14 @@ const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
 interface DashboardHeaderProps {
   pendingVerificationCount: number;
   pendingOpenPlayVerificationCount: number;
+  onDutyShifts: OnDutyShifts;
 }
 
-export function DashboardHeader({ pendingVerificationCount, pendingOpenPlayVerificationCount }: DashboardHeaderProps) {
+export function DashboardHeader({
+  pendingVerificationCount,
+  pendingOpenPlayVerificationCount,
+  onDutyShifts,
+}: DashboardHeaderProps) {
   return (
     <header className="border-border/60 bg-background/80 sticky top-0 z-40 flex h-16 items-center gap-3 border-b px-4 backdrop-blur-md md:px-6">
       <Sheet>
@@ -148,6 +170,47 @@ export function DashboardHeader({ pendingVerificationCount, pendingOpenPlayVerif
               {pendingOpenPlayVerificationCount > 9 ? "9+" : pendingOpenPlayVerificationCount}
             </Badge>
           </Link>
+        ) : null}
+        {/* Who's on duty — driven by open Shifts, not login sessions
+            (staff staying signed in after going home would otherwise
+            show as "on duty" when they aren't). null means the viewer
+            doesn't hold SYSTEM_ADMIN; the indicator is absent entirely
+            for them, not shown-and-empty. */}
+        {onDutyShifts !== null ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label={`${onDutyShifts.length} on duty`}
+              className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "relative")}
+            >
+              <UserCheck className="size-5" aria-hidden="true" />
+              <Badge
+                variant={onDutyShifts.length > 0 ? "status" : "outline"}
+                className="absolute -top-1 -right-1 h-5 min-w-5 rounded-full px-1 text-[10px]"
+              >
+                {onDutyShifts.length > 9 ? "9+" : onDutyShifts.length}
+              </Badge>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel>On duty ({onDutyShifts.length})</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {onDutyShifts.length === 0 ? (
+                <div className="text-muted-foreground px-2 py-3 text-center text-sm">Nobody&apos;s clocked in.</div>
+              ) : (
+                <div className="flex flex-col gap-0.5 px-2 py-1">
+                  {onDutyShifts.map((shift) => (
+                    <div key={shift.id} className="flex items-center justify-between gap-3 py-1 text-sm">
+                      <span className="font-medium">
+                        {shift.employee.firstName} {shift.employee.lastName}
+                      </span>
+                      <span className="text-muted-foreground text-xs">
+                        since {onDutyTimeFormatter.format(shift.startedAt)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
         <NotificationBell />
         <UserNav />

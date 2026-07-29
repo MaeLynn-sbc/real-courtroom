@@ -26,6 +26,10 @@ interface ShiftWorkspaceProps {
   currentShift: Shift;
   recentShifts: RecentShifts;
   expectedCashCents: number | null;
+  // REPORTS_MANAGE holders see every employee's shifts here (an
+  // Employee column added to the same table), not just their own —
+  // false for everyone else, who keep the exact table they had before.
+  showEmployeeColumn: boolean;
 }
 
 function StartShiftForm() {
@@ -239,7 +243,12 @@ function EndShiftForm({ shift, expectedCashCents }: { shift: NonNullable<Shift>;
   );
 }
 
-export function ShiftWorkspace({ currentShift, recentShifts, expectedCashCents }: ShiftWorkspaceProps) {
+export function ShiftWorkspace({
+  currentShift,
+  recentShifts,
+  expectedCashCents,
+  showEmployeeColumn,
+}: ShiftWorkspaceProps) {
   return (
     <div className="flex flex-col gap-6">
       {currentShift ? (
@@ -250,7 +259,12 @@ export function ShiftWorkspace({ currentShift, recentShifts, expectedCashCents }
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent shifts</CardTitle>
+          <CardTitle>{showEmployeeColumn ? "All shifts" : "Recent shifts"}</CardTitle>
+          {showEmployeeColumn ? (
+            <p className="text-muted-foreground text-sm">
+              Every employee&apos;s recent shifts — visible to you because you can view reports.
+            </p>
+          ) : null}
         </CardHeader>
         <CardContent>
           {recentShifts.length === 0 ? (
@@ -260,6 +274,7 @@ export function ShiftWorkspace({ currentShift, recentShifts, expectedCashCents }
               <TableHeader>
                 <TableRow>
                   <TableHead>Shift</TableHead>
+                  {showEmployeeColumn ? <TableHead>Employee</TableHead> : null}
                   <TableHead>Status</TableHead>
                   <TableHead>Opening</TableHead>
                   <TableHead>Closing</TableHead>
@@ -286,6 +301,11 @@ export function ShiftWorkspace({ currentShift, recentShifts, expectedCashCents }
                         shift.shiftNumber
                       )}
                     </TableCell>
+                    {showEmployeeColumn ? (
+                      <TableCell>
+                        {shift.employee.firstName} {shift.employee.lastName}
+                      </TableCell>
+                    ) : null}
                     <TableCell>
                       <Badge variant={shift.status === "OPEN" ? "status" : "outline"}>
                         {shift.status === "OPEN" ? "Open" : "Closed"}

@@ -1,7 +1,11 @@
+import { auth } from "@/auth";
 import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
+import { hasPermission } from "@/lib/rbac";
 import { bookingPaymentProofService } from "@/services/booking/booking-payment-proof.service";
 import { openPlayRegistrationPaymentProofService } from "@/services/open-play/open-play-registration-payment-proof.service";
+import { shiftService } from "@/services/shift/shift.service";
+import { PERMISSIONS } from "@/types/permissions";
 
 // Every /dashboard/* route is behind middleware.ts's own auth gate
 // (matcher: ["/dashboard/:path*"]) — a statically prerendered page here
@@ -29,9 +33,20 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // Open-play's own count is fetched and shown as its OWN badge, not
   // merged into the booking count — a single combined number would
   // link to only one of the two screens and misattribute the other.
-  const [pendingVerificationCount, pendingOpenPlayVerificationCount] = await Promise.all([
+  // Who's on duty: gated on SYSTEM_ADMIN, not DASHBOARD_ACCESS (every
+  // role holds that one) — the owner wants to see who's at the desk,
+  // staff don't need to. Held by Owner and Manager only. Fetched here,
+  // not inside DashboardHeader, so a session without the permission
+  // never even queries open shifts — onDutyEmployees is null (not an
+  // empty array) specifically to distinguish "not permitted, hide the
+  // indicator" from "permitted, nobody's clocked in right now."
+  const session = await auth();
+  const canViewOnDuty = hasPermission(session?.user.permissions ?? [], PERMISSIONS.SYSTEM_ADMIN);
+
+  const [pendingVerificationCount, pendingOpenPlayVerificationCount, onDutyShifts] = await Promise.all([
     bookingPaymentProofService.countPendingProofs(),
     openPlayRegistrationPaymentProofService.countPendingProofs(),
+    canViewOnDuty ? shiftService.listOpenShiftsWithEmployee() : Promise.resolve(null),
   ]);
 
   return (
@@ -39,6 +54,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <DashboardHeader
         pendingVerificationCount={pendingVerificationCount}
         pendingOpenPlayVerificationCount={pendingOpenPlayVerificationCount}
+        onDutyShifts={onDutyShifts}
       />
       <div className="flex flex-1">
         <DashboardSidebar />
