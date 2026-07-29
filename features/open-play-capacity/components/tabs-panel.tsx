@@ -199,11 +199,22 @@ export function TabsPanel({
                 ) : (
                   <>
                     <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className={cn("font-medium", isSettling && "text-base font-semibold")}>{tab.playerName}</p>
-                        <p className="text-muted-foreground text-xs">
-                          {tab.gamesPlayed} game{tab.gamesPlayed === 1 ? "" : "s"} · {formatCurrency(tab.totalCents)}
-                        </p>
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <p className={cn("font-medium", isSettling && "text-base font-semibold")}>{tab.playerName}</p>
+                          <p className="text-muted-foreground text-xs">
+                            {tab.gamesPlayed} game{tab.gamesPlayed === 1 ? "" : "s"}
+                          </p>
+                        </div>
+                        {/* Reported on an old, low-contrast laptop screen: the
+                            bill used to be the smallest, greyest thing on the
+                            row (text-xs text-muted-foreground), easy to miss
+                            next to the player's name. Pulled out into its own
+                            larger, bolder, highlighted chip — bigger than the
+                            name above, not just "not muted." */}
+                        <span className="bg-primary/10 text-primary rounded-md px-2.5 py-1 text-lg font-bold tabular-nums">
+                          {formatCurrency(tab.totalCents)}
+                        </span>
                       </div>
                       <div className="flex gap-2">
                         <Button
