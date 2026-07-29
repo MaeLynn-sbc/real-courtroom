@@ -8,7 +8,10 @@ import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
 
 const MINUTES_PER_DAY = 24 * 60;
 
-function isFridayOrSaturday(date: Date): boolean {
+// Exported for dashboard-sidebar.tsx too — the Fri/Sat vs. weeknight
+// split it needs to distinguish is the same weekday rule this file
+// already had privately for court-hours purposes.
+export function isFridayOrSaturday(date: Date): boolean {
   const day = date.getDay();
   return day === 5 || day === 6;
 }

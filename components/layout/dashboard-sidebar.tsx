@@ -32,6 +32,7 @@ import { usePathname } from "next/navigation";
 
 import { Logo } from "@/components/shared/logo";
 import { dashboardNavGroups, dashboardNavItems } from "@/lib/config";
+import { isFridayOrSaturday } from "@/lib/court-hours";
 import { cn } from "@/lib/utils";
 
 const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
@@ -76,6 +77,51 @@ function getActiveHref(pathname: string, hrefs: readonly string[]): string | und
   return matches.reduce((longest, href) => (href.length > longest.length ? href : longest));
 }
 
+const OPEN_PLAY_CAPACITY_PREFIX = "/dashboard/admin/open-play-capacity";
+const FRI_SAT_OPEN_PLAY_HREF = "/dashboard/admin/open-play-capacity";
+const WEEKNIGHT_OPEN_PLAY_HREF = "/dashboard/admin/open-play-capacity/today";
+const DATE_SEGMENT_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// "Weeknight Open Play" and "Fri/Sat Open Play" both resolve to the
+// same dynamic [date] route once a date is picked — Weeknight only
+// gets there via /today's own server-side redirect to today's date
+// (app/dashboard/admin/open-play-capacity/today/page.tsx). Reported
+// live: getActiveHref's plain prefix match can't tell the two apart
+// from the URL alone, so it always picked Fri/Sat's shorter, always-
+// matching prefix, even on a weeknight date — landing on the correct
+// page with the wrong sidebar item highlighted.
+//
+// Fixed by deciding from the date itself, not from which href happens
+// to prefix-match: a dated capacity page (.../2026-07-30) resolves to
+// whichever nav entry actually corresponds to that date's real
+// weekday, via the same Fri/Sat rule court-hours.ts already used
+// privately. This also covers navigating between days from inside the
+// page itself (the date picker, not just the two sidebar links) — any
+// date this route can show resolves correctly, not just the one
+// /today redirects to today. Returns undefined for the bare list page
+// (no date segment) and for verify-payments (not a date), letting
+// getActiveHref's normal matching handle both exactly as before.
+function resolveOpenPlayCapacityActiveHref(pathname: string): string | undefined {
+  if (!pathname.startsWith(`${OPEN_PLAY_CAPACITY_PREFIX}/`)) {
+    return undefined;
+  }
+
+  const dateSegment = pathname.slice(`${OPEN_PLAY_CAPACITY_PREFIX}/`.length);
+  if (!DATE_SEGMENT_PATTERN.test(dateSegment)) {
+    return undefined;
+  }
+
+  // Local-midnight parse (not a bare "YYYY-MM-DD", which JS parses as
+  // UTC and can land on the wrong weekday depending on the browser's
+  // offset) — same discipline this app's other date-only parsing uses.
+  const date = new Date(`${dateSegment}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  return isFridayOrSaturday(date) ? FRI_SAT_OPEN_PLAY_HREF : WEEKNIGHT_OPEN_PLAY_HREF;
+}
+
 // This list is NOT visually permission-filtered — every signed-in staff
 // member sees the same full nav regardless of role, same as it's always
 // been for every entry here (Roles, Audit Logs, Employees, ...).
@@ -89,10 +135,12 @@ function getActiveHref(pathname: string, hrefs: readonly string[]): string | und
 // out of scope for adding one more link.
 export function DashboardSidebar() {
   const pathname = usePathname();
-  const activeHref = getActiveHref(
-    pathname,
-    dashboardNavItems.map((item) => item.href),
-  );
+  const activeHref =
+    resolveOpenPlayCapacityActiveHref(pathname) ??
+    getActiveHref(
+      pathname,
+      dashboardNavItems.map((item) => item.href),
+    );
 
   return (
     <aside className="border-border/60 bg-sidebar text-sidebar-foreground hidden w-56 shrink-0 border-r md:flex md:flex-col md:overflow-y-auto">
