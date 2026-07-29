@@ -32,7 +32,22 @@ export class InventoryAlertsService {
 
     const equipmentItems = await equipmentService.listEquipment();
     for (const item of equipmentItems) {
-      if (item.status !== "RETIRED" && item.availableQuantity <= LOW_STOCK_THRESHOLD) {
+      // Reported live: an item whose TOTAL owned quantity is itself ≤2
+      // (e.g. a Ball Machine the venue owns exactly 2 of) tripped this
+      // alert permanently at full availability — "2 of 2 available" is
+      // not low stock, it's all of it, sitting unrented. Excluding
+      // MAINTENANCE here (alongside the existing RETIRED exclusion) is
+      // the fix: MAINTENANCE already means "whole line pulled" per the
+      // equipment form's own label, and is the existing, already-
+      // editable status toggle for "not currently in service" — e.g.
+      // equipment not actually acquired yet. No new field needed; this
+      // just makes the low-stock check respect the status that was
+      // already meant to cover this.
+      if (
+        item.status !== "RETIRED" &&
+        item.status !== "MAINTENANCE" &&
+        item.availableQuantity <= LOW_STOCK_THRESHOLD
+      ) {
         alerts.push({
           type: "LOW_STOCK",
           title: `${item.name} is low on stock`,
