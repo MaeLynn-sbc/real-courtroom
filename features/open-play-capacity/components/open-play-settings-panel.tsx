@@ -158,6 +158,28 @@ export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
           </div>
 
           <div className="flex flex-col gap-1.5">
+            <Label htmlFor="shortSessionPriceCents">30-minute walk-in price (₱, flat)</Label>
+            <p className="text-muted-foreground text-xs">
+              Staff-only front-desk option — someone who only wants to play half an hour. A flat
+              price, not half the hourly court rate. Never offered on the public booking site.
+            </p>
+            <Input
+              id="shortSessionPriceCents"
+              type="number"
+              min={0}
+              step={0.01}
+              className="w-24"
+              value={settings.shortSessionPriceCents / 100}
+              onChange={(event) =>
+                setSettings((s) => ({
+                  ...s,
+                  shortSessionPriceCents: Math.round(Number(event.target.value) * 100),
+                }))
+              }
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
             <Label htmlFor="onlineRegistrationLeadTimeDays">
               Online registration opens (days before the session)
             </Label>

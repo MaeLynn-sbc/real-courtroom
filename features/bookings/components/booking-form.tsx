@@ -24,13 +24,20 @@ import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
 
-// Matches the public booking form's own DURATIONS_MINUTES list exactly
-// (duplicated, not imported — same precedent this file already had for
-// this one constant before this change) — hour-only, this business
-// doesn't book in 30-minute increments.
-const DURATIONS_MINUTES = [60, 120, 180, 240];
+// STAFF-ONLY: 30 minutes, front-desk only — someone who just wants a
+// quick half-hour, priced flat (services/booking/booking.service.ts's
+// createBooking special-cases exactly-30-minute bookings, bypassing
+// the hourly rate formula). Deliberately NOT added to the public
+// /book form's own identical-looking list
+// (public-booking-form.tsx's own DURATIONS_MINUTES stays [60,120,180,240]
+// — the two lists are independent constants, not shared, precisely so
+// this doesn't leak into online booking).
+const DURATIONS_MINUTES = [30, 60, 120, 180, 240];
 
 function formatDurationLabel(minutes: number): string {
+  if (minutes < 60) {
+    return `${minutes} minutes`;
+  }
   const hours = minutes / 60;
   return `${hours} hour${hours === 1 ? "" : "s"}`;
 }
@@ -125,6 +132,12 @@ interface BookingFormProps {
   courts: BookingFormCourt[];
   players: BookingFormPlayer[];
   courtHours: CourtHoursSettings;
+  // Flat price for the 30-minute walk-in option — owner-editable
+  // (features/open-play-capacity/components/open-play-settings-panel.tsx),
+  // not derived from the court's hourly rate. Only ever used for a
+  // preview here; the server computes and persists the real amount
+  // independently, same as every other price shown on this form.
+  shortSessionPriceCents: number;
 }
 
 function toLocalDateValue(date: Date): string {
@@ -132,7 +145,7 @@ function toLocalDateValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
+export function BookingForm({ courts, players, courtHours, shortSessionPriceCents }: BookingFormProps) {
   const router = useRouter();
   const [isWalkIn, setIsWalkIn] = useState(true);
   // Shared by both modes — walk-in's own duration select already only
@@ -178,13 +191,18 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWalkIn, availableTimeOptions.join(","), advanceTime]);
 
-  // Preview-only — mirrors booking.service.ts's Math.round(hourlyRateCents *
-  // durationHours) so the number shown here matches what the server will
-  // actually charge, but this never feeds back into the submitted payload;
-  // the server still computes and persists the real amount independently.
+  // Preview-only — mirrors booking.service.ts's own pricing exactly,
+  // including the 30-minute flat-price special case, so the number
+  // shown here matches what the server will actually charge. Never fed
+  // back into the submitted payload; the server computes and persists
+  // the real amount independently.
   const durationHours = durationMinutes / 60;
   const previewTotalCents =
-    selectedCourt?.hourlyRateCents != null ? Math.round(selectedCourt.hourlyRateCents * durationHours) : 0;
+    durationMinutes === 30
+      ? shortSessionPriceCents
+      : selectedCourt?.hourlyRateCents != null
+        ? Math.round(selectedCourt.hourlyRateCents * durationHours)
+        : 0;
 
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
@@ -392,14 +410,16 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Duration</span>
-            <span className="font-medium tabular-nums">{durationHours.toFixed(1)} hr</span>
+            <span className="font-medium tabular-nums">{formatDurationLabel(durationMinutes)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Rate</span>
             <span className="font-medium tabular-nums">
-              {selectedCourt?.hourlyRateCents != null
-                ? `${formatCurrency(selectedCourt.hourlyRateCents)}/hr`
-                : "—"}
+              {durationMinutes === 30
+                ? "Flat rate"
+                : selectedCourt?.hourlyRateCents != null
+                  ? `${formatCurrency(selectedCourt.hourlyRateCents)}/hr`
+                  : "—"}
             </span>
           </div>
           <div className="flex justify-between border-t pt-2 text-base">
