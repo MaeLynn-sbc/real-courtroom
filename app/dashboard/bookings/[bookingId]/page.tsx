@@ -10,11 +10,13 @@ import { BookingStatusActions } from "@/features/bookings/components/booking-sta
 import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
 import { RecordGcashPaymentForm } from "@/features/bookings/components/record-gcash-payment-form";
 import { RegenerateQrButton } from "@/features/bookings/components/regenerate-qr-button";
+import { SettleBookingForm } from "@/features/bookings/components/settle-booking-form";
 import { CoachSessionPanel } from "@/features/coaching/components/coach-session-panel";
-import { formatRelativeTime } from "@/lib/utils";
+import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
 import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
+import { saleService } from "@/services/sales/sale.service";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   dateStyle: "medium",
@@ -41,12 +43,33 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
 
   const guestOrPlayerName = booking.player?.user.name ?? booking.player?.user.email ?? booking.guestName;
 
-  const [coachSession, allCoaches, availableCoaches] = await Promise.all([
+  const [coachSession, allCoaches, availableCoaches, paymentMethods] = await Promise.all([
     coachSessionService.getByBookingId(booking.id),
     coachAvailabilityService.listCoaches(),
     coachAvailabilityService.listAvailableCoaches(booking.startAt, booking.endAt),
+    saleService.listPaymentMethods(),
   ]);
   const availableCoachIds = new Set(availableCoaches.map((coach) => coach.id));
+  const paymentMethodOptions = paymentMethods.map((method) => ({ id: method.id, label: method.label }));
+
+  // Settle-bill (pay-at-venue gap fix): sale != null is the real "has
+  // this been paid" signal, independent of BookingStatus (see
+  // getBookingById's own comment). Shown for any booking that isn't
+  // paid yet and isn't in one of the terminal/dead states — settling
+  // can happen well after check-in, or even after the booking's own
+  // time window has passed. Excludes AWAITING_PAYMENT/
+  // PENDING_VERIFICATION deliberately: those are the WEBSITE
+  // GCash-hold flow's own states, already served by
+  // RecordGcashPaymentForm below — showing both would be two competing
+  // "record payment" UIs for the same booking.
+  const UNSETTLEABLE_STATUSES = new Set([
+    "CANCELLED",
+    "NO_SHOW",
+    "REJECTED",
+    "AWAITING_PAYMENT",
+    "PENDING_VERIFICATION",
+  ]);
+  const showSettleForm = !booking.sale && !UNSETTLEABLE_STATUSES.has(booking.status);
 
   return (
     <div className="flex flex-col gap-8">
@@ -127,6 +150,26 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
         <h2 className="text-lg font-medium">Status</h2>
         <BookingStatusActions bookingId={booking.id} currentStatus={booking.status} />
       </section>
+
+      {booking.sale ? (
+        <section className="rounded-xl border p-4">
+          <h2 className="text-sm font-medium">Payment</h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {formatCurrency(booking.sale.amountCents)} paid
+            {booking.settledVia ? ` via ${booking.settledVia === "GCASH" ? "GCash" : "Cash"}` : ""}
+            {booking.settledBy ? ` — recorded by ${booking.settledBy.name ?? booking.settledBy.email}` : ""}
+            {booking.gcashReference ? ` (ref: ${booking.gcashReference})` : ""}
+          </p>
+        </section>
+      ) : showSettleForm ? (
+        <section>
+          <SettleBookingForm
+            bookingId={booking.id}
+            amountCents={booking.totalAmountCents ?? 0}
+            paymentMethods={paymentMethodOptions}
+          />
+        </section>
+      ) : null}
 
       {booking.status === "AWAITING_PAYMENT" ? (
         // A hold waits on the customer submitting proof (BUILD-SPEC.md

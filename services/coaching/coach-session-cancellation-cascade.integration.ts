@@ -83,7 +83,7 @@ async function main(): Promise<void> {
 
   const testSlot = slot(10);
   const booking = await bookingService.createBooking(
-    { courtId: court.id, type: "HOURLY", startAt: testSlot.startAt, endAt: testSlot.endAt, guestName: "Cascade Guest", paymentMethodId: paymentMethod.id },
+    { courtId: court.id, type: "HOURLY", startAt: testSlot.startAt, endAt: testSlot.endAt, guestName: "Cascade Guest" },
     owner.id,
     saleContext,
   );
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
   // cascade check must not throw when there's nothing to cascade to.
   const bareSlot = slot(13);
   const bareBooking = await bookingService.createBooking(
-    { courtId: court.id, type: "HOURLY", startAt: bareSlot.startAt, endAt: bareSlot.endAt, guestName: "No Coach Guest", paymentMethodId: paymentMethod.id },
+    { courtId: court.id, type: "HOURLY", startAt: bareSlot.startAt, endAt: bareSlot.endAt, guestName: "No Coach Guest" },
     owner.id,
     saleContext,
   );

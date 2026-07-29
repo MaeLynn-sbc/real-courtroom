@@ -57,13 +57,13 @@ async function main(): Promise<void> {
   // otherwise a bug that ignores sortBy entirely could still pass.
   const laterSlot = slot(14);
   const laterBooking = await bookingService.createBooking(
-    { courtId: court.id, type: "HOURLY", startAt: laterSlot.startAt, endAt: laterSlot.endAt, guestName: "Later Slot Guest", paymentMethodId: paymentMethod.id },
+    { courtId: court.id, type: "HOURLY", startAt: laterSlot.startAt, endAt: laterSlot.endAt, guestName: "Later Slot Guest" },
     owner.id,
     baseSaleContext as CreateBookingSaleContext,
   );
   const earlierSlot = slot(9);
   const earlierBooking = await bookingService.createBooking(
-    { courtId: court.id, type: "HOURLY", startAt: earlierSlot.startAt, endAt: earlierSlot.endAt, guestName: "Earlier Slot Guest", paymentMethodId: paymentMethod.id },
+    { courtId: court.id, type: "HOURLY", startAt: earlierSlot.startAt, endAt: earlierSlot.endAt, guestName: "Earlier Slot Guest" },
     owner.id,
     { ...baseSaleContext, source: "WEBSITE" } as CreateBookingSaleContext,
   );

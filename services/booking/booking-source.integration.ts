@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   // (actions/booking.actions.ts never passes one).
   const staffSlot = slot(10);
   const staffBooking = await bookingService.createBooking(
-    { courtId: court.id, type: "HOURLY", startAt: staffSlot.startAt, endAt: staffSlot.endAt, guestName: "Staff Path Guest", paymentMethodId: paymentMethod.id },
+    { courtId: court.id, type: "HOURLY", startAt: staffSlot.startAt, endAt: staffSlot.endAt, guestName: "Staff Path Guest" },
     owner.id,
     baseSaleContext as CreateBookingSaleContext,
   );
@@ -68,7 +68,7 @@ async function main(): Promise<void> {
   // Public path: exactly what createPublicBookingAction passes.
   const publicSlot = slot(13);
   const publicBooking = await bookingService.createBooking(
-    { courtId: court.id, type: "HOURLY", startAt: publicSlot.startAt, endAt: publicSlot.endAt, guestName: "Public Path Guest", paymentMethodId: paymentMethod.id },
+    { courtId: court.id, type: "HOURLY", startAt: publicSlot.startAt, endAt: publicSlot.endAt, guestName: "Public Path Guest" },
     owner.id,
     { ...baseSaleContext, source: "WEBSITE" } as CreateBookingSaleContext,
   );

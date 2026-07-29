@@ -91,7 +91,7 @@ async function main(): Promise<void> {
 
   const firstSlot = slot(10);
   const firstBooking = await bookingService.createBooking(
-    { courtId: court.id, type: "HOURLY", startAt: firstSlot.startAt, endAt: firstSlot.endAt, guestName: "Rate Snapshot Guest A", paymentMethodId: paymentMethod.id },
+    { courtId: court.id, type: "HOURLY", startAt: firstSlot.startAt, endAt: firstSlot.endAt, guestName: "Rate Snapshot Guest A" },
     owner.id,
     saleContext,
   );
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
   // A NEW session created after the reprice picks up the new rate.
   const secondSlot = slot(13);
   const secondBooking = await bookingService.createBooking(
-    { courtId: court.id, type: "HOURLY", startAt: secondSlot.startAt, endAt: secondSlot.endAt, guestName: "Rate Snapshot Guest B", paymentMethodId: paymentMethod.id },
+    { courtId: court.id, type: "HOURLY", startAt: secondSlot.startAt, endAt: secondSlot.endAt, guestName: "Rate Snapshot Guest B" },
     owner.id,
     saleContext,
   );

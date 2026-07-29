@@ -106,7 +106,12 @@ model User {
   player                            Player?
   // v1.1
   employee                          Employee?
-  bookingsCreated                   Booking[]
+  bookingsCreated                   Booking[]                  @relation("BookingBookedBy")
+  // Settle-bill: who actually recorded the payment, distinct from who
+  // created the booking (bookingsCreated above) — usually the same
+  // employee, not always (a booking created at 2pm might be settled by
+  // whoever's on the desk when the customer actually pays, hours later).
+  bookingsSettled                   Booking[]                  @relation("BookingSettledBy")
   bookingHistoryChanges             BookingHistory[]
   coachSessionsBooked               CoachSession[]
   coachSessionHistoryChanges        CoachSessionHistory[]
@@ -615,11 +620,28 @@ model Booking {
   // Always NULL for STAFF bookings and any booking created before this
   // switch existed.
   holdExpiresAt    DateTime?
+  // Settle-bill (pay-at-venue gap fix): a staff/pay-at-venue booking is
+  // created with NO Sale and no assumed payment method — the customer's
+  // actual method isn't known until they actually pay, which may be well
+  // after booking time. These four mirror PlayerTab's own settlement
+  // fields exactly (same TabSettlementMethod enum, same
+  // gcashReference-required-when-GCASH shape, enforced at the service
+  // layer) — "has this booking been paid" is `sale != null`, not a
+  // BookingStatus value (PAID exists in the enum but has no reachable
+  // transition anywhere in this app; not changed by this feature).
+  // Always NULL for a WEBSITE booking, which pays through its own
+  // separate GCash-hold-and-verify flow (BookingPaymentProof), not this
+  // path.
+  settledAt        DateTime?
+  settledByUserId  String?
+  settledVia       TabSettlementMethod?
+  gcashReference   String?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
   court           Court                 @relation(fields: [courtId], references: [id])
-  bookedBy        User                  @relation(fields: [bookedById], references: [id])
+  bookedBy        User                  @relation("BookingBookedBy", fields: [bookedById], references: [id])
+  settledBy       User?                 @relation("BookingSettledBy", fields: [settledByUserId], references: [id])
   player          Player?               @relation(fields: [playerId], references: [id])
   parentBooking   Booking?              @relation("BookingRecurrence", fields: [parentBookingId], references: [id])
   recurrences     Booking[]             @relation("BookingRecurrence")

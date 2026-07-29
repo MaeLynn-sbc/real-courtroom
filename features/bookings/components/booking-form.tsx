@@ -43,11 +43,6 @@ interface BookingFormPlayer {
   label: string;
 }
 
-interface BookingFormPaymentMethod {
-  id: string;
-  label: string;
-}
-
 interface BookingFormValues {
   courtId: string;
   playerId: string;
@@ -56,13 +51,11 @@ interface BookingFormValues {
   notes: string;
   startAt: string;
   endAt: string;
-  paymentMethodId: string;
 }
 
 interface BookingFormProps {
   courts: BookingFormCourt[];
   players: BookingFormPlayer[];
-  paymentMethods: BookingFormPaymentMethod[];
 }
 
 function toLocalInputValue(date: Date): string {
@@ -72,7 +65,7 @@ function toLocalInputValue(date: Date): string {
   )}:${pad(date.getMinutes())}`;
 }
 
-export function BookingForm({ courts, players, paymentMethods }: BookingFormProps) {
+export function BookingForm({ courts, players }: BookingFormProps) {
   const router = useRouter();
   const [isWalkIn, setIsWalkIn] = useState(true);
   const [walkInDuration, setWalkInDuration] = useState(60);
@@ -94,7 +87,6 @@ export function BookingForm({ courts, players, paymentMethods }: BookingFormProp
       notes: "",
       startAt: toLocalInputValue(new Date()),
       endAt: toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)),
-      paymentMethodId: paymentMethods[0]?.id ?? "",
     },
   });
 
@@ -137,7 +129,6 @@ export function BookingForm({ courts, players, paymentMethods }: BookingFormProp
       guestName: values.guestName.trim() || undefined,
       guestPhone: values.guestPhone.trim() || undefined,
       notes: values.notes.trim() || undefined,
-      paymentMethodId: values.paymentMethodId,
     });
 
     if (!parsed.success) {
@@ -279,33 +270,12 @@ export function BookingForm({ courts, players, paymentMethods }: BookingFormProp
         <Textarea id="notes" rows={3} {...register("notes")} />
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="paymentMethodId">Payment method</Label>
-        <Controller
-          control={control}
-          name="paymentMethodId"
-          render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger id="paymentMethodId" className="w-full">
-                <SelectValue placeholder="Select a payment method">
-                  {(value: string) =>
-                    paymentMethods.find((method) => method.id === value)?.label ??
-                    "Select a payment method"
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {paymentMethods.map((method) => (
-                  <SelectItem key={method.id} value={method.id}>
-                    {method.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        />
-      </div>
-
+      {/* Settle-bill (pay-at-venue gap fix): no payment method field here
+          anymore — the customer's actual payment method isn't known
+          until they actually pay, which may be after this booking is
+          created. This booking is created unpaid; the "Settle bill"
+          action on the booking detail page records payment later, once
+          it's actually known. */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Pricing summary</CardTitle>

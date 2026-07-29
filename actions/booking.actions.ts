@@ -5,9 +5,11 @@ import { revalidatePath } from "next/cache";
 import {
   checkInByTokenSchema,
   createBookingSchema,
+  settleBookingSchema,
   updateBookingStatusSchema,
   type CheckInByTokenInput,
   type CreateBookingInput,
+  type SettleBookingInput,
   type UpdateBookingStatusInput,
 } from "@/features/bookings/schemas/booking.schema";
 import { requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
@@ -49,10 +51,12 @@ export async function createBookingAction(
   }
 
   try {
+    // Settle-bill (pay-at-venue gap fix): no paymentMethodId here — the
+    // booking is created unpaid; settleBookingAction records payment
+    // later, once it's actually known.
     const booking = await bookingService.createBooking(parsed.data, authz.userId, {
       employeeId: authz.employeeId,
       shiftId: authz.shiftId,
-      paymentMethodId: parsed.data.paymentMethodId,
     });
     revalidatePath("/dashboard/bookings");
     return { error: null, bookingId: booking.id };
@@ -115,6 +119,42 @@ export async function checkInByTokenAction(
     return { error: null, bookingId: booking.id };
   } catch (error) {
     return { error: toActionError(error, { action: "checkInByTokenAction", userId: authz.userId }) };
+  }
+}
+
+// Settle-bill (pay-at-venue gap fix): records payment for a booking
+// that was created unpaid (createBookingAction, above, no longer
+// collects a payment method up front). requireEmployeeWithOpenShift,
+// not just requireBookingsManage — this creates a Sale, same
+// employee-with-open-shift requirement every Sale-creating action in
+// this app has (see lib/action-auth.ts's own comment).
+export async function settleBookingAction(input: SettleBookingInput): Promise<BookingActionState> {
+  const authz = await requireEmployeeWithOpenShift(
+    PERMISSIONS.BOOKINGS_MANAGE,
+    "You don't have permission to manage bookings.",
+  );
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = settleBookingSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid settlement details." };
+  }
+
+  try {
+    await bookingService.settleBooking(
+      parsed.data.bookingId,
+      parsed.data.method,
+      parsed.data.gcashReference?.trim() || null,
+      { employeeId: authz.employeeId, shiftId: authz.shiftId, paymentMethodId: parsed.data.paymentMethodId },
+      authz.userId,
+    );
+    revalidatePath("/dashboard/bookings");
+    revalidatePath(`/dashboard/bookings/${parsed.data.bookingId}`);
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "settleBookingAction", userId: authz.userId }) };
   }
 }
 

@@ -21,23 +21,38 @@ import { saleService } from "@/services/sales/sale.service";
 import { settingsService } from "@/services/settings/settings.service";
 
 // v1.1 Sub-phase 2: every booking is created by a signed-in Employee with a
-// currently open Shift, and pays through one of the configured
-// PaymentMethod rows — createBookingAction resolves both before calling in.
-// Phase 12: `source` is optional and defaults to createSale's own default
-// ("RECEPTION") — the public booking action is the first caller to pass
-// "WEBSITE" here; every existing staff call site is unaffected.
+// currently open Shift — createBookingAction resolves both before calling
+// in. Phase 12: `source` is optional and defaults to createSale's own
+// default ("RECEPTION") — the public booking action is the first caller to
+// pass "WEBSITE" here; every existing staff call site is unaffected.
+//
+// Settle-bill (pay-at-venue gap fix): paymentMethodId is now OPTIONAL,
+// not removed — the public (WEBSITE) non-prepayment path
+// (public-booking.service.ts's createPublicBooking) still passes the
+// seeded "Pay at Venue" PaymentMethod and still gets an immediate Sale,
+// UNCHANGED, since that's a separate, pre-existing behavior this task
+// isn't touching. The STAFF path (actions/booking.actions.ts) now omits
+// it — the customer's real payment method isn't known at booking time
+// (they might pay cash or GCash whenever they actually settle up), so
+// createBooking creates NO Sale when paymentMethodId is absent, and
+// settling becomes its own later action (settleBooking, below) at the
+// moment payment is actually known.
 export interface CreateBookingSaleContext {
   employeeId: string;
   shiftId: string;
-  paymentMethodId: string;
+  paymentMethodId?: string;
   source?: SaleSource;
 }
 
-// Phase 8 Gate 2 — everything CreateBookingInput has except
-// paymentMethodId: a hold doesn't pay for anything yet, so requiring a
-// payment method up front (the way the staff/pay-at-court path does)
-// would be meaningless here.
-export type CreateBookingHoldInput = Omit<CreateBookingInput, "paymentMethodId">;
+// Phase 8 Gate 2 — was "everything CreateBookingInput has except
+// paymentMethodId" back when the staff path required one at creation
+// time; now a plain alias, since CreateBookingInput itself no longer
+// carries a payment method either (settle-bill gap fix — see
+// CreateBookingSaleContext's own comment). Kept as a distinct type
+// rather than collapsed into CreateBookingInput directly so a future
+// divergence between "what a hold needs" and "what a real booking
+// needs" has somewhere to live without touching every call site.
+export type CreateBookingHoldInput = CreateBookingInput;
 
 // BUILD-SPEC.md §8 "Slot holding": 4 hours from checkout start (owner's
 // deploy decision — was 30 minutes originally; changed here only, court
@@ -93,6 +108,13 @@ export class BookingConflictError extends Error {
     super(describeConflict(conflict));
     this.name = "BookingConflictError";
     this.conflict = conflict;
+  }
+}
+
+export class BookingAlreadySettledError extends Error {
+  constructor() {
+    super("This booking has already been settled.");
+    this.name = "BookingAlreadySettledError";
   }
 }
 
@@ -171,6 +193,12 @@ export class BookingService {
         court: true,
         player: { include: { user: { select: { id: true, name: true, email: true } } } },
         bookedBy: { select: { id: true, name: true, email: true } },
+        // Settle-bill: sale != null is the actual "has this been paid"
+        // signal (see CreateBookingSaleContext's own comment) — the
+        // detail page uses this to decide whether to show the Settle
+        // Bill form at all.
+        sale: true,
+        settledBy: { select: { id: true, name: true, email: true } },
         history: {
           orderBy: { createdAt: "asc" },
           include: { changedBy: { select: { id: true, name: true } } },
@@ -385,19 +413,27 @@ export class BookingService {
         },
       });
 
-      const sale = await saleService.createSale(
-        {
-          category: "BOOKING",
-          source: saleContext.source,
-          amountCents: totalAmountCents,
-          paymentMethodId: saleContext.paymentMethodId,
-          employeeId: saleContext.employeeId,
-          shiftId: saleContext.shiftId,
-          playerId: input.playerId,
-          bookingId: created.id,
-        },
-        tx,
-      );
+      // Settle-bill (pay-at-venue gap fix): only create a Sale here when
+      // a payment method is actually known right now (the WEBSITE
+      // "pay at venue by default" path, which passes the seeded "Pay at
+      // Venue" method). The staff path omits paymentMethodId — the
+      // booking is created unpaid, and settleBooking (below) creates the
+      // Sale later, once the customer's real payment method is known.
+      const sale = saleContext.paymentMethodId
+        ? await saleService.createSale(
+            {
+              category: "BOOKING",
+              source: saleContext.source,
+              amountCents: totalAmountCents,
+              paymentMethodId: saleContext.paymentMethodId,
+              employeeId: saleContext.employeeId,
+              shiftId: saleContext.shiftId,
+              playerId: input.playerId,
+              bookingId: created.id,
+            },
+            tx,
+          )
+        : null;
 
       return { booking: created, sale };
     });
@@ -410,9 +446,98 @@ export class BookingService {
       entityId: booking.booking.id,
       newValues: booking.booking,
     });
-    await saleService.logSaleCreated(booking.sale, actorUserId);
+    if (booking.sale) {
+      await saleService.logSaleCreated(booking.sale, actorUserId);
+    }
 
     return booking.booking;
+  }
+
+  // Settle-bill (pay-at-venue gap fix): the customer's payment method
+  // wasn't known at booking time — createBooking (above) created this
+  // booking with no Sale when staff omitted paymentMethodId. This is
+  // where payment is actually collected and recorded, whenever that
+  // real moment happens. Mirrors player-tab.service.ts's own settleTab
+  // exactly: same method/gcashReference shape (required reference when
+  // GCASH), same updateMany({ where: guard })-inside-a-transaction claim
+  // pattern so "settle at most once" is atomic under a concurrent
+  // double-click, not just checked-then-acted.
+  //
+  // getExpectedCashForShift / getGcashSalesForDate need no changes at
+  // all for this to work correctly — a Sale created here, at the real
+  // moment of payment, is picked up by both exactly the same way any
+  // other Sale is, and lands on the day it was actually paid instead of
+  // the day it was booked (today's actual failure mode, per the gap
+  // this fixes: revenue recorded before it was real).
+  async settleBooking(
+    bookingId: string,
+    method: "CASH" | "GCASH",
+    gcashReference: string | null,
+    saleContext: { employeeId: string; shiftId: string; paymentMethodId: string },
+    actorUserId: string,
+  ): Promise<Booking> {
+    if (method === "GCASH" && !gcashReference?.trim()) {
+      throw new Error("A GCash reference number is required.");
+    }
+
+    // Fast, friendly rejection for the two non-racing cases — not
+    // load-bearing on its own. The updateMany inside the transaction
+    // below is what actually enforces "settle at most once" under
+    // concurrency. Checked separately from settledAt: a WEBSITE booking
+    // can already have a Sale from creation time (the "pay at venue by
+    // default" path) with settledAt still null, since that path never
+    // touches these settlement fields at all — "already paid" is
+    // genuinely `sale != null`, not this action's own settledAt marker.
+    const precheck = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId }, include: { sale: true } });
+    if (precheck.sale) {
+      throw new Error("This booking is already paid.");
+    }
+    if (precheck.settledAt) {
+      throw new BookingAlreadySettledError();
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const claim = await tx.booking.updateMany({
+        where: { id: bookingId, settledAt: null },
+        data: {
+          settledAt: new Date(),
+          settledByUserId: actorUserId,
+          settledVia: method,
+          gcashReference: method === "GCASH" ? gcashReference : null,
+        },
+      });
+      if (claim.count === 0) {
+        throw new BookingAlreadySettledError();
+      }
+
+      const updated = await tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
+
+      const sale = await saleService.createSale(
+        {
+          category: "BOOKING",
+          amountCents: updated.totalAmountCents ?? 0,
+          paymentMethodId: saleContext.paymentMethodId,
+          employeeId: saleContext.employeeId,
+          shiftId: saleContext.shiftId,
+          playerId: updated.playerId ?? undefined,
+          bookingId: updated.id,
+        },
+        tx,
+      );
+
+      return { booking: updated, sale };
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "booking.settled",
+      entityType: "Booking",
+      entityId: bookingId,
+      newValues: { method, amountCents: result.sale.amountCents },
+    });
+    await saleService.logSaleCreated(result.sale, actorUserId);
+
+    return result.booking;
   }
 
   // Phase 8 Gate 2 (BUILD-SPEC.md §8 "Slot holding"). Deliberately a

@@ -4,6 +4,15 @@ import { z } from "zod";
 // PRIVATE, and MAINTENANCE_BLOCK stay valid BookingType values in the
 // database (frozen schema) but aren't exposed here. Restricting the enum
 // server-side, not just in the UI, is intentional defense in depth.
+//
+// Settle-bill (pay-at-venue gap fix): no paymentMethodId here anymore —
+// the customer's actual payment method isn't known at booking time (they
+// might pay cash or GCash whenever they actually settle up, not
+// necessarily the moment the booking is made), so nothing about payment
+// gets recorded here. A booking is always created unpaid; settling is
+// its own separate action (settleBookingAction) taken at the moment
+// money actually changes hands. See booking.service.ts's createBooking
+// and settleBooking for the full reasoning.
 export const createBookingSchema = z
   .object({
     courtId: z.string().min(1, "Select a court."),
@@ -15,7 +24,6 @@ export const createBookingSchema = z
     guestPhone: z.string().max(50).optional(),
     guestEmail: z.string().email().max(200).optional(),
     notes: z.string().max(1000).optional(),
-    paymentMethodId: z.string().min(1, "Select a payment method."),
   })
   .refine((data) => data.endAt > data.startAt, {
     message: "End time must be after the start time.",
@@ -27,6 +35,25 @@ export const createBookingSchema = z
   });
 
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;
+
+// Settle-bill: mirrors player-tab.service.ts's settleTab shape exactly
+// (method + conditionally-required gcashReference). Validated again at
+// the service layer (gcashReference required when method is GCASH) since
+// that's a cross-field rule this schema also enforces, defense in depth
+// same as every other money-creating action in this app.
+export const settleBookingSchema = z
+  .object({
+    bookingId: z.string().min(1),
+    method: z.enum(["CASH", "GCASH"]),
+    gcashReference: z.string().max(200).optional(),
+    paymentMethodId: z.string().min(1, "Select a payment method."),
+  })
+  .refine((data) => data.method !== "GCASH" || Boolean(data.gcashReference?.trim()), {
+    message: "A GCash reference number is required.",
+    path: ["gcashReference"],
+  });
+
+export type SettleBookingInput = z.infer<typeof settleBookingSchema>;
 
 // All 11 schema-level BookingStatus values are accepted here (matches the
 // frozen Prisma enum exactly) — it's BookingService's state machine

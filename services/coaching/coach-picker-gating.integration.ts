@@ -94,7 +94,7 @@ async function main(): Promise<void> {
   console.log("PASS: listCoaches (the availability-management picker) excludes the non-coach employee too.");
 
   const booking = await bookingService.createBooking(
-    { courtId: court.id, type: "HOURLY", startAt: testSlot.startAt, endAt: testSlot.endAt, guestName: "Picker Gate Guest", paymentMethodId: paymentMethod.id },
+    { courtId: court.id, type: "HOURLY", startAt: testSlot.startAt, endAt: testSlot.endAt, guestName: "Picker Gate Guest" },
     owner.id,
     saleContext,
   );

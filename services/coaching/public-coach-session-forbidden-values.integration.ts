@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   // --- Scenario 1: slot INSIDE the window ---
   const insideSlot = slot(9);
   const insideBooking = await bookingService.createBooking(
-    { courtId: court.id, type: "HOURLY", startAt: insideSlot.startAt, endAt: insideSlot.endAt, guestName: "Forbidden Inside Guest", paymentMethodId: paymentMethod.id },
+    { courtId: court.id, type: "HOURLY", startAt: insideSlot.startAt, endAt: insideSlot.endAt, guestName: "Forbidden Inside Guest" },
     owner.id,
     saleContext,
   );
@@ -131,7 +131,7 @@ async function main(): Promise<void> {
   // --- Scenario 2: slot OUTSIDE the window, same forbidden override ---
   const outsideSlot = slot(14);
   const outsideBooking = await bookingService.createBooking(
-    { courtId: court.id, type: "HOURLY", startAt: outsideSlot.startAt, endAt: outsideSlot.endAt, guestName: "Forbidden Outside Guest", paymentMethodId: paymentMethod.id },
+    { courtId: court.id, type: "HOURLY", startAt: outsideSlot.startAt, endAt: outsideSlot.endAt, guestName: "Forbidden Outside Guest" },
     owner.id,
     saleContext,
   );

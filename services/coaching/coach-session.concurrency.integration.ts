@@ -99,12 +99,12 @@ async function main(): Promise<void> {
   // the SAME coach to overlapping times.
   const testSlot = slot(11);
   const bookingA = await bookingService.createBooking(
-    { courtId: courtA.id, type: "HOURLY", startAt: testSlot.startAt, endAt: testSlot.endAt, guestName: "Coach Race Guest A", paymentMethodId: paymentMethod.id },
+    { courtId: courtA.id, type: "HOURLY", startAt: testSlot.startAt, endAt: testSlot.endAt, guestName: "Coach Race Guest A" },
     owner.id,
     saleContext,
   );
   const bookingB = await bookingService.createBooking(
-    { courtId: courtB.id, type: "HOURLY", startAt: testSlot.startAt, endAt: testSlot.endAt, guestName: "Coach Race Guest B", paymentMethodId: paymentMethod.id },
+    { courtId: courtB.id, type: "HOURLY", startAt: testSlot.startAt, endAt: testSlot.endAt, guestName: "Coach Race Guest B" },
     owner.id,
     saleContext,
   );

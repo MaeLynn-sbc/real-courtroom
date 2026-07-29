@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { BookingForm } from "@/features/bookings/components/booking-form";
 import { courtService } from "@/services/court/court.service";
 import { playerService } from "@/services/player/player.service";
-import { saleService } from "@/services/sales/sale.service";
 
 export const metadata: Metadata = {
   title: "New Booking",
@@ -17,11 +16,7 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function NewBookingPage() {
-  const [courts, players, paymentMethods] = await Promise.all([
-    courtService.listCourts(),
-    playerService.listPlayers(),
-    saleService.listPaymentMethods(),
-  ]);
+  const [courts, players] = await Promise.all([courtService.listCourts(), playerService.listPlayers()]);
 
   const activeCourts = courts
     .filter((court) => court.status !== "DISABLED")
@@ -32,11 +27,6 @@ export default async function NewBookingPage() {
     label: player.user.name ?? player.user.email ?? "Unknown player",
   }));
 
-  const paymentMethodOptions = paymentMethods.map((method) => ({
-    id: method.id,
-    label: method.label,
-  }));
-
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-6">
       <div>
@@ -45,7 +35,7 @@ export default async function NewBookingPage() {
           Book a court for a walk-in or a specific future time.
         </p>
       </div>
-      <BookingForm courts={activeCourts} players={playerOptions} paymentMethods={paymentMethodOptions} />
+      <BookingForm courts={activeCourts} players={playerOptions} />
     </div>
   );
 }

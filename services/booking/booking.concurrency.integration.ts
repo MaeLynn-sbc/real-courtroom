@@ -59,8 +59,8 @@ async function testCreateBookingNeverDoubleBooks(courtId: string, actorUserId: s
 
   console.log("  Firing 2 concurrent createBooking calls for the same court/time...");
   const results = await Promise.allSettled([
-    bookingService.createBooking({ courtId, type: "HOURLY", startAt, endAt, guestName: "Race Guest A", paymentMethodId: saleContext.paymentMethodId }, actorUserId, saleContext),
-    bookingService.createBooking({ courtId, type: "HOURLY", startAt, endAt, guestName: "Race Guest B", paymentMethodId: saleContext.paymentMethodId }, actorUserId, saleContext),
+    bookingService.createBooking({ courtId, type: "HOURLY", startAt, endAt, guestName: "Race Guest A" }, actorUserId, saleContext),
+    bookingService.createBooking({ courtId, type: "HOURLY", startAt, endAt, guestName: "Race Guest B" }, actorUserId, saleContext),
   ]);
 
   const fulfilled = results.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof bookingService.createBooking>>> => r.status === "fulfilled");

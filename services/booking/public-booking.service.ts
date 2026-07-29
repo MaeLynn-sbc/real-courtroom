@@ -71,8 +71,11 @@ export async function createPublicBooking(input: CreatePublicBookingInput): Prom
   }
 
   // Every field here is already validated by the caller (publicBookingSchema)
-  // or computed by it (startAt/endAt) — paymentMethodId is the real seeded
-  // "Pay at Venue" id, not customer input.
+  // or computed by it (startAt/endAt). The payment method itself
+  // (the real seeded "Pay at Venue" id, not customer input) is passed
+  // separately below, in saleContext — CreateBookingInput itself never
+  // carried payment info structurally (settle-bill gap fix removed the
+  // staff form's own redundant copy of it too).
   const bookingInput: CreateBookingInput = {
     courtId: input.courtId,
     type: "HOURLY",
@@ -80,7 +83,6 @@ export async function createPublicBooking(input: CreatePublicBookingInput): Prom
     endAt: input.endAt,
     guestName: input.guestName,
     guestPhone: input.guestPhone,
-    paymentMethodId: context.paymentMethodId,
   };
 
   const booking = await bookingService.createBooking(bookingInput, context.userId, {
