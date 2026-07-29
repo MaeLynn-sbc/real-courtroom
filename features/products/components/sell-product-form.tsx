@@ -120,12 +120,30 @@ export function SellProductForm({ products, players, paymentMethods }: SellProdu
                   selected ? "border-primary/50 bg-primary/[0.04]" : "hover:bg-accent",
                 )}
               >
+                {/* Reported live: the name/price here were unreadable —
+                    this button sets bg-card (white, even in this app's
+                    dark theme — see globals.css's --card) but never
+                    paired it with text-card-foreground the way the
+                    shared Card component always does (card.tsx), so
+                    the text fell back to the page's own near-white
+                    dark-mode foreground/muted-foreground — invisible
+                    on a white card. Selected state is UNCHANGED and
+                    deliberately not touched: bg-primary/[0.04] there
+                    overrides bg-card entirely (letting the dark page
+                    show through, tinted), so the page-level colors it
+                    already had were correct for that background. */}
                 <ShoppingBag
-                  className={cn("size-4", selected ? "text-primary" : "text-muted-foreground")}
+                  className={cn("size-4", selected ? "text-primary" : "text-card-foreground/60")}
                   aria-hidden="true"
                 />
-                <span className={cn("text-sm", selected ? "font-semibold" : "font-medium")}>{product.name}</span>
-                <span className="text-muted-foreground text-xs">{formatCurrency(product.priceCents)}</span>
+                <span
+                  className={cn("text-sm", selected ? "font-semibold" : "text-card-foreground font-medium")}
+                >
+                  {product.name}
+                </span>
+                <span className={cn("text-xs", selected ? "text-muted-foreground" : "text-card-foreground/60")}>
+                  {formatCurrency(product.priceCents)}
+                </span>
               </button>
             );
           })}
