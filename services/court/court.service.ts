@@ -61,6 +61,7 @@ export class CourtService {
         description: input.description,
         indoor: input.indoor,
         hourlyRateCents: input.hourlyRateCents,
+        shortSessionPriceCents: input.shortSessionPriceCents,
       },
     });
 
@@ -89,6 +90,7 @@ export class CourtService {
         description: input.description,
         indoor: input.indoor,
         hourlyRateCents: input.hourlyRateCents,
+        shortSessionPriceCents: input.shortSessionPriceCents,
       },
     });
 

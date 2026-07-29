@@ -17,16 +17,20 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function NewBookingPage() {
-  const [courts, players, courtHours, openPlaySettings] = await Promise.all([
+  const [courts, players, courtHours] = await Promise.all([
     courtService.listCourts(),
     playerService.listPlayers(),
     settingsService.getCourtHours(),
-    settingsService.getOpenPlaySettings(),
   ]);
 
   const activeCourts = courts
     .filter((court) => court.status !== "DISABLED")
-    .map((court) => ({ id: court.id, name: court.name, hourlyRateCents: court.hourlyRateCents }));
+    .map((court) => ({
+      id: court.id,
+      name: court.name,
+      hourlyRateCents: court.hourlyRateCents,
+      shortSessionPriceCents: court.shortSessionPriceCents,
+    }));
 
   const playerOptions = players.map((player) => ({
     id: player.id,
@@ -41,12 +45,7 @@ export default async function NewBookingPage() {
           Book a court for a walk-in or a specific future time.
         </p>
       </div>
-      <BookingForm
-        courts={activeCourts}
-        players={playerOptions}
-        courtHours={courtHours}
-        shortSessionPriceCents={openPlaySettings.shortSessionPriceCents}
-      />
+      <BookingForm courts={activeCourts} players={playerOptions} courtHours={courtHours} />
     </div>
   );
 }

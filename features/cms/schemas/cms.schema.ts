@@ -124,14 +124,6 @@ export const openPlaySettingsSchema = z.object({
   // Sale itself is created (and its amountCents fixed) at registration
   // time, not read again later.
   friSatRegistrationFeeCents: z.number().int().nonnegative(),
-  // Front-desk 30-minute walk-in slot (staff form only — the public
-  // /book form's own duration list never offers this). A flat price,
-  // not half the hourly rate (services/booking/booking.service.ts's
-  // createBooking bypasses the hourlyRateCents × durationHours formula
-  // entirely for an exactly-30-minute booking) — same "flat fee, not
-  // derived from a rate table" shape as friSatRegistrationFeeCents
-  // above.
-  shortSessionPriceCents: z.number().int().nonnegative(),
 });
 
 export type OpenPlaySettings = z.infer<typeof openPlaySettingsSchema>;

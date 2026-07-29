@@ -147,8 +147,6 @@ const DEFAULT_OPEN_PLAY_SETTINGS: OpenPlaySettings = {
   // BUILD-SPEC.md §9 "Fri/Sat ₱150 registrations" — the actual, real
   // amount collected at the desk since Phase 7, only now recorded.
   friSatRegistrationFeeCents: 15000,
-  // Front-desk 30-minute walk-in slot — owner decision, ₱200 flat.
-  shortSessionPriceCents: 20000,
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never

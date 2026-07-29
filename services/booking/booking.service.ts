@@ -368,23 +368,23 @@ export class BookingService {
 
       const court = await tx.court.findUniqueOrThrow({
         where: { id: input.courtId },
-        select: { name: true, hourlyRateCents: true },
+        select: { name: true, hourlyRateCents: true, shortSessionPriceCents: true },
       });
       const durationMinutes = (input.endAt.getTime() - input.startAt.getTime()) / 60_000;
       const durationHours = durationMinutes / 60;
-      // Front-desk 30-minute walk-in slot: a flat, owner-editable price
-      // (shortSessionPriceCents), not half the hourly rate — same "flat
-      // fee, not derived from a rate table" shape as the Fri/Sat ₱150
-      // walk-in registration fee. The public form's own duration list
-      // never offers 30 minutes (features/bookings/components/
-      // public-booking-form.tsx stays [60,120,180,240]), so an exactly-
-      // 30-minute span reaching here always means this staff-only flat
-      // price, unambiguously — no separate flag needed on Booking
-      // itself to tell the two pricing paths apart later.
+      // Front-desk 30-minute walk-in slot: a flat, per-court,
+      // owner-editable price (Court.shortSessionPriceCents, edited
+      // alongside hourlyRateCents on the Courts screen), not half the
+      // hourly rate — same "flat fee, not derived from a rate table"
+      // shape as the Fri/Sat ₱150 walk-in registration fee. The public
+      // form's own duration list never offers 30 minutes (features/
+      // bookings/components/public-booking-form.tsx stays
+      // [60,120,180,240]), so an exactly-30-minute span reaching here
+      // always means this staff-only flat price, unambiguously — no
+      // separate flag needed on Booking itself to tell the two pricing
+      // paths apart later.
       const totalAmountCents =
-        durationMinutes === 30
-          ? (await settingsService.getOpenPlaySettings()).shortSessionPriceCents
-          : Math.round((court.hourlyRateCents ?? 0) * durationHours);
+        durationMinutes === 30 ? court.shortSessionPriceCents : Math.round((court.hourlyRateCents ?? 0) * durationHours);
 
       // Staff/owner bookings outside the effective operating window
       // are allowed (unlike WEBSITE, which checkAvailabilityWithClient

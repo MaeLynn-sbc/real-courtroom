@@ -11,6 +11,11 @@ export const createCourtSchema = z.object({
   description: z.string().max(500).optional(),
   indoor: z.boolean(),
   hourlyRateCents: z.coerce.number().int().nonnegative(),
+  // Staff-only 30-minute walk-in slot, flat price per court — see
+  // Court.shortSessionPriceCents' own schema.prisma comment for why
+  // this is per-court (matching hourlyRateCents) rather than a single
+  // venue-wide setting.
+  shortSessionPriceCents: z.coerce.number().int().nonnegative(),
 });
 
 export type CreateCourtInput = z.infer<typeof createCourtSchema>;
@@ -20,6 +25,7 @@ export const updateCourtSchema = z.object({
   description: z.string().max(500).optional(),
   indoor: z.boolean(),
   hourlyRateCents: z.coerce.number().int().nonnegative(),
+  shortSessionPriceCents: z.coerce.number().int().nonnegative(),
 });
 
 export type UpdateCourtInput = z.infer<typeof updateCourtSchema>;

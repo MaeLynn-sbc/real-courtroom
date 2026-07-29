@@ -113,6 +113,13 @@ interface BookingFormCourt {
   id: string;
   name: string;
   hourlyRateCents: number | null;
+  // Flat, per-court price for the 30-minute walk-in option — owner-
+  // editable on the Courts screen (features/courts/components/
+  // court-form.tsx), not derived from hourlyRateCents. Only ever used
+  // for a preview here; the server computes and persists the real
+  // amount independently, same as every other price shown on this
+  // form.
+  shortSessionPriceCents: number;
 }
 
 interface BookingFormPlayer {
@@ -132,12 +139,6 @@ interface BookingFormProps {
   courts: BookingFormCourt[];
   players: BookingFormPlayer[];
   courtHours: CourtHoursSettings;
-  // Flat price for the 30-minute walk-in option — owner-editable
-  // (features/open-play-capacity/components/open-play-settings-panel.tsx),
-  // not derived from the court's hourly rate. Only ever used for a
-  // preview here; the server computes and persists the real amount
-  // independently, same as every other price shown on this form.
-  shortSessionPriceCents: number;
 }
 
 function toLocalDateValue(date: Date): string {
@@ -145,7 +146,7 @@ function toLocalDateValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-export function BookingForm({ courts, players, courtHours, shortSessionPriceCents }: BookingFormProps) {
+export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
   const router = useRouter();
   const [isWalkIn, setIsWalkIn] = useState(true);
   // Shared by both modes — walk-in's own duration select already only
@@ -199,7 +200,7 @@ export function BookingForm({ courts, players, courtHours, shortSessionPriceCent
   const durationHours = durationMinutes / 60;
   const previewTotalCents =
     durationMinutes === 30
-      ? shortSessionPriceCents
+      ? (selectedCourt?.shortSessionPriceCents ?? 0)
       : selectedCourt?.hourlyRateCents != null
         ? Math.round(selectedCourt.hourlyRateCents * durationHours)
         : 0;

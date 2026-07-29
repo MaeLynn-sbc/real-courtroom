@@ -106,12 +106,12 @@ model User {
   player                            Player?
   // v1.1
   employee                          Employee?
-  bookingsCreated                   Booking[]                  @relation("BookingBookedBy")
+  bookingsCreated                   Booking[]                 @relation("BookingBookedBy")
   // Settle-bill: who actually recorded the payment, distinct from who
   // created the booking (bookingsCreated above) — usually the same
   // employee, not always (a booking created at 2pm might be settled by
   // whoever's on the desk when the customer actually pays, hours later).
-  bookingsSettled                   Booking[]                  @relation("BookingSettledBy")
+  bookingsSettled                   Booking[]                 @relation("BookingSettledBy")
   bookingHistoryChanges             BookingHistory[]
   coachSessionsBooked               CoachSession[]
   coachSessionHistoryChanges        CoachSessionHistory[]
@@ -476,15 +476,30 @@ enum MaintenanceStatus {
 }
 
 model Court {
-  id              String      @id @default(cuid())
-  name            String      @unique
-  description     String?
-  indoor          Boolean     @default(true)
-  status          CourtStatus @default(ACTIVE)
-  hourlyRateCents Int?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  deletedAt       DateTime?
+  id                     String      @id @default(cuid())
+  name                   String      @unique
+  description            String?
+  indoor                 Boolean     @default(true)
+  status                 CourtStatus @default(ACTIVE)
+  hourlyRateCents        Int?
+  // Staff-only 30-minute walk-in slot (front-desk booking form, never
+  // the public site) — a flat price per court, edited alongside
+  // hourlyRateCents on the same Courts screen, same nullability
+  // pattern deliberately NOT followed: this one is NOT NULL with a
+  // real default (₱200) rather than nullable, since "unset" has no
+  // sensible fallback the way a null hourly rate does elsewhere (a
+  // court with no hourly rate just can't be booked hourly; a court
+  // with no flat price would need one anyway the first time someone
+  // tries to use it). Per-court, not a single venue-wide setting,
+  // deliberately matching hourlyRateCents' own shape — even though all
+  // three courts happen to share one price today, court pricing is
+  // established as per-court data on this model, not a global CMS
+  // setting (which would have been a category error: this has nothing
+  // to do with open play).
+  shortSessionPriceCents Int         @default(20000)
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  deletedAt              DateTime?
 
   maintenanceRecords   CourtMaintenance[]
   bookings             Booking[]
@@ -577,20 +592,20 @@ enum BookingSource {
 // Database freeze) is the human-friendly, stable identifier shown in UI/
 // receipts/communication ("BK-YYYYMMDD-NNNN") — id stays the internal PK.
 model Booking {
-  id               String        @id @default(cuid())
-  bookingReference String        @unique
+  id               String               @id @default(cuid())
+  bookingReference String               @unique
   courtId          String
   bookedById       String
   playerId         String?
   parentBookingId  String?
   type             BookingType
-  status           BookingStatus @default(PENDING)
+  status           BookingStatus        @default(PENDING)
   // @default(UNKNOWN) exists solely so the migration can add this as a
   // real NOT NULL column against existing rows — every application-level
   // write path sets it explicitly (createBooking) or resolves it
   // deliberately (the one-time backfill script), never relies on this
   // default going forward.
-  source           BookingSource @default(UNKNOWN)
+  source           BookingSource        @default(UNKNOWN)
   startAt          DateTime
   endAt            DateTime
   recurrenceRule   String?
@@ -598,7 +613,7 @@ model Booking {
   guestPhone       String?
   guestEmail       String?
   totalAmountCents Int?
-  qrCodeToken      String?       @unique
+  qrCodeToken      String?              @unique
   notes            String?
   cancelledAt      DateTime?
   // v1.2 Phase 2: set when a staff/owner booking falls outside the
@@ -606,7 +621,7 @@ model Booking {
   // is a PUBLIC limit, not a data limit") — staff can always book past
   // hours, this just flags it for reporting. Always false for WEBSITE
   // bookings, since those are blocked outright instead of flagged.
-  isAfterHours     Boolean       @default(false)
+  isAfterHours     Boolean              @default(false)
   // Phase 8 plumbing. Set only for the public GCash hold (status =
   // AWAITING_PAYMENT): now + 30 minutes at checkout start. Explicitly
   // set back to NULL the moment payment proof is submitted (status ->
@@ -636,8 +651,8 @@ model Booking {
   settledByUserId  String?
   settledVia       TabSettlementMethod?
   gcashReference   String?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   court           Court                 @relation(fields: [courtId], references: [id])
   bookedBy        User                  @relation("BookingBookedBy", fields: [bookedById], references: [id])
@@ -1139,21 +1154,21 @@ model OpenPlayCapacityDefault {
 // is authoritative for that date from then on; it does not track later
 // changes to the weekday default.
 model OpenPlayNightSession {
-  id        String              @id @default(cuid())
-  date      DateTime
-  startAt   DateTime
-  endAt     DateTime
-  capacity  Int
-  status    OpenPlayNightStatus @default(OPEN)
+  id                        String              @id @default(cuid())
+  date                      DateTime
+  startAt                   DateTime
+  endAt                     DateTime
+  capacity                  Int
+  status                    OpenPlayNightStatus @default(OPEN)
   // Date-specific override, independent of both the feature-wide switch
   // and OpenPlayCapacityDefault.onlineRegistrationEnabled's day-of-week
   // default — e.g. "this particular Friday is a tournament, no online
   // registration that night" even though Fridays are normally open.
   // Walk-in/staff registration is untouched by this; it only gates
   // createPublicOpenPlayRegistration.
-  onlineRegistrationBlocked Boolean @default(false)
-  createdAt DateTime            @default(now())
-  updatedAt DateTime            @updatedAt
+  onlineRegistrationBlocked Boolean             @default(false)
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
 
   registrations   OpenPlayNightRegistration[]
   queueEntries    QueueEntry[]

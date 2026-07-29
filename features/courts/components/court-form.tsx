@@ -16,6 +16,7 @@ import { createCourtSchema } from "@/features/courts/schemas/court.schema";
 import type { Court } from "@/lib/generated/prisma/client";
 
 const DEFAULT_HOURLY_RATE_CENTS = 40000;
+const DEFAULT_SHORT_SESSION_PRICE_CENTS = 20000;
 
 interface CourtFormProps {
   court?: Court;
@@ -38,6 +39,7 @@ export function CourtForm({ court }: CourtFormProps) {
       description: court?.description ?? undefined,
       indoor: court?.indoor ?? true,
       hourlyRateCents: court?.hourlyRateCents ?? DEFAULT_HOURLY_RATE_CENTS,
+      shortSessionPriceCents: court?.shortSessionPriceCents ?? DEFAULT_SHORT_SESSION_PRICE_CENTS,
     },
   });
 
@@ -96,6 +98,24 @@ export function CourtForm({ court }: CourtFormProps) {
         />
         {errors.hourlyRateCents ? (
           <p className="text-destructive text-sm">{errors.hourlyRateCents.message}</p>
+        ) : null}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="shortSessionPriceCents">30-minute walk-in price (cents, flat)</Label>
+        <p className="text-muted-foreground text-xs">
+          Staff-only front-desk option — someone who only wants to play half an hour. A flat
+          price, not half the hourly rate above. Never offered on the public booking site.
+        </p>
+        <Input
+          id="shortSessionPriceCents"
+          type="number"
+          min={0}
+          step={1}
+          {...register("shortSessionPriceCents")}
+        />
+        {errors.shortSessionPriceCents ? (
+          <p className="text-destructive text-sm">{errors.shortSessionPriceCents.message}</p>
         ) : null}
       </div>
 

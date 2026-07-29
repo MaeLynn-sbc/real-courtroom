@@ -1,15 +1,16 @@
 /**
  * Staff-only 30-minute walk-in slot, flat-priced. Proves, against real
  * rows:
- *   1. A 30-minute staff booking's totalAmountCents equals the
- *      owner-editable shortSessionPriceCents setting, NOT half the
- *      court's hourly rate (₱350/hr × 0.5 = ₱175 — the flat price is
- *      ₱200 by default, a genuinely different number, so this can't
- *      pass by accident).
- *   2. Changing the setting changes the price of the NEXT booking
- *      created — proves it's actually read from settings at booking
- *      time, not a hardcoded constant that happens to match the
- *      default.
+ *   1. A 30-minute staff booking's totalAmountCents equals the court's own
+ *      owner-editable shortSessionPriceCents column, NOT half the court's
+ *      hourly rate (₱350/hr × 0.5 = ₱175 — the flat price is ₱200 by
+ *      default, a genuinely different number, so this can't pass by
+ *      accident).
+ *   2. Changing the court's shortSessionPriceCents changes the price of
+ *      the NEXT booking created — proves it's actually read from the
+ *      court row at booking time, not a hardcoded constant that happens
+ *      to match the default. This is per-court data, not a venue-wide
+ *      setting (matching hourlyRateCents' own shape).
  *   3. Settling a 30-minute booking collects exactly the flat price,
  *      correctly reflected in shift cash reconciliation — the
  *      settle-bill path needs no changes for this to work, since it
@@ -24,7 +25,6 @@ import "dotenv/config";
 import { prisma } from "../../lib/prisma";
 import { bookingService } from "./booking.service";
 import { shiftService } from "../shift/shift.service";
-import { settingsService } from "../settings/settings.service";
 
 const TEST_DATE = new Date(2031, 3, 9); // Wednesday, distinct from this dir's other fixture dates
 
@@ -61,10 +61,10 @@ async function main(): Promise<void> {
 
   await cleanUp(court.id);
 
-  // Save the real settings to restore afterward — this test deliberately
-  // changes shortSessionPriceCents mid-run (point 2) and must not leave
-  // that change behind for real usage.
-  const originalSettings = await settingsService.getOpenPlaySettings();
+  // Save the court's real price to restore afterward — this test
+  // deliberately changes shortSessionPriceCents mid-run (point 2) and
+  // must not leave that change behind for real usage.
+  const originalShortSessionPriceCents = court.shortSessionPriceCents;
 
   const shift = await prisma.shift.create({
     data: { shiftNumber: `SHIFT-SHORTSESSION-${Date.now()}`, employeeId: employee.id, status: "OPEN", openingCashCents: 0 },
@@ -72,9 +72,9 @@ async function main(): Promise<void> {
   const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
 
   try {
-    // ============== 1. 30-minute booking prices at the flat setting ==============
+    // ============== 1. 30-minute booking prices at the flat court price ==============
     assert(
-      originalSettings.shortSessionPriceCents !== Math.round((court.hourlyRateCents ?? 0) * 0.5),
+      originalShortSessionPriceCents !== Math.round((court.hourlyRateCents ?? 0) * 0.5),
       "test fixture invalid: the flat price must differ from half the hourly rate, or this test can't distinguish them",
     );
 
@@ -85,8 +85,8 @@ async function main(): Promise<void> {
       { employeeId: employee.id, shiftId: shift.id },
     );
     assert(
-      shortBooking.totalAmountCents === originalSettings.shortSessionPriceCents,
-      `expected a 30-minute booking to price at the flat shortSessionPriceCents (${originalSettings.shortSessionPriceCents}), got ${shortBooking.totalAmountCents}`,
+      shortBooking.totalAmountCents === originalShortSessionPriceCents,
+      `expected a 30-minute booking to price at the court's flat shortSessionPriceCents (${originalShortSessionPriceCents}), got ${shortBooking.totalAmountCents}`,
     );
     const halfHourlyWouldBe = Math.round((court.hourlyRateCents ?? 0) * 0.5);
     assert(
@@ -94,12 +94,12 @@ async function main(): Promise<void> {
       `expected the flat price to differ from half the hourly rate (${halfHourlyWouldBe}) — got the same number, can't tell if this is really flat-priced or coincidentally equal`,
     );
     console.log(
-      `PASS: a 30-minute booking prices at the flat ₱${shortBooking.totalAmountCents / 100} setting, not half the hourly rate (would be ₱${halfHourlyWouldBe / 100}).`,
+      `PASS: a 30-minute booking prices at the flat ₱${shortBooking.totalAmountCents / 100} court price, not half the hourly rate (would be ₱${halfHourlyWouldBe / 100}).`,
     );
 
-    // ============== 2. Changing the setting changes the next booking's price ==============
+    // ============== 2. Changing the court's price changes the next booking's price ==============
     const customPriceCents = 25000; // ₱250 — deliberately different from both the default ₱200 and half-hourly
-    await settingsService.setOpenPlaySettings({ ...originalSettings, shortSessionPriceCents: customPriceCents }, owner.id);
+    await prisma.court.update({ where: { id: court.id }, data: { shortSessionPriceCents: customPriceCents } });
 
     const shortSlot2 = slot(10, 30);
     const shortBooking2 = await bookingService.createBooking(
@@ -109,13 +109,13 @@ async function main(): Promise<void> {
     );
     assert(
       shortBooking2.totalAmountCents === customPriceCents,
-      `expected the booking to price at the just-changed setting (${customPriceCents}), got ${shortBooking2.totalAmountCents} — it's not really reading the setting at booking time`,
+      `expected the booking to price at the just-changed court price (${customPriceCents}), got ${shortBooking2.totalAmountCents} — it's not really reading the court row at booking time`,
     );
-    console.log("PASS: changing shortSessionPriceCents changes the price of the next 30-minute booking created — genuinely owner-editable, not a hardcoded constant.");
+    console.log("PASS: changing the court's shortSessionPriceCents changes the price of the next 30-minute booking created on that court — genuinely per-court and owner-editable, not a hardcoded constant.");
 
-    // Restore real settings immediately — nothing below this point should
-    // run under the test's temporary override.
-    await settingsService.setOpenPlaySettings(originalSettings, owner.id);
+    // Restore the court's real price immediately — nothing below this
+    // point should run under the test's temporary override.
+    await prisma.court.update({ where: { id: court.id }, data: { shortSessionPriceCents: originalShortSessionPriceCents } });
 
     // ============== 3. Settling a 30-minute booking collects the flat price ==============
     const expectedBeforeSettle = await shiftService.getExpectedCashForShift(shift);
@@ -128,11 +128,11 @@ async function main(): Promise<void> {
     );
     const expectedAfterSettle = await shiftService.getExpectedCashForShift(shift);
     assert(
-      expectedAfterSettle === expectedBeforeSettle + originalSettings.shortSessionPriceCents,
-      `expected settling the 30-minute booking to add exactly the flat price (${originalSettings.shortSessionPriceCents}) to expected cash — got a delta of ${expectedAfterSettle - expectedBeforeSettle}`,
+      expectedAfterSettle === expectedBeforeSettle + originalShortSessionPriceCents,
+      `expected settling the 30-minute booking to add exactly the flat price (${originalShortSessionPriceCents}) to expected cash — got a delta of ${expectedAfterSettle - expectedBeforeSettle}`,
     );
     const sale = await prisma.sale.findUnique({ where: { bookingId: shortBooking.id } });
-    assert(sale !== null && sale.amountCents === originalSettings.shortSessionPriceCents, "expected the Sale amount to be exactly the flat price, not a fraction of the hourly rate");
+    assert(sale !== null && sale.amountCents === originalShortSessionPriceCents, "expected the Sale amount to be exactly the flat price, not a fraction of the hourly rate");
     console.log("PASS: settling a 30-minute booking collects exactly the flat price — the settle-bill path needed no changes, it just reads Booking.totalAmountCents as always.");
 
     // ============== 4. Regression: a 60-minute booking is unaffected ==============
@@ -153,7 +153,9 @@ async function main(): Promise<void> {
     await prisma.shift.delete({ where: { id: shift.id } });
     console.log("\nPASS: the 30-minute flat-price walk-in slot is proven against real rows, end to end.");
   } catch (error) {
-    await settingsService.setOpenPlaySettings(originalSettings, owner.id).catch(() => {});
+    await prisma.court
+      .update({ where: { id: court.id }, data: { shortSessionPriceCents: originalShortSessionPriceCents } })
+      .catch(() => {});
     await cleanUp(court.id);
     await prisma.shift.delete({ where: { id: shift.id } }).catch(() => {});
     throw error;
