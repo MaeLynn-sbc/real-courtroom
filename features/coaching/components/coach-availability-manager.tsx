@@ -341,7 +341,14 @@ export function CoachAvailabilityManager({
                     "flex flex-col items-center gap-0.5 rounded-lg border px-1 py-2 text-xs font-medium transition-colors",
                     isSelected
                       ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background hover:bg-accent border-input",
+                      : // Reported live: bg-background is this app's dark
+                        // page-navy token, but this button sits inside a
+                        // white Card — text here inherits the Card's dark
+                        // text-card-foreground, so unselected days were
+                        // dark text on a dark background. bg-card matches
+                        // the parent Card's own white background (same
+                        // pairing card.tsx always uses) instead.
+                        "bg-card text-card-foreground hover:bg-accent border-input",
                   )}
                 >
                   <span className="uppercase tracking-wide opacity-80">{weekdayFormatter.format(day)}</span>
