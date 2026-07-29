@@ -51,8 +51,8 @@ export default async function OpenPlayCapacityPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Fri/Sat Open Play</h1>
         <p className="text-muted-foreground text-sm">
-          Scheduled, prepaid, capacity-limited capacity nights. Looking for tonight&apos;s weeknight
-          drop-in check-in instead? Use &quot;Weeknight Open Play&quot; in the sidebar.
+          Scheduled, prepaid, capacity-limited capacity nights. Looking for tonight&apos;s regular
+          drop-in check-in instead? Use &quot;Regular Open Play&quot; in the sidebar.
         </p>
       </div>
 

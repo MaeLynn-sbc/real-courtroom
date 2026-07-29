@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-// Nav-split (presentation/routing only): "Weeknight Open Play" needs a
+// Nav-split (presentation/routing only): "Regular Open Play" needs a
 // static href in lib/config.ts, but the actual destination is today's
 // date, which changes daily. This route is the bridge — server-side
 // (same TZ=Asia/Manila correctness this app enforces everywhere else,

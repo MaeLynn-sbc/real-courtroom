@@ -133,18 +133,19 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div>
-        {/* Weeknight has no list/roster page of its own to go "back" to
-            the way Fri/Sat's own branch does (below) — it's reached
-            directly from the "Weeknight Open Play" nav entry, always for
-            today, not from a list of other weeknights. Pointing this at
-            /dashboard/admin/open-play-capacity (now Fri/Sat-only, per
-            the nav split) would be actively wrong, not just stale, so
-            this goes back to the dashboard instead. */}
+        {/* This regular-open-play branch has no list/roster page of its
+            own to go "back" to the way Fri/Sat's own branch does
+            (below) — it's reached directly from the "Regular Open
+            Play" nav entry, always for today, not from a list of other
+            days. Pointing this at /dashboard/admin/open-play-capacity
+            (now Fri/Sat-only, per the nav split) would be actively
+            wrong, not just stale, so this goes back to the dashboard
+            instead. */}
         <Link href="/dashboard" className={buttonVariants({ variant: "ghost", size: "sm" })}>
           ‹ Back to Dashboard
         </Link>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">{labelFormatter.format(date)}</h1>
-        <p className="text-muted-foreground text-sm">Weeknight drop-in — no capacity, no prepayment.</p>
+        <p className="text-muted-foreground text-sm">Regular drop-in — no capacity, no prepayment.</p>
       </div>
 
       <WalkInRegistrationForm target={{ date: dateParam }} players={players} showRegisterOnly={false} />

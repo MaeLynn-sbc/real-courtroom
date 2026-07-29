@@ -87,7 +87,7 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
         </CardHeader>
         <CardContent className="flex flex-col gap-2 text-sm">
           <div className="flex items-center justify-between">
-            <span>Weeknight game revenue</span>
+            <span>Regular game revenue</span>
             <span>{formatCurrency(summary.weeknightGameRevenueCents)}</span>
           </div>
           <div className="flex items-center justify-between">

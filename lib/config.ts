@@ -38,12 +38,16 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Bookings", href: "/dashboard/bookings" },
       { title: "Verify Payments", href: "/dashboard/bookings/verify-payments" },
       { title: "Verify Open Play Payments", href: "/dashboard/admin/open-play-capacity/verify-payments" },
-      // Weeknight/Fri-Sat Open Play live here, not in Administration —
+      // Regular/Fri-Sat Open Play live here, not in Administration —
       // staff touch these every day, same reasoning as the rest of
-      // Operations (see this file's own v1.1 comment above). Weeknight
-      // links straight to tonight's check-in via the /today redirect
-      // route; Fri/Sat links to the existing capacity/roster list page.
-      { title: "Weeknight Open Play", href: "/dashboard/admin/open-play-capacity/today" },
+      // Operations (see this file's own v1.1 comment above). "Regular"
+      // (not "Weeknight" — renamed, label only, nothing internal) since
+      // this drop-in mode isn't strictly weeknights-only; it also runs
+      // Friday/Saturday afternoons before the capacity night takes
+      // over. Links straight to tonight's check-in via the /today
+      // redirect route; Fri/Sat links to the existing capacity/roster
+      // list page.
+      { title: "Regular Open Play", href: "/dashboard/admin/open-play-capacity/today" },
       { title: "Fri/Sat Open Play", href: "/dashboard/admin/open-play-capacity" },
       // Previously reachable only by typing the URL directly or via a
       // booking's own "add a coach" step — no nav entry at all. Route
