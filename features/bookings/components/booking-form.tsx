@@ -20,6 +20,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { createBookingSchema } from "@/features/bookings/schemas/booking.schema";
 import { PlayerSearchCombobox } from "@/features/players/components/player-search-combobox";
+import { useLiveNow } from "@/hooks/use-live-now";
 import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
@@ -179,12 +180,19 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
   const watchedGuestName = useWatch({ control, name: "guestName" });
   const selectedCourt = courts.find((court) => court.id === watchedCourtId);
 
+  // useLiveNow, not an inline Date.now() — a front-desk tab realistically
+  // stays open for a whole shift with no interaction, and nothing else
+  // here re-renders on its own as wall-clock time passes. Without a live
+  // clock, an hour that was still in the future when the page loaded
+  // stays selectable indefinitely, however far past it actually gets.
+  const now = useLiveNow();
+
   // Recomputed on every court/date/duration change, same source of
   // truth (and same re-snap-when-invalid behavior) as the public
   // form's own identical effect — see that file's comment for why.
   const availableTimeOptions = isWalkIn
     ? []
-    : getAvailableTimeOptions(courtHours, selectedCourt?.name, advanceDate, durationMinutes, Date.now());
+    : getAvailableTimeOptions(courtHours, selectedCourt?.name, advanceDate, durationMinutes, now);
   useEffect(() => {
     if (!isWalkIn && availableTimeOptions.length > 0 && !availableTimeOptions.includes(advanceTime)) {
       setAdvanceTime(availableTimeOptions[0]);

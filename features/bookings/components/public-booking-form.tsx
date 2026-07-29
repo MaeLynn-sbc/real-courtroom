@@ -18,6 +18,7 @@ import {
 import { PublicCoachAddOn, type PublicCoachAddOnConfirmed } from "@/features/coaching/components/public-coach-add-on";
 import { ContactFallbackLinks } from "@/features/bookings/components/contact-fallback-links";
 import { PublicPaymentProofUpload } from "@/features/bookings/components/public-payment-proof-upload";
+import { useLiveNow } from "@/hooks/use-live-now";
 import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
@@ -216,6 +217,13 @@ export function PublicBookingForm({
       ? Math.round(selectedCourt.hourlyRateCents * previewDurationHours)
       : null;
 
+  // useLiveNow, not an inline Date.now() — a public visitor typically
+  // loads this page fresh, but nothing here re-renders on its own as
+  // wall-clock time passes, so a tab left open past an hour boundary
+  // would otherwise keep offering an already-elapsed start time
+  // indefinitely (see hooks/use-live-now.ts).
+  const now = useLiveNow();
+
   // Recomputed on every court/date/duration change — the same source of
   // truth server-side enforcement uses (see getAvailableTimeOptions's own
   // comment above). When the currently-selected time falls outside the
@@ -228,7 +236,7 @@ export function PublicBookingForm({
     selectedCourt?.name,
     watchedDate,
     Number(watchedDurationMinutes),
-    Date.now(),
+    now,
   );
   useEffect(() => {
     if (availableTimeOptions.length > 0 && !availableTimeOptions.includes(watchedTime)) {
