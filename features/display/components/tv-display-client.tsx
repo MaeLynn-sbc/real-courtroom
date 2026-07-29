@@ -350,11 +350,48 @@ export function TvDisplayClient({
     });
   }, []);
 
+  // On-court player names (.pname/.pnameText) — reported live: the box
+  // already spans the full card width (it's a flex column child,
+  // stretched by default), but a short name like "Abet" stayed at the
+  // fixed CSS font-size, leaving a lot of dead space on either side.
+  // Growing font-size instead would also grow the box's HEIGHT (fixed
+  // vh padding + line-height: 1), which a 4-name court has no spare
+  // room for — so this scales the text horizontally only
+  // (transform: scaleX, same technique this file already uses
+  // statically for .q-label b / .count-n), per name, toward each
+  // name's own box width. Capped well short of the box edge and short
+  // of an absurd stretch for a very short name.
+  const fitPlayerNameWidths = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const WIDTH_FILL_RATIO = 0.94;
+    const MAX_SCALE = 2.4;
+    container.querySelectorAll<HTMLElement>(`.${styles.pname}`).forEach((box) => {
+      const text = box.querySelector<HTMLElement>(`.${styles.pnameText}`);
+      if (!text) return;
+      text.style.transform = "";
+      const naturalWidth = text.scrollWidth;
+      const availableWidth =
+        box.clientWidth -
+        parseFloat(getComputedStyle(box).paddingLeft) -
+        parseFloat(getComputedStyle(box).paddingRight);
+      if (naturalWidth <= 0 || availableWidth <= 0) return;
+      const scale = Math.min(MAX_SCALE, (availableWidth * WIDTH_FILL_RATIO) / naturalWidth);
+      if (scale > 1.02) {
+        text.style.transform = `scaleX(${scale})`;
+      }
+    });
+  }, []);
+
   useEffect(() => {
-    fitNames();
-    window.addEventListener("resize", fitNames);
-    return () => window.removeEventListener("resize", fitNames);
-  }, [data, fitNames]);
+    function fitAll() {
+      fitNames();
+      fitPlayerNameWidths();
+    }
+    fitAll();
+    window.addEventListener("resize", fitAll);
+    return () => window.removeEventListener("resize", fitAll);
+  }, [data, fitNames, fitPlayerNameWidths]);
 
   const acquireWakeLock = useCallback(async () => {
     try {
@@ -604,7 +641,7 @@ function CourtCard({
       <div className={styles.players}>
         {court.players.map((player, i) => (
           <span key={`${player.name}-${i}`} className={cls(styles.pname, styles[`c${i % 4}`])}>
-            {player.name}
+            <span className={styles.pnameText}>{player.name}</span>
           </span>
         ))}
       </div>

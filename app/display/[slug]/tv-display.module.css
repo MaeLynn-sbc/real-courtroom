@@ -207,9 +207,25 @@
   line-height: 1;
   text-transform: uppercase;
   letter-spacing: 0.005em;
+  overflow: hidden;
+}
+/* Reported live, TV read from close up on a smaller set: a short name
+   ("Abet") sat tiny and centred in a box sized for a full-width bar,
+   leaving the box mostly empty on either side. tv-display-client.tsx's
+   fitPlayerNameWidths sets a per-name scaleX transform here — same
+   horizontal-only-stretch technique this file already uses statically
+   for .q-label b / .count-n — so each name's actual rendered width
+   fills its own box, without touching font-size/line-height (which
+   would grow the box's HEIGHT too and risk overflowing a 4-name
+   court). White-space/ellipsis now live here instead of .pname since
+   this is the element whose width is actually measured and scaled. */
+.pnameText {
+  display: inline-block;
+  transform-origin: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
 }
 .pname.c0 {
   border-left: 0.55vw solid var(--bone);
