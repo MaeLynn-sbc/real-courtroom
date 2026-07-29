@@ -46,6 +46,22 @@ export class ShiftService {
     });
   }
 
+  // Gap #4 fix: a closed shift's denomination breakdown and closing
+  // note were persisted but never surfaced anywhere past the moment
+  // of closing — reviewing a questioned variance days later meant
+  // direct DB access. Includes the employee (firstName/lastName are
+  // plain columns on Employee, no extra join cost) so the detail page
+  // can show who worked the shift without a second query. Ownership
+  // (only the shift's own employee may view it) is enforced by the
+  // caller, same as every other read here — this method itself has no
+  // concept of "viewer," only "which shift."
+  async getShiftById(shiftId: string) {
+    return prisma.shift.findUnique({
+      where: { id: shiftId },
+      include: { employee: { select: { firstName: true, lastName: true } } },
+    });
+  }
+
   // "Only one OPEN shift per employee" is enforced here (checked fresh
   // before creating) — multiple CLOSED shifts on the same day are fine.
   // v1.1 maintenance: shiftNumber now comes from the shared atomic

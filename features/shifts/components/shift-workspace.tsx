@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -270,7 +271,21 @@ export function ShiftWorkspace({ currentShift, recentShifts, expectedCashCents }
               <TableBody>
                 {recentShifts.map((shift) => (
                   <TableRow key={shift.id}>
-                    <TableCell className="font-medium">{shift.shiftNumber}</TableCell>
+                    <TableCell className="font-medium">
+                      {/* Gap #4 fix: only a CLOSED shift has anything to
+                          show past what's already in this row (denomination
+                          breakdown, closing note) — the currently-open
+                          shift is already fully visible in the card above,
+                          so it stays plain text here rather than linking
+                          somewhere with nothing new to say. */}
+                      {shift.status === "CLOSED" ? (
+                        <Link href={`/dashboard/shift/${shift.id}`} className="hover:underline">
+                          {shift.shiftNumber}
+                        </Link>
+                      ) : (
+                        shift.shiftNumber
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={shift.status === "OPEN" ? "status" : "outline"}>
                         {shift.status === "OPEN" ? "Open" : "Closed"}
