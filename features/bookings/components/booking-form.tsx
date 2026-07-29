@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -20,16 +20,86 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { createBookingSchema } from "@/features/bookings/schemas/booking.schema";
 import { PlayerSearchCombobox } from "@/features/players/components/player-search-combobox";
+import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
+import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
 
-// Matches the public booking form's own DURATIONS_MINUTES list —
-// hour-only, this business doesn't book in 30-minute increments.
-const WALK_IN_DURATIONS_MINUTES = [60, 120, 180, 240];
+// Matches the public booking form's own DURATIONS_MINUTES list exactly
+// (duplicated, not imported — same precedent this file already had for
+// this one constant before this change) — hour-only, this business
+// doesn't book in 30-minute increments.
+const DURATIONS_MINUTES = [60, 120, 180, 240];
 
 function formatDurationLabel(minutes: number): string {
   const hours = minutes / 60;
   return `${hours} hour${hours === 1 ? "" : "s"}`;
 }
+
+// Reported live: Advance booking mode used two raw <input
+// type="datetime-local"> fields — minute-level precision on a business
+// that only books in whole hours, typed by hand at both ends (two
+// chances to mistype), with no bound tying either one to the court's
+// real operating hours. Replaced with the exact Date + Start time +
+// Duration shape the public /book form already uses successfully —
+// getAvailableTimeOptions/formatTimeLabel below are that form's own
+// functions, duplicated rather than imported (same "small pure helper,
+// not a shared module" precedent this file already followed for
+// DURATIONS_MINUTES). See public-booking-form.tsx's own copy for the
+// full reasoning on why each piece is shaped the way it is
+// (court/date-aware bounds via getCourtBookingWindow, past-hour
+// filtering via isHourInThePast — the exact same source of truth the
+// server-side OUTSIDE_OPERATING_HOURS check and the homepage grid both
+// already use, so nothing here can disagree with what the server will
+// actually accept).
+//
+// No arbitrary-end-time escape hatch: checked before building this —
+// createBookingSchema/booking.service.ts place no hour-alignment or
+// duration-limit constraint of their own (the flexibility exists
+// server-side by design), but the only two real callers (this form and
+// the public one) both already constrain themselves to this same fixed
+// 1-4 hour list, and the public form has run as the sole public
+// booking path with this exact constraint with no reported need for
+// anything wider. If staff turn out to need an odd-length booking this
+// list can't express (e.g. a 5-hour tournament block), that's a real
+// gap worth a deliberate follow-up — not silently reintroduced here as
+// a "just in case" field.
+function getAvailableTimeOptions(
+  courtHours: CourtHoursSettings,
+  courtName: string | undefined,
+  dateValue: string,
+  durationMinutes: number,
+  now: number,
+): string[] {
+  if (!courtName || !dateValue) {
+    return [];
+  }
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return [];
+  }
+  const window = getCourtBookingWindow(courtHours, courtName, date);
+  const lastStartMinutes = window.closeMinutes - durationMinutes;
+
+  const options: string[] = [];
+  for (let minutes = window.openMinutes; minutes <= lastStartMinutes; minutes += 60) {
+    const hours = Math.floor(minutes / 60);
+    const slotStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, 0);
+    if (isHourInThePast(slotStart, now)) {
+      continue;
+    }
+    options.push(`${String(hours).padStart(2, "0")}:00`);
+  }
+  return options;
+}
+
+function formatTimeLabel(value: string): string {
+  const [hoursStr] = value.split(":");
+  const hours = Number(hoursStr);
+  const period = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 === 0 ? 12 : hours % 12;
+  return `${displayHour}:00 ${period}`;
+}
+
 const NO_PLAYER_VALUE = "__none__";
 
 interface BookingFormCourt {
@@ -49,26 +119,28 @@ interface BookingFormValues {
   guestName: string;
   guestPhone: string;
   notes: string;
-  startAt: string;
-  endAt: string;
 }
 
 interface BookingFormProps {
   courts: BookingFormCourt[];
   players: BookingFormPlayer[];
+  courtHours: CourtHoursSettings;
 }
 
-function toLocalInputValue(date: Date): string {
+function toLocalDateValue(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-export function BookingForm({ courts, players }: BookingFormProps) {
+export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
   const router = useRouter();
   const [isWalkIn, setIsWalkIn] = useState(true);
-  const [walkInDuration, setWalkInDuration] = useState(60);
+  // Shared by both modes — walk-in's own duration select already only
+  // ever fed local state, not the form; advance mode now works the
+  // same way instead of introducing a second, parallel piece of state.
+  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [advanceDate, setAdvanceDate] = useState(() => toLocalDateValue(new Date()));
+  const [advanceTime, setAdvanceTime] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -85,40 +157,48 @@ export function BookingForm({ courts, players }: BookingFormProps) {
       guestName: "",
       guestPhone: "",
       notes: "",
-      startAt: toLocalInputValue(new Date()),
-      endAt: toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)),
     },
   });
+
+  const watchedCourtId = useWatch({ control, name: "courtId" });
+  const watchedPlayerId = useWatch({ control, name: "playerId" });
+  const watchedGuestName = useWatch({ control, name: "guestName" });
+  const selectedCourt = courts.find((court) => court.id === watchedCourtId);
+
+  // Recomputed on every court/date/duration change, same source of
+  // truth (and same re-snap-when-invalid behavior) as the public
+  // form's own identical effect — see that file's comment for why.
+  const availableTimeOptions = isWalkIn
+    ? []
+    : getAvailableTimeOptions(courtHours, selectedCourt?.name, advanceDate, durationMinutes, Date.now());
+  useEffect(() => {
+    if (!isWalkIn && availableTimeOptions.length > 0 && !availableTimeOptions.includes(advanceTime)) {
+      setAdvanceTime(availableTimeOptions[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWalkIn, availableTimeOptions.join(","), advanceTime]);
 
   // Preview-only — mirrors booking.service.ts's Math.round(hourlyRateCents *
   // durationHours) so the number shown here matches what the server will
   // actually charge, but this never feeds back into the submitted payload;
   // the server still computes and persists the real amount independently.
-  const watchedCourtId = useWatch({ control, name: "courtId" });
-  const watchedStartAt = useWatch({ control, name: "startAt" });
-  const watchedEndAt = useWatch({ control, name: "endAt" });
-  const watchedPlayerId = useWatch({ control, name: "playerId" });
-  const watchedGuestName = useWatch({ control, name: "guestName" });
-  const selectedCourt = courts.find((court) => court.id === watchedCourtId);
-  const durationHours = isWalkIn
-    ? walkInDuration / 60
-    : Math.max(
-        0,
-        (new Date(watchedEndAt).getTime() - new Date(watchedStartAt).getTime()) / (1000 * 60 * 60),
-      );
+  const durationHours = durationMinutes / 60;
   const previewTotalCents =
-    selectedCourt?.hourlyRateCents != null && Number.isFinite(durationHours)
-      ? Math.round(selectedCourt.hourlyRateCents * durationHours)
-      : 0;
+    selectedCourt?.hourlyRateCents != null ? Math.round(selectedCourt.hourlyRateCents * durationHours) : 0;
 
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
 
     const now = new Date();
-    const startAt = isWalkIn ? now : new Date(values.startAt);
-    const endAt = isWalkIn
-      ? new Date(now.getTime() + walkInDuration * 60 * 1000)
-      : new Date(values.endAt);
+    let startAt: Date;
+    if (isWalkIn) {
+      startAt = now;
+    } else {
+      const [year, month, day] = advanceDate.split("-").map(Number);
+      const [hours] = advanceTime.split(":").map(Number);
+      startAt = new Date(year, month - 1, day, hours, 0);
+    }
+    const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
 
     const parsed = createBookingSchema.safeParse({
       courtId: values.courtId,
@@ -205,37 +285,62 @@ export function BookingForm({ courts, players }: BookingFormProps) {
         />
       </div>
 
-      {isWalkIn ? (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="walkInDuration">Duration</Label>
-          <Select
-            value={String(walkInDuration)}
-            onValueChange={(value) => setWalkInDuration(Number(value))}
-          >
-            <SelectTrigger id="walkInDuration" className="w-full">
-              <SelectValue>{(value: string) => formatDurationLabel(Number(value))}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {WALK_IN_DURATIONS_MINUTES.map((minutes) => (
-                <SelectItem key={minutes} value={String(minutes)}>
-                  {formatDurationLabel(minutes)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      {!isWalkIn ? (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="advanceDate">Date</Label>
+            <Input
+              id="advanceDate"
+              type="date"
+              value={advanceDate}
+              onChange={(event) => setAdvanceDate(event.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="advanceTime">Time</Label>
+            <Select
+              value={advanceTime}
+              onValueChange={(value) => value && setAdvanceTime(value)}
+              disabled={availableTimeOptions.length === 0}
+            >
+              <SelectTrigger id="advanceTime" className="w-full">
+                <SelectValue placeholder="No times available">
+                  {(value: string) => (value ? formatTimeLabel(value) : "No times available")}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {availableTimeOptions.map((time) => (
+                  <SelectItem key={time} value={time}>
+                    {formatTimeLabel(time)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {availableTimeOptions.length === 0 && selectedCourt ? (
+              <p className="text-muted-foreground text-xs">
+                {selectedCourt.name} has no {formatDurationLabel(durationMinutes).toLowerCase()} slot available
+                that day — try a shorter duration, another court, or another date.
+              </p>
+            ) : null}
+          </div>
         </div>
-      ) : (
-        <>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="startAt">Starts</Label>
-            <Input id="startAt" type="datetime-local" {...register("startAt")} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="endAt">Ends</Label>
-            <Input id="endAt" type="datetime-local" {...register("endAt")} />
-          </div>
-        </>
-      )}
+      ) : null}
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="duration">Duration</Label>
+        <Select value={String(durationMinutes)} onValueChange={(value) => value && setDurationMinutes(Number(value))}>
+          <SelectTrigger id="duration" className="w-full">
+            <SelectValue>{(value: string) => formatDurationLabel(Number(value))}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {DURATIONS_MINUTES.map((minutes) => (
+              <SelectItem key={minutes} value={String(minutes)}>
+                {formatDurationLabel(minutes)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="playerId">Player</Label>
@@ -306,7 +411,7 @@ export function BookingForm({ courts, players }: BookingFormProps) {
 
       {serverError ? <p className="text-destructive text-sm" role="alert">{serverError}</p> : null}
 
-      <Button type="submit" disabled={isPending}>
+      <Button type="submit" disabled={isPending || (!isWalkIn && availableTimeOptions.length === 0)}>
         {isPending ? "Creating…" : "Create booking"}
       </Button>
     </form>

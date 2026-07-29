@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { BookingForm } from "@/features/bookings/components/booking-form";
 import { courtService } from "@/services/court/court.service";
 import { playerService } from "@/services/player/player.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
   title: "New Booking",
@@ -16,7 +17,11 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function NewBookingPage() {
-  const [courts, players] = await Promise.all([courtService.listCourts(), playerService.listPlayers()]);
+  const [courts, players, courtHours] = await Promise.all([
+    courtService.listCourts(),
+    playerService.listPlayers(),
+    settingsService.getCourtHours(),
+  ]);
 
   const activeCourts = courts
     .filter((court) => court.status !== "DISABLED")
@@ -35,7 +40,7 @@ export default async function NewBookingPage() {
           Book a court for a walk-in or a specific future time.
         </p>
       </div>
-      <BookingForm courts={activeCourts} players={playerOptions} />
+      <BookingForm courts={activeCourts} players={playerOptions} courtHours={courtHours} />
     </div>
   );
 }
