@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Logo } from "@/components/shared/logo";
+import { SiteHeaderMobileMenu } from "@/components/layout/site-header-mobile-menu";
 import { SiteStatusPill } from "@/components/layout/site-status-pill";
 import { PUBLIC_VISIBILITY_KEYS } from "@/lib/public-visibility";
 import { cn } from "@/lib/utils";
@@ -63,6 +64,7 @@ export async function SiteHeader() {
           <Link href="/login" className={cn(PILL_BUTTON_GHOST, "hidden md:inline-flex")}>
             Sign in
           </Link>
+          <SiteHeaderMobileMenu navLinks={navLinks} />
         </div>
       </div>
     </header>
