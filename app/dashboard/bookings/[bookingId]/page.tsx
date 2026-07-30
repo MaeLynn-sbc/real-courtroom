@@ -17,10 +17,12 @@ import { bookingService } from "@/services/booking/booking.service";
 import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { saleService } from "@/services/sales/sale.service";
+import { PAY_AT_VENUE_PAYMENT_METHOD_KEY } from "@/lib/system-identities";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   dateStyle: "medium",
   timeStyle: "short",
+  hour12: true,
 });
 
 interface BookingDetailPageProps {
@@ -50,7 +52,15 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
     saleService.listPaymentMethods(),
   ]);
   const availableCoachIds = new Set(availableCoaches.map((coach) => coach.id));
-  const paymentMethodOptions = paymentMethods.map((method) => ({ id: method.id, label: method.label }));
+  // Pay at Venue excluded: settling IS the moment money was actually
+  // collected, and "pay at venue" (still pending) can't be that — see
+  // settleBooking's own guard in booking.service.ts, which rejects it
+  // server-side too. This just keeps the option from ever being offered
+  // in the first place, on the screen whose entire purpose is
+  // recording what was ACTUALLY just paid.
+  const paymentMethodOptions = paymentMethods
+    .filter((method) => method.key !== PAY_AT_VENUE_PAYMENT_METHOD_KEY)
+    .map((method) => ({ id: method.id, label: method.label }));
 
   // Settle-bill (pay-at-venue gap fix): sale != null is the real "has
   // this been paid" signal, independent of BookingStatus (see

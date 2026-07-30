@@ -19,6 +19,15 @@
  *      (which still passes paymentMethodId at creation time) is
  *      UNCHANGED — it still gets an immediate Sale, and settleBooking
  *      correctly refuses to settle it again ("already paid").
+ *   7. Found live: staff were selecting "Pay at Venue" from the
+ *      SETTLE form's payment-method dropdown, reading it as "defer
+ *      this," when submitting it creates an immediate real Sale just
+ *      like Cash/GCash — recreating the exact bug eb32e21 fixed.
+ *      settleBooking must reject an attempt to settle using the
+ *      Pay-at-Venue payment method — you can't "settle" a bill with a
+ *      method that means "not yet paid." Proven failing-first: this
+ *      assertion fails against the pre-fix code (the settle succeeds
+ *      and creates a Sale), then passes once the guard is added.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -27,6 +36,7 @@ import "dotenv/config";
 import { prisma } from "../../lib/prisma";
 import { bookingService, BookingAlreadySettledError, type CreateBookingSaleContext } from "./booking.service";
 import { shiftService } from "../shift/shift.service";
+import { PAY_AT_VENUE_PAYMENT_METHOD_KEY } from "../../lib/system-identities";
 
 const TEST_DATE = new Date(2031, 3, 8); // Tuesday, distinct from booking-source.integration.ts's own fixture date
 
@@ -241,6 +251,35 @@ async function main(): Promise<void> {
     }
     assert(rejectedAlreadyPaid, "expected settleBooking to refuse a booking that already has a Sale from creation time");
     console.log("PASS: settleBooking correctly refuses a booking that's already paid via the WEBSITE creation-time path.");
+
+    // ============== 7. "Pay at Venue" is not a valid SETTLE method ==============
+    const payAtVenueMethod = await prisma.paymentMethod.findUniqueOrThrow({
+      where: { key: PAY_AT_VENUE_PAYMENT_METHOD_KEY },
+    });
+    const trapSlot = slot(18);
+    const trapBooking = await bookingService.createBooking(
+      { courtId: court.id, type: "HOURLY", startAt: trapSlot.startAt, endAt: trapSlot.endAt, guestName: "Pay At Venue Trap Guest" },
+      owner.id,
+      { employeeId: employee.id, shiftId: shift.id },
+    );
+    let rejectedPayAtVenue = false;
+    try {
+      await bookingService.settleBooking(
+        trapBooking.id,
+        "CASH",
+        null,
+        { employeeId: employee.id, shiftId: shift.id, paymentMethodId: payAtVenueMethod.id },
+        owner.id,
+      );
+    } catch (error) {
+      rejectedPayAtVenue = error instanceof Error && error.message.includes("Pay at Venue");
+    }
+    assert(rejectedPayAtVenue, "expected settleBooking to reject an attempt to settle using the Pay-at-Venue payment method");
+    const trapSaleCount = await prisma.sale.count({ where: { bookingId: trapBooking.id } });
+    assert(trapSaleCount === 0, "expected NO Sale to exist after a rejected Pay-at-Venue settle attempt");
+    const trapBookingAfter = await prisma.booking.findUniqueOrThrow({ where: { id: trapBooking.id } });
+    assert(trapBookingAfter.settledAt === null, "expected the booking to remain unsettled after the rejected attempt");
+    console.log("PASS: settleBooking rejects Pay-at-Venue as a settlement method — no Sale created, booking stays unsettled.");
 
     await cleanUp(court.id);
     await prisma.shift.delete({ where: { id: shift.id } });

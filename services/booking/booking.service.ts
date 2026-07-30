@@ -16,6 +16,7 @@ import { runSerializableWithRetry } from "@/lib/serializable-retry";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import { formatBookingReference } from "@/services/booking/booking-reference";
 import { canTransitionBookingStatus } from "@/services/booking/booking-status";
+import { PAY_AT_VENUE_PAYMENT_METHOD_KEY } from "@/lib/system-identities";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { saleService } from "@/services/sales/sale.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -482,6 +483,26 @@ export class BookingService {
   ): Promise<Booking> {
     if (method === "GCASH" && !gcashReference?.trim()) {
       throw new Error("A GCash reference number is required.");
+    }
+
+    // Found live: staff were picking "Pay at Venue" from this form's
+    // payment-method dropdown, reading it as "defer this" — but
+    // settling with ANY payment method creates an immediate real Sale,
+    // same as Cash/GCash. Pay at Venue's only legitimate use is the
+    // WEBSITE "pay at venue by default" creation-time path
+    // (public-booking.service.ts), where it correctly means "charge it
+    // now, labeled pay-at-venue." Here, settling IS the moment money
+    // was actually collected — "pay at venue" (still pending) is a
+    // contradiction as a SETTLEMENT method, so it's rejected outright,
+    // not just hidden from the form (defense in depth: the UI filter
+    // is easy to bypass by anyone constructing the request directly).
+    const settlingPaymentMethod = await prisma.paymentMethod.findUniqueOrThrow({
+      where: { id: saleContext.paymentMethodId },
+    });
+    if (settlingPaymentMethod.key === PAY_AT_VENUE_PAYMENT_METHOD_KEY) {
+      throw new Error(
+        "Pay at Venue isn't a valid settlement method — leave this booking unpaid until the customer actually pays, or record Cash/GCash once they do.",
+      );
     }
 
     // Fast, friendly rejection for the two non-racing cases — not

@@ -72,7 +72,9 @@ export function SettleBookingForm({ bookingId, amountCents, paymentMethods }: Se
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <p className="text-muted-foreground text-sm">
-          This booking hasn&apos;t been paid yet — record the payment once the customer actually pays.
+          This booking is already confirmed and complete — nothing else to do here yet. Only fill
+          this in once the customer has actually paid; leaving it untouched for an advance booking
+          or a pay-at-venue customer is correct, not unfinished.
         </p>
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex flex-col gap-1">
