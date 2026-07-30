@@ -27,6 +27,23 @@ export interface CreateCoachSessionActionState extends CoachingActionState {
   coachSessionId?: string;
 }
 
+export interface StaffCoachOption {
+  id: string;
+  name: string;
+  // Full group-size -> price table, same shape as
+  // PublicBookingCoachOption — but unlike the public path, staff see a
+  // coach here even with an empty rate table (matches CoachSessionPanel's
+  // existing "no rates filter" behavior on the booking detail page); an
+  // unpriced group size is caught at submit time instead, not hidden by
+  // never offering the coach at all.
+  rates: { groupSize: number; priceCents: number }[];
+}
+
+export interface ListCoachAvailabilityState {
+  error: string | null;
+  coaches: StaffCoachOption[];
+}
+
 function requireCoachingOwnAvailability() {
   return requireEmployee(
     PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY,
@@ -128,6 +145,42 @@ export async function deleteCoachRateAction(rateId: string): Promise<CoachingAct
   } catch (error) {
     return { error: toActionError(error, { action: "deleteCoachRateAction", userId: authz.userId }) };
   }
+}
+
+// Live preview for the staff booking form's (not-yet-submitted) coach
+// section — same underlying query the public path already uses
+// (coachAvailabilityService.listAvailableCoaches), gated by
+// bookings:manage since it's read alongside the booking form, not a
+// coaching-specific screen. Unlike createPublicBookingAction's
+// availableCoaches, no rates.length filter here — staff can see and pick
+// a coach with no rate table at all, the same as CoachSessionPanel
+// already allows on the booking detail page.
+export async function listAvailableCoachesForSlotAction(
+  startAt: Date,
+  endAt: Date,
+): Promise<ListCoachAvailabilityState> {
+  const authz = await requireBookingsManage();
+  if (!authz.ok) {
+    return { error: authz.error, coaches: [] };
+  }
+
+  if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime()) || endAt.getTime() <= startAt.getTime()) {
+    return { error: null, coaches: [] };
+  }
+
+  const coaches = await coachAvailabilityService.listAvailableCoaches(startAt, endAt);
+  const coachOptions: StaffCoachOption[] = await Promise.all(
+    coaches.map(async (coach) => ({
+      id: coach.id,
+      name: coach.user.name ?? coach.user.email ?? "Coach",
+      rates: (await coachRateService.listRates(coach.id)).map((rate) => ({
+        groupSize: rate.groupSize,
+        priceCents: rate.priceCents,
+      })),
+    })),
+  );
+
+  return { error: null, coaches: coachOptions };
 }
 
 export async function createCoachSessionAction(

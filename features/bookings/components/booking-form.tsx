@@ -5,7 +5,8 @@ import { useEffect, useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
-import { createBookingAction } from "@/actions/booking.actions";
+import { createBookingAction, listCourtOccupiedWindowsAction } from "@/actions/booking.actions";
+import { createCoachSessionAction } from "@/actions/coaching.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,10 +20,12 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { createBookingSchema } from "@/features/bookings/schemas/booking.schema";
+import { StaffCoachPicker, type StaffCoachSelection } from "@/features/coaching/components/staff-coach-picker";
 import { PlayerSearchCombobox } from "@/features/players/components/player-search-combobox";
 import { useLiveNow } from "@/hooks/use-live-now";
 import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
+import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
 
 // STAFF-ONLY: 30 minutes, front-desk only — someone who just wants a
@@ -158,6 +161,10 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
   const [advanceTime, setAdvanceTime] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [coachSelection, setCoachSelection] = useState<StaffCoachSelection | null>(null);
+  const [coachBlockingError, setCoachBlockingError] = useState<string | null>(null);
+  const [occupiedWindows, setOccupiedWindows] = useState<{ startAt: Date; endAt: Date }[]>([]);
+  const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
 
   const {
     register,
@@ -190,9 +197,78 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
   // Recomputed on every court/date/duration change, same source of
   // truth (and same re-snap-when-invalid behavior) as the public
   // form's own identical effect — see that file's comment for why.
-  const availableTimeOptions = isWalkIn
+  // Business-hours-only, not yet checked against real bookings — see
+  // availableTimeOptions below for the conflict-filtered list actually
+  // rendered.
+  const businessHoursTimeOptions = isWalkIn
     ? []
     : getAvailableTimeOptions(courtHours, selectedCourt?.name, advanceDate, durationMinutes, now);
+
+  // Reported live: staff filled in a whole form only to be told at submit
+  // that the dropdown's own offered slot was already booked. One fetch
+  // per court/date (listCourtOccupiedWindowsAction, below) covers every
+  // duration — a duration change only needs to re-run this per-candidate
+  // overlap check locally, not a new round trip. This is a UX preview,
+  // not the real gate: createBooking's own server-side conflict check
+  // (unchanged) still runs at submit and stays the actual source of
+  // truth — two staff on different devices can still race.
+  useEffect(() => {
+    if (isWalkIn || !selectedCourt) {
+      setOccupiedWindows([]);
+      setIsLoadingAvailability(false);
+      return;
+    }
+    const dayStart = new Date(`${advanceDate}T00:00:00`);
+    if (Number.isNaN(dayStart.getTime())) {
+      setOccupiedWindows([]);
+      return;
+    }
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    let cancelled = false;
+    setIsLoadingAvailability(true);
+    listCourtOccupiedWindowsAction(selectedCourt.id, dayStart, dayEnd).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      setIsLoadingAvailability(false);
+      setOccupiedWindows(result.windows.map((window) => ({ startAt: new Date(window.startAt), endAt: new Date(window.endAt) })));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // selectedCourt?.id, not the selectedCourt object itself — a new
+    // `courts.find(...)` result every render would otherwise re-fire this
+    // fetch on every keystroke elsewhere in the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWalkIn, selectedCourt?.id, advanceDate]);
+
+  // Held-but-unpaid slots (a live AWAITING_PAYMENT hold) count as
+  // occupied here, same as a confirmed booking — listOccupiedWindows
+  // already excludes an expired one. A staff override for the "walk-in
+  // at the desk, hold on someone's phone" case is a real, separate
+  // feature question, not built here.
+  function candidateSlot(time: string): { startAt: Date; endAt: Date } | null {
+    if (!advanceDate) {
+      return null;
+    }
+    const [year, month, day] = advanceDate.split("-").map(Number);
+    const [hours] = time.split(":").map(Number);
+    const startAt = new Date(year, month - 1, day, hours, 0);
+    if (Number.isNaN(startAt.getTime())) {
+      return null;
+    }
+    return { startAt, endAt: new Date(startAt.getTime() + durationMinutes * 60 * 1000) };
+  }
+
+  const availableTimeOptions = businessHoursTimeOptions.filter((time) => {
+    const slot = candidateSlot(time);
+    if (!slot) {
+      return false;
+    }
+    return !occupiedWindows.some((window) => hasTimeOverlap(slot.startAt, slot.endAt, window.startAt, window.endAt));
+  });
+
   useEffect(() => {
     if (!isWalkIn && availableTimeOptions.length > 0 && !availableTimeOptions.includes(advanceTime)) {
       setAdvanceTime(availableTimeOptions[0]);
@@ -200,18 +276,38 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWalkIn, availableTimeOptions.join(","), advanceTime]);
 
+  // Same slot the submit handler below computes, derived reactively so
+  // the coach picker can re-fetch availability as the staff member edits
+  // court/date/time/duration — not just at the moment of submission. Walk-in
+  // mode ticks forward with `now` (useLiveNow, 60s resolution) rather than
+  // staying pinned to page-load time.
+  const slotStartAt = (() => {
+    if (isWalkIn) {
+      return new Date(now);
+    }
+    if (!advanceDate || !advanceTime) {
+      return null;
+    }
+    const [year, month, day] = advanceDate.split("-").map(Number);
+    const [hours] = advanceTime.split(":").map(Number);
+    const candidate = new Date(year, month - 1, day, hours, 0);
+    return Number.isNaN(candidate.getTime()) ? null : candidate;
+  })();
+  const slotEndAt = slotStartAt ? new Date(slotStartAt.getTime() + durationMinutes * 60 * 1000) : null;
+
   // Preview-only — mirrors booking.service.ts's own pricing exactly,
   // including the 30-minute flat-price special case, so the number
   // shown here matches what the server will actually charge. Never fed
   // back into the submitted payload; the server computes and persists
   // the real amount independently.
   const durationHours = durationMinutes / 60;
-  const previewTotalCents =
+  const previewCourtTotalCents =
     durationMinutes === 30
       ? (selectedCourt?.shortSessionPriceCents ?? 0)
       : selectedCourt?.hourlyRateCents != null
         ? Math.round(selectedCourt.hourlyRateCents * durationHours)
         : 0;
+  const previewTotalCents = previewCourtTotalCents + (coachSelection?.priceCents ?? 0);
 
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
@@ -251,7 +347,29 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
         toast.error(message);
         return;
       }
-      toast.success("Booking created.");
+
+      // Coach attachment is a separate write (createCoachSessionAction
+      // requires an existing bookingId — see coach-session.service.ts's
+      // own transaction, which locks and re-reads the Booking row).
+      // The booking itself is already real and correct at this point
+      // regardless of what happens next; a failure here (e.g. the coach
+      // got double-booked by someone else in the few seconds since the
+      // picker last fetched) doesn't undo it — staff can still attach a
+      // coach from the booking's detail page via the existing panel.
+      if (coachSelection) {
+        const coachResult = await createCoachSessionAction({
+          bookingId: result.bookingId,
+          coachId: coachSelection.coachId,
+          groupSize: coachSelection.groupSize,
+        });
+        if (coachResult.error) {
+          toast.error(`Booking created, but the coach wasn't added: ${coachResult.error}`);
+          router.push(`/dashboard/bookings/${result.bookingId}`);
+          return;
+        }
+      }
+
+      toast.success(coachSelection ? "Booking created with coach." : "Booking created.");
       router.push(`/dashboard/bookings/${result.bookingId}`);
     });
   });
@@ -328,10 +446,10 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
             <Select
               value={advanceTime}
               onValueChange={(value) => value && setAdvanceTime(value)}
-              disabled={availableTimeOptions.length === 0}
+              disabled={isLoadingAvailability || availableTimeOptions.length === 0}
             >
               <SelectTrigger id="advanceTime" className="w-full">
-                <SelectValue placeholder="No times available">
+                <SelectValue placeholder={isLoadingAvailability ? "Checking availability…" : "No times available"}>
                   {(value: string) => (value ? formatTimeLabel(value) : "No times available")}
                 </SelectValue>
               </SelectTrigger>
@@ -343,7 +461,7 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
                 ))}
               </SelectContent>
             </Select>
-            {availableTimeOptions.length === 0 && selectedCourt ? (
+            {!isLoadingAvailability && availableTimeOptions.length === 0 && selectedCourt ? (
               <p className="text-muted-foreground text-xs">
                 {selectedCourt.name} has no {formatDurationLabel(durationMinutes).toLowerCase()} slot available
                 that day — try a shorter duration, another court, or another date.
@@ -368,6 +486,15 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
           </SelectContent>
         </Select>
       </div>
+
+      <StaffCoachPicker
+        slotStartAt={slotStartAt}
+        slotEndAt={slotEndAt}
+        onStateChange={({ selection, blockingError }) => {
+          setCoachSelection(selection);
+          setCoachBlockingError(blockingError);
+        }}
+      />
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="playerId">Player</Label>
@@ -431,6 +558,18 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
                   : "—"}
             </span>
           </div>
+          {coachSelection ? (
+            <>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Court hire</span>
+                <span className="font-medium tabular-nums">{formatCurrency(previewCourtTotalCents)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Coaching ({coachSelection.coachName})</span>
+                <span className="font-medium tabular-nums">{formatCurrency(coachSelection.priceCents)}</span>
+              </div>
+            </>
+          ) : null}
           <div className="flex justify-between border-t pt-2 text-base">
             <span className="font-medium">Estimated total</span>
             <span className="font-semibold tabular-nums">{formatCurrency(previewTotalCents)}</span>
@@ -440,7 +579,14 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
 
       {serverError ? <p className="text-destructive text-sm" role="alert">{serverError}</p> : null}
 
-      <Button type="submit" disabled={isPending || (!isWalkIn && availableTimeOptions.length === 0)}>
+      <Button
+        type="submit"
+        disabled={
+          isPending ||
+          (!isWalkIn && (isLoadingAvailability || availableTimeOptions.length === 0)) ||
+          Boolean(coachBlockingError)
+        }
+      >
         {isPending ? "Creating…" : "Create booking"}
       </Button>
     </form>

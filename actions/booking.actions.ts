@@ -30,8 +30,43 @@ export interface CreateBookingActionState extends BookingActionState {
   bookingId?: string;
 }
 
+export interface OccupiedWindow {
+  startAt: string;
+  endAt: string;
+}
+
+export interface ListOccupiedWindowsState {
+  error: string | null;
+  windows: OccupiedWindow[];
+}
+
 function requireBookingsManage() {
   return requirePermission(PERMISSIONS.BOOKINGS_MANAGE, "You don't have permission to manage bookings.");
+}
+
+// Staff booking form's Time dropdown live-availability preview — see
+// bookingService.listOccupiedWindows's own comment for why this is a day-
+// bounded fetch rather than per-candidate-hour, and why it's a preview,
+// not the real gate.
+export async function listCourtOccupiedWindowsAction(
+  courtId: string,
+  dayStart: Date,
+  dayEnd: Date,
+): Promise<ListOccupiedWindowsState> {
+  const authz = await requireBookingsManage();
+  if (!authz.ok) {
+    return { error: authz.error, windows: [] };
+  }
+
+  if (!courtId || Number.isNaN(dayStart.getTime()) || Number.isNaN(dayEnd.getTime()) || dayEnd.getTime() <= dayStart.getTime()) {
+    return { error: null, windows: [] };
+  }
+
+  const windows = await bookingService.listOccupiedWindows(courtId, dayStart, dayEnd);
+  return {
+    error: null,
+    windows: windows.map((window) => ({ startAt: window.startAt.toISOString(), endAt: window.endAt.toISOString() })),
+  };
 }
 
 export async function createBookingAction(

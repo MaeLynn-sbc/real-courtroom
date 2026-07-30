@@ -231,6 +231,47 @@ export class BookingService {
     return this.checkAvailabilityWithClient(prisma, courtId, startAt, endAt, excludeBookingId);
   }
 
+  // Staff booking form's Time dropdown: reported live, staff filled in an
+  // entire form only to be told at submit that a slot the dropdown itself
+  // was still offering was already booked. This is a live PREVIEW, not the
+  // real gate — createBooking's own checkAvailabilityWithClient, run
+  // inside its Serializable transaction, stays the actual source of
+  // truth; two staff on different devices can still race between this
+  // read and either one's eventual write. Same "what counts as occupying
+  // this court" rules as checkAvailabilityWithClient (notIn CANCELLED/
+  // NO_SHOW/REJECTED; an expired AWAITING_PAYMENT hold treated as if it
+  // doesn't exist, a live one still blocks) — duplicated, not shared,
+  // same precedent as display.service.ts's fetchRelevantBookings and
+  // coach-session.service.ts's activeSessions query. One day-bounded
+  // fetch, not one query per candidate hour — duration only matters for
+  // the caller's own per-slot overlap check against these windows, not
+  // for this query, so a duration change never needs a new round trip.
+  async listOccupiedWindows(courtId: string, dayStart: Date, dayEnd: Date) {
+    const now = new Date();
+    const [bookings, maintenanceWindows] = await Promise.all([
+      prisma.booking.findMany({
+        where: {
+          courtId,
+          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+          OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
+          startAt: { lt: dayEnd },
+          endAt: { gt: dayStart },
+        },
+        select: { startAt: true, endAt: true },
+      }),
+      prisma.courtMaintenance.findMany({
+        where: {
+          courtId,
+          status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+          startAt: { lt: dayEnd },
+          endAt: { gt: dayStart },
+        },
+        select: { startAt: true, endAt: true },
+      }),
+    ]);
+    return [...bookings, ...maintenanceWindows];
+  }
+
   // Phase 10: extracted so createBooking can run this same check inside its
   // Serializable transaction (against `tx`, not the default `prisma`
   // client) — the public checkAvailability above is unchanged (still reads
