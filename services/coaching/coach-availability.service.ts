@@ -27,6 +27,49 @@ function addDays(date: Date, days: number): Date {
   return result;
 }
 
+export interface PublicCoachAvailabilityWindow {
+  startAt: Date;
+  endAt: Date;
+}
+
+export interface PublicCoachAvailability {
+  coachId: string;
+  coachName: string;
+  // Free sub-ranges only — already had every overlapping booked session
+  // subtracted out. Never the coach's raw stated window.
+  windows: PublicCoachAvailabilityWindow[];
+}
+
+// Pure interval subtraction: `range` minus every overlapping entry in
+// `booked` (assumed pre-sorted by start), left-to-right. No Date math
+// beyond plain comparisons — same "pure, dependency-free" shape as this
+// file's own dayRange/addDays helpers above.
+function subtractRanges(
+  range: { start: Date; end: Date },
+  booked: { start: Date; end: Date }[],
+): PublicCoachAvailabilityWindow[] {
+  let segments: { start: Date; end: Date }[] = [range];
+
+  for (const busy of booked) {
+    const next: { start: Date; end: Date }[] = [];
+    for (const segment of segments) {
+      if (busy.end <= segment.start || busy.start >= segment.end) {
+        next.push(segment);
+        continue;
+      }
+      if (busy.start > segment.start) {
+        next.push({ start: segment.start, end: busy.start });
+      }
+      if (busy.end < segment.end) {
+        next.push({ start: busy.end, end: segment.end });
+      }
+    }
+    segments = next;
+  }
+
+  return segments.map((segment) => ({ startAt: segment.start, endAt: segment.end }));
+}
+
 // Part B (post-Gate-3 review): the two active coaches are family
 // (father/son) who coordinate schedules directly, and the non-coach
 // owner routinely inputs a slot on a coach's behalf ("put me in this
@@ -151,6 +194,81 @@ export class CoachAvailabilityService {
       include: { user: { select: { id: true, name: true, email: true } } },
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
     });
+  }
+
+  // Public coach-availability view (read-only, no login): "when ARE
+  // coaches free" for a customer deciding when to book, not "is coach X
+  // free for this exact slot" (listAvailableCoaches above). For each
+  // active coach, subtracts every overlapping booked CoachSession range
+  // from their stated windows in [now, now+days] — same overlap rule
+  // listAvailableCoaches already uses (notIn CANCELLED/NO_SHOW on the
+  // session, notIn CANCELLED/NO_SHOW/REJECTED on its booking, an expired
+  // AWAITING_PAYMENT hold treated as if it doesn't exist), duplicated for
+  // the same reason every other copy of this exact where-clause in this
+  // codebase is: this is a separate, read-only concern from the
+  // booking-time picker, not something to couple to it.
+  async listPublicAvailability(days: number): Promise<PublicCoachAvailability[]> {
+    const now = new Date();
+    const rangeEnd = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+    const coaches = await prisma.employee.findMany({
+      where: { isCoach: true, isActive: true, deletedAt: null },
+      orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+    });
+
+    const results: PublicCoachAvailability[] = [];
+
+    for (const coach of coaches) {
+      const windows = await prisma.coachAvailabilityWindow.findMany({
+        where: { coachId: coach.id, endAt: { gt: now }, startAt: { lt: rangeEnd } },
+        orderBy: { startAt: "asc" },
+      });
+      if (windows.length === 0) {
+        continue;
+      }
+
+      const bookedSessions = await prisma.coachSession.findMany({
+        where: {
+          coachId: coach.id,
+          status: { notIn: ["CANCELLED", "NO_SHOW"] },
+          booking: {
+            status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+            OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
+            startAt: { lt: rangeEnd },
+            endAt: { gt: now },
+          },
+        },
+        include: { booking: { select: { startAt: true, endAt: true } } },
+      });
+      const bookedRanges = bookedSessions
+        .map((session) => ({ start: session.booking.startAt, end: session.booking.endAt }))
+        .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+      const freeWindows: PublicCoachAvailabilityWindow[] = [];
+      for (const window of windows) {
+        const clippedStart = window.startAt < now ? now : window.startAt;
+        const clippedEnd = window.endAt > rangeEnd ? rangeEnd : window.endAt;
+        if (clippedEnd <= clippedStart) {
+          continue;
+        }
+        freeWindows.push(...subtractRanges({ start: clippedStart, end: clippedEnd }, bookedRanges));
+      }
+
+      if (freeWindows.length > 0) {
+        results.push({
+          coachId: coach.id,
+          // Full name, not first-name-truncated: unlike a player's name
+          // (private, this same public-page privacy bar applies), a
+          // coach's name is already advertised/public-facing — the
+          // "don't expose anything else" bar is about not leaking phone/
+          // email/rates here, not the name itself.
+          coachName: `${coach.firstName} ${coach.lastName}`,
+          windows: freeWindows,
+        });
+      }
+    }
+
+    return results;
   }
 
   async createWindow(input: CreateAvailabilityWindowInput, callerEmployeeId: string, actorUserId: string) {
