@@ -6,11 +6,12 @@ import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { uploadGcashQrAction } from "@/actions/payment-settings.actions";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
+import { cn } from "@/lib/utils";
 
 // Owner decision: ONE static GCash QR, shown to every customer on the
 // public payment step (see uploadGcashQrAction's own comment). Account
@@ -24,12 +25,14 @@ export function GcashPaymentInfoPanel({ info }: { info: GcashPaymentInfo }) {
   const [accountName, setAccountName] = useState(info.accountName);
   const [accountNumber, setAccountNumber] = useState(info.accountNumber);
   const [previewUrl, setPreviewUrl] = useState<string | null>(info.qrImageUrl);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (file) {
       setPreviewUrl(URL.createObjectURL(file));
+      setSelectedFileName(file.name);
     }
   }
 
@@ -59,6 +62,7 @@ export function GcashPaymentInfoPanel({ info }: { info: GcashPaymentInfo }) {
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
+      setSelectedFileName(null);
       router.refresh();
     });
   }
@@ -84,10 +88,25 @@ export function GcashPaymentInfoPanel({ info }: { info: GcashPaymentInfo }) {
           )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="gcashQrFile">QR code image</Label>
-            <Input
+            {/* Same fix as the public payment-proof upload fields: a raw
+                Input type="file" relies on file:text-foreground fighting
+                the browser's own native ::file-selector-button chrome,
+                which can leave the button text nearly invisible. Hidden
+                here, replaced with a label styled via this app's real
+                button tokens plus a status span this component controls. */}
+            <div className="flex items-center gap-3">
+              <label htmlFor="gcashQrFile" className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}>
+                Choose file
+              </label>
+              <span className="text-muted-foreground truncate text-sm">
+                {selectedFileName ?? "No new file selected"}
+              </span>
+            </div>
+            <input
               id="gcashQrFile"
               type="file"
               accept="image/png,image/jpeg,image/webp"
+              className="sr-only"
               ref={fileInputRef}
               onChange={handleFileChange}
             />

@@ -6,12 +6,13 @@ import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { createExpenseAction } from "@/actions/expense.actions";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 interface ExpenseEntryCategory {
   id: string;
@@ -209,10 +210,22 @@ export function ExpenseEntryForm({ categories, paymentMethods }: ExpenseEntryFor
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="expenseReceipt">Receipt (optional)</Label>
-            <Input
+            {/* Same fix as the public payment-proof upload fields — see
+                that component's own comment for why the raw Input
+                type="file" button text could go nearly invisible. */}
+            <div className="flex items-center gap-3">
+              <label htmlFor="expenseReceipt" className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}>
+                Choose file
+              </label>
+              <span className="text-muted-foreground truncate text-sm">
+                {receipt ? receipt.name : "No file selected"}
+              </span>
+            </div>
+            <input
               id="expenseReceipt"
               type="file"
               accept="image/*"
+              className="sr-only"
               onChange={(event) => setReceipt(event.target.files?.[0] ?? null)}
             />
           </div>

@@ -11,9 +11,10 @@ import {
   removeGalleryImageAction,
   uploadGalleryImageAction,
 } from "@/actions/cms.actions";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { GalleryImage } from "@/features/cms/schemas/cms.schema";
+import { cn } from "@/lib/utils";
 
 export function GalleryPanel({ images }: { images: GalleryImage[] }) {
   const router = useRouter();
@@ -22,6 +23,9 @@ export function GalleryPanel({ images }: { images: GalleryImage[] }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [isUploading, startUploadTransition] = useTransition();
   const [isPending, startTransition] = useTransition();
+  // Display-only — the actual submission still reads the real, uncontrolled
+  // <input name="file"> via the form action's FormData, unchanged.
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
 
   useEffect(() => {
     setOrderedImages(images);
@@ -36,6 +40,7 @@ export function GalleryPanel({ images }: { images: GalleryImage[] }) {
       }
       toast.success("Image uploaded.");
       formRef.current?.reset();
+      setSelectedFileName(null);
       router.refresh();
     });
   }
@@ -80,13 +85,25 @@ export function GalleryPanel({ images }: { images: GalleryImage[] }) {
         <CardTitle>Gallery</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <form ref={formRef} action={handleUpload} className="flex items-center gap-2">
+        {/* Same treatment as this app's other file inputs, for consistency
+            — this one never had the native-chrome contrast risk (no
+            file:text-foreground override to fight it), but every file
+            input should look and behave the same way. */}
+        <form ref={formRef} action={handleUpload} className="flex items-center gap-3">
+          <label htmlFor="galleryFile" className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}>
+            Choose file
+          </label>
+          <span className="text-muted-foreground truncate text-sm">
+            {selectedFileName ?? "No file selected"}
+          </span>
           <input
+            id="galleryFile"
             type="file"
             name="file"
             accept="image/png,image/jpeg,image/webp,image/gif"
             required
-            className="text-sm"
+            className="sr-only"
+            onChange={(event) => setSelectedFileName(event.target.files?.[0]?.name ?? null)}
           />
           <Button type="submit" size="sm" disabled={isUploading}>
             {isUploading ? "Uploading…" : "Upload"}

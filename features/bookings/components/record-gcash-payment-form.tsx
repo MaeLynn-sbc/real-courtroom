@@ -5,10 +5,11 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { submitPublicBookingPaymentProofAction } from "@/actions/public-booking-payment-proof.actions";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 interface RecordGcashPaymentFormProps {
   bookingId: string;
@@ -102,10 +103,22 @@ export function RecordGcashPaymentForm({ bookingId, expectedAmountCents }: Recor
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="screenshot">Screenshot</Label>
-            <Input
+            {/* Same fix as the public payment-proof upload fields — see
+                that component's own comment for why the raw Input
+                type="file" button text could go nearly invisible. */}
+            <div className="flex items-center gap-3">
+              <label htmlFor="screenshot" className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}>
+                Choose file
+              </label>
+              <span className="text-muted-foreground truncate text-sm">
+                {file ? file.name : "Upload payment screenshot"}
+              </span>
+            </div>
+            <input
               id="screenshot"
               type="file"
               accept="image/*"
+              className="sr-only"
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
             />
           </div>
