@@ -62,13 +62,24 @@ export interface DisplayData {
   queue: string[];
 }
 
+// "initial" (First L.) is the TV kiosk's format — useful for telling two
+// Anas apart on a shared screen. "first" (bare first name) is a stricter
+// privacy bound for the mobile /phone view, a genuinely public URL with
+// no unguessable-slug gate the way /display/[slug] has — cosmetic
+// truncation on the client isn't enough there, since /api/display's raw
+// JSON is fetchable directly by anyone regardless of what a page renders,
+// so the format has to be decided here, before the name ever leaves the
+// server (see app/api/display/route.ts's own comment on the `names`
+// query param).
+type NameFormat = "initial" | "first";
+
 // Names arrive at the client pre-shortened — BUILD-SPEC.md §12 "Enforce
 // by excluding the fields... not by omitting them in the template." A
 // user.name fallback can occasionally be a bare email (no display name
 // set) — split()'d on whitespace alone that would render whole on
 // screen, so it gets its own branch rather than falling through to the
 // "first token + last initial" logic below.
-function shortDisplayName(fullName: string | null | undefined): string {
+function shortDisplayName(fullName: string | null | undefined, format: NameFormat = "initial"): string {
   const trimmed = (fullName ?? "").trim();
   if (!trimmed) {
     return "Guest";
@@ -77,7 +88,7 @@ function shortDisplayName(fullName: string | null | undefined): string {
     return trimmed.split("@")[0] || "Guest";
   }
   const parts = trimmed.split(/\s+/);
-  if (parts.length === 1) {
+  if (parts.length === 1 || format === "first") {
     return parts[0];
   }
   return `${parts[0]} ${parts[parts.length - 1][0]}.`;
@@ -126,12 +137,12 @@ async function fetchRelevantBookings(courtIds: string[], now: Date, windowEnd: D
   });
 }
 
-function toDisplayNextBooking(booking: CourtBooking | undefined): DisplayNextBooking | null {
+function toDisplayNextBooking(booking: CourtBooking | undefined, format: NameFormat): DisplayNextBooking | null {
   if (!booking) {
     return null;
   }
   return {
-    name: shortDisplayName(bookingDisplayName(booking)),
+    name: shortDisplayName(bookingDisplayName(booking), format),
     startAt: booking.startAt.toISOString(),
   };
 }
@@ -141,7 +152,8 @@ export class DisplayService {
   // shared court/queue aggregation) for open-play state, and adds one
   // new query this codebase didn't have yet: current + next booking per
   // court, needed for the reservation half of the grid.
-  async getDisplayData(): Promise<DisplayData> {
+  async getDisplayData(options: { nameFormat?: NameFormat } = {}): Promise<DisplayData> {
+    const nameFormat = options.nameFormat ?? "initial";
     const courtHours = await settingsService.getCourtHours();
     const now = new Date();
     const businessDate = computeBusinessDate(now, courtHours.businessDateRolloverHour);
@@ -179,10 +191,10 @@ export class DisplayService {
           id: court.id,
           name: court.name,
           state: "res",
-          players: [{ name: shortDisplayName(bookingDisplayName(currentBooking)) }],
+          players: [{ name: shortDisplayName(bookingDisplayName(currentBooking), nameFormat) }],
           startAt: currentBooking.startAt.toISOString(),
           endAt: currentBooking.endAt.toISOString(),
-          next: toDisplayNextBooking(nextBooking),
+          next: toDisplayNextBooking(nextBooking, nameFormat),
         };
       }
 
@@ -195,7 +207,7 @@ export class DisplayService {
           name: court.name,
           state: "op",
           players: activeAssignment.participants.map((participant) => ({
-            name: shortDisplayName(participant.registration.playerName),
+            name: shortDisplayName(participant.registration.playerName, nameFormat),
           })),
           startAt: start.toISOString(),
           endAt: end.toISOString(),
@@ -210,12 +222,12 @@ export class DisplayService {
         players: [],
         startAt: null,
         endAt: null,
-        next: toDisplayNextBooking(nextBooking),
+        next: toDisplayNextBooking(nextBooking, nameFormat),
       };
     });
 
     const queue = rotationBoard.waiting.flatMap((unit) =>
-      unit.members.map((member) => shortDisplayName(member.playerName)),
+      unit.members.map((member) => shortDisplayName(member.playerName, nameFormat)),
     );
 
     return {

@@ -119,6 +119,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 >
                   Join open play
                 </Link>
+                <Link
+                  href="/phone"
+                  className={`${PILL_BUTTON} border-line text-bone hover:border-green border font-semibold`}
+                >
+                  Who&apos;s playing now
+                </Link>
               </div>
 
               {/* Find Us — lives in the hero, in the space the stats
