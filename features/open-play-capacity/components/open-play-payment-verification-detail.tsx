@@ -7,11 +7,13 @@ import { toast } from "sonner";
 
 import {
   approveOpenPlayRegistrationPaymentProofAction,
+  recordOpenPlayRegistrationPaymentProofReferenceAction,
   rejectOpenPlayRegistrationPaymentProofAction,
 } from "@/actions/open-play-registration-payment-proof.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/utils";
 import { OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
@@ -38,10 +40,17 @@ export function OpenPlayPaymentVerificationDetail({ proof, expectedAmountCents }
   const [rejectReason, setRejectReason] = useState("");
   const [isApproving, startApprove] = useTransition();
   const [isRejecting, startReject] = useTransition();
+  // Staff-side replacement for the reference removed from the customer
+  // upload — recorded manually here, at verification, if staff need one.
+  const [manualReference, setManualReference] = useState("");
+  const [isRecordingReference, startRecordReference] = useTransition();
 
   const amountMismatches = proof.submittedAmountCents !== expectedAmountCents;
 
   function handleCopyReference() {
+    if (!proof.gcashReference) {
+      return;
+    }
     navigator.clipboard
       .writeText(proof.gcashReference)
       .then(() => {
@@ -49,6 +58,24 @@ export function OpenPlayPaymentVerificationDetail({ proof, expectedAmountCents }
         setTimeout(() => setCopied(false), 2000);
       })
       .catch(() => toast.error("Couldn't copy — select and copy the reference manually."));
+  }
+
+  function handleRecordReference() {
+    if (!manualReference.trim()) {
+      return;
+    }
+    startRecordReference(async () => {
+      const result = await recordOpenPlayRegistrationPaymentProofReferenceAction({
+        proofId: proof.id,
+        gcashReference: manualReference,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Reference recorded.");
+      router.refresh();
+    });
   }
 
   function handleApprove() {
@@ -117,21 +144,53 @@ export function OpenPlayPaymentVerificationDetail({ proof, expectedAmountCents }
           <CardTitle>GCash reference</CardTitle>
         </CardHeader>
         <CardContent>
-          <button
-            type="button"
-            onClick={handleCopyReference}
-            className="border-input hover:bg-accent flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors"
-          >
-            <span className="font-mono text-2xl font-semibold tracking-wide select-all">{proof.gcashReference}</span>
-            {copied ? (
-              <Check className="text-success size-5 shrink-0" aria-hidden="true" />
-            ) : (
-              <Copy className="text-muted-foreground size-5 shrink-0" aria-hidden="true" />
-            )}
-          </button>
-          <p className="text-muted-foreground mt-1.5 text-xs">
-            {copied ? "Copied." : "Tap to copy — paste into the GCash app to find this transaction."}
-          </p>
+          {proof.gcashReference ? (
+            <>
+              <button
+                type="button"
+                onClick={handleCopyReference}
+                className="border-input hover:bg-accent flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors"
+              >
+                <span className="font-mono text-2xl font-semibold tracking-wide select-all">
+                  {proof.gcashReference}
+                </span>
+                {copied ? (
+                  <Check className="text-success size-5 shrink-0" aria-hidden="true" />
+                ) : (
+                  <Copy className="text-muted-foreground size-5 shrink-0" aria-hidden="true" />
+                )}
+              </button>
+              <p className="text-muted-foreground mt-1.5 text-xs">
+                {copied ? "Copied." : "Tap to copy — paste into the GCash app to find this transaction."}
+              </p>
+            </>
+          ) : isPending ? (
+            <>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={manualReference}
+                  onChange={(event) => setManualReference(event.target.value)}
+                  placeholder="Not provided — enter one if you have it"
+                  className="font-mono"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isRecordingReference || !manualReference.trim()}
+                  onClick={handleRecordReference}
+                >
+                  {isRecordingReference ? "Saving…" : "Save"}
+                </Button>
+              </div>
+              <p className="text-muted-foreground mt-1.5 text-xs">
+                The customer didn&apos;t provide one — verify against the screenshot below. Optional; record
+                one here if you have it (e.g. read it off the screenshot, or ask the customer).
+              </p>
+            </>
+          ) : (
+            <p className="text-muted-foreground text-sm">Not provided.</p>
+          )}
         </CardContent>
       </Card>
 

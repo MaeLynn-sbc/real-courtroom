@@ -4,12 +4,12 @@ import Image from "next/image";
 import { useState, useTransition } from "react";
 
 import { submitPublicOpenPlayRegistrationPaymentProofAction } from "@/actions/public-open-play-registration-payment-proof.actions";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ContactFallbackLinks } from "@/features/bookings/components/contact-fallback-links";
 import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 
 interface OpenPlayRegistrationProofFormProps {
   registrationId: string;
@@ -52,7 +52,6 @@ export function OpenPlayRegistrationProofForm({
   contactFacebookUrl,
   onSubmitted,
 }: OpenPlayRegistrationProofFormProps) {
-  const [gcashReference, setGcashReference] = useState("");
   const [submittedAmount, setSubmittedAmount] = useState(String(expectedAmountCents / 100));
   const [file, setFile] = useState<File | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -62,8 +61,8 @@ export function OpenPlayRegistrationProofForm({
     event.preventDefault();
     setServerError(null);
 
-    if (!gcashReference.trim() || !file) {
-      setServerError("Enter the GCash reference and attach a screenshot.");
+    if (!file) {
+      setServerError("Attach a screenshot of your payment confirmation.");
       return;
     }
     const amountCents = Math.round(Number(submittedAmount) * 100);
@@ -76,7 +75,10 @@ export function OpenPlayRegistrationProofForm({
       const dataBase64 = await fileToBase64(file);
       const result = await submitPublicOpenPlayRegistrationPaymentProofAction({
         registrationId,
-        gcashReference: gcashReference.trim(),
+        // Removed from the customer-facing form — the screenshot is the
+        // actual proof; retyping a reference between apps was pure
+        // friction. Staff can still record one manually at verification.
+        gcashReference: null,
         submittedAmountCents: amountCents,
         screenshot: { fileName: file.name, contentType: file.type || "image/png", dataBase64 },
       });
@@ -128,14 +130,6 @@ export function OpenPlayRegistrationProofForm({
 
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="proofGcashReference">GCash reference number</Label>
-          <Input
-            id="proofGcashReference"
-            value={gcashReference}
-            onChange={(event) => setGcashReference(event.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
           <Label htmlFor="proofSubmittedAmount">Amount sent (₱)</Label>
           <Input
             id="proofSubmittedAmount"
@@ -147,10 +141,32 @@ export function OpenPlayRegistrationProofForm({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="proofScreenshot">Screenshot</Label>
-          <Input
+          {/* The native file input's own trailing text ("No file chosen")
+              isn't a DOM node — it's rendered by the browser and can't be
+              restyled or reworded via CSS. Reported live: the raw <Input
+              type="file"> this used to be relies on file:bg-transparent +
+              file:text-foreground to theme the "Choose File" button, but
+              many browsers keep that button's own native chrome (a light
+              background) regardless — text-foreground tuned for a dark
+              page background then lands on that native light background
+              and nearly disappears. Same fix as public-payment-proof-
+              upload.tsx: hide the native input, replace it with a label
+              styled via this app's real button tokens (buttonVariants),
+              already contrast-tested in both themes, plus a status span
+              this component fully controls. */}
+          <div className="flex items-center gap-3">
+            <label htmlFor="proofScreenshot" className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}>
+              Choose file
+            </label>
+            <span className="text-muted-foreground truncate text-sm">
+              {file ? file.name : "Upload payment screenshot"}
+            </span>
+          </div>
+          <input
             id="proofScreenshot"
             type="file"
             accept="image/*"
+            className="sr-only"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </div>

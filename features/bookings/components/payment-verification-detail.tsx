@@ -5,10 +5,15 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { approveBookingPaymentProofAction, rejectBookingPaymentProofAction } from "@/actions/booking-payment-proof.actions";
+import {
+  approveBookingPaymentProofAction,
+  recordBookingPaymentProofReferenceAction,
+  rejectBookingPaymentProofAction,
+} from "@/actions/booking-payment-proof.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
 import { formatCurrency } from "@/lib/utils";
@@ -33,6 +38,28 @@ export function PaymentVerificationDetail({ proof, approvalOverrideReason }: Pay
   const [overrideReason, setOverrideReason] = useState("");
   const [isApproving, startApprove] = useTransition();
   const [isRejecting, startReject] = useTransition();
+  // Staff-side replacement for the reference removed from the customer
+  // upload — recorded manually here, at verification, if staff need one.
+  const [manualReference, setManualReference] = useState("");
+  const [isRecordingReference, startRecordReference] = useTransition();
+
+  function handleRecordReference() {
+    if (!manualReference.trim()) {
+      return;
+    }
+    startRecordReference(async () => {
+      const result = await recordBookingPaymentProofReferenceAction({
+        proofId: proof.id,
+        gcashReference: manualReference,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Reference recorded.");
+      router.refresh();
+    });
+  }
 
   const courtCents = proof.booking.totalAmountCents ?? 0;
   const coachSession = proof.booking.coachSession;
@@ -195,30 +222,53 @@ export function PaymentVerificationDetail({ proof, approvalOverrideReason }: Pay
           <CardTitle>GCash reference</CardTitle>
         </CardHeader>
         <CardContent>
-          <button
-            type="button"
-            onClick={handleCopyReference}
-            disabled={!proof.gcashReference}
-            className="border-input hover:bg-accent flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span className="font-mono text-2xl font-semibold tracking-wide select-all">
-              {proof.gcashReference ?? "Not provided"}
-            </span>
-            {proof.gcashReference ? (
-              copied ? (
-                <Check className="text-success size-5 shrink-0" aria-hidden="true" />
-              ) : (
-                <Copy className="text-muted-foreground size-5 shrink-0" aria-hidden="true" />
-              )
-            ) : null}
-          </button>
-          <p className="text-muted-foreground mt-1.5 text-xs">
-            {!proof.gcashReference
-              ? "The customer didn't provide one — verify against the screenshot below."
-              : copied
-                ? "Copied."
-                : "Tap to copy — paste into the GCash app to find this transaction."}
-          </p>
+          {proof.gcashReference ? (
+            <>
+              <button
+                type="button"
+                onClick={handleCopyReference}
+                className="border-input hover:bg-accent flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className="font-mono text-2xl font-semibold tracking-wide select-all">
+                  {proof.gcashReference}
+                </span>
+                {copied ? (
+                  <Check className="text-success size-5 shrink-0" aria-hidden="true" />
+                ) : (
+                  <Copy className="text-muted-foreground size-5 shrink-0" aria-hidden="true" />
+                )}
+              </button>
+              <p className="text-muted-foreground mt-1.5 text-xs">
+                {copied ? "Copied." : "Tap to copy — paste into the GCash app to find this transaction."}
+              </p>
+            </>
+          ) : isPending ? (
+            <>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={manualReference}
+                  onChange={(event) => setManualReference(event.target.value)}
+                  placeholder="Not provided — enter one if you have it"
+                  className="font-mono"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isRecordingReference || !manualReference.trim()}
+                  onClick={handleRecordReference}
+                >
+                  {isRecordingReference ? "Saving…" : "Save"}
+                </Button>
+              </div>
+              <p className="text-muted-foreground mt-1.5 text-xs">
+                The customer didn&apos;t provide one — verify against the screenshot below. Optional; record
+                one here if you have it (e.g. read it off the screenshot, or ask the customer).
+              </p>
+            </>
+          ) : (
+            <p className="text-muted-foreground text-sm">Not provided.</p>
+          )}
         </CardContent>
       </Card>
 

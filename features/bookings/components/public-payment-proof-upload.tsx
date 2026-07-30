@@ -4,11 +4,11 @@ import Image from "next/image";
 import { useEffect, useState, useTransition } from "react";
 
 import { submitPublicBookingPaymentProofAction } from "@/actions/public-booking-payment-proof.actions";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -48,7 +48,6 @@ export function PublicPaymentProofUpload({
   gcashInfo,
   onSubmitted,
 }: PublicPaymentProofUploadProps) {
-  const [gcashReference, setGcashReference] = useState("");
   const [submittedAmount, setSubmittedAmount] = useState(String(amountDueCents / 100));
   // amountDueCents can change after mount now (adding/removing a coach
   // recomputes it in the parent) — resync the pre-fill to match, but only
@@ -74,9 +73,6 @@ export function PublicPaymentProofUpload({
     event.preventDefault();
     setServerError(null);
 
-    // Reference is optional as long as a screenshot is attached — the
-    // screenshot is the actual proof; the reference just helps staff
-    // find the transaction faster.
     if (!file) {
       setServerError("Attach a screenshot of your payment confirmation.");
       return;
@@ -91,7 +87,10 @@ export function PublicPaymentProofUpload({
       const dataBase64 = await fileToBase64(file);
       const result = await submitPublicBookingPaymentProofAction({
         bookingId,
-        gcashReference: gcashReference.trim() || null,
+        // Removed from the customer-facing form — the screenshot is the
+        // actual proof; retyping a reference between apps was pure
+        // friction. Staff can still record one manually at verification.
+        gcashReference: null,
         submittedAmountCents: amountCents,
         screenshot: { fileName: file.name, contentType: file.type || "image/png", dataBase64 },
       });
@@ -174,15 +173,6 @@ export function PublicPaymentProofUpload({
 
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="publicGcashReference">GCash reference number (optional)</Label>
-          <Input
-            id="publicGcashReference"
-            placeholder="Leave blank if you're not sure"
-            value={gcashReference}
-            onChange={(event) => setGcashReference(event.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
           <Label htmlFor="publicSubmittedAmount">Amount sent (₱)</Label>
           <Input
             id="publicSubmittedAmount"
@@ -204,14 +194,18 @@ export function PublicPaymentProofUpload({
               button) plus a plain-text status span this component
               fully controls. */}
           <div className="flex items-center gap-3">
-            <label
-              htmlFor="publicScreenshot"
-              className="cursor-pointer rounded-lg bg-blue-100 px-3 py-1.5 text-sm font-medium text-blue-900 transition-colors hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
-            >
+            {/* Reported live: the old bg-blue-100/text-blue-900 pair was
+                hardcoded, not one of this app's real button tokens — and
+                nearly invisible in practice. Same buttonVariants("secondary")
+                classes the real <Button> component uses everywhere else,
+                already tested for contrast in both themes, applied to a
+                <label> (not <button>) so a native click still triggers the
+                hidden input with no JS needed. */}
+            <label htmlFor="publicScreenshot" className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}>
               Choose file
             </label>
             <span className="text-muted-foreground truncate text-sm">
-              {file ? file.name : "Upload proof of payment"}
+              {file ? file.name : "Upload payment screenshot"}
             </span>
           </div>
           <input

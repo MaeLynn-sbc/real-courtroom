@@ -1464,7 +1464,15 @@ model OpenPlayRegistrationPaymentProof {
   // accepted gap in the Gate 1 report; not fixed here (closing it would
   // mean touching BookingPaymentProof's own shipped submission path,
   // outside this Gate's hard boundary).
-  gcashReference       String
+  // Nullable as of migration 38 — mirrors BookingPaymentProof's own
+  // gcashReference (migration 32): removed from the customer-facing
+  // upload entirely (the screenshot IS the proof; retyping a reference
+  // between apps was pure friction), staff can still record one manually
+  // at verification. No change needed to the partial unique index
+  // (OpenPlayRegistrationPaymentProof_gcashReference_active_key,
+  // migration 21) — Postgres never treats two NULLs as equal for
+  // uniqueness, same reasoning migration 32 already documented.
+  gcashReference       String?
   screenshotStorageKey String
   submittedAmountCents Int
   submittedAt          DateTime                               @default(now())

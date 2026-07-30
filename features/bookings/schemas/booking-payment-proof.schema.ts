@@ -45,3 +45,15 @@ export const rejectBookingPaymentProofSchema = z.object({
 });
 
 export type RejectBookingPaymentProofActionInput = z.infer<typeof rejectBookingPaymentProofSchema>;
+
+// Staff-side replacement for the reference removed from the customer
+// upload above — recorded manually at verification, not asked of the
+// customer.
+export const recordBookingPaymentProofReferenceSchema = z.object({
+  proofId: z.string().min(1),
+  gcashReference: z.string().min(1, "Enter a reference number."),
+});
+
+export type RecordBookingPaymentProofReferenceActionInput = z.infer<
+  typeof recordBookingPaymentProofReferenceSchema
+>;

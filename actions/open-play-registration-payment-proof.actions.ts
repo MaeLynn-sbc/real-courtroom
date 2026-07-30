@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 
 import {
+  recordOpenPlayRegistrationPaymentProofReferenceSchema,
   rejectOpenPlayRegistrationPaymentProofSchema,
+  type RecordOpenPlayRegistrationPaymentProofReferenceActionInput,
   type RejectOpenPlayRegistrationPaymentProofActionInput,
 } from "@/features/open-play-capacity/schemas/open-play-registration-payment-proof.schema";
 import { requireEmployee, requireEmployeeWithOpenShift } from "@/lib/action-auth";
@@ -51,6 +53,37 @@ export async function approveOpenPlayRegistrationPaymentProofAction(
     return { error: null, alreadyResolved: result.alreadyResolved };
   } catch (error) {
     return { error: toActionError(error, { action: "approveOpenPlayRegistrationPaymentProofAction", userId: authz.userId }) };
+  }
+}
+
+export async function recordOpenPlayRegistrationPaymentProofReferenceAction(
+  input: RecordOpenPlayRegistrationPaymentProofReferenceActionInput,
+): Promise<OpenPlayRegistrationPaymentProofActionState> {
+  const authz = await requireEmployee(
+    PERMISSIONS.OPEN_PLAY_MANAGE,
+    "You don't have permission to verify open-play payments.",
+  );
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = recordOpenPlayRegistrationPaymentProofReferenceSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid reference." };
+  }
+
+  try {
+    await openPlayRegistrationPaymentProofService.recordGcashReference(
+      parsed.data.proofId,
+      parsed.data.gcashReference,
+      authz.userId,
+    );
+    revalidatePath("/dashboard/admin/open-play-capacity");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "recordOpenPlayRegistrationPaymentProofReferenceAction", userId: authz.userId }),
+    };
   }
 }
 

@@ -236,6 +236,48 @@ export class BookingPaymentProofService {
   // updateMany affects a row and proceeds to create the Sale; the other
   // affects 0 rows, re-reads the now-committed row, and returns it as a
   // benign no-op — never a raw DB error, never two Sales.
+  // GCash reference removed from the customer-facing upload (the
+  // screenshot is the actual proof) — this is the staff-side
+  // replacement: record one manually at verification, e.g. after
+  // texting/calling the customer to ask for it, or reading it off the
+  // screenshot themselves. PENDING-only, same as approve/reject below —
+  // once resolved, the proof is history, not something to keep editing.
+  // Goes through the same partial unique index every other reference
+  // write does (BookingPaymentProof_gcashReference_active_key) — a
+  // staff-entered duplicate is rejected exactly like a customer-entered
+  // one would have been.
+  async recordGcashReference(
+    proofId: string,
+    gcashReference: string,
+    actorUserId: string,
+  ): Promise<BookingPaymentProof> {
+    const trimmed = gcashReference.trim();
+    if (!trimmed) {
+      throw new Error("Enter a reference number.");
+    }
+
+    const existing = await prisma.bookingPaymentProof.findUniqueOrThrow({ where: { id: proofId } });
+    if (existing.status !== "PENDING") {
+      throw new Error(`Can only record a reference on a payment still awaiting verification (current status: ${existing.status.toLowerCase()}).`);
+    }
+
+    const updated = await prisma.bookingPaymentProof.update({
+      where: { id: proofId },
+      data: { gcashReference: trimmed },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "booking_payment_proof.reference_recorded",
+      entityType: "BookingPaymentProof",
+      entityId: proofId,
+      oldValues: { gcashReference: existing.gcashReference },
+      newValues: { gcashReference: trimmed },
+    });
+
+    return updated;
+  }
+
   async approveBookingPaymentProof(
     proofId: string,
     context: ApproveBookingPaymentProofContext,

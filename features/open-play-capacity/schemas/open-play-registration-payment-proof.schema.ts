@@ -10,3 +10,15 @@ export const rejectOpenPlayRegistrationPaymentProofSchema = z.object({
 export type RejectOpenPlayRegistrationPaymentProofActionInput = z.infer<
   typeof rejectOpenPlayRegistrationPaymentProofSchema
 >;
+
+// Staff-side replacement for the reference removed from the customer
+// upload — recorded manually at verification, not asked of the customer.
+// Mirrors recordBookingPaymentProofReferenceSchema exactly.
+export const recordOpenPlayRegistrationPaymentProofReferenceSchema = z.object({
+  proofId: z.string().min(1),
+  gcashReference: z.string().min(1, "Enter a reference number."),
+});
+
+export type RecordOpenPlayRegistrationPaymentProofReferenceActionInput = z.infer<
+  typeof recordOpenPlayRegistrationPaymentProofReferenceSchema
+>;

@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 
 import {
+  recordBookingPaymentProofReferenceSchema,
   rejectBookingPaymentProofSchema,
+  type RecordBookingPaymentProofReferenceActionInput,
   type RejectBookingPaymentProofActionInput,
 } from "@/features/bookings/schemas/booking-payment-proof.schema";
 import { requireEmployee, requireEmployeeWithOpenShift } from "@/lib/action-auth";
@@ -54,6 +56,35 @@ export async function approveBookingPaymentProofAction(
     return { error: null, alreadyResolved: result.alreadyResolved };
   } catch (error) {
     return { error: toActionError(error, { action: "approveBookingPaymentProofAction", userId: authz.userId }) };
+  }
+}
+
+export async function recordBookingPaymentProofReferenceAction(
+  input: RecordBookingPaymentProofReferenceActionInput,
+): Promise<BookingPaymentProofActionState> {
+  const authz = await requireEmployee(
+    PERMISSIONS.BOOKINGS_MANAGE,
+    "You don't have permission to verify booking payments.",
+  );
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = recordBookingPaymentProofReferenceSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid reference." };
+  }
+
+  try {
+    await bookingPaymentProofService.recordGcashReference(
+      parsed.data.proofId,
+      parsed.data.gcashReference,
+      authz.userId,
+    );
+    revalidatePath("/dashboard/bookings");
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "recordBookingPaymentProofReferenceAction", userId: authz.userId }) };
   }
 }
 

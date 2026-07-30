@@ -48,7 +48,9 @@ interface ScreenshotInput {
 // never reads any of it.
 export interface SubmitOpenPlayRegistrationPaymentProofInput {
   registrationId: string;
-  gcashReference: string;
+  // Optional, matching BookingPaymentProof's own gcashReference (see
+  // that service's comment) — the screenshot is the actual proof.
+  gcashReference: string | null;
   submittedAmountCents: number;
   screenshot: ScreenshotInput;
   status?: string;
@@ -167,6 +169,41 @@ export class OpenPlayRegistrationPaymentProofService {
       await getUploadService().delete(upload.key).catch(() => undefined);
       throw error;
     }
+  }
+
+  // GCash reference removed from the customer-facing upload (the
+  // screenshot is the actual proof) — mirrors
+  // bookingPaymentProofService.recordGcashReference exactly. PENDING-only:
+  // once resolved, the proof is history, not something to keep editing.
+  async recordGcashReference(
+    proofId: string,
+    gcashReference: string,
+    actorUserId: string,
+  ): Promise<OpenPlayRegistrationPaymentProof> {
+    const trimmed = gcashReference.trim();
+    if (!trimmed) {
+      throw new Error("Enter a reference number.");
+    }
+
+    const existing = await prisma.openPlayRegistrationPaymentProof.findUniqueOrThrow({ where: { id: proofId } });
+    if (existing.status !== "PENDING") {
+      throw new Error(`Can only record a reference on a payment still awaiting verification (current status: ${existing.status.toLowerCase()}).`);
+    }
+
+    const updated = await prisma.openPlayRegistrationPaymentProof.update({
+      where: { id: proofId },
+      data: { gcashReference: trimmed },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_registration_payment_proof.reference_recorded",
+      entityType: "OpenPlayRegistrationPaymentProof",
+      entityId: proofId,
+      newValues: { gcashReference: trimmed, previousGcashReference: existing.gcashReference },
+    });
+
+    return updated;
   }
 
   // Same concurrency shape as approveBookingPaymentProof — the
