@@ -5,7 +5,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 
 import { createPublicBookingAction, type PublicBookingCoachOption } from "@/actions/public-booking.actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -291,114 +291,180 @@ export function PublicBookingForm({
     const coachFeeCents = coachSession?.priceCents ?? 0;
     const totalDueCents = confirmation.totalAmountCents + coachFeeCents;
 
-    return (
-      <Card className="mx-auto max-w-md">
-        <CardHeader>
-          <CardTitle className={confirmation.requiresPayment ? undefined : "text-success"}>
-            {confirmation.requiresPayment
-              ? `Pay ${formatCurrency(totalDueCents)} to confirm your slot`
-              : "Booking confirmed"}
-          </CardTitle>
-          {confirmation.requiresPayment ? (
-            <CardDescription className="text-warning-foreground">
-              Your slot isn&apos;t reserved until we receive your payment.
-              {confirmation.holdExpiresAt
-                ? ` Held until ${holdTimeFormatter.format(confirmation.holdExpiresAt)}.`
-                : ""}
-            </CardDescription>
-          ) : null}
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Reference</span>
-            <span className="font-mono font-medium">{confirmation.bookingReference}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Name</span>
-            <span className="font-medium">{confirmation.guestName}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Court</span>
-            <span className="font-medium">{confirmation.courtName}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Date</span>
-            <span className="font-medium">{confirmation.date}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Time</span>
-            <span className="font-medium">{confirmation.time}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Duration</span>
-            <span className="font-medium">{formatDurationLabel(confirmation.durationMinutes)}</span>
-          </div>
-          {coachSession ? (
-            <>
-              <div className="flex justify-between border-t pt-3">
-                <span className="text-muted-foreground">Court hire</span>
-                <span className="font-medium tabular-nums">{formatCurrency(confirmation.totalAmountCents)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Coaching ({coachSession.coachName})</span>
-                <span className="font-medium tabular-nums">{formatCurrency(coachSession.priceCents)}</span>
-              </div>
-              <div className="flex justify-between border-t pt-2 text-base">
+    // Genuinely confirmed (pay-at-venue-by-default, requiresPayment
+    // false) is a real completion — Card + success styling stays.
+    if (!confirmation.requiresPayment) {
+      return (
+        <Card className="mx-auto max-w-md">
+          <CardHeader>
+            <CardTitle className="text-success">Booking confirmed</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Reference</span>
+              <span className="font-mono font-medium">{confirmation.bookingReference}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Name</span>
+              <span className="font-medium">{confirmation.guestName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Court</span>
+              <span className="font-medium">{confirmation.courtName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Date</span>
+              <span className="font-medium">{confirmation.date}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Time</span>
+              <span className="font-medium">{confirmation.time}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Duration</span>
+              <span className="font-medium">{formatDurationLabel(confirmation.durationMinutes)}</span>
+            </div>
+            {coachSession ? (
+              <>
+                <div className="flex justify-between border-t pt-3">
+                  <span className="text-muted-foreground">Court hire</span>
+                  <span className="font-medium tabular-nums">{formatCurrency(confirmation.totalAmountCents)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Coaching ({coachSession.coachName})</span>
+                  <span className="font-medium tabular-nums">{formatCurrency(coachSession.priceCents)}</span>
+                </div>
+                <div className="flex justify-between border-t pt-2 text-base">
+                  <span className="font-medium">Total</span>
+                  <span className="font-semibold tabular-nums">{formatCurrency(totalDueCents)}</span>
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-between border-t pt-3 text-base">
                 <span className="font-medium">Total</span>
                 <span className="font-semibold tabular-nums">{formatCurrency(totalDueCents)}</span>
               </div>
-            </>
-          ) : (
-            <div className="flex justify-between border-t pt-3 text-base">
-              <span className="font-medium">Total</span>
-              <span className="font-semibold tabular-nums">{formatCurrency(totalDueCents)}</span>
-            </div>
-          )}
-          {confirmation.requiresPayment ? (
-            <>
-              <p className="text-muted-foreground text-xs">
-                Save your reference and phone number to look this up later.
-              </p>
-              <PublicPaymentProofUpload
-                bookingId={confirmation.bookingId}
-                bookingReference={confirmation.bookingReference}
-                amountDueCents={totalDueCents}
-                guestPhone={confirmation.guestPhone}
-                gcashInfo={gcashInfo}
-                onSubmitted={() => setHasSubmittedProof(true)}
-              />
-              {contactPhone || contactFacebookUrl ? (
-                <p className="text-muted-foreground pt-1 text-xs">
-                  Wrong file, or haven&apos;t heard back?{" "}
-                  <ContactFallbackLinks phone={contactPhone} facebookUrl={contactFacebookUrl} />.
-                </p>
-              ) : null}
-            </>
-          ) : (
+            )}
             <p className="text-muted-foreground pt-2 text-xs">
               Save your reference and phone number — you can look up this booking anytime from the
               Booking Lookup page. Payment is collected at the venue.
             </p>
-          )}
+            <div className="border-t pt-3">
+              <PublicCoachAddOn
+                bookingId={confirmation.bookingId}
+                availableCoaches={confirmation.availableCoaches}
+                requiresPayment={confirmation.requiresPayment}
+                hasSubmittedProof={hasSubmittedProof}
+                contactPhone={contactPhone}
+                contactFacebookUrl={contactFacebookUrl}
+                onCoachSessionChange={setCoachSession}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
 
-          {/* Offered regardless of requiresPayment above — a held slot
-              can still have a coach attached before payment clears, same
-              as coach-session.service.ts's createCoachSession itself
-              never gating on Booking.status. Locked once hasSubmittedProof
-              flips true — see that same service's ordering-guard comment. */}
-          <div className="border-t pt-3">
-            <PublicCoachAddOn
-              bookingId={confirmation.bookingId}
-              availableCoaches={confirmation.availableCoaches}
-              requiresPayment={confirmation.requiresPayment}
-              hasSubmittedProof={hasSubmittedProof}
-              contactPhone={contactPhone}
-              contactFacebookUrl={contactFacebookUrl}
-              onCoachSessionChange={setCoachSession}
-            />
-          </div>
-        </CardContent>
-      </Card>
+    // requiresPayment true — deliberately NOT a Card. Reported live:
+    // a boxed panel replacing the form read as a receipt/arrival, and
+    // people stopped there without paying. Same bare container shape
+    // as the form itself (mx-auto max-w-md flex flex-col gap-4,
+    // matching the <form> below) so this reads as the form
+    // continuing, not a new screen — no border, no shadow, no
+    // success color, no checkmark anywhere in this branch. The hold
+    // itself is unchanged: the booking (and its hold) already exists
+    // by this point, same as before — only the FEEL of this state
+    // changed, not the sequence (create hold, then pay).
+    return (
+      <div className="mx-auto flex max-w-md flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg font-semibold">Pay {formatCurrency(totalDueCents)} to confirm your slot</h2>
+          {/* text-warning, not text-warning-foreground — that token is
+              designed for dark text ON a light bg-warning box (see
+              public-payment-proof-upload.tsx's own such box). This line
+              sits directly on the page background now that the Card
+              wrapper is gone, so the "on-warning" foreground color was
+              nearly invisible here — same class of contrast bug as the
+              table header fix earlier this session, caught the same way
+              (looked at the actual rendered screenshot). */}
+          <p className="text-warning text-sm font-medium">
+            Your slot isn&apos;t reserved until we receive your payment.
+            {confirmation.holdExpiresAt
+              ? ` Held until ${holdTimeFormatter.format(confirmation.holdExpiresAt)}.`
+              : ""}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1 text-sm">
+          <p>
+            <span className="text-muted-foreground">Reference:</span> {confirmation.bookingReference}
+          </p>
+          <p>
+            <span className="text-muted-foreground">Name:</span> {confirmation.guestName}
+          </p>
+          <p>
+            <span className="text-muted-foreground">Court:</span> {confirmation.courtName}
+          </p>
+          <p>
+            <span className="text-muted-foreground">Date:</span> {confirmation.date}
+          </p>
+          <p>
+            <span className="text-muted-foreground">Time:</span> {confirmation.time}
+          </p>
+          <p>
+            <span className="text-muted-foreground">Duration:</span> {formatDurationLabel(confirmation.durationMinutes)}
+          </p>
+          {coachSession ? (
+            <>
+              <p>
+                <span className="text-muted-foreground">Court hire:</span>{" "}
+                <span>{formatCurrency(confirmation.totalAmountCents)}</span>
+              </p>
+              <p>
+                <span className="text-muted-foreground">Coaching ({coachSession.coachName}):</span>{" "}
+                <span>{formatCurrency(coachSession.priceCents)}</span>
+              </p>
+            </>
+          ) : null}
+          <p className="font-medium">
+            Total: <span>{formatCurrency(totalDueCents)}</span>
+          </p>
+        </div>
+
+        <p className="text-muted-foreground text-xs">Save your reference and phone number to look this up later.</p>
+
+        <PublicPaymentProofUpload
+          bookingId={confirmation.bookingId}
+          bookingReference={confirmation.bookingReference}
+          amountDueCents={totalDueCents}
+          guestPhone={confirmation.guestPhone}
+          gcashInfo={gcashInfo}
+          onSubmitted={() => setHasSubmittedProof(true)}
+        />
+        {contactPhone || contactFacebookUrl ? (
+          <p className="text-muted-foreground text-xs">
+            Wrong file, or haven&apos;t heard back?{" "}
+            <ContactFallbackLinks phone={contactPhone} facebookUrl={contactFacebookUrl} />.
+          </p>
+        ) : null}
+
+        {/* Offered regardless of requiresPayment above — a held slot
+            can still have a coach attached before payment clears, same
+            as coach-session.service.ts's createCoachSession itself
+            never gating on Booking.status. Locked once hasSubmittedProof
+            flips true — see that same service's ordering-guard comment. */}
+        <div className="border-t pt-3">
+          <PublicCoachAddOn
+            bookingId={confirmation.bookingId}
+            availableCoaches={confirmation.availableCoaches}
+            requiresPayment={confirmation.requiresPayment}
+            hasSubmittedProof={hasSubmittedProof}
+            contactPhone={contactPhone}
+            contactFacebookUrl={contactFacebookUrl}
+            onCoachSessionChange={setCoachSession}
+          />
+        </div>
+      </div>
     );
   }
 
