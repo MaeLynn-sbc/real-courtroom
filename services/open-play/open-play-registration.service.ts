@@ -741,21 +741,35 @@ export class OpenPlayRegistrationService {
   // reconciliation-on-read pattern as openPlayCheckinService's own
   // reconcileNoShows (this codebase's established no-cron precedent) —
   // called from the capacity/roster screen's own read path
-  // (getCheckInScreenData), not on a schedule. Cheap pre-check outside
-  // any transaction/lock first, same shape as reconcileNoShows' own
-  // cutoff check, so a normal read that has nothing to reconcile doesn't
-  // pay for a session lock it doesn't need.
+  // (getCheckInScreenData), not on a schedule.
+  //
+  // Fairness gap found investigating QR-registration rollout risk: the
+  // pre-check below used to only look for a stale INVITED row — which
+  // does nothing for a first-time AWAITING_PAYMENT hold expiring, since
+  // nobody has been through the invite cycle yet in that case, so no
+  // INVITED row exists to find. countOccupiedSeats already stops
+  // counting that expired hold (same lazy exclusion as everywhere else),
+  // so the seat WAS free — it just went to whoever submitted next
+  // instead of the earliest waitlisted person, exactly the "surge"
+  // scenario a QR code makes likely. Broadened to: does ANYONE
+  // (WAITING or INVITED) exist on this session's waitlist at all? If
+  // so, take the lock and let inviteNextWaitlistEntry's own fresh
+  // countOccupiedSeats check decide whether a seat is actually free
+  // right now — that one call already correctly handles both a stale
+  // re-invite AND a first-time hold expiry, the gate above it was the
+  // only thing too narrow. Proven against real rows: services/open-play/
+  // open-play-first-hold-expiry-invite.integration.ts.
   async reconcileExpiredInvites(sessionId: string, actorUserId: string | null): Promise<void> {
     const session = await prisma.openPlayNightSession.findUnique({ where: { id: sessionId } });
     if (!session) {
       return;
     }
 
-    const staleInvite = await prisma.openPlayWaitlistEntry.findFirst({
-      where: { sessionId, status: "INVITED", inviteExpiresAt: { lt: new Date() } },
+    const anyoneWaiting = await prisma.openPlayWaitlistEntry.findFirst({
+      where: { sessionId, status: { in: ["WAITING", "INVITED"] } },
       select: { id: true },
     });
-    if (!staleInvite) {
+    if (!anyoneWaiting) {
       return;
     }
 
