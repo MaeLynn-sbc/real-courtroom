@@ -1,15 +1,28 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useTransition } from "react";
 
 import { submitPublicOpenPlayRegistrationPaymentProofAction } from "@/actions/public-open-play-registration-payment-proof.actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ContactFallbackLinks } from "@/features/bookings/components/contact-fallback-links";
+import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
+import { formatCurrency } from "@/lib/utils";
 
 interface OpenPlayRegistrationProofFormProps {
   registrationId: string;
   expectedAmountCents: number;
+  // Reported live: this screen never showed the QR code, account name,
+  // or account number — a customer registering from home had no way to
+  // know where to send the money. Same settingsService.getGcashPaymentInfo()
+  // the court booking flow already uses (features/bookings/components/
+  // public-payment-proof-upload.tsx), threaded down from the page — not
+  // a second, hardcoded copy.
+  gcashInfo: GcashPaymentInfo;
+  contactPhone: string;
+  contactFacebookUrl: string;
   onSubmitted: () => void;
 }
 
@@ -34,6 +47,9 @@ function fileToBase64(file: File): Promise<string> {
 export function OpenPlayRegistrationProofForm({
   registrationId,
   expectedAmountCents,
+  gcashInfo,
+  contactPhone,
+  contactFacebookUrl,
   onSubmitted,
 }: OpenPlayRegistrationProofFormProps) {
   const [gcashReference, setGcashReference] = useState("");
@@ -73,42 +89,87 @@ export function OpenPlayRegistrationProofForm({
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="proofGcashReference">GCash reference number</Label>
-        <Input
-          id="proofGcashReference"
-          value={gcashReference}
-          onChange={(event) => setGcashReference(event.target.value)}
-        />
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="text-sm font-medium">Pay via GCash</p>
+        <p className="text-muted-foreground text-xs">
+          Send {formatCurrency(expectedAmountCents)} to the account below, then upload your payment screenshot to
+          confirm your spot.
+        </p>
       </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="proofSubmittedAmount">Amount sent (₱)</Label>
-        <Input
-          id="proofSubmittedAmount"
-          type="number"
-          step="0.01"
-          value={submittedAmount}
-          onChange={(event) => setSubmittedAmount(event.target.value)}
+
+      {gcashInfo.qrImageUrl ? (
+        <Image
+          src={gcashInfo.qrImageUrl}
+          alt="GCash QR code"
+          width={160}
+          height={160}
+          unoptimized
+          className="self-center rounded-lg border"
         />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="proofScreenshot">Screenshot</Label>
-        <Input
-          id="proofScreenshot"
-          type="file"
-          accept="image/*"
-          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-        />
-      </div>
-      {serverError ? (
-        <p className="text-destructive text-sm" role="alert">
-          {serverError}
+      ) : null}
+
+      {gcashInfo.accountName || gcashInfo.accountNumber ? (
+        <div className="rounded-lg border p-3 text-sm">
+          {gcashInfo.accountName ? (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Account name</span>
+              <span className="font-medium">{gcashInfo.accountName}</span>
+            </div>
+          ) : null}
+          {gcashInfo.accountNumber ? (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Account number</span>
+              <span className="font-mono font-medium">{gcashInfo.accountNumber}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="proofGcashReference">GCash reference number</Label>
+          <Input
+            id="proofGcashReference"
+            value={gcashReference}
+            onChange={(event) => setGcashReference(event.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="proofSubmittedAmount">Amount sent (₱)</Label>
+          <Input
+            id="proofSubmittedAmount"
+            type="number"
+            step="0.01"
+            value={submittedAmount}
+            onChange={(event) => setSubmittedAmount(event.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="proofScreenshot">Screenshot</Label>
+          <Input
+            id="proofScreenshot"
+            type="file"
+            accept="image/*"
+            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          />
+        </div>
+        {serverError ? (
+          <p className="text-destructive text-sm" role="alert">
+            {serverError}
+          </p>
+        ) : null}
+        <Button type="submit" size="lg" disabled={isPending}>
+          {isPending ? "Submitting…" : "Submit payment"}
+        </Button>
+      </form>
+
+      {contactPhone || contactFacebookUrl ? (
+        <p className="text-muted-foreground text-xs">
+          Wrong file, or haven&apos;t heard back?{" "}
+          <ContactFallbackLinks phone={contactPhone} facebookUrl={contactFacebookUrl} />.
         </p>
       ) : null}
-      <Button type="submit" size="lg" disabled={isPending}>
-        {isPending ? "Submitting…" : "Submit payment"}
-      </Button>
-    </form>
+    </div>
   );
 }

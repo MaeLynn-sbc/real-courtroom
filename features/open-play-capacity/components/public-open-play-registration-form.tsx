@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { OpenPlayRegistrationProofForm } from "@/features/open-play-capacity/components/open-play-registration-proof-form";
 import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
+import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
 
 export interface PublicOpenPlayNight {
   date: string; // "YYYY-MM-DD"
@@ -43,6 +44,9 @@ export function PublicOpenPlayRegistrationForm({
   nights,
   registrationFeeCents,
   lockedDate,
+  gcashInfo,
+  contactPhone,
+  contactFacebookUrl,
 }: {
   nights: PublicOpenPlayNight[];
   registrationFeeCents: number;
@@ -53,6 +57,14 @@ export function PublicOpenPlayRegistrationForm({
   // Someone who scanned Friday's poster must not be able to quietly pick
   // Saturday instead.
   lockedDate?: PublicOpenPlayNight;
+  // Same settingsService.getGcashPaymentInfo()/getBusinessInfo() the
+  // court booking flow already uses (app/book/page.tsx) — threaded down
+  // to the awaiting-proof step below. Reported live: this screen never
+  // received any of this, so it asked for a payment reference with no
+  // way to know where the money should have gone.
+  gcashInfo: GcashPaymentInfo;
+  contactPhone: string;
+  contactFacebookUrl: string;
 }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -136,6 +148,9 @@ export function PublicOpenPlayRegistrationForm({
           <OpenPlayRegistrationProofForm
             registrationId={step.registrationId}
             expectedAmountCents={registrationFeeCents}
+            gcashInfo={gcashInfo}
+            contactPhone={contactPhone}
+            contactFacebookUrl={contactFacebookUrl}
             onSubmitted={() => setStep({ kind: "proof-submitted" })}
           />
         </CardContent>

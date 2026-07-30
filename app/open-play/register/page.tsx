@@ -45,10 +45,17 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
     );
   }
 
-  const [upcomingNights, capacityDefaults, openPlaySettings] = await Promise.all([
+  const [upcomingNights, capacityDefaults, openPlaySettings, gcashInfo, businessInfo] = await Promise.all([
     openPlayCapacityService.getUpcomingNights(UPCOMING_NIGHTS_COUNT),
     openPlayCapacityService.getCapacityDefaults(),
     settingsService.getOpenPlaySettings(),
+    // Reported live: this page never fetched or passed the venue's GCash
+    // QR/account details at all — the payment screen asked for a
+    // reference and screenshot with no way to know where to actually
+    // send the money. Same source of truth the court booking flow
+    // already uses (app/book/page.tsx), not a second copy.
+    settingsService.getGcashPaymentInfo(),
+    settingsService.getBusinessInfo(),
   ]);
 
   // Filtered by the per-day toggle and the per-date block — NOT by the
@@ -112,6 +119,9 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
             nights={[lockedNight]}
             registrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
             lockedDate={lockedNight}
+            gcashInfo={gcashInfo}
+            contactPhone={businessInfo.phone}
+            contactFacebookUrl={businessInfo.facebookUrl}
           />
         </main>
         <SiteFooter />
@@ -147,6 +157,9 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
           <PublicOpenPlayRegistrationForm
             nights={eligibleNights}
             registrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
+            gcashInfo={gcashInfo}
+            contactPhone={businessInfo.phone}
+            contactFacebookUrl={businessInfo.facebookUrl}
           />
         )}
       </main>
