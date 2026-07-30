@@ -1,7 +1,10 @@
+import { CalendarPlus, QrCode } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { auth } from "@/auth";
 import { InventoryAlertsBanner } from "@/components/shared/inventory-alerts-banner";
+import { buttonVariants } from "@/components/ui/button";
 import { DateRangePicker } from "@/features/analytics/components/date-range-picker";
 import { KpiCard } from "@/features/analytics/components/kpi-card";
 import { CourtStatusPanel } from "@/features/dashboard/components/court-status-panel";
@@ -63,6 +66,21 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <p className="text-muted-foreground text-sm">
             You&apos;re signed in as {session?.user.role ?? "a member"}.
           </p>
+        </div>
+        {/* Same two links as QuickActionsPanel's own QUICK_ACTIONS list
+            below — duplicated here, not moved, so both the always-
+            visible header shortcut and the fuller Quick actions card
+            keep working. Placed between the welcome block and the date
+            picker per the owner's own ask for easier access. */}
+        <div className="flex gap-2">
+          <Link href="/dashboard/bookings/new" className={buttonVariants()}>
+            <CalendarPlus className="size-4" aria-hidden="true" />
+            New booking
+          </Link>
+          <Link href="/dashboard/bookings/check-in" className={buttonVariants({ variant: "outline" })}>
+            <QrCode className="size-4" aria-hidden="true" />
+            Check in
+          </Link>
         </div>
         <DateRangePicker />
       </div>

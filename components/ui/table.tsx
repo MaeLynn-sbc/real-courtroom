@@ -32,8 +32,17 @@ function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
       data-slot="table-header"
+      // text-card-foreground, not text-muted-foreground — same fix as
+      // the Table container's own bg-card/text-card-foreground comment
+      // above. This table lives inside an always-light card
+      // (--card/--card-foreground are pinned light in both themes, see
+      // globals.css), but --muted-foreground follows the page theme
+      // (light grey in dark mode) — confirmed live: on the dark theme,
+      // that produced light-grey header text on the header's own light
+      // bg-muted/50 tint, washed out and hard to read against the
+      // white card body rows sitting right below it.
       className={cn(
-        "bg-muted/50 text-muted-foreground sticky top-0 z-10 text-left [&_tr]:border-b",
+        "bg-muted/50 text-card-foreground sticky top-0 z-10 text-left [&_tr]:border-b",
         className,
       )}
       {...props}
