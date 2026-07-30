@@ -5,7 +5,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 
 import { createPublicBookingAction, type PublicBookingCoachOption } from "@/actions/public-booking.actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -133,7 +133,14 @@ interface BookingConfirmation {
   // on the court booking's payment state (see public-booking.actions.ts's
   // comment on this same field).
   availableCoaches: PublicBookingCoachOption[];
+  // Only set when requiresPayment is true. Reported live: customers were
+  // reading this screen as "I'm already booked" and not paying — the fix
+  // is showing an exact clock time ("Held until 8:42 PM"), not a vague
+  // duration, right next to an imperative "Pay to confirm" lead line.
+  holdExpiresAt?: Date;
 }
+
+const holdTimeFormatter = new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit", hour12: true });
 
 function toLocalDateValue(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -146,11 +153,6 @@ interface PublicBookingFormProps {
   gcashInfo: GcashPaymentInfo;
   contactPhone: string;
   contactFacebookUrl: string;
-  // Owner-editable (settingsService.getBookingHoldMinutes, default 30)
-  // — interpolated into the hold-window copy below rather than
-  // hardcoded, so this can never drift from the real value the way the
-  // old "4 hours" literal did once the setting became editable.
-  holdMinutes: number;
   initialCourtId?: string;
   initialDate?: string;
   initialTime?: string;
@@ -163,7 +165,6 @@ export function PublicBookingForm({
   gcashInfo,
   contactPhone,
   contactFacebookUrl,
-  holdMinutes,
   initialCourtId,
   initialDate,
   initialTime,
@@ -281,6 +282,7 @@ export function PublicBookingForm({
         totalAmountCents: result.totalAmountCents ?? 0,
         requiresPayment: result.requiresPayment ?? false,
         availableCoaches: result.availableCoaches ?? [],
+        holdExpiresAt: result.holdExpiresAt,
       });
     });
   });
@@ -293,8 +295,18 @@ export function PublicBookingForm({
       <Card className="mx-auto max-w-md">
         <CardHeader>
           <CardTitle className={confirmation.requiresPayment ? undefined : "text-success"}>
-            {confirmation.requiresPayment ? "Slot held — payment needed" : "Booking confirmed"}
+            {confirmation.requiresPayment
+              ? `Pay ${formatCurrency(totalDueCents)} to confirm your slot`
+              : "Booking confirmed"}
           </CardTitle>
+          {confirmation.requiresPayment ? (
+            <CardDescription className="text-warning-foreground">
+              Your slot isn&apos;t reserved until we receive your payment.
+              {confirmation.holdExpiresAt
+                ? ` Held until ${holdTimeFormatter.format(confirmation.holdExpiresAt)}.`
+                : ""}
+            </CardDescription>
+          ) : null}
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm">
           <div className="flex justify-between">
@@ -344,9 +356,8 @@ export function PublicBookingForm({
           )}
           {confirmation.requiresPayment ? (
             <>
-              <p className="text-warning-foreground bg-warning/15 rounded-lg p-2 pt-2 text-xs">
-                This slot is held for {holdMinutes} minutes, not yet confirmed. Pay via GCash
-                below to confirm it. Save your reference and phone number to look this up later.
+              <p className="text-muted-foreground text-xs">
+                Save your reference and phone number to look this up later.
               </p>
               <PublicPaymentProofUpload
                 bookingId={confirmation.bookingId}

@@ -105,14 +105,19 @@ export function PublicPaymentProofUpload({
   }
 
   if (submittedFileName) {
+    // Deliberately NOT the success/green treatment — a screenshot being
+    // uploaded is not the same as a verified payment, and a green
+    // "done"-looking box was part of what led customers to believe
+    // they were already booked. Leads with "not verified yet," not a
+    // completion-sounding headline; "confirmed" only appears negated.
     return (
       <div className="flex flex-col gap-3">
-        <div className="border-success/40 bg-success/10 rounded-lg border p-4 text-sm">
-          <p className="font-medium">Payment proof received.</p>
+        <div className="border-warning/40 bg-warning/10 rounded-lg border p-4 text-sm">
+          <p className="font-medium">Screenshot received — not verified yet.</p>
           <p className="text-muted-foreground mt-1">
-            Our staff will verify your payment shortly. You&apos;ll receive a confirmation message
-            at <span className="text-foreground font-medium">{guestPhone}</span> once your booking
-            is confirmed.
+            Your slot is still just held, not confirmed. Staff will check your payment and text
+            you at <span className="text-foreground font-medium">{guestPhone}</span> once it&apos;s
+            done — please wait for that message before coming in.
           </p>
           <div className="border-border mt-2 flex flex-col gap-1 border-t pt-2 text-xs">
             <div className="flex justify-between">
@@ -125,10 +130,6 @@ export function PublicPaymentProofUpload({
             </div>
           </div>
         </div>
-        <p className="text-warning-foreground bg-warning/15 rounded-lg p-2 text-xs font-medium">
-          Your slot is still held, not confirmed yet — please wait for the confirmation message
-          before coming in.
-        </p>
       </div>
     );
   }

@@ -205,12 +205,15 @@ export class BookingPaymentProofService {
         newValues: proof,
       });
 
-      // Submission acknowledgment — confirms the payment was actually
-      // received before staff ever look at it, so the customer isn't left
-      // wondering whether it went through.
+      // Submission acknowledgment — confirms the screenshot itself was
+      // received before staff ever look at it, so the customer isn't
+      // left wondering whether the upload went through. Deliberately
+      // says "not yet confirmed" explicitly rather than just leaving
+      // "confirmed" in a future-tense clause — found live: customers
+      // were reading this kind of message as already-booked.
       await sendBookingProofSms(
         guestPhone,
-        `The Courtroom: We received your GCash payment for booking ${bookingReference}. We're verifying it now — you'll get a text once it's confirmed.`,
+        `The Courtroom: We received your payment screenshot for booking ${bookingReference} — not yet confirmed. We're verifying it now; you'll get a text once it's confirmed.`,
       );
 
       return proof;
