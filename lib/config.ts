@@ -35,9 +35,6 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
     items: [
       { title: "Dashboard", href: "/dashboard" },
       { title: "Shift", href: "/dashboard/shift" },
-      { title: "Bookings", href: "/dashboard/bookings" },
-      { title: "Verify Payments", href: "/dashboard/bookings/verify-payments" },
-      { title: "Verify Open Play Payments", href: "/dashboard/admin/open-play-capacity/verify-payments" },
       // Regular/Fri-Sat Open Play live here, not in Administration —
       // staff touch these every day, same reasoning as the rest of
       // Operations (see this file's own v1.1 comment above). "Regular"
@@ -47,8 +44,16 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       // over. Links straight to tonight's check-in via the /today
       // redirect route; Fri/Sat links to the existing capacity/roster
       // list page.
+      //
+      // Ordered ahead of Bookings/Verify Payments/Verify Open Play
+      // Payments per staff request (2026-07-30): open play is a
+      // nightly operational task reached for constantly, it shouldn't
+      // sit below the verification screens.
       { title: "Regular Open Play", href: "/dashboard/admin/open-play-capacity/today" },
       { title: "Fri/Sat Open Play", href: "/dashboard/admin/open-play-capacity" },
+      { title: "Bookings", href: "/dashboard/bookings" },
+      { title: "Verify Payments", href: "/dashboard/bookings/verify-payments" },
+      { title: "Verify Open Play Payments", href: "/dashboard/admin/open-play-capacity/verify-payments" },
       // Previously reachable only by typing the URL directly or via a
       // booking's own "add a coach" step — no nav entry at all. Route
       // protection (lib/rbac.ts: BOOKINGS_MANAGE) is unchanged by this;
