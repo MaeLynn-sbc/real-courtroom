@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 
 import { addPublicCoachToBookingAction, removePublicCoachFromBookingAction } from "@/actions/public-coaching.actions";
@@ -142,7 +143,11 @@ export function PublicCoachAddOn({
   if (availableCoaches.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        No coaches available for this time.
+        No coaches available for this time.{" "}
+        <Link href="/coaches/availability" className="underline">
+          See coach availability
+        </Link>{" "}
+        for a time that works.
         {contactPhone || contactFacebookUrl ? (
           <>
             {" "}
@@ -187,7 +192,13 @@ export function PublicCoachAddOn({
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
-      <p className="text-muted-foreground text-xs">Optional — add a coach for this session.</p>
+      <p className="text-muted-foreground text-xs">
+        Optional — add a coach for this session.{" "}
+        <Link href="/coaches/availability" className="underline">
+          See coach availability
+        </Link>
+        .
+      </p>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="publicCoachId">Coach</Label>

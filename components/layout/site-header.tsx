@@ -10,6 +10,12 @@ import { settingsService } from "@/services/settings/settings.service";
 const BASE_NAV_LINKS: { href: string; label: string }[] = [
   { href: "/about", label: "About" },
   { href: "/courts", label: "Courts" },
+  // Reported live: coaching was only discoverable after already booking a
+  // court (the post-booking add-on step) — most customers never saw it
+  // existed at all. Index 2, matching the OPEN_PLAY conditional insertion
+  // logic below (slice(0,2) / slice(2)) — Open Play lands right before
+  // this, both "core activity" links ahead of Rates/Contact.
+  { href: "/coaches/availability", label: "Coaches" },
   { href: "/rates", label: "Rates" },
   { href: "/contact", label: "Contact" },
 ];
