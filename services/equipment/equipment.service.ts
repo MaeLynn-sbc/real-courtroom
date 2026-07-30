@@ -307,6 +307,7 @@ export class EquipmentService {
         depositCents: input.depositCents ?? 0,
         rentalRateCents: input.rentalRateCents ?? 0,
         status: input.status,
+        lowStockAlertDisabled: input.lowStockAlertDisabled,
       },
     });
 

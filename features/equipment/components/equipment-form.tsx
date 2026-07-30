@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { createEquipmentSchema } from "@/features/equipment/schemas/equipment.schema";
 import type { Equipment } from "@/lib/generated/prisma/client";
 
@@ -38,6 +39,7 @@ interface EquipmentFormValues {
   depositCents: string;
   rentalRateCents: string;
   status: (typeof STATUS_OPTIONS)[number]["value"];
+  lowStockAlertDisabled: boolean;
 }
 
 interface EquipmentFormProps {
@@ -57,6 +59,7 @@ export function EquipmentForm({ equipment }: EquipmentFormProps) {
       depositCents: equipment ? String(equipment.depositCents) : "0",
       rentalRateCents: equipment ? String(equipment.rentalRateCents) : "0",
       status: (equipment?.status as (typeof STATUS_OPTIONS)[number]["value"]) ?? "AVAILABLE",
+      lowStockAlertDisabled: equipment?.lowStockAlertDisabled ?? false,
     },
   });
 
@@ -78,7 +81,11 @@ export function EquipmentForm({ equipment }: EquipmentFormProps) {
 
     startTransition(async () => {
       if (equipment) {
-        const result = await updateEquipmentAction(equipment.id, { ...parsed.data, status: values.status });
+        const result = await updateEquipmentAction(equipment.id, {
+          ...parsed.data,
+          status: values.status,
+          lowStockAlertDisabled: values.lowStockAlertDisabled,
+        });
         if (result.error) {
           setServerError(result.error);
           toast.error(result.error);
@@ -172,6 +179,29 @@ export function EquipmentForm({ equipment }: EquipmentFormProps) {
               </Select>
             )}
           />
+        </div>
+      ) : null}
+
+      {equipment ? (
+        <div className="flex items-center gap-3">
+          <Controller
+            control={control}
+            name="lowStockAlertDisabled"
+            render={({ field }) => (
+              <Switch
+                id="lowStockAlertDisabled"
+                checked={field.value}
+                onCheckedChange={(checked) => field.onChange(checked)}
+              />
+            )}
+          />
+          <Label htmlFor="lowStockAlertDisabled" className="flex flex-col gap-0.5">
+            <span>Don&apos;t alert on low stock for this item</span>
+            <span className="text-muted-foreground text-xs font-normal">
+              Use this for a small, fully-owned pool (e.g. a Ball Machine) where full availability would otherwise
+              be misread as low stock.
+            </span>
+          </Label>
         </div>
       ) : null}
 

@@ -16,6 +16,7 @@ export type CreateEquipmentInput = z.infer<typeof createEquipmentSchema>;
 // more than one unit.
 export const updateEquipmentSchema = createEquipmentSchema.extend({
   status: z.enum(["AVAILABLE", "MAINTENANCE", "RETIRED"]).optional(),
+  lowStockAlertDisabled: z.boolean().optional(),
 });
 
 export type UpdateEquipmentInput = z.infer<typeof updateEquipmentSchema>;

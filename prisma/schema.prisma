@@ -1879,22 +1879,33 @@ enum MaintenanceLogType {
 }
 
 model Equipment {
-  id              String          @id @default(cuid())
-  name            String          @unique
+  id                    String          @id @default(cuid())
+  name                  String          @unique
   // Stable identifier for equipment the app references programmatically
   // (e.g. the public site's paddle-rental price) — nullable because most
   // equipment rows are just admin-managed inventory nothing looks up by
   // identity. Renaming `name` in the admin UI must never break a lookup
   // by `key`, which is the whole point of having both.
-  key             String?         @unique
-  type            EquipmentType
-  status          EquipmentStatus @default(AVAILABLE)
-  condition       String?
-  quantity        Int             @default(1)
-  depositCents    Int             @default(0)
-  rentalRateCents Int             @default(0)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  key                   String?         @unique
+  type                  EquipmentType
+  status                EquipmentStatus @default(AVAILABLE)
+  condition             String?
+  quantity              Int             @default(1)
+  depositCents          Int             @default(0)
+  rentalRateCents       Int             @default(0)
+  // Reported live: a small, fully-owned pool (e.g. a Ball Machine the
+  // venue owns exactly 2 of) permanently tripped inventoryAlertsService's
+  // LOW_STOCK check at full availability — "2 of 2 available" isn't
+  // actually low stock. MAINTENANCE/RETIRED already suppress the alert,
+  // but marking an item MAINTENANCE to silence a false alarm is a
+  // workaround, not a real fix, for an item that's genuinely in service.
+  // Owner-editable per item (equipment edit form) rather than a global
+  // on/off (services/settings/settings.service.ts's
+  // getEquipmentHideLowStockAlert) so silencing one item's false alarm
+  // doesn't also silence a real low-stock warning on everything else.
+  lowStockAlertDisabled Boolean         @default(false)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
 
   rentals         EquipmentRental[]
   maintenanceLogs EquipmentMaintenanceLog[]

@@ -46,6 +46,7 @@ export class InventoryAlertsService {
       if (
         item.status !== "RETIRED" &&
         item.status !== "MAINTENANCE" &&
+        !item.lowStockAlertDisabled &&
         item.availableQuantity <= LOW_STOCK_THRESHOLD
       ) {
         alerts.push({
