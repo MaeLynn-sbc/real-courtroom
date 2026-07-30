@@ -17,7 +17,7 @@ interface AvailabilityPageProps {
   searchParams: Promise<{ date?: string }>;
 }
 
-const timeFormatter = new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit" });
+const timeFormatter = new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit", hour12: true });
 
 function toLocalDateValue(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");

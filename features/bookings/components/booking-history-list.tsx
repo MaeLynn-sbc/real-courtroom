@@ -5,6 +5,7 @@ import type { BookingHistory } from "@/lib/generated/prisma/client";
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   dateStyle: "medium",
   timeStyle: "short",
+  hour12: true,
 });
 
 interface BookingHistoryListProps {

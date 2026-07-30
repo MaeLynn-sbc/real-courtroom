@@ -67,7 +67,7 @@ function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-const personDateTimeFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" });
+const personDateTimeFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short", hour12: true });
 
 function sessionCustomerName(session: ActiveSession): string {
   return session.player?.user.name ?? session.player?.user.email ?? session.guestName ?? "Guest";
