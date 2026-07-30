@@ -405,17 +405,120 @@ function assertSafeToSeed(): void {
   }
 }
 
+// Second, narrower gate than assertSafeToSeed's own ALLOW_PROD_SEED check
+// (which only guards the Owner-password bootstrap risk). Every upsert in
+// this file is now update: {} — nothing it touches can overwrite an
+// EXISTING row's values anymore (the incident that prompted this whole
+// pass). But it can still CREATE a row, and a missing row can mean
+// "never seeded" OR "an owner deliberately deleted this" — this script
+// has no way to tell those apart. Read-only, no writes yet: reports
+// exactly what would be created without creating anything.
+async function planSeedCreates(): Promise<string[]> {
+  const wouldCreate: string[] = [];
+
+  async function check(label: string, exists: () => Promise<boolean>): Promise<void> {
+    if (!(await exists())) {
+      wouldCreate.push(label);
+    }
+  }
+
+  for (const name of Object.keys(ROLE_DEFINITIONS) as SystemRoleName[]) {
+    await check(`Role "${name}"`, async () => Boolean(await prisma.role.findUnique({ where: { name } })));
+  }
+  for (const key of Object.keys(PERMISSION_DEFINITIONS) as PermissionKey[]) {
+    await check(`Permission "${key}"`, async () => Boolean(await prisma.permission.findUnique({ where: { key } })));
+  }
+  for (const name of Object.keys(MEMBERSHIP_PLAN_DEFINITIONS)) {
+    await check(`Membership plan "${name}"`, async () => Boolean(await prisma.membershipPlan.findUnique({ where: { name } })));
+  }
+  for (const definition of PAYMENT_METHOD_DEFINITIONS) {
+    await check(
+      `Payment method "${definition.key}"`,
+      async () => Boolean(await prisma.paymentMethod.findUnique({ where: { key: definition.key } })),
+    );
+  }
+  for (const definition of EXPENSE_CATEGORY_DEFINITIONS) {
+    await check(
+      `Expense category "${definition.name}"`,
+      async () => Boolean(await prisma.expenseCategory.findUnique({ where: { name: definition.name } })),
+    );
+  }
+  for (const definition of PRODUCT_DEFINITIONS) {
+    await check(
+      `Product "${definition.name}"`,
+      async () => Boolean(await prisma.product.findUnique({ where: { name: definition.name } })),
+    );
+  }
+  for (let i = 1; i <= COURT_COUNT; i += 1) {
+    const name = `Court ${i}`;
+    await check(name, async () => Boolean(await prisma.court.findUnique({ where: { name } })));
+  }
+  for (let i = 1; i <= LOCKER_COUNT; i += 1) {
+    const code = `L-${String(i).padStart(2, "0")}`;
+    await check(`Locker ${code}`, async () => Boolean(await prisma.locker.findUnique({ where: { code } })));
+  }
+  for (const name of Object.keys(EQUIPMENT_DEFINITIONS)) {
+    await check(`Equipment "${name}"`, async () => Boolean(await prisma.equipment.findUnique({ where: { name } })));
+  }
+  for (const definition of OPEN_PLAY_CAPACITY_DEFAULTS) {
+    await check(
+      `Open play capacity default for day ${definition.dayOfWeek}`,
+      async () => Boolean(await prisma.openPlayCapacityDefault.findUnique({ where: { dayOfWeek: definition.dayOfWeek } })),
+    );
+  }
+
+  return wouldCreate;
+}
+
 async function main(): Promise<void> {
   assertSafeToSeed();
+
+  // Hoisted from further down (used there for the password-untouched
+  // log line) — needed here first, to tell "first-time production
+  // bootstrap" (nothing to protect yet) from "re-running against an
+  // already-seeded production database" (needs the plan + confirmation
+  // below).
+  const ownerExistedAlready = Boolean(await prisma.user.findUnique({ where: { email: OWNER_SEED_EMAIL } }));
+
+  if (env.NODE_ENV === "production" && ownerExistedAlready) {
+    const wouldCreate = await planSeedCreates();
+    if (wouldCreate.length > 0 && process.env.CONFIRM_PROD_SEED_CREATES !== "true") {
+      logger.error(
+        { wouldCreate },
+        `Refusing to seed: this would CREATE ${wouldCreate.length} row(s) on an already-seeded production ` +
+          "database (listed above). Nothing existing would be overwritten — every upsert in this file is " +
+          "update: {} now — but a missing row can also mean it was deliberately removed, not just never " +
+          "seeded. Check the list above; if every one of these should genuinely exist, re-run with " +
+          "CONFIRM_PROD_SEED_CREATES=true.",
+      );
+      process.exit(1);
+    }
+    if (wouldCreate.length > 0) {
+      logger.info({ wouldCreate }, "CONFIRM_PROD_SEED_CREATES=true set — proceeding to create the row(s) listed above");
+    } else {
+      logger.info(
+        "Re-running seed against an already-seeded production database — nothing to create, nothing will be overwritten.",
+      );
+    }
+  }
 
   const roleByName = new Map<SystemRoleName, { id: string }>();
 
   for (const [name, definition] of Object.entries(ROLE_DEFINITIONS) as Array<
     [SystemRoleName, RoleDefinition]
   >) {
+    // Incident (see docs/DEPLOYMENT.md's "Re-running the seed" note): a
+    // production ALLOW_PROD_SEED=true run to grant one new permission
+    // silently reset live product prices elsewhere in this file, because
+    // several upserts' `update` clauses overwrote owner-editable fields
+    // unconditionally, every run. Fixed uniformly across this whole file:
+    // create if missing, leave completely alone if present — an owner
+    // renaming a role via the Roles screen (role.service.ts's
+    // updateRole) must survive a later seed run the same way a product's
+    // price now does.
     const role = await prisma.role.upsert({
       where: { name },
-      update: { label: definition.label, description: definition.description, isSystem: true },
+      update: {},
       create: { name, label: definition.label, description: definition.description, isSystem: true },
     });
     roleByName.set(name, role);
@@ -428,7 +531,7 @@ async function main(): Promise<void> {
   >) {
     const permission = await prisma.permission.upsert({
       where: { key },
-      update: { label: definition.label, description: definition.description },
+      update: {},
       create: { key, label: definition.label, description: definition.description },
     });
     permissionByKey.set(key, permission);
@@ -448,6 +551,18 @@ async function main(): Promise<void> {
         continue;
       }
 
+      // Known, deliberately unresolved gap, not silently glossed over:
+      // update: {} already means this never touches a grant that
+      // exists — but it can't distinguish "never granted" from
+      // "an owner explicitly revoked this via the Roles screen"
+      // (updateRole replaces a role's whole grant set, so a revoke is a
+      // real DELETE, not a flag). If an owner revokes a
+      // default-granted permission and someone later reruns seed for
+      // an unrelated reason (exactly today's incident), this recreates
+      // the revoked grant. Fixing that properly needs a way to record
+      // "explicitly revoked," not just "currently absent" — a real,
+      // separate follow-up, not something this pass silently claims to
+      // have solved.
       await prisma.rolePermission.upsert({
         where: {
           roleId_permissionId: { roleId: role.id, permissionId: permission.id },
@@ -478,8 +593,10 @@ async function main(): Promise<void> {
   // this script with ALLOW_PROD_SEED still set from the bootstrap run —
   // would silently revert the real password back to this public,
   // known value. The password is set ONLY in `create`, i.e. only on a
-  // database that has never had this Owner row before.
-  const ownerExistedAlready = Boolean(await prisma.user.findUnique({ where: { email: OWNER_SEED_EMAIL } }));
+  // database that has never had this Owner row before. (ownerExistedAlready
+  // itself is computed at the very top of main(), before any writes — it's
+  // also what the new production create-confirmation gate up there uses to
+  // tell a fresh bootstrap from a re-run against live data.)
 
   // Deploy prep: the fixed OWNER_SEED_PASSWORD ("Owner123!") is a real,
   // documented dev convenience (see docs/INSTALLATION.md) — kept as-is
@@ -645,10 +762,19 @@ async function main(): Promise<void> {
 
   logger.info("Seeded Website system identity (user/employee/shift) for public bookings");
 
+  // membershipPlan/paymentMethod/expenseCategory/product/court/equipment/
+  // openPlayCapacityDefault below all used to overwrite real,
+  // owner-editable fields (price, rate, label, sort order, capacity) on
+  // every seed run — the exact incident that prompted this whole pass
+  // (see role.upsert's own comment, above). Every one of them is now
+  // update: {} — this loop's ONLY job is making sure the row exists at
+  // all, never syncing its values back to these hardcoded defaults once
+  // it does. A definition's priceCents/rate/label here is a first-seed
+  // starting point, not a value this script keeps re-asserting forever.
   for (const [name, definition] of Object.entries(MEMBERSHIP_PLAN_DEFINITIONS)) {
     await prisma.membershipPlan.upsert({
       where: { name },
-      update: definition,
+      update: {},
       create: { name, ...definition },
     });
   }
@@ -657,7 +783,7 @@ async function main(): Promise<void> {
   for (const definition of PAYMENT_METHOD_DEFINITIONS) {
     await prisma.paymentMethod.upsert({
       where: { key: definition.key },
-      update: { label: definition.label, sortOrder: definition.sortOrder },
+      update: {},
       create: definition,
     });
   }
@@ -666,7 +792,7 @@ async function main(): Promise<void> {
   for (const definition of EXPENSE_CATEGORY_DEFINITIONS) {
     await prisma.expenseCategory.upsert({
       where: { name: definition.name },
-      update: { sortOrder: definition.sortOrder },
+      update: {},
       create: definition,
     });
   }
@@ -675,7 +801,7 @@ async function main(): Promise<void> {
   for (const definition of PRODUCT_DEFINITIONS) {
     await prisma.product.upsert({
       where: { name: definition.name },
-      update: { priceCents: definition.priceCents, sortOrder: definition.sortOrder },
+      update: {},
       create: definition,
     });
   }
@@ -685,7 +811,7 @@ async function main(): Promise<void> {
     const name = `Court ${i}`;
     await prisma.court.upsert({
       where: { name },
-      update: { hourlyRateCents: COURT_HOURLY_RATE_CENTS },
+      update: {},
       create: { name, indoor: true, hourlyRateCents: COURT_HOURLY_RATE_CENTS },
     });
   }
@@ -704,7 +830,7 @@ async function main(): Promise<void> {
   for (const [name, definition] of Object.entries(EQUIPMENT_DEFINITIONS)) {
     await prisma.equipment.upsert({
       where: { name },
-      update: definition,
+      update: {},
       create: { name, ...definition },
     });
   }
@@ -713,7 +839,7 @@ async function main(): Promise<void> {
   for (const definition of OPEN_PLAY_CAPACITY_DEFAULTS) {
     await prisma.openPlayCapacityDefault.upsert({
       where: { dayOfWeek: definition.dayOfWeek },
-      update: { capacity: definition.capacity },
+      update: {},
       create: definition,
     });
   }
