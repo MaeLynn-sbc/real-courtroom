@@ -99,7 +99,24 @@ export class CoachAvailabilityService {
   // not left to the caller: an employee without isCoach (regardless of
   // permissions) is invisible to this, same as a deactivated employee
   // never appears here either.
+  //
+  // Found live: a coach already double-booked for the requested slot
+  // (a real, active CoachSession overlapping it) was still offered here,
+  // since this only ever checked the coach's STATED calendar window, not
+  // their actual existing sessions — createCoachSession's own
+  // COACH_DOUBLE_BOOKED guard catches it, but only after a booking has
+  // already been created around them (both the staff picker's two-step
+  // submit and the public confirmation screen's add-coach step create
+  // the booking first). Confirmed against real rows: a coach with a
+  // session already occupying the slot was returned here, then rejected
+  // by createCoachSession when actually attached. Same overlap rule as
+  // that guard (notIn CANCELLED/NO_SHOW on the session, notIn
+  // CANCELLED/NO_SHOW/REJECTED on its booking, an expired
+  // AWAITING_PAYMENT hold treated as if it doesn't exist) — duplicated,
+  // not shared, same precedent as every other copy of this exact
+  // where-clause in this codebase.
   async listAvailableCoaches(slotStart: Date, slotEnd: Date) {
+    const now = new Date();
     return prisma.employee.findMany({
       where: {
         isCoach: true,
@@ -107,6 +124,17 @@ export class CoachAvailabilityService {
         deletedAt: null,
         coachAvailabilityWindows: {
           some: { startAt: { lte: slotStart }, endAt: { gte: slotEnd } },
+        },
+        coachSessions: {
+          none: {
+            status: { notIn: ["CANCELLED", "NO_SHOW"] },
+            booking: {
+              status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+              OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
+              startAt: { lt: slotEnd },
+              endAt: { gt: slotStart },
+            },
+          },
         },
       },
       include: { user: { select: { id: true, name: true, email: true } } },
