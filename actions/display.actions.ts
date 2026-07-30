@@ -2,9 +2,25 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireSystemAdmin } from "@/lib/action-auth";
+import { requirePermission, requireSystemAdmin } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { settingsService } from "@/services/settings/settings.service";
+import { PERMISSIONS } from "@/types/permissions";
+
+// Operational TV display settings (voice, repeat count, flash duration,
+// refresh interval) — reported live: gated on SYSTEM_ADMIN (owner-only)
+// even though the person who needs to change them is whoever's
+// physically at the display, usually a front-desk attendant, not the
+// owner. DISPLAY_MANAGE is its own permission (types/permissions.ts),
+// granted to OWNER/MANAGER/RECEPTIONIST by default, reassignable via the
+// Roles screen — deliberately narrower than DASHBOARD_ACCESS (which
+// every role including MEMBER holds) so this doesn't over-grant to
+// non-staff accounts. regenerateDisplaySlugAction, below, is NOT part of
+// this — the slug is the display's own auth token and stays
+// SYSTEM_ADMIN-gated.
+function requireDisplayManage(deniedMessage: string) {
+  return requirePermission(PERMISSIONS.DISPLAY_MANAGE, deniedMessage);
+}
 
 export interface RegenerateDisplaySlugActionState {
   error: string | null;
@@ -46,21 +62,14 @@ export async function regenerateDisplaySlugAction(): Promise<RegenerateDisplaySl
   }
 }
 
-// Same owner-only gate as regenerating the URL above — this affects a
-// live kiosk display, not a personal preference. 1-5 is a sanity bound,
-// not a real product constraint: 1 means "don't repeat" (the setting's
-// own stated purpose — go back to once without a code change), and
-// there's no legitimate reason to ever want more than a handful of
-// repeats of the same announcement.
-// Same owner-only gate as the other display settings. 5-120s is a
-// sanity bound — below 5s risks hammering the server for no real
-// benefit (nothing on screen changes faster than staff/players can
+// 5-120s is a sanity bound — below 5s risks hammering the server for no
+// real benefit (nothing on screen changes faster than staff/players can
 // react anyway), above 2 minutes stops being a "live" display in any
 // meaningful sense.
 export async function setDisplayRefreshIntervalAction(
   value: number,
 ): Promise<SetDisplayRefreshIntervalActionState> {
-  const authz = await requireSystemAdmin("Only an owner can change the display refresh interval.");
+  const authz = await requireDisplayManage("You don't have permission to change the display refresh interval.");
   if (!authz.ok) {
     return { error: authz.error };
   }
@@ -78,8 +87,12 @@ export async function setDisplayRefreshIntervalAction(
   }
 }
 
+// 1-5 is a sanity bound, not a real product constraint: 1 means "don't
+// repeat" (the setting's own stated purpose — go back to once without a
+// code change), and there's no legitimate reason to ever want more than
+// a handful of repeats of the same announcement.
 export async function setAnnouncementRepeatCountAction(value: number): Promise<SetAnnouncementRepeatCountActionState> {
-  const authz = await requireSystemAdmin("Only an owner can change the announcement repeat count.");
+  const authz = await requireDisplayManage("You don't have permission to change the announcement repeat count.");
   if (!authz.ok) {
     return { error: authz.error };
   }
@@ -97,12 +110,12 @@ export async function setAnnouncementRepeatCountAction(value: number): Promise<S
   }
 }
 
-// Same owner-only gate as the two actions above. 30-600s (30s to 10
-// minutes) is a sanity bound — long enough to actually be noticed
-// (below 30s risks nobody looking at exactly the right moment), short
-// enough it can never functionally become "flash all night."
+// 30-600s (30s to 10 minutes) is a sanity bound — long enough to
+// actually be noticed (below 30s risks nobody looking at exactly the
+// right moment), short enough it can never functionally become "flash
+// all night."
 export async function setTimeUpFlashDurationAction(value: number): Promise<SetTimeUpFlashDurationActionState> {
-  const authz = await requireSystemAdmin("Only an owner can change the time's-up flash duration.");
+  const authz = await requireDisplayManage("You don't have permission to change the time's-up flash duration.");
   if (!authz.ok) {
     return { error: authz.error };
   }
@@ -120,21 +133,22 @@ export async function setTimeUpFlashDurationAction(value: number): Promise<SetTi
   }
 }
 
-// Same owner-only gate as the other display settings. name+lang, not
-// the whole SpeechSynthesisVoice object — that object also carries
-// non-serializable/browser-internal bits and voiceURI, which this app
-// deliberately doesn't rely on (see settings.service.ts's own comment on
-// why name+lang is the identifying pair, not voiceURI). null clears the
-// preference back to "no preference set" (today's default: browser
-// picks). No further validation here — matching by name is inherently
-// best-effort across devices (see requireSystemAdmin gate + the TV
-// client's own graceful fallback when the saved name isn't installed on
-// its device), so an owner picking a name their OWN browser offered is
-// as much validation as this can meaningfully do.
+// name+lang, not the whole SpeechSynthesisVoice object — that object
+// also carries non-serializable/browser-internal bits and voiceURI,
+// which this app deliberately doesn't rely on (see settings.service.ts's
+// own comment on why name+lang is the identifying pair, not voiceURI).
+// null clears the preference back to "no preference set" (today's
+// default: browser picks). No further validation here — matching by
+// name is inherently best-effort across devices (see the TV client's
+// own graceful fallback when the saved name isn't installed on its
+// device), so whoever picks a name their OWN browser offered has done
+// as much validation as this can meaningfully do — and per DISPLAY_MANAGE's
+// own reasoning, that's usually the attendant at the TV, not the owner,
+// since voices belong to that specific machine.
 export async function setAnnouncementVoiceAction(
   value: { name: string; lang: string } | null,
 ): Promise<SetAnnouncementVoiceActionState> {
-  const authz = await requireSystemAdmin("Only an owner can change the announcement voice.");
+  const authz = await requireDisplayManage("You don't have permission to change the announcement voice.");
   if (!authz.ok) {
     return { error: authz.error };
   }

@@ -133,6 +133,11 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     label: "Create Bookings Without a Shift",
     description: "Create court bookings without first starting a shift. Settling payment still requires one.",
   },
+  [PERMISSIONS.DISPLAY_MANAGE]: {
+    label: "Manage TV Display Settings",
+    description:
+      "Change the TV display's announcement voice, repeat count, flash duration, and refresh interval. Does not include regenerating the display URL.",
+  },
 };
 
 const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
@@ -166,6 +171,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION,
     PERMISSIONS.ACCOUNTS_RECORD_EXPENSE,
     PERMISSIONS.BOOKINGS_CREATE_WITHOUT_SHIFT,
+    PERMISSIONS.DISPLAY_MANAGE,
   ],
   [SYSTEM_ROLES.MANAGER]: [
     PERMISSIONS.DASHBOARD_ACCESS,
@@ -180,6 +186,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.REPORTS_MANAGE,
     PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY,
     PERMISSIONS.COACHING_MANAGE_RATES,
+    PERMISSIONS.DISPLAY_MANAGE,
   ],
   [SYSTEM_ROLES.RECEPTIONIST]: [
     PERMISSIONS.DASHBOARD_ACCESS,
@@ -188,6 +195,14 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.OPEN_PLAY_MANAGE,
     PERMISSIONS.PLAYERS_MANAGE,
     PERMISSIONS.EQUIPMENT_MANAGE,
+    // Reported live: the attendant physically at the display, not the
+    // owner, is the one who can actually test and pick a voice — voices
+    // belong to that machine's browser. Same reasoning extends to repeat
+    // count and flash duration (operational tuning a front-desk shift
+    // is better positioned to judge than the owner is remotely). Does
+    // NOT include SYSTEM_ADMIN, so regenerating the display URL — the
+    // display's own auth token — still requires Owner/Manager.
+    PERMISSIONS.DISPLAY_MANAGE,
   ],
   [SYSTEM_ROLES.TOURNAMENT_DIRECTOR]: [
     PERMISSIONS.DASHBOARD_ACCESS,

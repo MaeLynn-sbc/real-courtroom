@@ -14,9 +14,11 @@ export const metadata: Metadata = {
 
 // BUILD-SPEC.md §13: "Staff can view, owner can edit." No permission
 // gate on the page itself — middleware.ts already requires a signed-in
-// staff session for everything under /dashboard; only the "Regenerate
-// URL" mutation (owner-only) needs its own check, done here so the
-// button doesn't even render for staff who can't use it.
+// staff session for everything under /dashboard. Two DIFFERENT edit
+// gates below, not one: DISPLAY_MANAGE (operational settings — reported
+// live, the attendant at the display needs these, not just the owner)
+// vs SYSTEM_ADMIN (regenerating the URL — the display's own auth token,
+// deliberately still narrower).
 export const dynamic = "force-dynamic";
 
 export default async function TvDisplaySetupPage() {
@@ -30,6 +32,7 @@ export default async function TvDisplaySetupPage() {
       settingsService.getDisplayRefreshIntervalSeconds(),
     ]);
   const canRegenerate = hasPermission(session?.user.permissions ?? [], PERMISSIONS.SYSTEM_ADMIN);
+  const canManageDisplaySettings = hasPermission(session?.user.permissions ?? [], PERMISSIONS.DISPLAY_MANAGE);
 
   const [displayQrDataUrl, openPlayQrDataUrl] = await Promise.all([
     generateDisplayQrCode(slug),
@@ -58,6 +61,7 @@ export default async function TvDisplaySetupPage() {
         openPlayRegistrationUrl={openPlayRegistrationUrl}
         openPlayQrDataUrl={openPlayQrDataUrl}
         canRegenerate={canRegenerate}
+        canManageDisplaySettings={canManageDisplaySettings}
         announcementRepeatCount={announcementRepeatCount}
         timeUpFlashDurationSeconds={timeUpFlashDurationSeconds}
         announcementVoice={announcementVoice}

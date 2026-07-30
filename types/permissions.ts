@@ -60,6 +60,19 @@ export const PERMISSIONS = {
   // DOES move money) is untouched and still requires an open shift
   // unconditionally, regardless of who holds this permission.
   BOOKINGS_CREATE_WITHOUT_SHIFT: "bookings:create_without_shift",
+  // Reported live: the TV display's operational settings (announcement
+  // voice, repeat count, flash duration, refresh interval) were gated on
+  // SYSTEM_ADMIN — OWNER/MANAGER only — but the person who actually needs
+  // to change them is whoever's physically at the display, usually a
+  // front-desk attendant. Voices in particular can only be tested and
+  // chosen from the exact machine driving the TV, so owner-only meant
+  // logging the attendant out first just to pick a voice. Its own
+  // permission, not folded into an existing one — granted to OWNER,
+  // MANAGER, and RECEPTIONIST by default (see prisma/seed.ts), reassignable
+  // via the Roles screen like everything else. Deliberately NOT covering
+  // regenerateDisplaySlug — the slug is the display's own auth token
+  // (BUILD-SPEC.md §13), which stays SYSTEM_ADMIN-gated.
+  DISPLAY_MANAGE: "display:manage",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
