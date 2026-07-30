@@ -10,6 +10,7 @@ import type { bookingService } from "@/services/booking/booking.service";
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   dateStyle: "medium",
   timeStyle: "short",
+  hour12: true,
 });
 
 type Bookings = Awaited<ReturnType<typeof bookingService.listBookings>>;
@@ -51,7 +52,18 @@ export function BookingList({ bookings }: BookingListProps) {
               </span>
             </TableCell>
             <TableCell>
-              <BookingSourceBadge source={booking.source} />
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <BookingSourceBadge source={booking.source} />
+                {booking.source === "STAFF" ? (
+                  // PUBLIC bookings' bookedBy is the seeded Website system
+                  // identity, not a real employee — same STAFF-only
+                  // condition getBookingById's "Booked by" field already
+                  // uses on the detail page.
+                  <span className="text-muted-foreground text-xs">
+                    · {booking.bookedBy.name ?? booking.bookedBy.email}
+                  </span>
+                ) : null}
+              </div>
             </TableCell>
             <TableCell>
               <div className="flex items-center gap-1.5">

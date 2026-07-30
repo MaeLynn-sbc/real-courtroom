@@ -177,6 +177,11 @@ export class BookingService {
       include: {
         court: true,
         player: { include: { user: { select: { id: true, name: true, email: true } } } },
+        // Booking list's Source column: "Staff · <name>" for STAFF-source
+        // rows, same {id, name, email} shape and STAFF-only display
+        // convention getBookingById's own "Booked by" already uses — see
+        // booking-list.tsx.
+        bookedBy: { select: { id: true, name: true, email: true } },
       },
       orderBy: filters?.sortBy === "createdAt" ? { createdAt: "desc" } : { startAt: "asc" },
       // Defensive cap — most calls already narrow by date/court/status;

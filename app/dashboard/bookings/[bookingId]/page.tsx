@@ -167,7 +167,11 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
           <p className="text-muted-foreground mt-1 text-sm">
             {formatCurrency(booking.sale.amountCents)} paid
             {booking.settledVia ? ` via ${booking.settledVia === "GCASH" ? "GCash" : "Cash"}` : ""}
-            {booking.settledBy ? ` — recorded by ${booking.settledBy.name ?? booking.settledBy.email}` : ""}
+            {booking.settledBy
+              ? ` — recorded by ${booking.settledBy.name ?? booking.settledBy.email}${
+                  booking.settledAt ? ` at ${dateTimeFormatter.format(booking.settledAt)}` : ""
+                }`
+              : ""}
             {booking.gcashReference ? ` (ref: ${booking.gcashReference})` : ""}
           </p>
         </section>
