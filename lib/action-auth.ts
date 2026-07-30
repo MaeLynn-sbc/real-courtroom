@@ -90,6 +90,54 @@ export async function requireEmployeeWithOpenShift(
   return { ok: true, userId: authz.userId, employeeId: employee.id, shiftId: openShift.id };
 }
 
+// Booking CREATION only — reported live: the Owner doesn't work a cash
+// drawer, so requireEmployeeWithOpenShift's blanket "must have an open
+// shift" was pure friction for an action that moves no money (a staff
+// booking is created unpaid; see CreateBookingSaleContext's own
+// comment). shiftId is optional on success specifically because
+// Booking has no shiftId column at all — createBooking only ever reads
+// it from a Sale-creating branch that staff bookings never take (see
+// booking.service.ts's createBooking). Deliberately its OWN function,
+// not a flag on requireEmployeeWithOpenShift — every OTHER caller of
+// that function (settleBooking, equipment/locker rentals, membership
+// enrollment, tournament registration) creates a Sale immediately and
+// must keep requiring a real shift unconditionally; this exemption is
+// scoped to exactly one action.
+export type EmployeeOptionalShiftAuthorizationResult =
+  | { ok: true; userId: string; employeeId: string; shiftId: string | undefined }
+  | { ok: false; error: string };
+
+export async function requireEmployeeForBookingCreation(
+  permission: PermissionKey,
+  deniedMessage: string,
+): Promise<EmployeeOptionalShiftAuthorizationResult> {
+  const authz = await requirePermission(permission, deniedMessage);
+  if (!authz.ok) {
+    return authz;
+  }
+
+  const employee = await prisma.employee.findUnique({ where: { userId: authz.userId } });
+  if (!employee) {
+    return { ok: false, error: "No employee profile is linked to this account." };
+  }
+
+  const openShift = await prisma.shift.findFirst({
+    where: { employeeId: employee.id, status: "OPEN" },
+    orderBy: { startedAt: "desc" },
+  });
+  if (openShift) {
+    return { ok: true, userId: authz.userId, employeeId: employee.id, shiftId: openShift.id };
+  }
+
+  const session = await auth();
+  const canSkipShift = hasPermission(session?.user.permissions ?? [], PERMISSIONS.BOOKINGS_CREATE_WITHOUT_SHIFT);
+  if (!canSkipShift) {
+    return { ok: false, error: "Start a shift before recording this transaction." };
+  }
+
+  return { ok: true, userId: authz.userId, employeeId: employee.id, shiftId: undefined };
+}
+
 export type EmployeeAuthorizationResult =
   | { ok: true; userId: string; employeeId: string }
   | { ok: false; error: string };

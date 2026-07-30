@@ -50,6 +50,16 @@ export const PERMISSIONS = {
   // (category management is a lightweight admin action alongside the
   // main expense-recording flow, not worth a second permission).
   ACCOUNTS_RECORD_EXPENSE: "accounts:record_expense",
+  // Reported live: the Owner doesn't work a cash drawer, so requiring an
+  // open Shift just to CREATE a booking (a no-money action — staff
+  // bookings are created unpaid, see CreateBookingSaleContext's own
+  // comment) is pointless friction that pushed staff toward
+  // work-arounds. Same owner-assignable shape as the ACCOUNTS_* pair
+  // above — granted to OWNER by default, nobody else, reassignable via
+  // the Roles screen. Scoped to CREATION only: settleBooking (which
+  // DOES move money) is untouched and still requires an open shift
+  // unconditionally, regardless of who holds this permission.
+  BOOKINGS_CREATE_WITHOUT_SHIFT: "bookings:create_without_shift",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

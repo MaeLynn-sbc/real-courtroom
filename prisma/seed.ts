@@ -129,6 +129,10 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     label: "Record Expenses",
     description: "Record business expenses and manage expense categories.",
   },
+  [PERMISSIONS.BOOKINGS_CREATE_WITHOUT_SHIFT]: {
+    label: "Create Bookings Without a Shift",
+    description: "Create court bookings without first starting a shift. Settling payment still requires one.",
+  },
 };
 
 const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
@@ -161,6 +165,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     // explicit roles-screen grant.
     PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION,
     PERMISSIONS.ACCOUNTS_RECORD_EXPENSE,
+    PERMISSIONS.BOOKINGS_CREATE_WITHOUT_SHIFT,
   ],
   [SYSTEM_ROLES.MANAGER]: [
     PERMISSIONS.DASHBOARD_ACCESS,

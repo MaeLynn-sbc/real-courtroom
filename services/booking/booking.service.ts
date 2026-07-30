@@ -40,7 +40,15 @@ import { settingsService } from "@/services/settings/settings.service";
 // moment payment is actually known.
 export interface CreateBookingSaleContext {
   employeeId: string;
-  shiftId: string;
+  // Optional as of the Owner-creates-without-shift exemption
+  // (requireEmployeeForBookingCreation, lib/action-auth.ts) — booking
+  // CREATION has no money attached (see the Sale-creation branch
+  // below), so no shift is needed unless a paymentMethodId is also
+  // present. The WEBSITE "pay at venue by default" path always
+  // supplies both together (a real shift via the seeded Website
+  // system identity) — the runtime check below is what actually
+  // enforces that pairing, not the type alone.
+  shiftId?: string;
   paymentMethodId?: string;
   source?: SaleSource;
 }
@@ -424,6 +432,18 @@ export class BookingService {
       // Venue" method). The staff path omits paymentMethodId — the
       // booking is created unpaid, and settleBooking (below) creates the
       // Sale later, once the customer's real payment method is known.
+      //
+      // shiftId is required here even though it's optional on
+      // CreateBookingSaleContext as a whole (see that type's own
+      // comment) — a Sale can never exist without one
+      // (Sale.shiftId is NOT NULL). The only caller that reaches this
+      // branch at all (paymentMethodId present) is the WEBSITE path,
+      // which always supplies a real shift; this is a genuine invariant
+      // violation, not a normal "no shift open" case, if it's ever
+      // missing here.
+      if (saleContext.paymentMethodId && !saleContext.shiftId) {
+        throw new Error("A payment method was provided but no shift is open — cannot create a Sale.");
+      }
       const sale = saleContext.paymentMethodId
         ? await saleService.createSale(
             {
@@ -432,7 +452,10 @@ export class BookingService {
               amountCents: totalAmountCents,
               paymentMethodId: saleContext.paymentMethodId,
               employeeId: saleContext.employeeId,
-              shiftId: saleContext.shiftId,
+              // Non-null: the guard just above throws if paymentMethodId
+              // is present without a shiftId, so this branch can only be
+              // reached with a real one.
+              shiftId: saleContext.shiftId!,
               playerId: input.playerId,
               bookingId: created.id,
             },

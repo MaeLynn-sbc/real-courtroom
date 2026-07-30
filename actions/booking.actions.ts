@@ -12,7 +12,7 @@ import {
   type SettleBookingInput,
   type UpdateBookingStatusInput,
 } from "@/features/bookings/schemas/booking.schema";
-import { requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
+import { requireEmployeeForBookingCreation, requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import {
   BookingConflictError,
@@ -37,7 +37,14 @@ function requireBookingsManage() {
 export async function createBookingAction(
   input: CreateBookingInput,
 ): Promise<CreateBookingActionState> {
-  const authz = await requireEmployeeWithOpenShift(
+  // Booking creation has no money attached (see createBooking's own
+  // Sale-creation branch — staff bookings are created unpaid), so an
+  // open shift is only required unless the caller holds
+  // BOOKINGS_CREATE_WITHOUT_SHIFT (Owner, by default — see
+  // prisma/seed.ts). settleBookingAction, below, is untouched and
+  // still requires a real shift unconditionally, since settling DOES
+  // move money.
+  const authz = await requireEmployeeForBookingCreation(
     PERMISSIONS.BOOKINGS_MANAGE,
     "You don't have permission to manage bookings.",
   );
