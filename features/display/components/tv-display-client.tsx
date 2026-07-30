@@ -16,7 +16,6 @@ import styles from "@/app/display/[slug]/tv-display.module.css";
 // already put in DisplayData — see that file for what's excluded and
 // why.
 
-const POLL_INTERVAL_MS = 30_000;
 const RETRY_INTERVAL_MS = 5_000;
 const RELOAD_AFTER_MS = 6 * 60 * 60 * 1000;
 const RELOAD_CHECK_INTERVAL_MS = 60_000;
@@ -124,10 +123,25 @@ export function TvDisplayClient({
   initialData,
   announcementRepeatCount,
   timeUpFlashDurationSeconds,
+  announcementVoice,
+  refreshIntervalSeconds,
 }: {
   initialData: DisplayData;
   announcementRepeatCount: number;
   timeUpFlashDurationSeconds: number;
+  // Reported live: the announcement voice changed from female to male on
+  // its own — nothing here ever specified one, so it rode whatever the
+  // browser/OS picked as default, which can change silently after an
+  // update. name+lang identifies a SpeechSynthesisVoice the same way the
+  // Web Speech API itself does. null means no preference saved — same
+  // as the prior, unspecified behavior.
+  announcementVoice: { name: string; lang: string } | null;
+  // Approved earlier, built now — was a hardcoded 30s constant. New-
+  // assignment detection (courtAssignmentSignature below) diffs against
+  // the previous poll's signature before any announcement fires, so a
+  // faster interval can't cause a duplicate/repeat announcement — that
+  // guarantee doesn't depend on the polling cadence at all.
+  refreshIntervalSeconds: number;
 }) {
   const [data, setData] = useState(initialData);
   const [now, setNow] = useState(() => Date.now());
@@ -177,6 +191,35 @@ export function TvDisplayClient({
     setAnnouncementsMutedState(initialMuted);
   }, []);
 
+  // Resolved once per device, from that device's own
+  // speechSynthesis.getVoices() — voices are a property of whatever
+  // machine is actually speaking, not the server, so the saved
+  // name+lang is a lookup key, not a guarantee. Chrome in particular
+  // often returns an empty list on the very first call before its
+  // voices have finished loading async, hence the voiceschanged
+  // listener alongside the immediate check. Graceful fallback if the
+  // saved voice isn't installed here: resolvedVoiceRef stays null,
+  // utterance.voice is simply never set below, and speech falls back to
+  // the browser's own default — the exact same behavior this device had
+  // before this setting existed, never silence.
+  const resolvedVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  useEffect(() => {
+    if (!announcementVoice || typeof window === "undefined" || !("speechSynthesis" in window)) {
+      return;
+    }
+    function resolveVoice() {
+      const match = window.speechSynthesis
+        .getVoices()
+        .find((candidate) => candidate.name === announcementVoice!.name && candidate.lang === announcementVoice!.lang);
+      if (match) {
+        resolvedVoiceRef.current = match;
+      }
+    }
+    resolveVoice();
+    window.speechSynthesis.addEventListener("voiceschanged", resolveVoice);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", resolveVoice);
+  }, [announcementVoice]);
+
   const processSpeechQueue = useCallback(() => {
     if (isSpeakingRef.current) return;
     const next = speechQueueRef.current.shift();
@@ -184,6 +227,9 @@ export function TvDisplayClient({
     isSpeakingRef.current = true;
     const utterance = new SpeechSynthesisUtterance(next);
     utterance.rate = 0.95;
+    if (resolvedVoiceRef.current) {
+      utterance.voice = resolvedVoiceRef.current;
+    }
     // Queue the next one (if any) whether this one finished cleanly or
     // errored out — a stuck utterance must never silently jam the rest
     // of the queue forever.
@@ -275,12 +321,13 @@ export function TvDisplayClient({
 
   // Resilient polling (BUILD-SPEC.md §13): "Never blank on error — keep
   // last good data, show a small reconnecting indicator." A failed poll
-  // retries sooner (5s) than the normal 30s cadence so a brief wifi drop
+  // retries sooner (5s) than the normal cadence so a brief wifi drop
   // recovers fast without needing a human to touch the TV; `data` itself
   // is only ever replaced by a successful response.
   useEffect(() => {
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout>;
+    const pollIntervalMs = refreshIntervalSeconds * 1000;
 
     async function poll() {
       try {
@@ -295,7 +342,7 @@ export function TvDisplayClient({
         // signature against the last one seen. Only a genuine change
         // (a court newly in "op", or the same court's player set
         // changing) announces — an unchanged group still mid-game on a
-        // routine 30s refresh never re-announces.
+        // routine refresh never re-announces, whatever the interval.
         for (const court of json.courts) {
           const signature = courtAssignmentSignature(court);
           const previousSignature = previousAssignmentsRef.current[court.id];
@@ -312,7 +359,7 @@ export function TvDisplayClient({
         setData(json);
         setLastUpdatedAt(Date.now());
         setReconnecting(false);
-        timeoutId = setTimeout(poll, POLL_INTERVAL_MS);
+        timeoutId = setTimeout(poll, pollIntervalMs);
       } catch {
         if (cancelled) return;
         setReconnecting(true);
@@ -320,7 +367,7 @@ export function TvDisplayClient({
       }
     }
 
-    timeoutId = setTimeout(poll, POLL_INTERVAL_MS);
+    timeoutId = setTimeout(poll, pollIntervalMs);
     return () => {
       cancelled = true;
       clearTimeout(timeoutId);
@@ -330,7 +377,7 @@ export function TvDisplayClient({
       // left to matter to once this effect tears down.
       announcementRepeater.cancelPending();
     };
-  }, [scheduleAnnouncement, announcementRepeater]);
+  }, [scheduleAnnouncement, announcementRepeater, refreshIntervalSeconds]);
 
   // Long names shrink, never truncate (BUILD-SPEC.md §12) — same pass
   // as the reference file's fitNames(), scoped to this component's own
@@ -472,7 +519,9 @@ export function TvDisplayClient({
             Court <span>Status</span>
           </div>
         </div>
-        <div className={styles.sub}>Live · Updates every 30 seconds</div>
+        <div className={styles.sub}>
+          Live · Updates every {refreshIntervalSeconds} second{refreshIntervalSeconds === 1 ? "" : "s"}
+        </div>
         <div className={styles.clock}>
           <b>{clockFormatter.format(now)}</b>
           <span>{dateFormatter.format(now)}</span>

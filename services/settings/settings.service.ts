@@ -64,6 +64,29 @@ interface AnnouncementRepeatSettings {
 }
 const DEFAULT_ANNOUNCEMENT_REPEAT: AnnouncementRepeatSettings = { repeatCount: 2 };
 
+// TV display poll interval: how often the kiosk (and now /phone —
+// features/display/components/phone-display-client.tsx, its own
+// independent 10s constant, not driven by this setting) re-fetches
+// /api/display. Approved earlier this session and never actually built;
+// building it now. Load reconsidered specifically for the multi-client
+// case now that /phone exists (previously just one TV kiosk polling):
+// /api/display costs ~8-9 small, indexed queries per call (traced
+// earlier), no unbounded scans. Even dozens of phones at 10s each plus
+// one TV at 10s is on the order of a handful of requests/second at this
+// venue's scale — still trivial for Postgres. Default dropped from the
+// old hardcoded 30s to 10s, matching /phone's own interval, so both
+// surfaces feel equally live. New-assignment detection (courtAssignment
+// Signature in tv-display-client.tsx) is a pure diff against the
+// PREVIOUS poll's signature, run BEFORE any announcement fires — an
+// unchanged assignment never re-announces regardless of how often that
+// diff runs, so a faster interval doesn't introduce any new duplicate-
+// announcement risk; this was already true at 30s and stays true here.
+const DISPLAY_REFRESH_INTERVAL_KEY = "display.refreshInterval";
+interface DisplayRefreshIntervalSettings {
+  intervalSeconds: number;
+}
+const DEFAULT_DISPLAY_REFRESH_INTERVAL: DisplayRefreshIntervalSettings = { intervalSeconds: 10 };
+
 // TV display "time's up" flash: how long a court's card keeps flashing
 // after its booking's end time before stopping on its own. Same small-
 // object convention as DISPLAY_ANNOUNCEMENT_REPEAT_KEY just above.
@@ -76,6 +99,25 @@ interface TimeUpFlashSettings {
   durationSeconds: number;
 }
 const DEFAULT_TIME_UP_FLASH: TimeUpFlashSettings = { durationSeconds: 180 };
+
+// TV display voice announcements: which SpeechSynthesisVoice to use.
+// Reported live: the announcement voice changed from female to male on
+// its own — the code never specified one, so it rode whatever the
+// browser/OS considered the default, which a browser or OS update on
+// the display machine can silently change. name+lang (not voiceURI,
+// which some browsers leave blank or don't expose consistently) is the
+// same pair the Web Speech API itself uses to identify a
+// SpeechSynthesisVoice, and is exactly what the TV client matches
+// against its OWN speechSynthesis.getVoices() at runtime — voices are a
+// property of the device playing them, not the server, so this setting
+// is a NAME to look up locally, not a value the server can enforce.
+// null (the default) means "no preference set" — same as today's actual
+// behavior (browser default), so an unconfigured venue sees no change.
+const DISPLAY_ANNOUNCEMENT_VOICE_KEY = "display.announcementVoice";
+interface AnnouncementVoiceSettings {
+  voice: { name: string; lang: string } | null;
+}
+const DEFAULT_ANNOUNCEMENT_VOICE: AnnouncementVoiceSettings = { voice: null };
 
 // Open-play online self-registration, Gate 1 — see
 // getOpenPlayOnlineRegistrationEnabled/setOpenPlayOnlineRegistrationEnabled.
@@ -467,6 +509,18 @@ export class SettingsService {
     return slug;
   }
 
+  async getDisplayRefreshIntervalSeconds(): Promise<number> {
+    const stored = await this.getJsonValue<DisplayRefreshIntervalSettings>(
+      DISPLAY_REFRESH_INTERVAL_KEY,
+      DEFAULT_DISPLAY_REFRESH_INTERVAL,
+    );
+    return stored.intervalSeconds;
+  }
+
+  async setDisplayRefreshIntervalSeconds(value: number, actorUserId: string) {
+    return this.setJsonValue(DISPLAY_REFRESH_INTERVAL_KEY, { intervalSeconds: value }, actorUserId);
+  }
+
   async getAnnouncementRepeatCount(): Promise<number> {
     const stored = await this.getJsonValue<AnnouncementRepeatSettings>(
       DISPLAY_ANNOUNCEMENT_REPEAT_KEY,
@@ -489,6 +543,18 @@ export class SettingsService {
 
   async setTimeUpFlashDurationSeconds(value: number, actorUserId: string) {
     return this.setJsonValue(DISPLAY_TIME_UP_FLASH_KEY, { durationSeconds: value }, actorUserId);
+  }
+
+  async getAnnouncementVoice(): Promise<{ name: string; lang: string } | null> {
+    const stored = await this.getJsonValue<AnnouncementVoiceSettings>(
+      DISPLAY_ANNOUNCEMENT_VOICE_KEY,
+      DEFAULT_ANNOUNCEMENT_VOICE,
+    );
+    return stored.voice;
+  }
+
+  async setAnnouncementVoice(value: { name: string; lang: string } | null, actorUserId: string) {
+    return this.setJsonValue(DISPLAY_ANNOUNCEMENT_VOICE_KEY, { voice: value }, actorUserId);
   }
 
   private async getJsonValue<T>(key: string, fallback: T): Promise<T> {
