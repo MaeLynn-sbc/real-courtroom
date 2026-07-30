@@ -11,6 +11,7 @@ import { RotationBoard } from "@/features/open-play-capacity/components/rotation
 import { TabsPanel } from "@/features/open-play-capacity/components/tabs-panel";
 import { WalkInRegistrationForm, type RegistrablePlayer } from "@/features/open-play-capacity/components/walk-in-registration-form";
 import type { PlayerTab } from "@/lib/generated/prisma/client";
+import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
 import type { GameAssignmentWithParticipants, RotationBoardData } from "@/services/open-play/open-play-rotation.service";
 import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { openPlayCheckinService } from "@/services/open-play/open-play-checkin.service";
@@ -101,7 +102,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
         <WalkInRegistrationForm
           target={{ sessionId: session.id }}
           players={players}
-          paymentMethods={paymentMethods.map((pm) => ({ id: pm.id, label: pm.label }))}
+          paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
         />
         <CheckInPanel
           expected={serializeRegistrations(expected)}
@@ -112,7 +113,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
         <RotationBoard {...serializeBoard(dateParam, board)} />
         <TabsPanel
           tabs={serializeTabs(tabs)}
-          paymentMethods={paymentMethods.map((pm) => ({ id: pm.id, label: pm.label }))}
+          paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
           products={products.map((p) => ({ id: p.id, name: p.name, priceCents: p.priceCents }))}
         />
       </div>
@@ -153,7 +154,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
       <RotationBoard {...serializeBoard(dateParam, board)} />
       <TabsPanel
         tabs={serializeTabs(tabs)}
-        paymentMethods={paymentMethods.map((pm) => ({ id: pm.id, label: pm.label }))}
+        paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
         products={products.map((p) => ({ id: p.id, name: p.name, priceCents: p.priceCents }))}
       />
     </div>

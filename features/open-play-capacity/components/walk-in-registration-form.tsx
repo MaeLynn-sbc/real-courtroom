@@ -11,20 +11,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { deriveSettlementMethod, SettlementPaymentFields } from "@/components/shared/settlement-payment-fields";
 import { PlayerSearchCombobox } from "@/features/players/components/player-search-combobox";
 import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
+import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
 
 export interface RegistrablePlayer {
   id: string;
   name: string;
   phone: string;
   openPlaySkillLevel: OpenPlaySkillLevel | null;
-}
-
-export interface WalkInPaymentMethod {
-  id: string;
-  label: string;
 }
 
 type NightTarget = { sessionId: string } | { date: string };
@@ -40,7 +37,7 @@ interface WalkInRegistrationFormProps {
   // only ever passed) for a Fri/Sat `target` — the ₱150 registration
   // fee applies there, never on a weeknight. Same PaymentMethod list
   // TabsPanel already receives from the same page.
-  paymentMethods?: WalkInPaymentMethod[];
+  paymentMethods?: SettlementPaymentMethodOption[];
 }
 
 export function WalkInRegistrationForm({
@@ -54,7 +51,6 @@ export function WalkInRegistrationForm({
   const [phone, setPhone] = useState("");
   const [skillLevel, setSkillLevel] = useState<OpenPlaySkillLevel>("BEGINNER");
   const [matchedPlayerId, setMatchedPlayerId] = useState<string | undefined>(undefined);
-  const [method, setMethod] = useState<"CASH" | "GCASH">("CASH");
   const [gcashReference, setGcashReference] = useState("");
   const [paymentMethodId, setPaymentMethodId] = useState(paymentMethods[0]?.id ?? "");
   const [isPending, startTransition] = useTransition();
@@ -90,7 +86,6 @@ export function WalkInRegistrationForm({
     setPhone("");
     setSkillLevel("BEGINNER");
     setMatchedPlayerId(undefined);
-    setMethod("CASH");
     setGcashReference("");
   }
 
@@ -99,8 +94,9 @@ export function WalkInRegistrationForm({
       toast.error("Enter a name and phone number.");
       return;
     }
+    const method = deriveSettlementMethod(paymentMethods, paymentMethodId);
     if (isCapacityNight) {
-      if (!paymentMethodId) {
+      if (!method) {
         toast.error("Select a payment method.");
         return;
       }
@@ -118,12 +114,14 @@ export function WalkInRegistrationForm({
         playerId: matchedPlayerId,
       };
 
+      // isCapacityNight ("sessionId" in target) already returned early
+      // above unless method is set — non-null here by construction.
       let result: { error: string | null; waitlisted?: boolean };
       if (action === "register" && "sessionId" in target) {
         result = await registerWalkInAction({
           sessionId: target.sessionId,
           ...base,
-          method,
+          method: method!,
           gcashReference: method === "GCASH" ? gcashReference.trim() : undefined,
           paymentMethodId,
         });
@@ -131,7 +129,7 @@ export function WalkInRegistrationForm({
         result = await registerAndCheckInAction({
           sessionId: target.sessionId,
           ...base,
-          method,
+          method: method!,
           gcashReference: method === "GCASH" ? gcashReference.trim() : undefined,
           paymentMethodId,
         });
@@ -204,44 +202,14 @@ export function WalkInRegistrationForm({
         </div>
         {isCapacityNight ? (
           <div className="flex flex-wrap items-end gap-3 rounded-md border border-dashed px-3 py-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="walkInMethod">Paid via</Label>
-              <Select value={method} onValueChange={(value) => setMethod(value as "CASH" | "GCASH")}>
-                <SelectTrigger id="walkInMethod" className="w-28">
-                  <SelectValue>{() => (method === "CASH" ? "Cash" : "GCash")}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="CASH">Cash</SelectItem>
-                  <SelectItem value="GCASH">GCash</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {method === "GCASH" ? (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="walkInGcashReference">GCash reference</Label>
-                <Input
-                  id="walkInGcashReference"
-                  className="w-48"
-                  value={gcashReference}
-                  onChange={(event) => setGcashReference(event.target.value)}
-                />
-              </div>
-            ) : null}
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="walkInPaymentMethod">Payment method</Label>
-              <Select value={paymentMethodId} onValueChange={(value) => setPaymentMethodId(value ?? "")}>
-                <SelectTrigger id="walkInPaymentMethod" className="w-40">
-                  <SelectValue>{() => paymentMethods.find((pm) => pm.id === paymentMethodId)?.label ?? "Select"}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {paymentMethods.map((pm) => (
-                    <SelectItem key={pm.id} value={pm.id}>
-                      {pm.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <SettlementPaymentFields
+              paymentMethods={paymentMethods}
+              paymentMethodId={paymentMethodId}
+              onPaymentMethodIdChange={setPaymentMethodId}
+              gcashReference={gcashReference}
+              onGcashReferenceChange={setGcashReference}
+              idPrefix="walkInPaymentMethod"
+            />
           </div>
         ) : null}
         <div className="flex gap-2">

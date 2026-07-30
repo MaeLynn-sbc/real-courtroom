@@ -7,44 +7,32 @@ import { toast } from "sonner";
 import { settleBookingAction } from "@/actions/booking.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { deriveSettlementMethod, SettlementPaymentFields } from "@/components/shared/settlement-payment-fields";
 import { formatCurrency } from "@/lib/utils";
-
-interface SettleBookingFormPaymentMethod {
-  id: string;
-  label: string;
-}
+import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
 
 interface SettleBookingFormProps {
   bookingId: string;
   amountCents: number;
-  paymentMethods: SettleBookingFormPaymentMethod[];
+  paymentMethods: SettlementPaymentMethodOption[];
 }
 
-// Same "Paid via" + "Payment method" two-field shape as the open-play
-// tab settlement form (features/open-play-capacity/components/
-// tabs-panel.tsx) — method (CASH/GCASH, drives the required GCash
-// reference) is a separate concept from paymentMethodId (which actual
-// configured PaymentMethod row the Sale attributes to), same
-// distinction that form already established.
 export function SettleBookingForm({ bookingId, amountCents, paymentMethods }: SettleBookingFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [method, setMethod] = useState<"CASH" | "GCASH">("CASH");
   const [gcashReference, setGcashReference] = useState("");
   const [paymentMethodId, setPaymentMethodId] = useState(paymentMethods[0]?.id ?? "");
   const [serverError, setServerError] = useState<string | null>(null);
 
   function handleSettle() {
     setServerError(null);
-    if (method === "GCASH" && !gcashReference.trim()) {
-      setServerError("Enter a GCash reference number.");
+    const method = deriveSettlementMethod(paymentMethods, paymentMethodId);
+    if (!method) {
+      setServerError("Select a payment method.");
       return;
     }
-    if (!paymentMethodId) {
-      setServerError("Select a payment method.");
+    if (method === "GCASH" && !gcashReference.trim()) {
+      setServerError("Enter a GCash reference number.");
       return;
     }
 
@@ -72,51 +60,17 @@ export function SettleBookingForm({ bookingId, amountCents, paymentMethods }: Se
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <p className="text-muted-foreground text-sm">
-          This booking is already confirmed and complete — nothing else to do here yet. Only fill
-          this in once the customer has actually paid; leaving it untouched for an advance booking
-          or a pay-at-venue customer is correct, not unfinished.
+          Confirmed. {formatCurrency(amountCents)} to collect at the venue.
         </p>
         <div className="flex flex-wrap items-end gap-2">
-          <div className="flex flex-col gap-1">
-            <Label className="text-muted-foreground text-xs">Paid via</Label>
-            <Select value={method} onValueChange={(value) => value && setMethod(value as "CASH" | "GCASH")}>
-              <SelectTrigger className="w-28">
-                <SelectValue>{() => (method === "CASH" ? "Cash" : "GCash")}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="CASH">Cash</SelectItem>
-                <SelectItem value="GCASH">GCash</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {method === "GCASH" ? (
-            <div className="flex flex-col gap-1">
-              <Label className="text-muted-foreground text-xs">GCash reference</Label>
-              <Input
-                placeholder="GCash reference number"
-                value={gcashReference}
-                onChange={(event) => setGcashReference(event.target.value)}
-                className="w-48"
-              />
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-1">
-            <Label className="text-muted-foreground text-xs">Payment method</Label>
-            <Select value={paymentMethodId} onValueChange={(value) => setPaymentMethodId(value ?? "")}>
-              <SelectTrigger className="w-40">
-                <SelectValue>
-                  {() => paymentMethods.find((pm) => pm.id === paymentMethodId)?.label ?? "Payment method"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {paymentMethods.map((pm) => (
-                  <SelectItem key={pm.id} value={pm.id}>
-                    {pm.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <SettlementPaymentFields
+            paymentMethods={paymentMethods}
+            paymentMethodId={paymentMethodId}
+            onPaymentMethodIdChange={setPaymentMethodId}
+            gcashReference={gcashReference}
+            onGcashReferenceChange={setGcashReference}
+            idPrefix="settleBookingPaymentMethod"
+          />
           <Button type="button" disabled={isPending} onClick={handleSettle}>
             Confirm {formatCurrency(amountCents)} settled
           </Button>

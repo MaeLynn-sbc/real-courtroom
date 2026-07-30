@@ -14,9 +14,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { deriveSettlementMethod, SettlementPaymentFields } from "@/components/shared/settlement-payment-fields";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
 import { cn, formatCurrency } from "@/lib/utils";
 
 // A brief, visible confirmation before a settled row actually leaves
@@ -32,11 +33,6 @@ interface TabRow {
   settledVia: "CASH" | "GCASH" | null;
 }
 
-interface PaymentMethodOption {
-  id: string;
-  label: string;
-}
-
 interface ProductOption {
   id: string;
   name: string;
@@ -49,13 +45,12 @@ export function TabsPanel({
   products,
 }: {
   tabs: TabRow[];
-  paymentMethods: PaymentMethodOption[];
+  paymentMethods: SettlementPaymentMethodOption[];
   products: ProductOption[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [openTabId, setOpenTabId] = useState<string | null>(null);
-  const [method, setMethod] = useState<"CASH" | "GCASH">("CASH");
   const [gcashReference, setGcashReference] = useState("");
   const [paymentMethodId, setPaymentMethodId] = useState(paymentMethods[0]?.id ?? "");
   const [adjustDescription, setAdjustDescription] = useState("");
@@ -71,7 +66,6 @@ export function TabsPanel({
 
   function resetSettleForm() {
     setOpenTabId(null);
-    setMethod("CASH");
     setGcashReference("");
     setAdjustDescription("");
     setAdjustAmount("");
@@ -79,12 +73,13 @@ export function TabsPanel({
   }
 
   function handleSettle(tabId: string) {
-    if (method === "GCASH" && !gcashReference.trim()) {
-      toast.error("Enter the GCash reference number.");
+    const method = deriveSettlementMethod(paymentMethods, paymentMethodId);
+    if (!method) {
+      toast.error("Select a payment method.");
       return;
     }
-    if (!paymentMethodId) {
-      toast.error("Select a payment method.");
+    if (method === "GCASH" && !gcashReference.trim()) {
+      toast.error("Enter the GCash reference number.");
       return;
     }
     startTransition(async () => {
@@ -270,44 +265,14 @@ export function TabsPanel({
                     {isSettling ? (
                       <div className="mt-3 flex flex-col gap-3 border-t pt-3">
                         <div className="flex flex-wrap items-end gap-2">
-                          <div className="flex flex-col gap-1">
-                            <Label className="text-muted-foreground text-xs">Paid via</Label>
-                            <Select value={method} onValueChange={(v) => setMethod(v as "CASH" | "GCASH")}>
-                              <SelectTrigger className="w-28">
-                                <SelectValue>{() => (method === "CASH" ? "Cash" : "GCash")}</SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="CASH">Cash</SelectItem>
-                                <SelectItem value="GCASH">GCash</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          {method === "GCASH" ? (
-                            <div className="flex flex-col gap-1">
-                              <Label className="text-muted-foreground text-xs">GCash reference</Label>
-                              <Input
-                                placeholder="GCash reference number"
-                                value={gcashReference}
-                                onChange={(e) => setGcashReference(e.target.value)}
-                                className="w-48"
-                              />
-                            </div>
-                          ) : null}
-                          <div className="flex flex-col gap-1">
-                            <Label className="text-muted-foreground text-xs">Payment method</Label>
-                            <Select value={paymentMethodId} onValueChange={(v) => setPaymentMethodId(v ?? "")}>
-                              <SelectTrigger className="w-40">
-                                <SelectValue>{() => paymentMethods.find((p) => p.id === paymentMethodId)?.label ?? "Payment method"}</SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                {paymentMethods.map((pm) => (
-                                  <SelectItem key={pm.id} value={pm.id}>
-                                    {pm.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
+                          <SettlementPaymentFields
+                            paymentMethods={paymentMethods}
+                            paymentMethodId={paymentMethodId}
+                            onPaymentMethodIdChange={setPaymentMethodId}
+                            gcashReference={gcashReference}
+                            onGcashReferenceChange={setGcashReference}
+                            idPrefix={`tabSettlePaymentMethod-${tab.id}`}
+                          />
                           <Button type="button" size="sm" disabled={isPending} onClick={() => handleSettle(tab.id)}>
                             Confirm {formatCurrency(tab.totalCents)} settled
                           </Button>
