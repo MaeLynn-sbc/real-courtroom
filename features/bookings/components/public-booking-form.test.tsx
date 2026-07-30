@@ -60,6 +60,15 @@ async function typeAsync(element: Element, value: string) {
 describe("PublicBookingForm — coach add-on payment wiring", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Found live (a genuine 9pm test failure, not a real regression):
+    // this suite defaults to today's date with no time pinned, so
+    // availableTimeOptions goes empty — and Book Now disables — the
+    // moment real wall-clock time passes facility-close-minus-1-hour.
+    // Fixed to a safe morning hour, same fixed-time approach the sibling
+    // describe block below already uses, so this can't go time-of-day
+    // flaky again.
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 6, 29, 9, 0, 0));
     mockedCreateBooking.mockResolvedValue({
       error: null,
       bookingId: "booking-1",
@@ -68,6 +77,10 @@ describe("PublicBookingForm — coach add-on payment wiring", () => {
       totalAmountCents: 35000, // ₱350 court-only
       availableCoaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }], // ₱400
     });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   async function bookAndReachConfirmation() {
