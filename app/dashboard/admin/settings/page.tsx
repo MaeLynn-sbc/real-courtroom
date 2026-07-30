@@ -18,10 +18,11 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [settings, enabledModules, requirePrepayment, gcashInfo, businessInfo] = await Promise.all([
+  const [settings, enabledModules, requirePrepayment, holdMinutes, gcashInfo, businessInfo] = await Promise.all([
     settingsService.listSettings(),
     settingsService.getEnabledModules(),
     settingsService.getBookingRequirePrepayment(),
+    settingsService.getBookingHoldMinutes(),
     settingsService.getGcashPaymentInfo(),
     settingsService.getBusinessInfo(),
   ]);
@@ -34,7 +35,7 @@ export default async function SettingsPage() {
       </div>
 
       <ModuleTogglesPanel enabledModules={enabledModules} />
-      <PaymentSettingsPanel requirePrepayment={requirePrepayment} />
+      <PaymentSettingsPanel requirePrepayment={requirePrepayment} holdMinutes={holdMinutes} />
       <GcashPaymentInfoPanel info={gcashInfo} />
       <PaymentContactInfoPanel businessInfo={businessInfo} />
       <SettingsWorkspace settings={settings} />

@@ -49,6 +49,37 @@ export async function setBookingRequirePrepaymentAction(
   }
 }
 
+// Owner-editable hold window (settingsService.getBookingHoldMinutes,
+// default 30) — a public booking's unpaid slot reservation before it
+// must be paid. Bounds: at least 5 minutes (anything shorter isn't
+// realistically enough time to open GCash and send money), at most
+// 240 (the old hardcoded value, kept as an explicit ceiling so this
+// can't be misconfigured back into "hold the slot most of the day").
+const MIN_HOLD_MINUTES = 5;
+const MAX_HOLD_MINUTES = 240;
+
+export async function setBookingHoldMinutesAction(value: number): Promise<PaymentSettingsActionState> {
+  const authz = await requireSystemAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  if (!Number.isInteger(value) || value < MIN_HOLD_MINUTES || value > MAX_HOLD_MINUTES) {
+    return { error: `Hold window must be a whole number between ${MIN_HOLD_MINUTES} and ${MAX_HOLD_MINUTES} minutes.` };
+  }
+
+  try {
+    await settingsService.setBookingHoldMinutes(value, authz.userId);
+    revalidatePath("/book");
+    revalidatePath("/dashboard/admin/settings");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "setBookingHoldMinutesAction", userId: authz.userId }),
+    };
+  }
+}
+
 const MAX_QR_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_QR_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 

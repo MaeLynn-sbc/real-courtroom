@@ -146,6 +146,11 @@ interface PublicBookingFormProps {
   gcashInfo: GcashPaymentInfo;
   contactPhone: string;
   contactFacebookUrl: string;
+  // Owner-editable (settingsService.getBookingHoldMinutes, default 30)
+  // — interpolated into the hold-window copy below rather than
+  // hardcoded, so this can never drift from the real value the way the
+  // old "4 hours" literal did once the setting became editable.
+  holdMinutes: number;
   initialCourtId?: string;
   initialDate?: string;
   initialTime?: string;
@@ -158,6 +163,7 @@ export function PublicBookingForm({
   gcashInfo,
   contactPhone,
   contactFacebookUrl,
+  holdMinutes,
   initialCourtId,
   initialDate,
   initialTime,
@@ -339,8 +345,8 @@ export function PublicBookingForm({
           {confirmation.requiresPayment ? (
             <>
               <p className="text-warning-foreground bg-warning/15 rounded-lg p-2 pt-2 text-xs">
-                This slot is held for 4 hours, not yet confirmed. Pay via GCash below to confirm
-                it. Save your reference and phone number to look this up later.
+                This slot is held for {holdMinutes} minutes, not yet confirmed. Pay via GCash
+                below to confirm it. Save your reference and phone number to look this up later.
               </p>
               <PublicPaymentProofUpload
                 bookingId={confirmation.bookingId}

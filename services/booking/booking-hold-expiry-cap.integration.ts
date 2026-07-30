@@ -1,9 +1,10 @@
 /**
- * A GCash hold used to run the full 4-hour window regardless of the
- * booking's own start time — a booking made shortly before a
- * soon-after start could get a hold that outlives the session start,
- * up to hours INTO the booking, protecting nothing. createBookingHold
- * now caps holdExpiresAt at min(now + 4h, startAt).
+ * A GCash hold used to run the full configured window
+ * (settingsService.getBookingHoldMinutes) regardless of the booking's
+ * own start time — a booking made shortly before a soon-after start
+ * could get a hold that outlives the session start, up to hours INTO
+ * the booking, protecting nothing. createBookingHold caps
+ * holdExpiresAt at min(now + holdMinutes, startAt).
  *
  * Also proves the edge case a short-lead booking raises: the cap must
  * never produce a zero/negative window. The only caller of this method
@@ -18,6 +19,7 @@ import "dotenv/config";
 
 import { prisma } from "../../lib/prisma";
 import { bookingService } from "./booking.service";
+import { settingsService } from "../settings/settings.service";
 
 const FAR_FUTURE_DATE = new Date(2031, 5, 14); // Saturday, far enough out not to collide with real usage
 
@@ -45,8 +47,11 @@ async function main(): Promise<void> {
 
   await cleanUp(court.id, FAR_FUTURE_DATE);
 
-  // --- Case 1: a normal hold, start well beyond 4h away -> the
-  // ordinary 4h window applies, uncapped. ---
+  const holdMinutes = await settingsService.getBookingHoldMinutes();
+  const holdMs = holdMinutes * 60 * 1000;
+
+  // --- Case 1: a normal hold, start well beyond the configured
+  // window away -> the ordinary window applies, uncapped. ---
   const startAtFar = new Date(
     FAR_FUTURE_DATE.getFullYear(),
     FAR_FUTURE_DATE.getMonth(),
@@ -61,17 +66,17 @@ async function main(): Promise<void> {
     websiteUser.id,
   );
   assert(holdFar.holdExpiresAt !== null, "expected holdExpiresAt to be set");
-  const expectedFourHourWindow = holdFar.holdExpiresAt!.getTime() - beforeCreate1;
-  console.log(`Case 1 — far-future start: holdExpiresAt is ~${Math.round(expectedFourHourWindow / 60000)} min out`);
+  const expectedWindow = holdFar.holdExpiresAt!.getTime() - beforeCreate1;
+  console.log(`Case 1 — far-future start: holdExpiresAt is ~${Math.round(expectedWindow / 60000)} min out (configured window: ${holdMinutes} min)`);
   assert(
-    Math.abs(expectedFourHourWindow - 4 * 60 * 60 * 1000) < 5000,
-    `expected the uncapped 4h window, got ${expectedFourHourWindow}ms`,
+    Math.abs(expectedWindow - holdMs) < 5000,
+    `expected the uncapped ${holdMinutes}-minute window, got ${expectedWindow}ms`,
   );
   assert(
     holdFar.holdExpiresAt!.getTime() < startAtFar.getTime(),
     "expected the ordinary hold to expire well before this far-off start, not capped",
   );
-  console.log("PASS: a start far beyond 4h away gets the ordinary uncapped 4h hold.");
+  console.log(`PASS: a start far beyond the configured window away gets the ordinary uncapped ${holdMinutes}-minute hold.`);
 
   // --- Case 2: start close after "now" -> capped at startAt, proven
   // failing-first against the pre-cap behavior. Tries each active

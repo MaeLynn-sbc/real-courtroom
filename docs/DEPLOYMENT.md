@@ -139,12 +139,22 @@ behavior:
 
 1. **Run the full verification suite** against a production build:
    ```
+   npx prisma generate
    npm run typecheck
    npm run lint
    npm test
    npm run build
    PW_PROD_SERVER=1 npx playwright test
    ```
+   `prisma generate` must come before `npm run typecheck` — `lib/generated/prisma`
+   is gitignored (a build artifact, not committed), and `npm install`/`npm ci`
+   does not regenerate it on its own. Confirmed live: a deploy on a checkout
+   whose generated client was stale relative to the current schema failed
+   `npm run typecheck` with a real-looking "property does not exist on type"
+   error on a relation (`Booking.player`) that was correctly declared in the
+   source the entire time — the fix was regenerating the client, not
+   touching any code.
+
    All must pass. See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) if the
    Playwright suite shows sporadic failures under full-suite load — that's
    a documented, pre-existing category unrelated to a real regression, but
@@ -173,11 +183,34 @@ behavior:
    hosting platform, including `AUTH_SECRET`, a correct `DATABASE_URL`,
    and `AUTH_URL` now that the domain resolves.
 
+5a. **Confirm no pending migrations before restarting** — run
+    `npx prisma migrate status` and require it to report "Database
+    schema is up to date!" before proceeding. Confirmed live: the app
+    was deployed and restarted with code that expected
+    `Court.shortSessionPriceCents` while the migration adding that
+    column had never been applied — every page crashed with
+    `PrismaClientKnownRequestError P2022`, and the (too-shallow, see
+    step 7 below) health check still reported healthy, because the
+    database CONNECTION was fine; only a specific query hit a
+    specific missing column. Migrating is still its own deliberate,
+    manual step (see "Migrations and rollback" below) — this check
+    doesn't run migrations, it just refuses to build and restart past
+    a pending one silently.
+
 6. **Start the app** with `npm run build && npm run start` (or your
    platform's equivalent) — never `npm run dev` in production.
 
-7. **Verify the health endpoint**: `GET /api/health` should return
-   `{"status":"ok", "database":"connected", "uptimeSeconds":..., "checkedInMs":...}`
+7. **Verify with a REAL page fetch, not just the health endpoint.**
+   `GET /api/health` returning `{"status":"ok", "database":"connected", ...}`
+   only proves Postgres is reachable — its own database check is a bare
+   `SELECT 1` (services/health/health.service.ts), which stays healthy
+   even when a real page is 500ing on a schema mismatch (see 5a above).
+   After restarting, fetch an actual public page that runs real Prisma
+   queries — e.g. `GET /` (home page: courtService.listCourts(),
+   bookingService.getPublicDaySchedule()) — and require a `200`, not
+   just that the process answered a ping.
+
+   Then also check `GET /api/health` for `{"status":"ok", "database":"connected", "uptimeSeconds":..., "checkedInMs":...}`
    with a `200` status. If `status` is `"error"` (the route also returns
    `503` in that case) or `database` is `"disconnected"`, the app is up but
    can't reach Postgres — check `DATABASE_URL` and network/firewall rules

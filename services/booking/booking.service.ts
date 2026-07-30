@@ -54,15 +54,6 @@ export interface CreateBookingSaleContext {
 // needs" has somewhere to live without touching every call site.
 export type CreateBookingHoldInput = CreateBookingInput;
 
-// BUILD-SPEC.md §8 "Slot holding": 4 hours from checkout start (owner's
-// deploy decision — was 30 minutes originally; changed here only, court
-// bookings specifically. This constant is private to this file and used
-// nowhere else — open play's own hold window
-// (services/open-play/open-play-registration.service.ts's own,
-// separately-defined HOLD_DURATION_MINUTES) is untouched and stays 30
-// minutes.
-const HOLD_DURATION_MINUTES = 4 * 60;
-
 export type AvailabilityConflictType =
   | "COURT_DISABLED"
   | "OUTSIDE_OPERATING_HOURS"
@@ -606,8 +597,9 @@ export class BookingService {
       // here too, just possibly by a short margin for a last-minute
       // booking. That booking gets a correspondingly short hold, never
       // an invalid one.
+      const holdMinutes = await settingsService.getBookingHoldMinutes();
       const holdExpiresAt = new Date(
-        Math.min(now.getTime() + HOLD_DURATION_MINUTES * 60_000, input.startAt.getTime()),
+        Math.min(now.getTime() + holdMinutes * 60_000, input.startAt.getTime()),
       );
 
       return tx.booking.create({

@@ -18,15 +18,23 @@ interface BookPageProps {
 }
 
 export default async function BookPage({ searchParams }: BookPageProps) {
-  const [courts, { courtId, date, time, durationMinutes }, requiresPrepayment, courtHours, gcashInfo, businessInfo] =
-    await Promise.all([
-      courtService.listCourts(),
-      searchParams,
-      settingsService.getBookingRequirePrepayment(),
-      settingsService.getCourtHours(),
-      settingsService.getGcashPaymentInfo(),
-      settingsService.getBusinessInfo(),
-    ]);
+  const [
+    courts,
+    { courtId, date, time, durationMinutes },
+    requiresPrepayment,
+    holdMinutes,
+    courtHours,
+    gcashInfo,
+    businessInfo,
+  ] = await Promise.all([
+    courtService.listCourts(),
+    searchParams,
+    settingsService.getBookingRequirePrepayment(),
+    settingsService.getBookingHoldMinutes(),
+    settingsService.getCourtHours(),
+    settingsService.getGcashPaymentInfo(),
+    settingsService.getBusinessInfo(),
+  ]);
   const courtOptions = courts
     .filter((court) => court.status === "ACTIVE")
     .map((court) => ({ id: court.id, name: court.name, hourlyRateCents: court.hourlyRateCents }));
@@ -56,6 +64,7 @@ export default async function BookPage({ searchParams }: BookPageProps) {
           gcashInfo={gcashInfo}
           contactPhone={businessInfo.phone}
           contactFacebookUrl={businessInfo.facebookUrl}
+          holdMinutes={holdMinutes}
           initialCourtId={courtId}
           initialDate={date}
           initialTime={time}

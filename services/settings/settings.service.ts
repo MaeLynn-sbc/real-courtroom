@@ -31,6 +31,22 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
 // Phase 8 Gate 2 — see getBookingRequirePrepayment/setBookingRequirePrepayment.
 const BOOKING_REQUIRE_PREPAYMENT_KEY = "booking.requirePrepayment";
 
+// How long an unpaid public booking hold (createBookingHold) reserves
+// a slot before the customer must actually pay. Same small-object
+// convention as DISPLAY_TIME_UP_FLASH_KEY below. Default 30 minutes —
+// matches Open Play's own, separately-defined hold window
+// (open-play-registration.service.ts's HOLD_DURATION_MINUTES), and
+// was previously a hardcoded 4 hours in booking.service.ts: long
+// enough that a single visitor could hold every court for most of a
+// day with no payment and no consequence. 30 minutes gives a real
+// customer real margin to open GCash and send money; it stops being
+// enough runway for someone to lock up the whole schedule for free.
+const BOOKING_HOLD_KEY = "booking.holdMinutes";
+interface BookingHoldSettings {
+  holdMinutes: number;
+}
+const DEFAULT_BOOKING_HOLD: BookingHoldSettings = { holdMinutes: 30 };
+
 // Phase 10 Gate 1 — see getOrCreateDisplaySlug. An unguessable path
 // component (not a permission check) standing in for "the TV display's
 // URL isn't listed anywhere a random visitor would find it" — the route
@@ -240,6 +256,15 @@ export class SettingsService {
 
   async setBookingRequirePrepayment(value: boolean, actorUserId: string) {
     return this.setBooleanFlag(BOOKING_REQUIRE_PREPAYMENT_KEY, value, actorUserId);
+  }
+
+  async getBookingHoldMinutes(): Promise<number> {
+    const stored = await this.getJsonValue<BookingHoldSettings>(BOOKING_HOLD_KEY, DEFAULT_BOOKING_HOLD);
+    return stored.holdMinutes;
+  }
+
+  async setBookingHoldMinutes(value: number, actorUserId: string) {
+    return this.setJsonValue(BOOKING_HOLD_KEY, { holdMinutes: value }, actorUserId);
   }
 
   // Open-play online self-registration. Originally built required-OFF

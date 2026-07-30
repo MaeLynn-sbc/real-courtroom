@@ -74,6 +74,7 @@ describe("PublicBookingForm — coach add-on payment wiring", () => {
         gcashInfo={gcashInfo}
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
+        holdMinutes={30}
       />,
     );
 
