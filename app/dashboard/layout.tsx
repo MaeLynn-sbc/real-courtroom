@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
+import { VerificationBanner } from "@/features/dashboard/components/verification-banner";
 import { hasPermission } from "@/lib/rbac";
 import { bookingPaymentProofService } from "@/services/booking/booking-payment-proof.service";
 import { openPlayRegistrationPaymentProofService } from "@/services/open-play/open-play-registration-payment-proof.service";
@@ -58,7 +59,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
       />
       <div className="flex flex-1">
         <DashboardSidebar />
-        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <main className="flex-1 p-4 md:p-6">
+          <VerificationBanner initialCount={pendingVerificationCount} />
+          {children}
+        </main>
       </div>
     </div>
   );
