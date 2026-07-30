@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
@@ -21,7 +22,12 @@ function toLocalDateValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-export default async function OpenPlayRegisterPage() {
+interface OpenPlayRegisterPageProps {
+  searchParams: Promise<{ date?: string }>;
+}
+
+export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayRegisterPageProps) {
+  const { date: requestedDate } = await searchParams;
   const featureEnabled = await settingsService.getOpenPlayOnlineRegistrationEnabled();
 
   if (!featureEnabled) {
@@ -59,6 +65,59 @@ export default async function OpenPlayRegisterPage() {
   const eligibleNights = dayEnabledNights
     .filter((night) => !night.onlineRegistrationBlocked)
     .map((night) => ({ date: toLocalDateValue(night.date), label: labelFormatter.format(night.date) }));
+
+  // QR/deep-link mode (?date=YYYY-MM-DD) — locks the form to exactly this
+  // date, no picker. Reuses the exact same eligibility computation as the
+  // normal picker above (day-of-week toggle, per-date block, the 21-day
+  // upcoming window) rather than re-deriving it, so a date this page
+  // would reject here is never one the normal picker would have offered
+  // either — one source of truth, not two that could drift apart. A
+  // malformed date, a past date, a non-Fri/Sat date, or one too far out
+  // just never appears in eligibleNights/blockedNights, so all of those
+  // land on the same clear "not open" message below instead of a 500 or
+  // a confusing blank state.
+  if (requestedDate) {
+    const lockedNight = eligibleNights.find((night) => night.date === requestedDate);
+
+    if (!lockedNight) {
+      const isBlockedDate = blockedNights.some((night) => toLocalDateValue(night.date) === requestedDate);
+      return (
+        <div className="flex min-h-svh flex-1 flex-col">
+          <SiteHeader />
+          <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+            <h1 className="font-heading text-3xl font-semibold tracking-tight">Register for Open Play</h1>
+            <p className="text-muted-foreground">
+              {isBlockedDate
+                ? "Online registration is closed for that date — contact us directly."
+                : "That date isn't open for online registration right now."}
+            </p>
+            <Link href="/open-play/register" className="text-primary text-sm font-medium hover:underline">
+              See all upcoming nights
+            </Link>
+          </main>
+          <SiteFooter />
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex min-h-svh flex-1 flex-col">
+        <SiteHeader />
+        <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-16">
+          <div>
+            <h1 className="font-heading text-4xl font-semibold tracking-tight">Register for Open Play</h1>
+            <p className="text-muted-foreground mt-2 text-lg">Reserve your spot for {lockedNight.label}.</p>
+          </div>
+          <PublicOpenPlayRegistrationForm
+            nights={[lockedNight]}
+            registrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
+            lockedDate={lockedNight}
+          />
+        </main>
+        <SiteFooter />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-svh flex-1 flex-col">

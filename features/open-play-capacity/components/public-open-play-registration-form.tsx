@@ -42,9 +42,17 @@ type Step =
 export function PublicOpenPlayRegistrationForm({
   nights,
   registrationFeeCents,
+  lockedDate,
 }: {
   nights: PublicOpenPlayNight[];
   registrationFeeCents: number;
+  // Set only from a QR/deep-link URL (?date=YYYY-MM-DD) — the page has
+  // already validated this date is genuinely eligible before rendering
+  // the form at all (see app/open-play/register/page.tsx), so this is
+  // just "which night to show as locked text," never re-validated here.
+  // Someone who scanned Friday's poster must not be able to quietly pick
+  // Saturday instead.
+  lockedDate?: PublicOpenPlayNight;
 }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -55,7 +63,7 @@ export function PublicOpenPlayRegistrationForm({
       playerName: "",
       phone: "",
       skillLevel: "BEGINNER",
-      date: nights[0]?.date ?? "",
+      date: lockedDate?.date ?? nights[0]?.date ?? "",
     },
   });
 
@@ -186,26 +194,32 @@ export function PublicOpenPlayRegistrationForm({
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="date">Night</Label>
-        <Controller
-          control={control}
-          name="date"
-          render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger id="date" className="w-full">
-                <SelectValue placeholder="Select a night">
-                  {(value: string) => nights.find((night) => night.date === value)?.label ?? "Select a night"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {nights.map((night) => (
-                  <SelectItem key={night.date} value={night.date}>
-                    {night.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        />
+        {lockedDate ? (
+          <p id="date" className="border-input bg-muted/40 rounded-lg border px-2.5 py-2 text-sm font-medium">
+            {lockedDate.label}
+          </p>
+        ) : (
+          <Controller
+            control={control}
+            name="date"
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger id="date" className="w-full">
+                  <SelectValue placeholder="Select a night">
+                    {(value: string) => nights.find((night) => night.date === value)?.label ?? "Select a night"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {nights.map((night) => (
+                    <SelectItem key={night.date} value={night.date}>
+                      {night.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        )}
       </div>
 
       {serverError ? (
@@ -214,7 +228,7 @@ export function PublicOpenPlayRegistrationForm({
         </p>
       ) : null}
 
-      <Button type="submit" size="lg" disabled={isPending || nights.length === 0}>
+      <Button type="submit" size="lg" disabled={isPending || (!lockedDate && nights.length === 0)}>
         {isPending ? "Registering…" : "Register"}
       </Button>
     </form>

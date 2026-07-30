@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -9,6 +10,7 @@ import { EQUIPMENT_KEYS } from "@/lib/equipment-keys";
 import { formatCurrency } from "@/lib/utils";
 import { equipmentService } from "@/services/equipment/equipment.service";
 import { announcementService } from "@/services/notifications/announcement.service";
+import { openPlayCapacityService, type UpcomingOpenPlayNight } from "@/services/open-play/open-play-capacity.service";
 import { settingsService } from "@/services/settings/settings.service";
 
 // Without this, Next prerenders the homepage at build time (no
@@ -51,28 +53,178 @@ function nextWeekday(targetDay: number): Date {
   return result;
 }
 
-export default async function HomePage({ searchParams }: HomePageProps) {
-  const [{ date: dateParam }, hero, galleryImages, announcements, courtHours, paddleRentalCents, businessInfo] =
-    await Promise.all([
-      searchParams,
-      settingsService.getHomepageHero(),
-      settingsService.getGalleryImages(),
-      announcementService.listPublished(),
-      settingsService.getCourtHours(),
-      equipmentService.getRentalRateCentsByKey(EQUIPMENT_KEYS.HOUSE_PADDLE),
-      settingsService.getBusinessInfo(),
+function toLocalDateValue(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+// Cached at the DATA layer, not the route: this whole page reads
+// searchParams (the availability grid's ?date= navigation), which forces
+// the App Router to render the route fully dynamically on every
+// request, full stop — confirmed directly, not assumed, by building for
+// production and curling `/`: the response came back
+// "Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate"
+// even with a page-level `export const revalidate` set, identical to
+// plain force-dynamic. A route-level revalidate is a silent no-op here.
+// unstable_cache instead caches the RESULT of these three specific
+// queries across separate incoming requests for 15s — a burst of many
+// first-time visitors (a shared Facebook post, unlike the venue's own
+// phones/kiosks polling /api/display) shares one set of DB reads instead
+// of each triggering its own, even though every request still fully
+// renders the page around that cached data. Scoped to exactly these
+// three — NOT getOpenPlayOnlineRegistrationEnabled, which stays a live
+// read every request, matching every other feature-switch check in this
+// app (never cached, always fresh).
+//
+// UpcomingOpenPlayNight.date is a real Date; unstable_cache's own
+// serialization behavior for non-JSON types isn't something to rely on
+// either way, so it's converted to an ISO string going in and
+// reconstructed as a real Date coming back out, on the caller's side —
+// robust regardless of what the cache does internally.
+const getCachedOpenPlayHomepageData = unstable_cache(
+  async () => {
+    const [upcomingOpenPlayNights, openPlayCapacityDefaults, openPlaySettings] = await Promise.all([
+      openPlayCapacityService.getUpcomingNights(14),
+      openPlayCapacityService.getCapacityDefaults(),
+      settingsService.getOpenPlaySettings(),
     ]);
+    return {
+      upcomingOpenPlayNights: upcomingOpenPlayNights.map((night) => ({
+        ...night,
+        date: night.date.toISOString(),
+      })),
+      openPlayCapacityDefaults,
+      openPlaySettings,
+    };
+  },
+  ["homepage-open-play-cards"],
+  { revalidate: 15 },
+);
+
+type OpenPlayCardState =
+  | { kind: "not-open" }
+  | { kind: "blocked" }
+  | { kind: "not-yet-open"; opensAt: Date }
+  | { kind: "full" }
+  | { kind: "open"; remaining: number };
+
+// Same three gates and the same lead-time math as
+// createPublicOpenPlayRegistration (services/open-play/public-open-play-
+// registration.service.ts) — duplicated, not imported, since that
+// function's job is deciding whether a specific SUBMITTED registration
+// is allowed, not computing display state for a card nobody's
+// interacted with yet. Kept in the same order deliberately so this can
+// never show "N spots left" for a date the actual registration attempt
+// would then reject.
+//
+// registeredCount already counts a live AWAITING_PAYMENT hold as
+// occupied (see getUpcomingNights' own comment: same predicate as
+// countOccupiedSeats) — a held-but-unpaid seat isn't available, and
+// showing it as free would let someone register straight into "session
+// full." The tradeoff, deliberately not hidden: this number can go UP
+// when a hold expires between two page loads, same as it goes down when
+// someone new registers — it's a live count, not a monotonic one.
+function computeOpenPlayCardState(
+  night: UpcomingOpenPlayNight | undefined,
+  dayEnabled: boolean,
+  featureEnabled: boolean,
+  leadTimeDays: number,
+): OpenPlayCardState {
+  if (!featureEnabled || !dayEnabled || !night) {
+    return { kind: "not-open" };
+  }
+  if (night.onlineRegistrationBlocked) {
+    return { kind: "blocked" };
+  }
+
+  const todayMidnight = new Date();
+  todayMidnight.setHours(0, 0, 0, 0);
+  const daysUntil = Math.round((night.date.getTime() - todayMidnight.getTime()) / (24 * 60 * 60 * 1000));
+  if (daysUntil > leadTimeDays) {
+    return { kind: "not-yet-open", opensAt: new Date(night.date.getTime() - leadTimeDays * 24 * 60 * 60 * 1000) };
+  }
+
+  const remaining = Math.max(0, night.capacity - night.registeredCount);
+  if (remaining === 0) {
+    return { kind: "full" };
+  }
+  return { kind: "open", remaining };
+}
+
+export default async function HomePage({ searchParams }: HomePageProps) {
+  const [
+    { date: dateParam },
+    hero,
+    galleryImages,
+    announcements,
+    courtHours,
+    paddleRentalCents,
+    businessInfo,
+    openPlayFeatureEnabled,
+    cachedOpenPlayData,
+  ] = await Promise.all([
+    searchParams,
+    settingsService.getHomepageHero(),
+    settingsService.getGalleryImages(),
+    announcementService.listPublished(),
+    settingsService.getCourtHours(),
+    equipmentService.getRentalRateCentsByKey(EQUIPMENT_KEYS.HOUSE_PADDLE),
+    settingsService.getBusinessInfo(),
+    settingsService.getOpenPlayOnlineRegistrationEnabled(),
+    getCachedOpenPlayHomepageData(),
+  ]);
+  const upcomingOpenPlayNights = cachedOpenPlayData.upcomingOpenPlayNights.map((night) => ({
+    ...night,
+    date: new Date(night.date),
+  }));
+  const { openPlayCapacityDefaults, openPlaySettings } = cachedOpenPlayData;
   const latestAnnouncement = announcements[0];
   const date = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();
 
   const mondayForCopy = nextWeekday(1);
   const fridayForCopy = nextWeekday(5);
+  const saturdayForCopy = nextWeekday(6);
   const court1Close = formatMinutesOfDay(getCourtBookingWindow(courtHours, "Court 1", mondayForCopy).closeMinutes);
   const court2Close = formatMinutesOfDay(getCourtBookingWindow(courtHours, "Court 2", mondayForCopy).closeMinutes);
   const court3Close = formatMinutesOfDay(getCourtBookingWindow(courtHours, "Court 3", mondayForCopy).closeMinutes);
   const fridaySaturdayClose = formatMinutesOfDay(
     getCourtBookingWindow(courtHours, "Court 1", fridayForCopy).closeMinutes,
   );
+
+  const fridayDateValue = toLocalDateValue(fridayForCopy);
+  const saturdayDateValue = toLocalDateValue(saturdayForCopy);
+  const fridayNight = upcomingOpenPlayNights.find((night) => toLocalDateValue(night.date) === fridayDateValue);
+  const saturdayNight = upcomingOpenPlayNights.find((night) => toLocalDateValue(night.date) === saturdayDateValue);
+  const fridayDayEnabled = openPlayCapacityDefaults.find((row) => row.dayOfWeek === 5)?.onlineRegistrationEnabled ?? false;
+  const saturdayDayEnabled = openPlayCapacityDefaults.find((row) => row.dayOfWeek === 6)?.onlineRegistrationEnabled ?? false;
+  const fridayCardState = computeOpenPlayCardState(
+    fridayNight,
+    fridayDayEnabled,
+    openPlayFeatureEnabled,
+    openPlaySettings.onlineRegistrationLeadTimeDays,
+  );
+  const saturdayCardState = computeOpenPlayCardState(
+    saturdayNight,
+    saturdayDayEnabled,
+    openPlayFeatureEnabled,
+    openPlaySettings.onlineRegistrationLeadTimeDays,
+  );
+  const openPlayOpensAtFormatter = new Intl.DateTimeFormat("en-PH", { month: "long", day: "numeric" });
+
+  function openPlayCardCopy(state: OpenPlayCardState): string {
+    switch (state.kind) {
+      case "full":
+        return "Fully booked — join the waitlist and we'll text you if a spot opens up.";
+      case "not-yet-open":
+        return `Online registration opens ${openPlayOpensAtFormatter.format(state.opensAt)}.`;
+      case "blocked":
+        return "Online registration is closed for this date — contact us directly.";
+      case "not-open":
+        return "Register at the front desk, or ask about online registration.";
+      case "open":
+        return `${state.remaining} spot${state.remaining === 1 ? "" : "s"} left — register online, pay by GCash.`;
+    }
+  }
 
   return (
     <div className="bg-navy-900 flex min-h-svh flex-1 flex-col">
@@ -114,7 +266,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                   {hero.ctaText}
                 </Link>
                 <Link
-                  href="#sessions"
+                  href="/open-play/register"
                   className={`${PILL_BUTTON} border-line text-bone hover:border-green border font-semibold`}
                 >
                   Join open play
@@ -242,7 +394,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               </p>
               <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">₱35 / game</span>
             </div>
-            <div className="border-line bg-navy-800 hover:border-green/45 rounded-2xl border p-6 transition-colors">
+            <Link
+              href={`/open-play/register?date=${fridayDateValue}`}
+              className="border-line bg-navy-800 hover:border-green/45 rounded-2xl border p-6 transition-colors"
+            >
               <span className="font-jetbrains text-coral text-[10px] tracking-[0.18em] uppercase">
                 Friday · from {fridaySaturdayClose}
               </span>
@@ -250,12 +405,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 Friday unlimited
               </h3>
               <p className="text-slate mt-2 text-[14.5px]">
-                All three courts go to open play at {fridaySaturdayClose}. Prepaid registration holds your
-                spot — live capacity is coming online soon.
+                All three courts go to open play at {fridaySaturdayClose}. {openPlayCardCopy(fridayCardState)}
               </p>
               <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">₱150 unlimited</span>
-            </div>
-            <div className="border-line bg-navy-800 hover:border-green/45 rounded-2xl border p-6 transition-colors">
+            </Link>
+            <Link
+              href={`/open-play/register?date=${saturdayDateValue}`}
+              className="border-line bg-navy-800 hover:border-green/45 rounded-2xl border p-6 transition-colors"
+            >
               <span className="font-jetbrains text-coral text-[10px] tracking-[0.18em] uppercase">
                 Saturday · from {fridaySaturdayClose}
               </span>
@@ -263,11 +420,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 Saturday unlimited
               </h3>
               <p className="text-slate mt-2 text-[14.5px]">
-                Same as Friday, bigger crowd. Prepaid registration holds your spot — live capacity is
-                coming online soon.
+                Same as Friday, bigger crowd. {openPlayCardCopy(saturdayCardState)}
               </p>
               <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">₱150 unlimited</span>
-            </div>
+            </Link>
           </div>
         </div>
       </section>
