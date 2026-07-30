@@ -631,9 +631,20 @@ function CourtCard({
     );
   }
 
-  // "op" — open play.
+  // "op" — open play. Reported live: the same "time's up" red flash the
+  // "res" branch above gets never fired for an open-play game hitting
+  // its targetGameMinutes limit — isTimeUpFlashing was only ever wired
+  // up on the booking branch, even though it's a generic function
+  // (endAt/now/flashDurationMs, nothing booking-specific) and
+  // display.service.ts already computes court.endAt for "op" the exact
+  // same way (start + targetGameMinutes), so the data was always there
+  // — this was a wiring gap, not a data gap. Same function, same class,
+  // same duration setting as the booking flash — no reason for a
+  // rotation running long to look any less urgent than an hourly
+  // booking running long.
+  const timeUp = isTimeUpFlashing(court.endAt, now, timeUpFlashDurationMs);
   return (
-    <div className={cls(styles.court, styles.op, timing.ending && styles.ending)}>
+    <div className={cls(styles.court, styles.op, timing.ending && styles.ending, timeUp && styles.timeUp)}>
       <div className={styles["court-head"]}>
         <span className={styles["court-no"]}>{court.name}</span>
         <span className={styles.pill}>Open play</span>
