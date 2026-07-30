@@ -139,6 +139,36 @@ function ProductRow({
   const [active, setActive] = useState(product.active);
   const [stockCount, setStockCount] = useState(String(product.stockCount));
   const [isPending, startTransition] = useTransition();
+  const [isSavingActive, startActiveTransition] = useTransition();
+
+  // Reported live: the switch only ever flipped local draft state — nothing
+  // persisted until the separate Save button (up in the name/price/stock
+  // row) was also clicked, even though the label right next to the switch
+  // ("Active — tap to disable") read like the change had already happened.
+  // A staff member who toggled and walked away lost the change with no
+  // indication anything was wrong. Now saves immediately on its own, like
+  // every other toggle in this app — using the product's last-saved
+  // name/price/stock (not whatever's sitting unsaved in those fields) so
+  // flipping the switch can never accidentally submit a half-typed price.
+  function handleToggleActive(nextActive: boolean) {
+    const previousActive = active;
+    setActive(nextActive);
+    startActiveTransition(async () => {
+      const result = await updateProductAction(product.id, {
+        name: product.name,
+        priceCents: product.priceCents,
+        active: nextActive,
+        stockCount: product.stockCount,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        setActive(previousActive);
+        return;
+      }
+      toast.success(nextActive ? "Product enabled." : "Product disabled.");
+      router.refresh();
+    });
+  }
 
   function handleSave() {
     const priceCents = Math.round(Number(price) * 100);
@@ -185,7 +215,10 @@ function ProductRow({
         ramp={PRODUCT_RAMP}
         icon={PRODUCT_ICON}
         title={product.name}
-        active={product.active}
+        // Local `active` state, not the server prop — the switch below is
+        // the same state, so the pill and the switch can never disagree
+        // while a toggle save is in flight.
+        active={active}
         density="compact"
         className="flex-1"
       >
@@ -237,9 +270,14 @@ function ProductRow({
               actual control that changes it — same split as payment-methods'
               own row. */}
           <div className="flex items-center gap-2">
-            <Switch checked={active} onCheckedChange={setActive} aria-label={`${product.name} active`} />
+            <Switch
+              checked={active}
+              disabled={isSavingActive}
+              onCheckedChange={handleToggleActive}
+              aria-label={`${product.name} active`}
+            />
             <span className="text-muted-foreground text-xs">
-              {active ? "Active — tap to disable" : "Disabled — tap to enable"}
+              {isSavingActive ? "Saving…" : active ? "Active — tap to disable" : "Disabled — tap to enable"}
             </span>
           </div>
         </div>
