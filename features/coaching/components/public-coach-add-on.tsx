@@ -140,7 +140,18 @@ export function PublicCoachAddOn({
   }
 
   if (availableCoaches.length === 0) {
-    return <p className="text-muted-foreground text-sm">No coaches available for this time.</p>;
+    return (
+      <p className="text-muted-foreground text-sm">
+        No coaches available for this time.
+        {contactPhone || contactFacebookUrl ? (
+          <>
+            {" "}
+            Want one anyway?{" "}
+            <ContactFallbackLinks phone={contactPhone} facebookUrl={contactFacebookUrl} />.
+          </>
+        ) : null}
+      </p>
+    );
   }
 
   function onSubmit(event: React.FormEvent) {

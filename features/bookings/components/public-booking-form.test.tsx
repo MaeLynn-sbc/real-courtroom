@@ -183,3 +183,71 @@ describe("PublicBookingForm — Time dropdown excludes already-booked slots", ()
     expect(screen.getByRole("option", { name: "5:00 PM" })).toBeInTheDocument();
   });
 });
+
+// Reported live: the coach section on the confirmation screen appeared
+// blank when no coach was available for the booked slot. Drives the real
+// PublicBookingForm -> PublicCoachAddOn tree (not just the child in
+// isolation) with an empty availableCoaches array, on both confirmation
+// branches (pay-at-venue and requires-payment), to prove the empty-state
+// copy and contact fallback actually render where a customer would see
+// them, not just in a unit test of the child component alone.
+describe("PublicBookingForm — coach section when no coach is available", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 6, 29, 9, 0, 0));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  async function bookWithNoCoachesAvailable() {
+    render(
+      <PublicBookingForm
+        courts={courts}
+        courtHours={courtHours}
+        gcashInfo={gcashInfo}
+        contactPhone="0917 000 0000"
+        contactFacebookUrl="https://facebook.com/thecourtroom"
+      />,
+    );
+
+    await typeAsync(screen.getByLabelText("Name"), "Test Guest");
+    await typeAsync(screen.getByLabelText("Phone number"), "09171234567");
+    await clickAsync(screen.getByRole("button", { name: /book now/i }));
+    await screen.findByText("BR-0001");
+  }
+
+  it("shows the empty-state text and contact fallback on the pay-at-venue confirmation screen", async () => {
+    mockedCreateBooking.mockResolvedValue({
+      error: null,
+      bookingId: "booking-1",
+      bookingReference: "BR-0001",
+      requiresPayment: false,
+      totalAmountCents: 35000,
+      availableCoaches: [],
+    });
+
+    await bookWithNoCoachesAvailable();
+
+    expect(screen.getByText(/no coaches available for this time/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /facebook/i }).length).toBeGreaterThan(0);
+  });
+
+  it("shows the empty-state text and contact fallback on the requires-payment hold screen", async () => {
+    mockedCreateBooking.mockResolvedValue({
+      error: null,
+      bookingId: "booking-1",
+      bookingReference: "BR-0001",
+      requiresPayment: true,
+      totalAmountCents: 35000,
+      availableCoaches: [],
+    });
+
+    await bookWithNoCoachesAvailable();
+
+    expect(screen.getByText(/no coaches available for this time/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /facebook/i }).length).toBeGreaterThan(0);
+  });
+});
