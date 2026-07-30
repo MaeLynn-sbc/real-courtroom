@@ -3,7 +3,11 @@
 import { useEffect, useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 
-import { createPublicBookingAction, type PublicBookingCoachOption } from "@/actions/public-booking.actions";
+import {
+  createPublicBookingAction,
+  listPublicCourtOccupiedWindowsAction,
+  type PublicBookingCoachOption,
+} from "@/actions/public-booking.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,6 +25,7 @@ import { PublicPaymentProofUpload } from "@/features/bookings/components/public-
 import { useLiveNow } from "@/hooks/use-live-now";
 import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
+import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
 
 // Presentation-only convenience list — no schema/service duration limit
@@ -179,6 +184,8 @@ export function PublicBookingForm({
   // only ever change before hasSubmittedProof flips true.
   const [coachSession, setCoachSession] = useState<PublicCoachAddOnConfirmed | null>(null);
   const [hasSubmittedProof, setHasSubmittedProof] = useState(false);
+  const [occupiedWindows, setOccupiedWindows] = useState<{ startAt: Date; endAt: Date }[]>([]);
+  const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
 
   const validInitialDuration =
     initialDurationMinutes && DURATIONS_MINUTES.includes(Number(initialDurationMinutes))
@@ -233,18 +240,79 @@ export function PublicBookingForm({
 
   // Recomputed on every court/date/duration change — the same source of
   // truth server-side enforcement uses (see getAvailableTimeOptions's own
-  // comment above). When the currently-selected time falls outside the
-  // freshly computed set (e.g. switching from Court 3 to Court 1, or
-  // picking a longer duration that no longer fits), snap to the first
-  // still-valid option rather than silently leaving an invalid one
-  // selected — same reasoning as the bug this whole fix closes.
-  const availableTimeOptions = getAvailableTimeOptions(
+  // comment above). Business-hours-only, not yet checked against real
+  // bookings — see availableTimeOptions below for the conflict-filtered
+  // list actually rendered.
+  const businessHoursTimeOptions = getAvailableTimeOptions(
     courtHours,
     selectedCourt?.name,
     watchedDate,
     Number(watchedDurationMinutes),
     now,
   );
+
+  // Reported live: the dropdown still offered a slot a real CONFIRMED
+  // booking already held — a customer only found out at submit, via the
+  // server's own conflict check (unchanged; still the real gate, and
+  // already proven to reject before a hold or GCash screen ever exists —
+  // see createBookingHold/createBooking's own Serializable-transaction
+  // availability check). This is a UX preview layered on top, same
+  // pattern and same listPublicCourtOccupiedWindowsAction/
+  // listOccupiedWindows source as the staff booking form's identical fix.
+  // One fetch per court/date; duration changes recompute the per-slot
+  // overlap check locally rather than re-fetching.
+  useEffect(() => {
+    if (!selectedCourt || !watchedDate) {
+      setOccupiedWindows([]);
+      setIsLoadingAvailability(false);
+      return;
+    }
+    const dayStart = new Date(`${watchedDate}T00:00:00`);
+    if (Number.isNaN(dayStart.getTime())) {
+      setOccupiedWindows([]);
+      return;
+    }
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    let cancelled = false;
+    setIsLoadingAvailability(true);
+    listPublicCourtOccupiedWindowsAction(selectedCourt.id, dayStart, dayEnd).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      setIsLoadingAvailability(false);
+      setOccupiedWindows(result.windows.map((window) => ({ startAt: new Date(window.startAt), endAt: new Date(window.endAt) })));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // selectedCourt?.id, not the object itself — a new courts.find(...)
+    // result every render would otherwise re-fire this on every keystroke
+    // elsewhere in the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCourt?.id, watchedDate]);
+
+  function candidateSlot(time: string): { startAt: Date; endAt: Date } | null {
+    if (!watchedDate) {
+      return null;
+    }
+    const [year, month, day] = watchedDate.split("-").map(Number);
+    const [hours] = time.split(":").map(Number);
+    const startAt = new Date(year, month - 1, day, hours, 0);
+    if (Number.isNaN(startAt.getTime())) {
+      return null;
+    }
+    return { startAt, endAt: new Date(startAt.getTime() + Number(watchedDurationMinutes) * 60 * 1000) };
+  }
+
+  const availableTimeOptions = businessHoursTimeOptions.filter((time) => {
+    const slot = candidateSlot(time);
+    if (!slot) {
+      return false;
+    }
+    return !occupiedWindows.some((window) => hasTimeOverlap(slot.startAt, slot.endAt, window.startAt, window.endAt));
+  });
+
   useEffect(() => {
     if (availableTimeOptions.length > 0 && !availableTimeOptions.includes(watchedTime)) {
       setValue("time", availableTimeOptions[0]);
@@ -518,10 +586,10 @@ export function PublicBookingForm({
               <Select
                 value={field.value}
                 onValueChange={field.onChange}
-                disabled={availableTimeOptions.length === 0}
+                disabled={isLoadingAvailability || availableTimeOptions.length === 0}
               >
                 <SelectTrigger id="time" className="w-full">
-                  <SelectValue placeholder="No times available">
+                  <SelectValue placeholder={isLoadingAvailability ? "Checking availability…" : "No times available"}>
                     {(value: string) => (value ? formatTimeLabel(value) : "No times available")}
                   </SelectValue>
                 </SelectTrigger>
@@ -535,7 +603,7 @@ export function PublicBookingForm({
               </Select>
             )}
           />
-          {availableTimeOptions.length === 0 && selectedCourt ? (
+          {!isLoadingAvailability && availableTimeOptions.length === 0 && selectedCourt ? (
             <p className="text-muted-foreground text-xs">
               {watchedDate === toLocalDateValue(new Date())
                 ? "No times left today — try tomorrow or another court."
@@ -592,7 +660,11 @@ export function PublicBookingForm({
         </p>
       ) : null}
 
-      <Button type="submit" size="lg" disabled={isPending || courts.length === 0 || availableTimeOptions.length === 0}>
+      <Button
+        type="submit"
+        size="lg"
+        disabled={isPending || courts.length === 0 || isLoadingAvailability || availableTimeOptions.length === 0}
+      >
         {isPending ? "Booking…" : "Book Now"}
       </Button>
     </form>

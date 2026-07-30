@@ -1,12 +1,13 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { PublicBookingForm } from "./public-booking-form";
-import { createPublicBookingAction } from "@/actions/public-booking.actions";
+import { createPublicBookingAction, listPublicCourtOccupiedWindowsAction } from "@/actions/public-booking.actions";
 import { addPublicCoachToBookingAction } from "@/actions/public-coaching.actions";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
 
 jest.mock("@/actions/public-booking.actions", () => ({
   createPublicBookingAction: jest.fn(),
+  listPublicCourtOccupiedWindowsAction: jest.fn().mockResolvedValue({ error: null, windows: [] }),
 }));
 jest.mock("@/actions/public-coaching.actions", () => ({
   addPublicCoachToBookingAction: jest.fn(),
@@ -17,6 +18,9 @@ jest.mock("@/actions/public-booking-payment-proof.actions", () => ({
 
 const mockedCreateBooking = createPublicBookingAction as jest.MockedFunction<typeof createPublicBookingAction>;
 const mockedAddCoach = addPublicCoachToBookingAction as jest.MockedFunction<typeof addPublicCoachToBookingAction>;
+const mockedListOccupiedWindows = listPublicCourtOccupiedWindowsAction as jest.MockedFunction<
+  typeof listPublicCourtOccupiedWindowsAction
+>;
 
 const courts = [{ id: "court-1", name: "Court 1", hourlyRateCents: 35000 }];
 
@@ -120,5 +124,49 @@ describe("PublicBookingForm — coach add-on payment wiring", () => {
 
     // The customer's own hand-typed 500 stays put — never silently overwritten.
     expect(screen.getByLabelText(/amount sent/i)).toHaveValue(500);
+  });
+});
+
+// Reported live on production: a real CONFIRMED booking held Court 1,
+// 4-5 PM, but the public form's Time dropdown still offered it — the
+// server-side conflict check correctly rejects it at submit (proven
+// separately, against real rows, in booking.service.ts's own
+// createBookingHold/createBooking transaction), but a customer shouldn't
+// have to fill in the whole form and reach a rejection to find that out.
+describe("PublicBookingForm — Time dropdown excludes already-booked slots", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 6, 29, 9, 0, 0));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.clearAllMocks();
+  });
+
+  it("does not offer an hour already covered by an existing booking for the selected court/date", async () => {
+    mockedListOccupiedWindows.mockResolvedValue({
+      error: null,
+      windows: [
+        { startAt: new Date(2026, 6, 29, 16, 0).toISOString(), endAt: new Date(2026, 6, 29, 17, 0).toISOString() },
+      ],
+    });
+
+    render(
+      <PublicBookingForm
+        courts={courts}
+        courtHours={courtHours}
+        gcashInfo={gcashInfo}
+        contactPhone="0917 000 0000"
+        contactFacebookUrl=""
+      />,
+    );
+
+    await act(async () => {});
+    await clickAsync(screen.getByRole("combobox", { name: /^time$/i }));
+
+    expect(screen.queryByRole("option", { name: "4:00 PM" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "3:00 PM" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "5:00 PM" })).toBeInTheDocument();
   });
 });

@@ -8,10 +8,54 @@ import {
 } from "@/features/bookings/schemas/public-booking.schema";
 import { toActionError } from "@/lib/errors";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { BookingConflictError, type AvailabilityConflict } from "@/services/booking/booking.service";
+import { BookingConflictError, bookingService, type AvailabilityConflict } from "@/services/booking/booking.service";
 import { createPublicBooking } from "@/services/booking/public-booking.service";
 import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
 import { coachRateService } from "@/services/coaching/coach-rate.service";
+
+export interface PublicOccupiedWindow {
+  startAt: string;
+  endAt: string;
+}
+
+export interface ListPublicOccupiedWindowsState {
+  error: string | null;
+  windows: PublicOccupiedWindow[];
+}
+
+// Public counterpart to actions/booking.actions.ts's
+// listCourtOccupiedWindowsAction (staff-only, permission-gated) — the
+// public /book form has no session to gate on at all. Reported live: the
+// public form's Time dropdown still offered a slot a real CONFIRMED
+// booking already held, discovered only via the server's own conflict
+// check at submit — which does reject it correctly (createBookingHold/
+// createBooking both run that check inside the same Serializable
+// transaction as the write itself, so a conflicting slot can never reach
+// a hold or a GCash screen), but staff shouldn't have to trust that path
+// alone to save a customer from filling in the whole form for nothing.
+// Same underlying query as the staff version (bookingService.
+// listOccupiedWindows) — booking/maintenance start-end times only, no
+// guest names or any other detail, already exactly as privacy-safe as
+// what a "this time is unavailable" dropdown state already implies. No
+// rate limit: read-only, same cost profile as the per-slot checkAvailability
+// call this form already indirectly triggers via submit, and /api/display
+// is already public and unthrottled for the same reason — nothing here
+// writes anything.
+export async function listPublicCourtOccupiedWindowsAction(
+  courtId: string,
+  dayStart: Date,
+  dayEnd: Date,
+): Promise<ListPublicOccupiedWindowsState> {
+  if (!courtId || Number.isNaN(dayStart.getTime()) || Number.isNaN(dayEnd.getTime()) || dayEnd.getTime() <= dayStart.getTime()) {
+    return { error: null, windows: [] };
+  }
+
+  const windows = await bookingService.listOccupiedWindows(courtId, dayStart, dayEnd);
+  return {
+    error: null,
+    windows: windows.map((window) => ({ startAt: window.startAt.toISOString(), endAt: window.endAt.toISOString() })),
+  };
+}
 
 export interface PublicBookingCoachOption {
   id: string;
