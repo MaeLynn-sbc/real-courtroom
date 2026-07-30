@@ -195,6 +195,30 @@ export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
             />
           </div>
 
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="forgottenAssignmentNudgeMinutes">
+              Flag a forgotten assignment after (minutes)
+            </Label>
+            <p className="text-muted-foreground text-xs">
+              A court assigned but not yet started (Start Timer not pressed) gets flagged on the TV
+              display and the rotation screen after this many minutes, so a distracted attendant
+              doesn&apos;t leave players waiting.
+            </p>
+            <Input
+              id="forgottenAssignmentNudgeMinutes"
+              type="number"
+              min={1}
+              className="w-24"
+              value={settings.forgottenAssignmentNudgeMinutes}
+              onChange={(event) =>
+                setSettings((s) => ({
+                  ...s,
+                  forgottenAssignmentNudgeMinutes: Number(event.target.value),
+                }))
+              }
+            />
+          </div>
+
           <div className="flex items-center gap-2">
             <Switch
               id="autoConfirmProposals"

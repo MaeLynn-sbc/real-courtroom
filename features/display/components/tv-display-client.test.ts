@@ -9,6 +9,7 @@ function court(names: string[], name = "Court 2"): DisplayCourtActive {
     players: names.map((n) => ({ name: n })),
     startAt: "2026-07-28T00:00:00.000Z",
     endAt: "2026-07-28T01:00:00.000Z",
+    announcementRequestedAt: null,
     next: null,
   };
 }

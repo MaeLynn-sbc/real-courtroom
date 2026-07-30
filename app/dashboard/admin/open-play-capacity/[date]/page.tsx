@@ -172,13 +172,24 @@ function serializeTabs(tabs: (PlayerTab & { totalCents: number; gamesPlayed: num
   }));
 }
 
-function serializeAssignment(assignment: GameAssignmentWithParticipants) {
+function serializeAssignment(assignment: GameAssignmentWithParticipants, nudgeMinutes: number) {
+  const waitingToStart =
+    assignment.status === "PROPOSED" &&
+    Date.now() - assignment.proposedAt.getTime() >= nudgeMinutes * 60_000;
   return {
     id: assignment.id,
     source: assignment.source,
     status: assignment.status,
     skillSpread: assignment.skillSpread,
     startedAt: assignment.startedAt ? assignment.startedAt.toISOString() : null,
+    announcementRequestedAt: assignment.announcementRequestedAt ? assignment.announcementRequestedAt.toISOString() : null,
+    // Manual timer/announce forgotten-assignment nudge: computed here,
+    // at render time, not pushed to the client as raw proposedAt +
+    // minutes — this page re-renders on each staff action (router.
+    // refresh()) or manual reload, not a live poll, so "now" at
+    // serialization time is the right, simplest signal, same as
+    // getRotationBoardData's own pastMaxWait just above it.
+    waitingToStart,
     participants: assignment.participants.map((p) => ({
       registrationId: p.registrationId,
       playerName: p.registration.playerName,
@@ -193,8 +204,8 @@ function serializeBoard(dateParam: string, board: RotationBoardData) {
     courts: board.courts.map((c) => ({
       id: c.court.id,
       name: c.court.name,
-      active: c.active ? serializeAssignment(c.active) : null,
-      proposed: c.proposed ? serializeAssignment(c.proposed) : null,
+      active: c.active ? serializeAssignment(c.active, board.forgottenAssignmentNudgeMinutes) : null,
+      proposed: c.proposed ? serializeAssignment(c.proposed, board.forgottenAssignmentNudgeMinutes) : null,
     })),
     waiting: board.waiting,
     resting: board.resting,

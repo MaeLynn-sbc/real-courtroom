@@ -205,6 +205,9 @@ const DEFAULT_OPEN_PLAY_SETTINGS: OpenPlaySettings = {
   // BUILD-SPEC.md §9 "Fri/Sat ₱150 registrations" — the actual, real
   // amount collected at the desk since Phase 7, only now recorded.
   friSatRegistrationFeeCents: 15000,
+  // Manual timer/announce: 3 minutes, per the user's own "default maybe
+  // 3 minutes" ask.
+  forgottenAssignmentNudgeMinutes: 3,
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never

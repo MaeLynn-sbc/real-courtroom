@@ -44,14 +44,21 @@ const ANNOUNCEMENTS_MUTED_STORAGE_KEY = "tv-display-announcements-muted";
 // utterance's worth of time.
 const ANNOUNCEMENT_REPEAT_GAP_MS = 6_000;
 
-// Only "op" (open play, rotation-engine assigned) counts as an
-// announceable assignment — "res" is a pre-scheduled booking someone
-// already knew about, not a just-happened rotation event. Returns null
-// for every other state so a court leaving "op" naturally drops out of
-// the tracked-signatures map (see previousAssignmentsRef below).
-function courtAssignmentSignature(court: DisplayCourt): string | null {
-  if (court.state !== "op") return null;
-  return court.players.map((player) => player.name).join("|");
+// Manual timer/announce (reported live): auto-announcing the instant a
+// foursome was assigned shorted players part of their 15 minutes, since
+// the clock and the announcement were bundled into one automatic event.
+// The TV now watches announcementRequestedAt itself — a timestamp the
+// ANNOUNCE staff action stamps — not a state transition, so it's
+// decoupled from starting the timer and safely re-firable (a fresh
+// timestamp each press). Works for "op-pending" (before Start Timer, the
+// normal case) and "op" (a legitimate re-announce — a no-show — after
+// the clock's already running). Returns null for every other state, or
+// for one never yet announced, so a court leaving either state — or one
+// nobody has pressed ANNOUNCE for — naturally stays out of the tracked
+// map below.
+function courtAnnouncementToken(court: DisplayCourt): string | null {
+  if (court.state !== "op" && court.state !== "op-pending") return null;
+  return court.announcementRequestedAt;
 }
 
 // Natural spoken list, in the order names appear on the assignment —
@@ -158,10 +165,10 @@ export function TvDisplayClient({
   // first live poll only announces a genuinely NEW assignment relative
   // to what's already on screen at load — not every game already in
   // progress when the TV was turned on.
-  const previousAssignmentsRef = useRef<Record<string, string>>(
+  const previousAnnouncementTokensRef = useRef<Record<string, string>>(
     Object.fromEntries(
       initialData.courts
-        .map((court) => [court.id, courtAssignmentSignature(court)] as const)
+        .map((court) => [court.id, courtAnnouncementToken(court)] as const)
         .filter((entry): entry is [string, string] => entry[1] !== null),
     ),
   );
@@ -338,21 +345,22 @@ export function TvDisplayClient({
         const json = (await response.json()) as DisplayData;
         if (cancelled) return;
 
-        // New-assignment detection: compare this poll's per-court "op"
-        // signature against the last one seen. Only a genuine change
-        // (a court newly in "op", or the same court's player set
-        // changing) announces — an unchanged group still mid-game on a
-        // routine refresh never re-announces, whatever the interval.
+        // Manual announce detection: compare this poll's per-court
+        // announcement token against the last one seen. Only a genuine
+        // change (staff pressed ANNOUNCE, for the first time or again)
+        // speaks — a court sitting unannounced, or unchanged since its
+        // last announce, never fires on a routine refresh, whatever the
+        // interval.
         for (const court of json.courts) {
-          const signature = courtAssignmentSignature(court);
-          const previousSignature = previousAssignmentsRef.current[court.id];
-          if (signature && signature !== previousSignature) {
+          const token = courtAnnouncementToken(court);
+          const previousToken = previousAnnouncementTokensRef.current[court.id];
+          if (token && token !== previousToken) {
             scheduleAnnouncement(court);
           }
-          if (signature) {
-            previousAssignmentsRef.current[court.id] = signature;
+          if (token) {
+            previousAnnouncementTokensRef.current[court.id] = token;
           } else {
-            delete previousAssignmentsRef.current[court.id];
+            delete previousAnnouncementTokensRef.current[court.id];
           }
         }
 
@@ -635,6 +643,30 @@ function CourtCard({
           <span>Next booking</span>
           <span>{court.next ? `${court.next.name} · ${hhmm(court.next.startAt)}` : "No bookings today"}</span>
         </div>
+      </div>
+    );
+  }
+
+  // Manual timer/announce: a foursome assigned but Start Timer not yet
+  // pressed — no startAt/endAt to compute a countdown from, only
+  // proposedAt/nudgeAt. Handled before the timing-based branches below,
+  // which all assume a real countdown exists.
+  if (court.state === "op-pending") {
+    const nudging = now >= new Date(court.nudgeAt).getTime();
+    return (
+      <div className={cls(styles.court, styles.opPending, nudging && styles.opPendingNudge)}>
+        <div className={styles["court-head"]}>
+          <span className={styles["court-no"]}>{court.name}</span>
+          <span className={styles.pill}>Assigned</span>
+        </div>
+        <div className={styles.players}>
+          {court.players.map((player, i) => (
+            <span key={`${player.name}-${i}`} className={cls(styles.pname, styles[`c${i % 4}`])}>
+              <span className={styles.pnameText}>{player.name}</span>
+            </span>
+          ))}
+        </div>
+        <div className={styles.pendingNote}>{nudging ? "Waiting to start" : "Not started yet"}</div>
       </div>
     );
   }

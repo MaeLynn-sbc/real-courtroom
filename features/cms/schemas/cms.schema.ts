@@ -124,6 +124,15 @@ export const openPlaySettingsSchema = z.object({
   // Sale itself is created (and its amountCents fixed) at registration
   // time, not read again later.
   friSatRegistrationFeeCents: z.number().int().nonnegative(),
+  // Manual timer/announce (reported live): staff now decide when a
+  // court's 15-minute clock starts, not the assignment itself — but a
+  // distracted attendant can leave a court proposed-and-forgotten while
+  // players wait and the waitlist backs up. After this many minutes with
+  // no Start Timer press, the TV display and the rotation screen flag
+  // that court as waiting to start. Purely a read-time comparison against
+  // GameAssignment.proposedAt (no scheduler exists in this app, and this
+  // doesn't need one) — see display.service.ts.
+  forgottenAssignmentNudgeMinutes: z.number().int().positive(),
 });
 
 export type OpenPlaySettings = z.infer<typeof openPlaySettingsSchema>;

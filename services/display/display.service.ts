@@ -36,13 +36,21 @@ export interface DisplayCourtFree {
 export interface DisplayCourtActive {
   id: string;
   name: string;
-  // res: currently booked. op: an open-play game in progress.
+  // res: currently booked. op: an open-play game, timer running.
   state: "res" | "op";
   // res: the one booking guest/player. op: up to 4 checked-in
   // participants.
   players: DisplayPlayer[];
   startAt: string;
   endAt: string;
+  // op only — always null for res. Null until the ANNOUNCE action has
+  // been pressed at least once; the TV watches this value (paired with
+  // the court) to decide when to (re-)speak, not the state transition
+  // itself — see tv-display-client.tsx's scheduleAnnouncement. Manual
+  // timer/announce: announcing and starting the clock are two separate
+  // staff decisions, so this can keep changing (re-announce) while op's
+  // own startAt/endAt stay fixed.
+  announcementRequestedAt: string | null;
   // res: the booking after this one on the same court, if any today.
   // op: always null — the queue is one shared pool, not tied to a
   // specific court, so open play has no per-court "next" (BUILD-SPEC.md
@@ -50,7 +58,29 @@ export interface DisplayCourtActive {
   next: DisplayNextBooking | null;
 }
 
-export type DisplayCourt = DisplayCourtFree | DisplayCourtActive;
+// Manual timer/announce (reported live): a foursome has been assigned to
+// this court but staff haven't pressed Start Timer yet — players are (or
+// should be) walking over. Shown from the moment of assignment, not
+// hidden until confirmed — a player walking toward a court that reads
+// "free" has nowhere to go. No startAt/endAt: this isn't the game clock,
+// only proposedAt is real. nudgeAt is proposedAt plus the owner's
+// forgottenAssignmentNudgeMinutes setting, computed here so the client
+// only has to compare it to Date.now() — same lazy, no-scheduler pattern
+// this app already uses for isTimeUpFlashing's own endAt comparison.
+export interface DisplayCourtOpPending {
+  id: string;
+  name: string;
+  state: "op-pending";
+  players: DisplayPlayer[];
+  proposedAt: string;
+  nudgeAt: string;
+  announcementRequestedAt: string | null;
+  startAt: null;
+  endAt: null;
+  next: null;
+}
+
+export type DisplayCourt = DisplayCourtFree | DisplayCourtActive | DisplayCourtOpPending;
 
 export interface DisplayData {
   generatedAt: string;
@@ -194,6 +224,7 @@ export class DisplayService {
           players: [{ name: shortDisplayName(bookingDisplayName(currentBooking), nameFormat) }],
           startAt: currentBooking.startAt.toISOString(),
           endAt: currentBooking.endAt.toISOString(),
+          announcementRequestedAt: null,
           next: toDisplayNextBooking(nextBooking, nameFormat),
         };
       }
@@ -211,6 +242,28 @@ export class DisplayService {
           })),
           startAt: start.toISOString(),
           endAt: end.toISOString(),
+          announcementRequestedAt: activeAssignment.announcementRequestedAt?.toISOString() ?? null,
+          next: null,
+        };
+      }
+
+      const proposedAssignment = boardByCourtId.get(court.id)?.proposed ?? null;
+      if (proposedAssignment) {
+        const nudgeAt = new Date(
+          proposedAssignment.proposedAt.getTime() + settings.forgottenAssignmentNudgeMinutes * 60_000,
+        );
+        return {
+          id: court.id,
+          name: court.name,
+          state: "op-pending",
+          players: proposedAssignment.participants.map((participant) => ({
+            name: shortDisplayName(participant.registration.playerName, nameFormat),
+          })),
+          proposedAt: proposedAssignment.proposedAt.toISOString(),
+          nudgeAt: nudgeAt.toISOString(),
+          announcementRequestedAt: proposedAssignment.announcementRequestedAt?.toISOString() ?? null,
+          startAt: null,
+          endAt: null,
           next: null,
         };
       }

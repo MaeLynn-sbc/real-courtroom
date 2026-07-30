@@ -26,6 +26,7 @@ function displayData(courtState: "op" | "free", endAt: string): DisplayData {
             players: [{ name: "Ana" }],
             startAt: "2026-07-27T23:45:00.000Z",
             endAt,
+            announcementRequestedAt: null,
             next: null,
           }
         : { id: "court-2", name: "Court 2", state: "free", players: [], startAt: null, endAt: null, next: null },

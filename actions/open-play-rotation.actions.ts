@@ -106,6 +106,32 @@ export async function confirmAssignmentAction(input: AssignmentIdInput): Promise
   }
 }
 
+// Manual timer/announce: same requireOpenPlayManage() gate as create/
+// confirm above, so attendants already reach this — no new permission
+// needed (unlike TV-display settings, RECEPTIONIST already holds
+// OPEN_PLAY_MANAGE). Re-pressable: no state check beyond the service's own
+// PROPOSED/ACTIVE guard, so pressing this again just re-stamps the
+// timestamp the TV watches.
+export async function announceAssignmentAction(input: AssignmentIdInput): Promise<OpenPlayRotationActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = assignmentIdInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await openPlayRotationService.announceAssignment(parsed.data.assignmentId, authz.userId);
+    revalidateRotation();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "announceAssignmentAction", userId: authz.userId }) };
+  }
+}
+
 export async function cancelAssignmentAction(input: AssignmentIdInput): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {

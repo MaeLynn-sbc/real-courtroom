@@ -150,6 +150,26 @@ function CourtRow({ court, now }: { court: DisplayCourt; now: number }) {
     );
   }
 
+  // Manual timer/announce: a foursome assigned but staff haven't pressed
+  // Start Timer yet. Shown here too, not just the TV — a player checking
+  // their phone should see their court is theirs, not read it as free.
+  if (court.state === "op-pending") {
+    return (
+      <div className="border-line bg-navy-800 rounded-2xl border p-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-bone font-semibold">{court.name}</p>
+          <span className="bg-warning/15 text-warning rounded-full px-3 py-1 text-xs font-bold uppercase">
+            Assigned
+          </span>
+        </div>
+        <p className="text-bone mt-2 text-sm">
+          {court.players.length > 0 ? court.players.map((player) => player.name).join(", ") : "Guest"}
+        </p>
+        <p className="text-slate mt-1 text-xs">Not started yet</p>
+      </div>
+    );
+  }
+
   const left = minutesLeft(court.endAt, now);
 
   return (

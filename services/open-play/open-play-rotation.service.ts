@@ -104,6 +104,14 @@ export interface RotationBoardData {
   // back in (markWaitingAgain), the only reverse path out of RESTING.
   resting: RotationBoardRestingPlayer[];
   maxWaitMinutes: number;
+  // Manual timer/announce: the rotation-board.tsx staff screen isn't a
+  // live-polling view (unlike the TV/phone displays) — it re-renders on
+  // each staff action or manual reload, so page.tsx computes the actual
+  // "waiting to start" boolean itself at that moment, the same way it
+  // already computes everything else here. This is just the raw setting,
+  // passed through once rather than fetched a second time (getOpenPlaySettings
+  // is already called above for maxWaitMinutes).
+  forgottenAssignmentNudgeMinutes: number;
   // Non-null only when a court is actually free AND 4+ players are
   // waiting AND no valid foursome can currently be assembled from them —
   // e.g. two parties of 3 with no solos. Parties never split, so this is
@@ -481,6 +489,40 @@ export class OpenPlayRotationService {
     return updated;
   }
 
+  // Manual timer/announce (reported live): players take time to walk to
+  // their court, so auto-starting the clock and auto-announcing the
+  // instant a foursome is assigned shorted them part of their 15 minutes.
+  // Deliberately separate from confirmAssignment/startedAt below —
+  // announcing (players walk over) and starting the timer (players are on
+  // court) are two different staff decisions with a gap between them, not
+  // one bundled step. Re-pressable (a fresh timestamp each time, no
+  // "already announced" guard) — nobody heard it the first time, or a
+  // no-show needs re-calling, are both legitimate reasons to press this
+  // again. Works on PROPOSED (the normal case — announce, then start) or
+  // ACTIVE (a legitimate re-announce after the timer's already running),
+  // but not DONE/CANCELLED — nothing to announce for a game that's over.
+  async announceAssignment(assignmentId: string, actorUserId: string): Promise<GameAssignmentWithParticipants> {
+    const assignment = await prisma.gameAssignment.findUniqueOrThrow({ where: { id: assignmentId } });
+    if (assignment.status !== "PROPOSED" && assignment.status !== "ACTIVE") {
+      throw new Error(`Can't announce an assignment that's already ${assignment.status.toLowerCase()}.`);
+    }
+
+    const updated = await prisma.gameAssignment.update({
+      where: { id: assignmentId },
+      data: { announcementRequestedAt: new Date() },
+      include: { participants: { include: { registration: true } } },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "game_assignment.announced",
+      entityType: "GameAssignment",
+      entityId: assignmentId,
+    });
+
+    return updated;
+  }
+
   // Handles both "reject a proposal" and "cancel a game in progress" — in
   // both cases nobody actually finished a game, so participants return to
   // WAITING with joinedQueueAt untouched (BUILD-SPEC.md doesn't specify a
@@ -750,7 +792,14 @@ export class OpenPlayRotationService {
       }
     }
 
-    return { courts: boardCourts, waiting, resting, maxWaitMinutes: settings.maxWaitMinutes, unfillableQueueReason };
+    return {
+      courts: boardCourts,
+      waiting,
+      resting,
+      maxWaitMinutes: settings.maxWaitMinutes,
+      forgottenAssignmentNudgeMinutes: settings.forgottenAssignmentNudgeMinutes,
+      unfillableQueueReason,
+    };
   }
 
   private async createAssignment(

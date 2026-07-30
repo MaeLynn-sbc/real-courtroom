@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import {
+  announceAssignmentAction,
   cancelAssignmentAction,
   completeAssignmentAction,
   confirmAssignmentAction,
@@ -42,6 +43,15 @@ interface BoardAssignment {
   status: "PROPOSED" | "ACTIVE" | "DONE" | "CANCELLED";
   skillSpread: number;
   startedAt: string | null;
+  // Manual timer/announce: null until ANNOUNCE has been pressed at least
+  // once. Re-pressable — a fresh value each time, which is also what the
+  // TV/phone displays watch to decide when to (re-)speak.
+  announcementRequestedAt: string | null;
+  // True once a PROPOSED assignment has sat unstarted past the owner's
+  // forgottenAssignmentNudgeMinutes setting — computed server-side at
+  // page render (see app/dashboard/admin/open-play-capacity/[date]/
+  // page.tsx's serializeAssignment), always false for a non-PROPOSED one.
+  waitingToStart: boolean;
   participants: { registrationId: string; playerName: string; skillLevel: OpenPlaySkillLevel }[];
 }
 
@@ -145,7 +155,18 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                     {court.active.source === "MANUAL" ? "Manual group" : `Skill spread ${court.active.skillSpread}`} · started{" "}
                     {court.active.startedAt ? new Date(court.active.startedAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }) : "—"}
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isPending}
+                      onClick={() =>
+                        runAction(announceAssignmentAction({ assignmentId: court.active!.id }), "Announced.")
+                      }
+                    >
+                      Announce
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
@@ -177,14 +198,33 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                   <p className="text-muted-foreground text-xs">
                     {court.proposed.source === "MANUAL" ? "Manual group" : `Skill spread ${court.proposed.skillSpread}`}
                   </p>
-                  <div className="flex gap-2">
+                  {/* Manual timer/announce, forgotten-assignment nudge: same
+                      "past a configurable minutes threshold" treatment as
+                      the waiting list's own pastMaxWait warning below. */}
+                  {court.proposed.waitingToStart ? (
+                    <p className="text-warning-foreground bg-warning/15 rounded-lg px-2 py-1.5 text-xs font-medium">
+                      Waiting to start — Start Timer hasn&apos;t been pressed yet.
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isPending}
+                      onClick={() =>
+                        runAction(announceAssignmentAction({ assignmentId: court.proposed!.id }), "Announced.")
+                      }
+                    >
+                      Announce
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
                       disabled={isPending}
-                      onClick={() => runAction(confirmAssignmentAction({ assignmentId: court.proposed!.id }), "Confirmed.")}
+                      onClick={() => runAction(confirmAssignmentAction({ assignmentId: court.proposed!.id }), "Timer started.")}
                     >
-                      Confirm
+                      Start timer
                     </Button>
                     <Button
                       type="button"
