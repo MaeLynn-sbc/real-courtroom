@@ -13,6 +13,7 @@ import {
   markDoneAction,
   markRestingAction,
   markWaitingAgainAction,
+  moveQueueUnitAfterAction,
   proposeAssignmentAction,
   type OpenPlayRotationActionState,
 } from "@/actions/open-play-rotation.actions";
@@ -81,11 +82,26 @@ function skillLabel(level: OpenPlaySkillLevel): string {
   return OPEN_PLAY_SKILL_LEVELS[level].label;
 }
 
+// Queue reorder: a unit (solo or party) is keyed and labeled the same way
+// throughout — partyId when there is one, else the sole member's
+// queueEntryId, matching the existing key= on the waiting-list row below.
+function unitKey(unit: BoardUnit): string {
+  return unit.partyId ?? unit.members[0]?.queueEntryId ?? "";
+}
+
+function unitLabel(unit: BoardUnit): string {
+  return unit.members.map((member) => member.playerName).join(" & ");
+}
+
 export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, unfillableQueueReason }: RotationBoardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [manualPicks, setManualPicks] = useState<string[]>([]);
   const [manualCourtId, setManualCourtId] = useState<string>(courts[0]?.id ?? "");
+  // Queue reorder: which unit each OTHER unit is currently set to move
+  // after, keyed by the mover's own unitKey — a plain <select>, not
+  // drag-and-drop (a busy front-desk laptop, per the ask).
+  const [moveTargets, setMoveTargets] = useState<Record<string, string>>({});
 
   function refresh() {
     router.refresh();
@@ -277,54 +293,106 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
           {waiting.length === 0 ? (
             <p className="text-muted-foreground text-sm">Nobody waiting.</p>
           ) : (
-            waiting.map((unit) => (
-              <div
-                key={unit.partyId ?? unit.members[0]?.queueEntryId}
-                className={cn(
-                  "flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2",
-                  unit.pastMaxWait && "border-coral/40 bg-coral/[0.08]",
-                )}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  {unit.members.map((member) => (
-                    <label key={member.registrationId} className="flex items-center gap-1.5 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={manualPicks.includes(member.registrationId)}
-                        onChange={() => toggleManualPick(member.registrationId)}
-                      />
-                      {member.playerName} <span className="text-muted-foreground text-xs">({skillLabel(member.skillLevel)})</span>
-                    </label>
-                  ))}
-                  {unit.partyId ? <Badge variant="outline">party</Badge> : null}
+            waiting.map((unit) => {
+              const thisKey = unitKey(unit);
+              const otherUnits = waiting.filter((other) => unitKey(other) !== thisKey);
+              const moveTarget = moveTargets[thisKey] ?? "";
+              return (
+                <div
+                  key={thisKey}
+                  className={cn(
+                    "flex flex-col gap-2 rounded-lg border px-3 py-2",
+                    unit.pastMaxWait && "border-coral/40 bg-coral/[0.08]",
+                  )}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {unit.members.map((member) => (
+                        <label key={member.registrationId} className="flex items-center gap-1.5 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={manualPicks.includes(member.registrationId)}
+                            onChange={() => toggleManualPick(member.registrationId)}
+                          />
+                          {member.playerName} <span className="text-muted-foreground text-xs">({skillLabel(member.skillLevel)})</span>
+                        </label>
+                      ))}
+                      {unit.partyId ? <Badge variant="outline">party</Badge> : null}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={cn("text-xs", unit.pastMaxWait ? "text-coral font-semibold" : "text-muted-foreground")}>
+                        waiting {unit.waitMinutes}m{unit.pastMaxWait ? ` (past ${maxWaitMinutes}m)` : ""}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={isPending}
+                        onClick={() =>
+                          runAction(markRestingAction({ queueEntryId: unit.members[0].queueEntryId }), "Marked resting.")
+                        }
+                      >
+                        Rest
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={isPending}
+                        onClick={() => runAction(markDoneAction({ queueEntryId: unit.members[0].queueEntryId }), "Marked done.")}
+                      >
+                        Done
+                      </Button>
+                    </div>
+                  </div>
+                  {/* Queue reorder (reported live): a forming group short a
+                      player wants a specific, later-queued player — staff
+                      move THIS unit to sit right after whoever's picked
+                      below. Everyone between here and there advances
+                      automatically; nothing else to click. */}
+                  {otherUnits.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-2 border-t pt-2">
+                      <span className="text-muted-foreground text-xs">Move after</span>
+                      <select
+                        className="border-input rounded-md border px-2 py-1 text-xs"
+                        value={moveTarget}
+                        onChange={(event) =>
+                          setMoveTargets((prev) => ({ ...prev, [thisKey]: event.target.value }))
+                        }
+                      >
+                        <option value="">Choose a player…</option>
+                        {otherUnits.map((other) => (
+                          <option key={unitKey(other)} value={other.members[0].registrationId}>
+                            {unitLabel(other)}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isPending || !moveTarget}
+                        onClick={() =>
+                          runAction(
+                            moveQueueUnitAfterAction({
+                              date,
+                              movingRegistrationIds: unit.members.map((member) => member.registrationId),
+                              targetRegistrationId: moveTarget,
+                            }).then((r) => {
+                              if (!r.error) setMoveTargets((prev) => ({ ...prev, [thisKey]: "" }));
+                              return r;
+                            }),
+                            "Moved.",
+                          )
+                        }
+                      >
+                        Move
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={cn("text-xs", unit.pastMaxWait ? "text-coral font-semibold" : "text-muted-foreground")}>
-                    waiting {unit.waitMinutes}m{unit.pastMaxWait ? ` (past ${maxWaitMinutes}m)` : ""}
-                  </span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={isPending}
-                    onClick={() =>
-                      runAction(markRestingAction({ queueEntryId: unit.members[0].queueEntryId }), "Marked resting.")
-                    }
-                  >
-                    Rest
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={isPending}
-                    onClick={() => runAction(markDoneAction({ queueEntryId: unit.members[0].queueEntryId }), "Marked done.")}
-                  >
-                    Done
-                  </Button>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </CardContent>
       </Card>

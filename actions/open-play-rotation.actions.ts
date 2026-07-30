@@ -5,10 +5,12 @@ import { revalidatePath } from "next/cache";
 import {
   assignmentIdInputSchema,
   manualAssignmentInputSchema,
+  moveQueueUnitAfterInputSchema,
   proposeAssignmentInputSchema,
   queueEntryIdInputSchema,
   type AssignmentIdInput,
   type ManualAssignmentInput,
+  type MoveQueueUnitAfterInput,
   type ProposeAssignmentInput,
   type QueueEntryIdInput,
 } from "@/features/open-play-capacity/schemas/open-play-rotation.schema";
@@ -219,6 +221,35 @@ export async function markWaitingAgainAction(input: QueueEntryIdInput): Promise<
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "markWaitingAgainAction", userId: authz.userId }) };
+  }
+}
+
+// Queue reorder: same requireOpenPlayManage() gate — no new permission
+// needed. Moves a whole unit (solo or party) to sit right after a chosen,
+// later-queued player; everyone passed advances automatically, since
+// nobody else's row is touched (see moveQueueUnitAfter's own comment).
+export async function moveQueueUnitAfterAction(input: MoveQueueUnitAfterInput): Promise<OpenPlayRotationActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = moveQueueUnitAfterInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await openPlayRotationService.moveQueueUnitAfter(
+      parseDate(parsed.data.date),
+      parsed.data.movingRegistrationIds,
+      parsed.data.targetRegistrationId,
+      authz.userId,
+    );
+    revalidateRotation();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "moveQueueUnitAfterAction", userId: authz.userId }) };
   }
 }
 

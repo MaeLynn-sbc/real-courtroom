@@ -26,3 +26,11 @@ export const queueEntryIdInputSchema = z.object({
 });
 
 export type QueueEntryIdInput = z.infer<typeof queueEntryIdInputSchema>;
+
+export const moveQueueUnitAfterInputSchema = z.object({
+  date: z.string().min(1),
+  movingRegistrationIds: z.array(z.string().min(1)).min(1, "Select at least one player to move."),
+  targetRegistrationId: z.string().min(1, "Choose who to move after."),
+});
+
+export type MoveQueueUnitAfterInput = z.infer<typeof moveQueueUnitAfterInputSchema>;

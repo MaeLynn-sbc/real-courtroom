@@ -1,7 +1,11 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { RotationBoard, type RotationBoardProps } from "./rotation-board";
-import { announceAssignmentAction, confirmAssignmentAction } from "@/actions/open-play-rotation.actions";
+import {
+  announceAssignmentAction,
+  confirmAssignmentAction,
+  moveQueueUnitAfterAction,
+} from "@/actions/open-play-rotation.actions";
 
 jest.mock("@/actions/open-play-rotation.actions", () => ({
   announceAssignmentAction: jest.fn(),
@@ -12,6 +16,7 @@ jest.mock("@/actions/open-play-rotation.actions", () => ({
   markDoneAction: jest.fn(),
   markRestingAction: jest.fn(),
   markWaitingAgainAction: jest.fn(),
+  moveQueueUnitAfterAction: jest.fn(),
   proposeAssignmentAction: jest.fn(),
 }));
 
@@ -21,6 +26,7 @@ jest.mock("next/navigation", () => ({
 
 const mockedAnnounce = announceAssignmentAction as jest.MockedFunction<typeof announceAssignmentAction>;
 const mockedConfirm = confirmAssignmentAction as jest.MockedFunction<typeof confirmAssignmentAction>;
+const mockedMoveAfter = moveQueueUnitAfterAction as jest.MockedFunction<typeof moveQueueUnitAfterAction>;
 
 async function clickAsync(element: Element) {
   await act(async () => {
@@ -173,5 +179,96 @@ describe("RotationBoard — manual announce/start timer", () => {
     await clickAsync(screen.getByRole("button", { name: /^announce$/i }));
 
     expect(mockedAnnounce).toHaveBeenCalledWith({ assignmentId: "assignment-2" });
+  });
+});
+
+// Queue reorder: staff move a whole unit to sit after a chosen, later
+// player via a plain select + button (not drag-and-drop). Proves the
+// action receives the mover's full member list and the chosen target,
+// and that a party is offered/moved as one unit, never split.
+describe("RotationBoard — queue reorder (Move after)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const waiting: RotationBoardProps["waiting"] = [
+    { partyId: null, members: [{ queueEntryId: "qe-1", registrationId: "r-alice", playerName: "Alice", skillLevel: "BEGINNER" }], waitMinutes: 5, pastMaxWait: false },
+    {
+      partyId: "party-1",
+      members: [
+        { queueEntryId: "qe-2", registrationId: "r-ben", playerName: "Ben", skillLevel: "BEGINNER" },
+        { queueEntryId: "qe-3", registrationId: "r-carla", playerName: "Carla", skillLevel: "BEGINNER" },
+      ],
+      waitMinutes: 3,
+      pastMaxWait: false,
+    },
+    { partyId: null, members: [{ queueEntryId: "qe-4", registrationId: "r-dex", playerName: "Dex", skillLevel: "BEGINNER" }], waitMinutes: 1, pastMaxWait: false },
+  ];
+
+  function renderBoard() {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={waiting}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+  }
+
+  function findRow(label: string): HTMLElement {
+    // Names also appear as <option> text inside every OTHER row's "Move
+    // after" select — scope to the label (checkbox caption), not any
+    // text match, to find this player's own waiting-list row.
+    const match = screen.getAllByText(label).find((el) => el.closest("label"));
+    if (!match) throw new Error(`No label found for "${label}"`);
+    return match.closest("div.rounded-lg")!;
+  }
+
+  it("moves a solo unit after the chosen target, sending only that unit's registrationId", async () => {
+    mockedMoveAfter.mockResolvedValue({ error: null });
+    renderBoard();
+
+    const aliceRow = findRow("Alice");
+    const select = aliceRow.querySelector("select")!;
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "r-dex" } });
+    });
+    await clickAsync(within(aliceRow).getByRole("button", { name: /^move$/i }));
+
+    expect(mockedMoveAfter).toHaveBeenCalledWith({
+      date: "2026-08-01",
+      movingRegistrationIds: ["r-alice"],
+      targetRegistrationId: "r-dex",
+    });
+  });
+
+  it("moves a whole party together, never a single member", async () => {
+    mockedMoveAfter.mockResolvedValue({ error: null });
+    renderBoard();
+
+    const benRow = findRow("Ben");
+    const select = benRow.querySelector("select")!;
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "r-dex" } });
+    });
+    await clickAsync(within(benRow).getByRole("button", { name: /^move$/i }));
+
+    expect(mockedMoveAfter).toHaveBeenCalledWith({
+      date: "2026-08-01",
+      movingRegistrationIds: ["r-ben", "r-carla"],
+      targetRegistrationId: "r-dex",
+    });
+  });
+
+  it("does not offer a unit as a move target for itself", () => {
+    renderBoard();
+
+    const dexRow = findRow("Dex");
+    const options = Array.from(dexRow.querySelectorAll("option")).map((o) => o.textContent);
+    expect(options).not.toContain("Dex");
+    expect(options).toEqual(expect.arrayContaining(["Alice", "Ben & Carla"]));
   });
 });

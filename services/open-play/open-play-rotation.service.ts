@@ -723,6 +723,86 @@ export class OpenPlayRotationService {
     return updated;
   }
 
+  // Queue reorder (reported live): a forming group short a fourth wants a
+  // specific, LATER-queued player — normal open play (groups form around
+  // who wants to play together), not a fairness bug. Staff need to move
+  // that whole unit to sit right after the wanted player; everyone
+  // between the unit's old and new spot should advance automatically.
+  // No new position column needed: wait order has always been pure
+  // joinedQueueAt (see fetchWaitingUnits above), so "move after X" is
+  // exactly "set joinedQueueAt to just after X's" — the same mechanism
+  // completeAssignment already uses to send a just-finished player to
+  // the back (now(), the latest possible value; this is the general
+  // case, an arbitrary later point instead of always "now"). Everyone
+  // else's row is untouched, so they advance for free — nothing to
+  // compute, nothing to renumber.
+  async moveQueueUnitAfter(
+    date: Date,
+    movingRegistrationIds: string[],
+    targetRegistrationId: string,
+    actorUserId: string,
+  ): Promise<void> {
+    if (movingRegistrationIds.length === 0) {
+      throw new Error("Select at least one player to move.");
+    }
+    if (movingRegistrationIds.includes(targetRegistrationId)) {
+      throw new Error("Can't move a group to sit after itself.");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const target = await tx.queueEntry.findFirst({
+        where: { date, registrationId: targetRegistrationId, status: "WAITING" },
+      });
+      if (!target) {
+        throw new Error("That player isn't currently waiting.");
+      }
+
+      const movers = await tx.queueEntry.findMany({
+        where: { date, registrationId: { in: movingRegistrationIds }, status: "WAITING" },
+      });
+      if (movers.length !== movingRegistrationIds.length) {
+        throw new Error("One or more selected players aren't currently waiting.");
+      }
+
+      // Whole-party, always — never a partial slice. The caller
+      // (rotation-board.tsx) always passes a complete unit already; this
+      // is defense against a stale/tampered request, not the normal
+      // path — same "parties never split" rule as everywhere else in
+      // this file (see createManualAssignment, assembleFoursome).
+      const partyIds = new Set(movers.map((m) => m.partyId).filter((id): id is string => id !== null));
+      if (partyIds.size > 1) {
+        throw new Error("Selected players span more than one party.");
+      }
+      if (partyIds.size === 1) {
+        const [partyId] = [...partyIds];
+        const fullParty = await tx.queueEntry.findMany({ where: { date, partyId, status: "WAITING" } });
+        if (fullParty.length !== movers.length) {
+          throw new Error("A party moves together — select the whole party, not part of it.");
+        }
+      }
+
+      // All party members already share one joinedQueueAt by construction
+      // (fetchWaitingUnits's own comment) — preserved here, not
+      // reinvented: every mover (party or solo) gets the SAME new value,
+      // one millisecond after the target, so the group stays exactly as
+      // "simultaneous" as it always is, and sorts immediately after the
+      // target with no gap for an unrelated entry to land in between.
+      const newJoinedQueueAt = new Date(target.joinedQueueAt.getTime() + 1);
+      await tx.queueEntry.updateMany({
+        where: { id: { in: movers.map((m) => m.id) } },
+        data: { joinedQueueAt: newJoinedQueueAt },
+      });
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "queue_entry.moved_after",
+      entityType: "QueueEntry",
+      entityId: targetRegistrationId,
+      newValues: { movingRegistrationIds, targetRegistrationId },
+    });
+  }
+
   // BUILD-SPEC.md §7 "done (left for the night). done frees a Fri/Sat
   // capacity slot and triggers waitlist promotion, reusing the existing
   // openPlayRegistrationService release/promotion logic" — that's exactly

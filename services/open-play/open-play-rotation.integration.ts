@@ -48,6 +48,7 @@ const MANUAL_OVERRIDE_DATE = new Date(2031, 0, 14); // Tuesday
 const COURT_IDLE_DATE = new Date(2031, 0, 15); // Wednesday
 const PARTY_LEAPFROG_DATE = new Date(2031, 0, 20); // Monday
 const UNFILLABLE_DATE = new Date(2031, 0, 21); // Tuesday
+const MOVE_QUEUE_DATE = new Date(2031, 0, 22); // Wednesday
 
 const ALL_DATES = [
   STARVATION_DATE,
@@ -56,6 +57,7 @@ const ALL_DATES = [
   COURT_IDLE_DATE,
   PARTY_LEAPFROG_DATE,
   UNFILLABLE_DATE,
+  MOVE_QUEUE_DATE,
 ];
 
 async function cleanUp(): Promise<void> {
@@ -356,6 +358,95 @@ async function testUnfillableQueueIsSurfaced(courtId: string, actorUserId: strin
   console.log("PASS: an unfillable queue (two parties of 3, no solos) is surfaced on the board, not silently idle");
 }
 
+// Queue reorder (reported live): a forming group short a fourth wants a
+// specific, later-queued player — staff move that unit to sit right
+// after the wanted player, and everyone between the old and new spot
+// should advance automatically, for free.
+async function testMoveQueueUnitAfter(actorUserId: string): Promise<void> {
+  const aliceId = await checkInBackdated(MOVE_QUEUE_DATE, "Alice (moving)", "INTERMEDIATE", actorUserId, 40);
+  const benId = await checkInBackdated(MOVE_QUEUE_DATE, "Ben (passed)", "INTERMEDIATE", actorUserId, 30);
+  const carlaId = await checkInBackdated(MOVE_QUEUE_DATE, "Carla (passed)", "INTERMEDIATE", actorUserId, 20);
+  const dexId = await checkInBackdated(MOVE_QUEUE_DATE, "Dex (target)", "INTERMEDIATE", actorUserId, 10);
+
+  const before = await openPlayRotationService.getRotationBoardData(MOVE_QUEUE_DATE);
+  const beforeOrder = before.waiting.map((u) => u.members[0].registrationId);
+  assert(
+    beforeOrder.indexOf(aliceId) < beforeOrder.indexOf(benId) &&
+      beforeOrder.indexOf(benId) < beforeOrder.indexOf(carlaId) &&
+      beforeOrder.indexOf(carlaId) < beforeOrder.indexOf(dexId),
+    "expected join order Alice, Ben, Carla, Dex before the move",
+  );
+
+  await openPlayRotationService.moveQueueUnitAfter(MOVE_QUEUE_DATE, [aliceId], dexId, actorUserId);
+
+  const after = await openPlayRotationService.getRotationBoardData(MOVE_QUEUE_DATE);
+  const afterOrder = after.waiting.map((u) => u.members[0].registrationId);
+  assert(
+    afterOrder.indexOf(benId) < afterOrder.indexOf(carlaId) &&
+      afterOrder.indexOf(carlaId) < afterOrder.indexOf(dexId) &&
+      afterOrder.indexOf(dexId) < afterOrder.indexOf(aliceId),
+    `expected Ben, Carla, Dex, Alice after moving Alice after Dex — got ${afterOrder.join(", ")}`,
+  );
+
+  console.log("PASS: moving a solo after a later player advances everyone passed, automatically");
+
+  // Whole-party guard: selecting only part of a party must be rejected.
+  const partyId = `party-move-${Date.now()}`;
+  const partyMemberIds = await registerAndCheckInParty(
+    MOVE_QUEUE_DATE,
+    partyId,
+    [
+      { playerName: "Party Move 1", skillLevel: "BEGINNER" },
+      { playerName: "Party Move 2", skillLevel: "BEGINNER" },
+    ],
+    actorUserId,
+    5,
+  );
+  let partialPartyRejected = false;
+  try {
+    await openPlayRotationService.moveQueueUnitAfter(MOVE_QUEUE_DATE, [partyMemberIds[0]], dexId, actorUserId);
+  } catch {
+    partialPartyRejected = true;
+  }
+  assert(partialPartyRejected, "moving only part of a party must be rejected — a party moves together or not at all");
+
+  // Self-target guard.
+  let selfTargetRejected = false;
+  try {
+    await openPlayRotationService.moveQueueUnitAfter(MOVE_QUEUE_DATE, [benId], benId, actorUserId);
+  } catch {
+    selfTargetRejected = true;
+  }
+  assert(selfTargetRejected, "moving a unit to sit after itself must be rejected");
+
+  // Not-currently-waiting guard — same invariant that already prevents
+  // double-stacking: a player mid-assignment can't also be reordered in
+  // the queue.
+  const courts = await prisma.court.findMany({ where: { deletedAt: null }, orderBy: { name: "asc" } });
+  const fillerIds = [
+    await checkInBackdated(MOVE_QUEUE_DATE, "Filler 1", "INTERMEDIATE", actorUserId, 4),
+    await checkInBackdated(MOVE_QUEUE_DATE, "Filler 2", "INTERMEDIATE", actorUserId, 3),
+  ];
+  await openPlayRotationService.createManualAssignment(
+    MOVE_QUEUE_DATE,
+    courts[0].id,
+    [carlaId, dexId, ...fillerIds],
+    actorUserId,
+  );
+  let playingPlayerRejected = false;
+  try {
+    await openPlayRotationService.moveQueueUnitAfter(MOVE_QUEUE_DATE, [benId], dexId, actorUserId);
+  } catch {
+    playingPlayerRejected = true;
+  }
+  assert(
+    playingPlayerRejected,
+    "a player already inside a proposed/active assignment can't be a move target — they're no longer WAITING",
+  );
+
+  console.log("PASS: whole-party, self-target, and not-currently-waiting guards all reject correctly");
+}
+
 async function main() {
   await cleanUp();
 
@@ -370,6 +461,7 @@ async function main() {
     await testCourtNeverIdleWithFourWaiting(courts[0].id, owner.id);
     await testPartyDoesNotLeapfrogSolo(courts[0].id, owner.id);
     await testUnfillableQueueIsSurfaced(courts[0].id, owner.id);
+    await testMoveQueueUnitAfter(owner.id);
   } finally {
     await cleanUp();
   }
