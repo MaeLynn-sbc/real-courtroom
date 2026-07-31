@@ -11,6 +11,7 @@ import { RotationBoard } from "@/features/open-play-capacity/components/rotation
 import { TabsPanel } from "@/features/open-play-capacity/components/tabs-panel";
 import { WalkInRegistrationForm, type RegistrablePlayer } from "@/features/open-play-capacity/components/walk-in-registration-form";
 import type { PlayerTab } from "@/lib/generated/prisma/client";
+import { isBeforeFridaySaturdayOpenPlayCutoff } from "@/lib/court-hours";
 import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
 import type { GameAssignmentWithParticipants, RotationBoardData } from "@/services/open-play/open-play-rotation.service";
 import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
@@ -21,6 +22,7 @@ import { playerTabService } from "@/services/open-play/player-tab.service";
 import { playerService } from "@/services/player/player.service";
 import { productService } from "@/services/products/product.service";
 import { saleService } from "@/services/sales/sale.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
   title: "Open Play Night",
@@ -62,9 +64,25 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
   }
 
   const isCapacityNight = [5, 6].includes(date.getDay());
-  const players = toRegistrablePlayers(await playerService.listPlayers());
+  const [players, openPlaySettings] = await Promise.all([
+    playerService.listPlayers().then(toRegistrablePlayers),
+    settingsService.getOpenPlaySettings(),
+  ]);
 
   if (isCapacityNight) {
+    // Reported live: walk-in registration was always routed into the
+    // P150 unlimited capacity system on a Fri/Sat date, at every hour —
+    // this page only ever checked the calendar date, never whether Open
+    // Play had actually taken over the courts yet (see
+    // isBeforeFridaySaturdayOpenPlayCutoff's own comment). Owner
+    // decision: the capacity roster/queue/waitlist/tabs below stay
+    // visible all day regardless (staff prep for the night during the
+    // afternoon) — only the walk-in FORM itself switches mode, same
+    // cutoff getCourtBookingWindow already uses for Fri/Sat court
+    // bookings, not a second guess at it.
+    const courtHours = await settingsService.getCourtHours();
+    const walkInRegularMode = isBeforeFridaySaturdayOpenPlayCutoff(courtHours, date, new Date());
+
     // Viewing the page materializes the session (if it doesn't already
     // exist) the same way an owner setting a per-date override does —
     // "one per date, created on demand" (BUILD-SPEC.md §5).
@@ -100,9 +118,11 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
         </div>
 
         <WalkInRegistrationForm
-          target={{ sessionId: session.id }}
+          target={walkInRegularMode ? { date: dateParam } : { sessionId: session.id }}
           players={players}
           paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
+          weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
+          friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
         />
         <CheckInPanel
           expected={serializeRegistrations(expected)}
@@ -149,7 +169,12 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
         <p className="text-muted-foreground text-sm">Regular drop-in — no capacity, no prepayment.</p>
       </div>
 
-      <WalkInRegistrationForm target={{ date: dateParam }} players={players} showRegisterOnly={false} />
+      <WalkInRegistrationForm
+        target={{ date: dateParam }}
+        players={players}
+        showRegisterOnly={false}
+        weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
+      />
       <CheckInPanel expected={serializeRegistrations(expected)} checkedIn={serializeRegistrations(checkedIn)} />
       <RotationBoard {...serializeBoard(dateParam, board)} />
       <TabsPanel

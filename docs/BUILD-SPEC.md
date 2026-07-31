@@ -74,7 +74,16 @@ both report under Friday's business date and Friday's totals.
 
 ### Open play — two different modes
 
-| | Mon – Thu | Fri & Sat |
+**Corrected** (was previously a pure day-of-week split — see the note
+below the table): the per-game/unlimited split is time-of-day-aware on
+Fri/Sat, not date-aware alone. Fri/Sat runs per-game, exactly like a
+weeknight, until the same cutoff that already governs when courts stop
+being individually bookable and Open Play takes over
+(`fridaySaturdayCloseTime`, owner-editable, default 6PM — see "Court
+booking cutoffs" above). Only at/after that cutoff does the night
+switch to the ₱150 unlimited capacity session.
+
+| | Mon – Thu, all day<br>Fri & Sat, before the cutoff | Fri & Sat, at/after the cutoff |
 |---|---|---|
 | Price | ₱35 per game | ₱150 unlimited |
 | Registration | None — walk in | Required, prepaid |
@@ -82,16 +91,38 @@ both report under Friday's business date and Friday's totals.
 | Waitlist | No | Yes |
 | Payment | Cash at desk | GCash upfront |
 
-Weeknight open play needs **no capacity, no waitlist, no prepayment**.
-Do not build that machinery for Mon–Thu.
+"Regular" mode (left column) needs **no capacity, no waitlist, no
+prepayment**, regardless of which day it's running on. Don't build
+that machinery for it.
 
-That does **not** mean weeknights need no records at all. A weeknight
-still needs a registration (walk-in, created at check-in — see below),
-a check-in, and a queue entry, because tabs, the rotation queue, and
+That does **not** mean regular mode needs no records at all. It still
+needs a registration (walk-in, created at check-in — see below), a
+check-in, and a queue entry, because tabs, the rotation queue, and
 per-player history all key off those rows regardless of which night it
-is. What weeknights specifically don't have is an
+is. What regular mode specifically doesn't have is an
 `OpenPlayNightSession` — there is no capacity to track, so there is
-nothing for one to hold.
+nothing for one to hold. `OpenPlayNightRegistration.sessionId` is what
+actually distinguishes the two modes (null = regular, set = capacity)
+— never infer mode from the calendar date alone; a Friday or Saturday
+can have both kinds of registration on it at once.
+
+**History, for context**: this table originally read as a pure
+Mon–Thu-vs-Fri/Sat split, with no time-of-day concept, and a database
+CHECK constraint (`OpenPlayNightRegistration_session_matches_weekday`,
+migration 11) enforced exactly that — a Fri/Sat registration was
+required to have a session; every other day was required not to.
+Reported live: staff had no way to register a Fri/Sat daytime walk-in
+at the regular per-game rate at all — every Fri/Sat walk-in, at any
+hour, was forced into the ₱150 unlimited session. The constraint was
+enforcing this table faithfully; the table itself was one case short.
+Fixed in migration 40 (loosens the constraint to allow — not require —
+a session on Fri/Sat) plus the app-layer routing fix
+(`isBeforeFridaySaturdayOpenPlayCutoff`, `lib/court-hours.ts`) that
+actually decides which mode a given walk-in gets, based on the real
+clock, not just the calendar date. Owner decision at the time: mixed
+regular/capacity foursomes on the same Fri/Sat court are fine — the
+rotation board pools check-ins by date, not by session, and billing
+stays correct per player regardless of who they're grouped with.
 
 **Design consequence**: `OpenPlayNightRegistration.sessionId` is
 nullable, and `date` is the field every query and constraint actually

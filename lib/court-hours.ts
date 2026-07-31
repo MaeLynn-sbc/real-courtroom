@@ -78,6 +78,30 @@ export function getCourtBookingWindow(
   };
 }
 
+// Reported live: Fri/Sat walk-in open-play registration was always
+// routed to the P150 unlimited capacity system, at every hour of the
+// day, because the page deciding this only ever checked the calendar
+// date (Friday or Saturday), never whether Open Play had actually taken
+// over the courts yet. Same cutoff this file's own getCourtBookingWindow
+// already uses to close Fri/Sat courts early (fridaySaturdayCloseTime)
+// — one source of truth for "when does Open Play take over," not a
+// second guess at it. Non-Fri/Sat dates always return true: the
+// regular/unlimited split doesn't apply outside Fri/Sat at all, so
+// there's nothing to be "before." "00:00" here means midnight/end-of-day
+// (parseFacilityCloseMinutes's own sentinel), deliberately NOT
+// courtCutoffTime's "no cutoff at all" sentinel — disabling the early
+// Fri/Sat court-booking cutoff must not also silently disable Fri/Sat
+// unlimited capacity mode for the whole night.
+export function isBeforeFridaySaturdayOpenPlayCutoff(settings: CourtHoursSettings, date: Date, now: Date): boolean {
+  if (!isFridayOrSaturday(date)) {
+    return true;
+  }
+  const cutoffMinutes = parseFacilityCloseMinutes(settings.fridaySaturdayCloseTime);
+  const cutoff = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  cutoff.setHours(0, cutoffMinutes, 0, 0);
+  return now.getTime() < cutoff.getTime();
+}
+
 function minutesSinceMidnight(date: Date): number {
   return date.getHours() * 60 + date.getMinutes();
 }

@@ -1,4 +1,9 @@
-import { classifyCourtSlot, getCourtBookingWindow, isWithinCourtBookingWindow } from "@/lib/court-hours";
+import {
+  classifyCourtSlot,
+  getCourtBookingWindow,
+  isBeforeFridaySaturdayOpenPlayCutoff,
+  isWithinCourtBookingWindow,
+} from "@/lib/court-hours";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
 
 const SETTINGS: CourtHoursSettings = {
@@ -147,5 +152,34 @@ describe("classifyCourtSlot", () => {
         maintenanceRanges: [{ startAt: new Date(2026, 6, 20, 8, 0), endAt: new Date(2026, 6, 20, 9, 0) }],
       }),
     ).toBe("unavailable");
+  });
+});
+
+// Reported live: Fri/Sat open-play walk-in registration was ALWAYS
+// routed to the P150 unlimited capacity system regardless of time of
+// day — the page deciding this only ever checked the calendar date.
+// This is the pure decision function the fix now routes through.
+describe("isBeforeFridaySaturdayOpenPlayCutoff", () => {
+  it("is always true on a non-Fri/Sat date — the split doesn't apply there", () => {
+    const anyTime = new Date(2026, 6, 20, 23, 59);
+    expect(isBeforeFridaySaturdayOpenPlayCutoff(SETTINGS, MONDAY, anyTime)).toBe(true);
+  });
+
+  it("is true before the Fri/Sat cutoff (18:00 in SETTINGS)", () => {
+    const morning = new Date(2026, 6, 24, 9, 0); // Friday 9am
+    expect(isBeforeFridaySaturdayOpenPlayCutoff(SETTINGS, FRIDAY, morning)).toBe(true);
+  });
+
+  it("is false exactly at the cutoff and after — Open Play has taken over", () => {
+    const atCutoff = new Date(2026, 6, 24, 18, 0);
+    const afterCutoff = new Date(2026, 6, 25, 21, 0); // Saturday 9pm, checked against SATURDAY
+    expect(isBeforeFridaySaturdayOpenPlayCutoff(SETTINGS, FRIDAY, atCutoff)).toBe(false);
+    expect(isBeforeFridaySaturdayOpenPlayCutoff(SETTINGS, SATURDAY, afterCutoff)).toBe(false);
+  });
+
+  it('treats a "00:00" cutoff as end-of-day, not as "no cutoff at all" — unlike a court\'s own cutoff sentinel', () => {
+    const midnightCutoffSettings: CourtHoursSettings = { ...SETTINGS, fridaySaturdayCloseTime: "00:00" };
+    const lateEvening = new Date(2026, 6, 24, 23, 30);
+    expect(isBeforeFridaySaturdayOpenPlayCutoff(midnightCutoffSettings, FRIDAY, lateEvening)).toBe(true);
   });
 });

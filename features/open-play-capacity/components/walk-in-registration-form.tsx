@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { registerAndCheckInAction } from "@/actions/open-play-checkin.actions";
 import { registerWalkInAction } from "@/actions/open-play-registration.actions";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import { deriveSettlementMethod, SettlementPaymentFields } from "@/components/sh
 import { PlayerSearchCombobox } from "@/features/players/components/player-search-combobox";
 import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
+import { cn, formatCurrency } from "@/lib/utils";
 import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
 
 export interface RegistrablePlayer {
@@ -38,6 +40,16 @@ interface WalkInRegistrationFormProps {
   // fee applies there, never on a weeknight. Same PaymentMethod list
   // TabsPanel already receives from the same page.
   paymentMethods?: SettlementPaymentMethodOption[];
+  // Live, owner-editable amounts (settingsService.getOpenPlaySettings())
+  // — reported live: staff had no clear way to tell which mode this
+  // form was in on a Fri/Sat date before Open Play's own cutoff, short
+  // of noticing the price buried further down. Read here, not
+  // hardcoded, so the mode badge below can never go stale if an owner
+  // changes either rate; optional only so existing/test call sites that
+  // don't care about the badge's exact wording don't have to supply
+  // them.
+  weeknightGameRateCents?: number;
+  friSatRegistrationFeeCents?: number;
 }
 
 export function WalkInRegistrationForm({
@@ -45,6 +57,8 @@ export function WalkInRegistrationForm({
   players,
   showRegisterOnly = true,
   paymentMethods = [],
+  weeknightGameRateCents,
+  friSatRegistrationFeeCents,
 }: WalkInRegistrationFormProps) {
   const router = useRouter();
   const [playerName, setPlayerName] = useState("");
@@ -158,9 +172,26 @@ export function WalkInRegistrationForm({
   }
 
   return (
-    <Card>
+    <Card className={cn(isCapacityNight && "border-warning/40")}>
       <CardHeader>
-        <CardTitle>Register a Walk-in</CardTitle>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          Register a Walk-in
+          {/* Reported live: Fri/Sat walk-ins before Open Play's own
+              cutoff were being registered into the P150 unlimited
+              capacity system by mistake — staff had no way to tell
+              which mode this form was in short of noticing the price
+              buried further down. This badge is the one thing that
+              can't be missed moving fast on a money path; isCapacityNight
+              (derived from `target`'s own shape) is exactly what decides
+              which underlying registration action gets called below, so
+              this can never drift out of sync with the form's actual
+              behavior. */}
+          <Badge variant={isCapacityNight ? "warning" : "status"}>
+            {isCapacityNight
+              ? `Unlimited night${friSatRegistrationFeeCents != null ? ` · ${formatCurrency(friSatRegistrationFeeCents)}` : ""}`
+              : `Regular${weeknightGameRateCents != null ? ` · ${formatCurrency(weeknightGameRateCents)}/game` : ""}`}
+          </Badge>
+        </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <p className="text-muted-foreground text-sm">
