@@ -129,6 +129,19 @@ export async function markCheckedOutAction(input: ReleaseRegistrationInput): Pro
   );
 }
 
+// Reported live: leftover test registrations (made while trying out the
+// public form) had no cleanup path short of direct database access. Safety
+// guards (blocked on a real Sale, real game participation, or a
+// CONFIRMED/CHECKED_OUT status) live in the service layer, not here — see
+// openPlayRegistrationService.deleteRegistration's own comment.
+export async function deleteRegistrationAction(input: ReleaseRegistrationInput): Promise<OpenPlayRegistrationActionState> {
+  return releaseRegistration(
+    input,
+    (id, userId) => openPlayRegistrationService.deleteRegistration(id, userId),
+    "deleteRegistrationAction",
+  );
+}
+
 // Cancellation policy Gate 1 — staff refund path. Same permission as
 // every other open-play money-adjustment action (writeOffTabAction's
 // own precedent: OPEN_PLAY_MANAGE, not a dedicated new permission) and

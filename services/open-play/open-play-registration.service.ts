@@ -851,6 +851,54 @@ export class OpenPlayRegistrationService {
     return this.releaseRegistration(registrationId, "CHECKED_OUT", actorUserId);
   }
 
+  // Reported live: test registrations made while trying out the public
+  // form had no way to clean up except direct database access — every
+  // existing action (cancel/no-show/refund) changes STATUS, none of them
+  // actually remove the row. Deliberately narrow, not a general "delete
+  // any registration" tool: blocked outright for CONFIRMED/CHECKED_OUT
+  // (a real or once-real seat — use Cancel/No-show/Refund, which already
+  // handle waitlist promotion and credit correctly) and for anything
+  // with a linked Sale (a real, completed financial transaction — Sale
+  // is this app's actual revenue ledger; deleting one would silently
+  // remove real reporting history, test money or not). Everything this
+  // DOES allow — AWAITING_PAYMENT/PENDING_VERIFICATION/NO_SHOW/
+  // CANCELLED/REJECTED with no Sale — is, by construction, a row that
+  // never became real, billable activity.
+  async deleteRegistration(registrationId: string, actorUserId: string): Promise<void> {
+    const registration = await prisma.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+
+    if (registration.status === "CONFIRMED" || registration.status === "CHECKED_OUT") {
+      throw new Error(
+        "Can't delete a confirmed or checked-out registration — use Cancel, No-show, or Refund instead.",
+      );
+    }
+
+    const sale = await prisma.sale.findUnique({ where: { openPlayNightRegistrationId: registrationId } });
+    if (sale) {
+      throw new Error("This registration has a recorded sale and can't be deleted — refund it instead if needed.");
+    }
+
+    const gameParticipation = await prisma.gameAssignmentParticipant.findFirst({ where: { registrationId } });
+    if (gameParticipation) {
+      throw new Error("This registration was part of a game assignment and can't be deleted.");
+    }
+
+    await prisma.$transaction([
+      prisma.openPlayRegistrationPaymentProof.deleteMany({ where: { registrationId } }),
+      prisma.openPlayWaitlistEntry.deleteMany({ where: { registrationId } }),
+      prisma.queueEntry.deleteMany({ where: { registrationId } }),
+      prisma.openPlayNightRegistration.delete({ where: { id: registrationId } }),
+    ]);
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_registration.deleted",
+      entityType: "OpenPlayNightRegistration",
+      entityId: registrationId,
+      oldValues: registration,
+    });
+  }
+
   // Gate 3: called by openPlayRegistrationPaymentProofService after a
   // submitted GCash proof is rejected — terminal, same as CANCELLED
   // (mirrors Booking's own "REJECTED is terminal, same slot-freeing

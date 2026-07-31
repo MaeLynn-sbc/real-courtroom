@@ -4,7 +4,22 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { cancelRegistrationAction, markNoShowAction, refundRegistrationAction } from "@/actions/open-play-registration.actions";
+import {
+  cancelRegistrationAction,
+  deleteRegistrationAction,
+  markNoShowAction,
+  refundRegistrationAction,
+} from "@/actions/open-play-registration.actions";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -162,6 +177,65 @@ function RefundAction({ registrationId }: { registrationId: string }) {
   );
 }
 
+// Reported live: leftover test registrations (AWAITING_PAYMENT/
+// PENDING_VERIFICATION/NO_SHOW/CANCELLED/REJECTED rows made while trying
+// out the public form) had no cleanup path short of direct database
+// access. Only rendered for those statuses (never CONFIRMED/CHECKED_OUT —
+// deleteRegistrationAction's own guard blocks those server-side too, this
+// just keeps the button from ever appearing for a real seat). Confirm
+// dialog since this is a hard, irreversible delete, unlike Cancel/No-show.
+function DeleteAction({ registrationId, playerName }: { registrationId: string; playerName: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [isPending, startTransition] = useTransition();
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="text-destructive hover:text-destructive"
+        onClick={() => setOpen(true)}
+      >
+        Delete
+      </Button>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {playerName}&apos;s registration?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the registration — there&apos;s no undo. Use this for test or mistaken
+              entries only; a real registration that already showed up or paid can&apos;t be deleted this way.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isPending}
+              onClick={() => {
+                startTransition(async () => {
+                  const result = await deleteRegistrationAction({ registrationId });
+                  if (result.error) {
+                    toast.error(result.error);
+                    return;
+                  }
+                  toast.success("Registration deleted.");
+                  setOpen(false);
+                  router.refresh();
+                });
+              }}
+            >
+              {isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 export function RegistrationRosterPanel({ registrations, skillBreakdown, capacity }: RegistrationRosterPanelProps) {
   const seated = registrations.filter((r) => r.status === "CONFIRMED" && r.waitlistPos === null);
   const waitlisted = registrations.filter((r) => r.waitlistPos !== null);
@@ -226,6 +300,9 @@ export function RegistrationRosterPanel({ registrations, skillBreakdown, capacit
                       registration.status === "CANCELLED" ||
                       registration.status === "REJECTED" ? (
                         <RefundAction registrationId={registration.id} />
+                      ) : null}
+                      {registration.status !== "CONFIRMED" && registration.status !== "CHECKED_OUT" ? (
+                        <DeleteAction registrationId={registration.id} playerName={registration.playerName} />
                       ) : null}
                     </div>
                   </TableCell>
