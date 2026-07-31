@@ -140,35 +140,39 @@ export function DashboardHeader({
         <span className="text-sm font-semibold tracking-tight">{siteConfig.name}</span>
       </Link>
 
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex items-center gap-2">
+        {/* Reported live: the old icon + tiny corner-dot badge (a 20px
+            circle with 10px text) was easy for staff to miss entirely on
+            a busy desk screen. Now a real, wide pill — icon, a large bold
+            count, and a plain-language label — same destructive/red
+            treatment as before (still reads as "needs attention"), just
+            actually sized to be seen at a glance instead of squinted at.
+            The label collapses on narrow screens; the icon and count
+            never do. */}
         {pendingVerificationCount > 0 ? (
           <Link
             href="/dashboard/bookings/verify-payments"
             aria-label={`${pendingVerificationCount} payment ${pendingVerificationCount === 1 ? "verification" : "verifications"} pending`}
-            className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "relative")}
+            className="border-destructive/40 bg-destructive/15 text-destructive hover:bg-destructive/25 flex items-center gap-2 rounded-xl border px-3 py-2 transition-colors"
           >
-            <Receipt className="size-5" aria-hidden="true" />
-            <Badge
-              variant="destructive"
-              className="absolute -top-1 -right-1 h-5 min-w-5 rounded-full px-1 text-[10px]"
-            >
-              {pendingVerificationCount > 9 ? "9+" : pendingVerificationCount}
-            </Badge>
+            <Receipt className="size-5 shrink-0" aria-hidden="true" />
+            <span className="text-base leading-none font-bold">{pendingVerificationCount}</span>
+            <span className="hidden text-sm leading-none font-semibold sm:inline">
+              {pendingVerificationCount === 1 ? "payment to verify" : "payments to verify"}
+            </span>
           </Link>
         ) : null}
         {pendingOpenPlayVerificationCount > 0 ? (
           <Link
             href="/dashboard/admin/open-play-capacity/verify-payments"
             aria-label={`${pendingOpenPlayVerificationCount} open-play payment ${pendingOpenPlayVerificationCount === 1 ? "verification" : "verifications"} pending`}
-            className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "relative")}
+            className="border-destructive/40 bg-destructive/15 text-destructive hover:bg-destructive/25 flex items-center gap-2 rounded-xl border px-3 py-2 transition-colors"
           >
-            <Banknote className="size-5" aria-hidden="true" />
-            <Badge
-              variant="destructive"
-              className="absolute -top-1 -right-1 h-5 min-w-5 rounded-full px-1 text-[10px]"
-            >
-              {pendingOpenPlayVerificationCount > 9 ? "9+" : pendingOpenPlayVerificationCount}
-            </Badge>
+            <Banknote className="size-5 shrink-0" aria-hidden="true" />
+            <span className="text-base leading-none font-bold">{pendingOpenPlayVerificationCount}</span>
+            <span className="hidden text-sm leading-none font-semibold sm:inline">
+              {pendingOpenPlayVerificationCount === 1 ? "open play payment to verify" : "open play payments to verify"}
+            </span>
           </Link>
         ) : null}
         {/* Who's on duty — driven by open Shifts, not login sessions
