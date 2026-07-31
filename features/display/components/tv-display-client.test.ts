@@ -54,6 +54,19 @@ describe("formatAssignmentAnnouncement", () => {
   it("returns an empty string for a court with no players (nothing to announce)", () => {
     expect(formatAssignmentAnnouncement(court([], "Court 1"))).toBe("");
   });
+
+  // Reported live: with a 4-name group, the "First L." card name
+  // (already shortened server-side for the TV's visual card) still made
+  // the spoken announcement too long to track by ear. Voice drops the
+  // last-initial entirely, reading bare first names only.
+  it("reads bare first names only, dropping the card's own last-initial", () => {
+    expect(formatAssignmentAnnouncement(court(["Albert D."], "Court 1"))).toBe(
+      "Attention: Albert, please proceed to Court 1.",
+    );
+    expect(formatAssignmentAnnouncement(court(["Bend J.", "Miguel M.", "Albert D.", "Harry C."], "Court 1"))).toBe(
+      "Attention: Bend, Miguel, Albert, and Harry, please proceed to Court 1.",
+    );
+  });
 });
 
 describe("isTimeUpFlashing", () => {

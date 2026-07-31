@@ -76,8 +76,20 @@ export function joinNamesForSpeech(names: string[]): string {
 // court name spoken last, exactly as stored (Court.name is already
 // "Court 1"/"Court 2"/"Court 3", never an internal id), so the sentence
 // itself reads it as a plain number, not a code.
+// Reported live: with a 4-name group, the full "First L." card name
+// (already shortened server-side — see display.service.ts's
+// shortDisplayName) made the whole announcement too long to track by
+// ear, especially over background noise/music. Voice reads bare first
+// names only — court.players[].name is already "First L." for the
+// VISUAL card (kept as-is there, still disambiguates two Anas on
+// screen), so taking just the first word here needs no new data, only
+// a narrower use of what's already sent.
+function firstNameOnly(name: string): string {
+  return name.split(" ")[0] ?? name;
+}
+
 export function formatAssignmentAnnouncement(court: DisplayCourt): string {
-  const names = court.players.map((player) => player.name);
+  const names = court.players.map((player) => firstNameOnly(player.name));
   if (names.length === 0) return "";
   return `Attention: ${joinNamesForSpeech(names)}, please proceed to ${court.name}.`;
 }
