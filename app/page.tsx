@@ -7,10 +7,14 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { CourtAvailabilityGrid } from "@/features/bookings/components/court-availability-grid";
 import { getCourtBookingWindow, getFacilityCloseMinutes } from "@/lib/court-hours";
 import { EQUIPMENT_KEYS } from "@/lib/equipment-keys";
+import { computeRemainingSeats } from "@/lib/open-play-seats";
 import { formatCurrency } from "@/lib/utils";
 import { equipmentService } from "@/services/equipment/equipment.service";
 import { announcementService } from "@/services/notifications/announcement.service";
-import { openPlayCapacityService, type UpcomingOpenPlayNight } from "@/services/open-play/open-play-capacity.service";
+import {
+  openPlayCapacityService,
+  type UpcomingOpenPlayNight,
+} from "@/services/open-play/open-play-capacity.service";
 import { settingsService } from "@/services/settings/settings.service";
 
 // Without this, Next prerenders the homepage at build time (no
@@ -139,12 +143,17 @@ function computeOpenPlayCardState(
 
   const todayMidnight = new Date();
   todayMidnight.setHours(0, 0, 0, 0);
-  const daysUntil = Math.round((night.date.getTime() - todayMidnight.getTime()) / (24 * 60 * 60 * 1000));
+  const daysUntil = Math.round(
+    (night.date.getTime() - todayMidnight.getTime()) / (24 * 60 * 60 * 1000),
+  );
   if (daysUntil > leadTimeDays) {
-    return { kind: "not-yet-open", opensAt: new Date(night.date.getTime() - leadTimeDays * 24 * 60 * 60 * 1000) };
+    return {
+      kind: "not-yet-open",
+      opensAt: new Date(night.date.getTime() - leadTimeDays * 24 * 60 * 60 * 1000),
+    };
   }
 
-  const remaining = Math.max(0, night.capacity - night.registeredCount);
+  const remaining = computeRemainingSeats(night.capacity, night.registeredCount);
   if (remaining === 0) {
     return { kind: "full" };
   }
@@ -184,19 +193,31 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const mondayForCopy = nextWeekday(1);
   const fridayForCopy = nextWeekday(5);
   const saturdayForCopy = nextWeekday(6);
-  const court1Close = formatMinutesOfDay(getCourtBookingWindow(courtHours, "Court 1", mondayForCopy).closeMinutes);
-  const court2Close = formatMinutesOfDay(getCourtBookingWindow(courtHours, "Court 2", mondayForCopy).closeMinutes);
-  const court3Close = formatMinutesOfDay(getCourtBookingWindow(courtHours, "Court 3", mondayForCopy).closeMinutes);
+  const court1Close = formatMinutesOfDay(
+    getCourtBookingWindow(courtHours, "Court 1", mondayForCopy).closeMinutes,
+  );
+  const court2Close = formatMinutesOfDay(
+    getCourtBookingWindow(courtHours, "Court 2", mondayForCopy).closeMinutes,
+  );
+  const court3Close = formatMinutesOfDay(
+    getCourtBookingWindow(courtHours, "Court 3", mondayForCopy).closeMinutes,
+  );
   const fridaySaturdayClose = formatMinutesOfDay(
     getCourtBookingWindow(courtHours, "Court 1", fridayForCopy).closeMinutes,
   );
 
   const fridayDateValue = toLocalDateValue(fridayForCopy);
   const saturdayDateValue = toLocalDateValue(saturdayForCopy);
-  const fridayNight = upcomingOpenPlayNights.find((night) => toLocalDateValue(night.date) === fridayDateValue);
-  const saturdayNight = upcomingOpenPlayNights.find((night) => toLocalDateValue(night.date) === saturdayDateValue);
-  const fridayDayEnabled = openPlayCapacityDefaults.find((row) => row.dayOfWeek === 5)?.onlineRegistrationEnabled ?? false;
-  const saturdayDayEnabled = openPlayCapacityDefaults.find((row) => row.dayOfWeek === 6)?.onlineRegistrationEnabled ?? false;
+  const fridayNight = upcomingOpenPlayNights.find(
+    (night) => toLocalDateValue(night.date) === fridayDateValue,
+  );
+  const saturdayNight = upcomingOpenPlayNights.find(
+    (night) => toLocalDateValue(night.date) === saturdayDateValue,
+  );
+  const fridayDayEnabled =
+    openPlayCapacityDefaults.find((row) => row.dayOfWeek === 5)?.onlineRegistrationEnabled ?? false;
+  const saturdayDayEnabled =
+    openPlayCapacityDefaults.find((row) => row.dayOfWeek === 6)?.onlineRegistrationEnabled ?? false;
   const fridayCardState = computeOpenPlayCardState(
     fridayNight,
     fridayDayEnabled,
@@ -209,7 +230,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     openPlayFeatureEnabled,
     openPlaySettings.onlineRegistrationLeadTimeDays,
   );
-  const openPlayOpensAtFormatter = new Intl.DateTimeFormat("en-PH", { month: "long", day: "numeric" });
+  const openPlayOpensAtFormatter = new Intl.DateTimeFormat("en-PH", {
+    month: "long",
+    day: "numeric",
+  });
 
   function openPlayCardCopy(state: OpenPlayCardState): string {
     switch (state.kind) {
@@ -257,12 +281,16 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               ) : null}
               {latestAnnouncement ? (
                 <p className="border-warning/40 bg-warning/10 text-bone mt-4 max-w-[52ch] rounded-lg border px-3 py-2 text-sm">
-                  <span className="font-semibold">{latestAnnouncement.title}</span> — {latestAnnouncement.body}
+                  <span className="font-semibold">{latestAnnouncement.title}</span> —{" "}
+                  {latestAnnouncement.body}
                 </p>
               ) : null}
 
               <div className="mt-7 flex flex-wrap gap-3">
-                <Link href="#docket" className={`${PILL_BUTTON} bg-green text-navy-900 hover:-translate-y-px`}>
+                <Link
+                  href="#docket"
+                  className={`${PILL_BUTTON} bg-green text-navy-900 hover:-translate-y-px`}
+                >
                   {hero.ctaText}
                 </Link>
                 <Link
@@ -323,18 +351,21 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 left column (hero text, then Find Us, then this). */}
             <div className="border-line flex flex-col gap-6 pt-1 lg:border-l lg:pl-10">
               <div className="max-w-[30ch]">
-                <b className="font-display block text-[32px] leading-none font-extrabold tracking-[0.01em]">3</b>
+                <b className="font-display block text-[32px] leading-none font-extrabold tracking-[0.01em]">
+                  3
+                </b>
                 <span className="font-jetbrains text-slate text-[10px] tracking-[0.16em] uppercase">
                   Indoor courts
                 </span>
                 <p className="text-slate mt-1.5 text-[13px] leading-snug">
-                  3 premium silica-coated courts — the same surface pros play on. Better grip, better bounce,
-                  easier on your knees.
+                  3 premium silica-coated courts — the same surface pros play on. Better grip,
+                  better bounce, easier on your knees.
                 </p>
               </div>
               <div className="border-line border-t pt-6">
                 <b className="font-display block text-[32px] leading-none font-extrabold tracking-[0.01em]">
-                  {formatTimeOfDay(courtHours.facilityOpenTime)}–{formatMinutesOfDay(getFacilityCloseMinutes(courtHours, date))}
+                  {formatTimeOfDay(courtHours.facilityOpenTime)}–
+                  {formatMinutesOfDay(getFacilityCloseMinutes(courtHours, date))}
                 </b>
                 <span className="font-jetbrains text-slate text-[10px] tracking-[0.16em] uppercase">
                   Open daily
@@ -376,8 +407,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             Open play
           </h2>
           <p className="text-slate mt-3 max-w-[52ch] text-sm">
-            Courts switch over to open play once their booking window closes. Show up on your own, and
-            rotate in. Everyone&apos;s welcome — all levels, first-timers included.
+            Courts switch over to open play once their booking window closes. Show up on your own,
+            and rotate in. Everyone&apos;s welcome — all levels, first-timers included.
           </p>
 
           <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -389,10 +420,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 Weeknight rotation
               </h3>
               <p className="text-slate mt-2 text-[14.5px]">
-                Court 1 switches over at {court1Close}, Court 2 at {court2Close}, Court 3 at {court3Close}.
-                Walk in, pay at the desk, no sign-up needed.
+                Court 1 switches over at {court1Close}, Court 2 at {court2Close}, Court 3 at{" "}
+                {court3Close}. Walk in, pay at the desk, no sign-up needed.
               </p>
-              <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">₱35 / game</span>
+              <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">
+                ₱35 / game
+              </span>
             </div>
             <Link
               href={`/open-play/register?date=${fridayDateValue}`}
@@ -405,9 +438,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 Friday unlimited
               </h3>
               <p className="text-slate mt-2 text-[14.5px]">
-                All three courts go to open play at {fridaySaturdayClose}. {openPlayCardCopy(fridayCardState)}
+                All three courts go to open play at {fridaySaturdayClose}.{" "}
+                {openPlayCardCopy(fridayCardState)}
               </p>
-              <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">₱150 unlimited</span>
+              <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">
+                ₱150 unlimited
+              </span>
             </Link>
             <Link
               href={`/open-play/register?date=${saturdayDateValue}`}
@@ -422,7 +458,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               <p className="text-slate mt-2 text-[14.5px]">
                 Same as Friday, bigger crowd. {openPlayCardCopy(saturdayCardState)}
               </p>
-              <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">₱150 unlimited</span>
+              <span className="font-jetbrains text-green mt-4 block text-[13px] font-bold">
+                ₱150 unlimited
+              </span>
             </Link>
           </div>
         </div>
@@ -483,8 +521,16 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             </h2>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {galleryImages.slice(0, 8).map((image) => (
-                <div key={image.url} className="border-line relative aspect-square overflow-hidden rounded-xl border">
-                  <Image src={image.url} alt={image.alt || "The Courtroom"} fill className="object-cover" />
+                <div
+                  key={image.url}
+                  className="border-line relative aspect-square overflow-hidden rounded-xl border"
+                >
+                  <Image
+                    src={image.url}
+                    alt={image.alt || "The Courtroom"}
+                    fill
+                    className="object-cover"
+                  />
                 </div>
               ))}
             </div>

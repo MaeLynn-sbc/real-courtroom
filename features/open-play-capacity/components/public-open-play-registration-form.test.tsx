@@ -19,8 +19,12 @@ const mockedSubmitProof = submitPublicOpenPlayRegistrationPaymentProofAction as 
   typeof submitPublicOpenPlayRegistrationPaymentProofAction
 >;
 
-const gcashInfo: GcashPaymentInfo = { qrImageUrl: null, accountName: "The Courtroom", accountNumber: "0917 000 0000" };
-const nights = [{ date: "2026-08-01", label: "Fri, Aug 1" }];
+const gcashInfo: GcashPaymentInfo = {
+  qrImageUrl: null,
+  accountName: "The Courtroom",
+  accountNumber: "0917 000 0000",
+};
+const nights = [{ date: "2026-08-01", label: "Fri, Aug 1", remainingSeats: 12 }];
 
 function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Jane Guest" } });
@@ -57,12 +61,19 @@ describe("PublicOpenPlayRegistrationForm — screenshot required to register", (
       fireEvent.click(screen.getByRole("button", { name: /register & submit payment/i }));
     });
 
-    expect(screen.getByText("Please upload your payment screenshot to complete registration.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Please upload your payment screenshot to complete registration."),
+    ).toBeInTheDocument();
     expect(mockedCreate).not.toHaveBeenCalled();
   });
 
   it("creates the hold and submits the proof in one click when a screenshot is attached", async () => {
-    mockedCreate.mockResolvedValue({ error: null, status: "registered", registrationId: "reg-1", holdExpiresAt: null });
+    mockedCreate.mockResolvedValue({
+      error: null,
+      status: "registered",
+      registrationId: "reg-1",
+      holdExpiresAt: null,
+    });
     mockedSubmitProof.mockResolvedValue({ error: null, proofId: "proof-1" });
 
     renderForm();
@@ -78,14 +89,21 @@ describe("PublicOpenPlayRegistrationForm — screenshot required to register", (
       fireEvent.click(screen.getByRole("button", { name: /register & submit payment/i }));
     });
 
-    await waitFor(() => expect(mockedSubmitProof).toHaveBeenCalledWith(
-      expect.objectContaining({ registrationId: "reg-1", submittedAmountCents: 15000 }),
-    ));
+    await waitFor(() =>
+      expect(mockedSubmitProof).toHaveBeenCalledWith(
+        expect.objectContaining({ registrationId: "reg-1", submittedAmountCents: 15000 }),
+      ),
+    );
     expect(screen.getByText("Payment submitted")).toBeInTheDocument();
   });
 
   it("falls back to the manual retry screen, without losing the hold, if the proof upload itself fails", async () => {
-    mockedCreate.mockResolvedValue({ error: null, status: "registered", registrationId: "reg-1", holdExpiresAt: null });
+    mockedCreate.mockResolvedValue({
+      error: null,
+      status: "registered",
+      registrationId: "reg-1",
+      holdExpiresAt: null,
+    });
     mockedSubmitProof.mockResolvedValue({ error: "Upload service unavailable." });
 
     renderForm();
@@ -102,6 +120,8 @@ describe("PublicOpenPlayRegistrationForm — screenshot required to register", (
     });
 
     await waitFor(() => expect(screen.getByText(/Slot held/i)).toBeInTheDocument());
-    expect(screen.getByText(/We saved your slot, but the screenshot upload failed/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/We saved your slot, but the screenshot upload failed/),
+    ).toBeInTheDocument();
   });
 });

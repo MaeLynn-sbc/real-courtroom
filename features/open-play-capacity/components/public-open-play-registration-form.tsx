@@ -11,9 +11,18 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { OpenPlayRegistrationProofForm } from "@/features/open-play-capacity/components/open-play-registration-proof-form";
-import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
+import {
+  OPEN_PLAY_SKILL_LEVEL_ORDER,
+  OPEN_PLAY_SKILL_LEVELS,
+} from "@/types/open-play-skill-levels";
 import { cn } from "@/lib/utils";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
@@ -34,9 +43,22 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+function remainingSeatsLabel(remaining: number): string {
+  if (remaining <= 0) return "Full";
+  return `${remaining} spot${remaining === 1 ? "" : "s"} left`;
+}
+
 export interface PublicOpenPlayNight {
   date: string; // "YYYY-MM-DD"
   label: string; // "Fri, Aug 1"
+  // Reported live: the home page's Friday/Saturday cards already show
+  // remaining seats before someone clicks through, but this page — where
+  // someone actually registers — didn't, so there was no way to tell
+  // whether you were taking one of the last seats or one of thirty.
+  // Same computeRemainingSeats(capacity, registeredCount) the home page
+  // uses, computed once in page.tsx from the same getUpcomingNights data
+  // both pages already fetch — never a second, independent count.
+  remainingSeats: number;
 }
 
 interface PublicOpenPlayRegistrationFormValues {
@@ -70,7 +92,12 @@ type Step =
   | { kind: "form" }
   | { kind: "waitlisted" }
   | { kind: "not-yet-open"; opensAt: string }
-  | { kind: "awaiting-proof"; registrationId: string; playerName: string; proofFailedMessage?: string }
+  | {
+      kind: "awaiting-proof";
+      registrationId: string;
+      playerName: string;
+      proofFailedMessage?: string;
+    }
   | { kind: "proof-submitted" };
 
 export function PublicOpenPlayRegistrationForm({
@@ -138,7 +165,13 @@ export function PublicOpenPlayRegistrationForm({
       }
 
       if (result.status === "not-yet-open" && result.opensAt) {
-        setStep({ kind: "not-yet-open", opensAt: new Date(result.opensAt).toLocaleDateString("en-PH", { month: "long", day: "numeric" }) });
+        setStep({
+          kind: "not-yet-open",
+          opensAt: new Date(result.opensAt).toLocaleDateString("en-PH", {
+            month: "long",
+            day: "numeric",
+          }),
+        });
         return;
       }
       if (result.status === "waitlisted") {
@@ -157,7 +190,11 @@ export function PublicOpenPlayRegistrationForm({
             registrationId,
             gcashReference: null,
             submittedAmountCents: amountCents,
-            screenshot: { fileName: screenshot.name, contentType: screenshot.type || "image/png", dataBase64 },
+            screenshot: {
+              fileName: screenshot.name,
+              contentType: screenshot.type || "image/png",
+              dataBase64,
+            },
           });
           if (proofResult.error) {
             setStep({
@@ -174,7 +211,8 @@ export function PublicOpenPlayRegistrationForm({
             kind: "awaiting-proof",
             registrationId,
             playerName: values.playerName,
-            proofFailedMessage: "We saved your slot, but the screenshot upload failed. Please try again below.",
+            proofFailedMessage:
+              "We saved your slot, but the screenshot upload failed. Please try again below.",
           });
         }
         return;
@@ -190,8 +228,8 @@ export function PublicOpenPlayRegistrationForm({
           <CardTitle>Not open yet</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
-          Online registration for that date opens on {step.opensAt}. Please check back then, or visit the
-          front desk.
+          Online registration for that date opens on {step.opensAt}. Please check back then, or
+          visit the front desk.
         </CardContent>
       </Card>
     );
@@ -204,8 +242,8 @@ export function PublicOpenPlayRegistrationForm({
           <CardTitle>You&apos;re on the waitlist</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
-          That night is full right now. We&apos;ll text you the moment a spot opens up — you&apos;ll have a
-          time window to confirm and pay once invited.
+          That night is full right now. We&apos;ll text you the moment a spot opens up — you&apos;ll
+          have a time window to confirm and pay once invited.
         </CardContent>
       </Card>
     );
@@ -242,8 +280,8 @@ export function PublicOpenPlayRegistrationForm({
           <CardTitle className="text-success">Payment submitted</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
-          We received your payment and we&apos;re verifying it now — you&apos;ll get a text once it&apos;s
-          confirmed.
+          We received your payment and we&apos;re verifying it now — you&apos;ll get a text once
+          it&apos;s confirmed.
         </CardContent>
       </Card>
     );
@@ -259,7 +297,9 @@ export function PublicOpenPlayRegistrationForm({
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="phone">Phone number</Label>
         <Input id="phone" type="tel" {...register("phone", { required: true })} />
-        <p className="text-muted-foreground text-xs">We&apos;ll text you here if a spot opens up or your payment is verified.</p>
+        <p className="text-muted-foreground text-xs">
+          We&apos;ll text you here if a spot opens up or your payment is verified.
+        </p>
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -275,7 +315,8 @@ export function PublicOpenPlayRegistrationForm({
               <SelectContent>
                 {OPEN_PLAY_SKILL_LEVEL_ORDER.map((level) => (
                   <SelectItem key={level} value={level}>
-                    {OPEN_PLAY_SKILL_LEVELS[level].label} — {OPEN_PLAY_SKILL_LEVELS[level].description}
+                    {OPEN_PLAY_SKILL_LEVELS[level].label} —{" "}
+                    {OPEN_PLAY_SKILL_LEVELS[level].description}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -287,8 +328,19 @@ export function PublicOpenPlayRegistrationForm({
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="date">Night</Label>
         {lockedDate ? (
-          <p id="date" className="border-input bg-muted/40 rounded-lg border px-2.5 py-2 text-sm font-medium">
-            {lockedDate.label}
+          <p
+            id="date"
+            className="border-input bg-muted/40 flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-sm font-medium"
+          >
+            <span>{lockedDate.label}</span>
+            <span
+              className={cn(
+                "text-xs font-normal",
+                lockedDate.remainingSeats <= 0 ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {remainingSeatsLabel(lockedDate.remainingSeats)}
+            </span>
           </p>
         ) : (
           <Controller
@@ -298,13 +350,20 @@ export function PublicOpenPlayRegistrationForm({
               <Select value={field.value} onValueChange={field.onChange}>
                 <SelectTrigger id="date" className="w-full">
                   <SelectValue placeholder="Select a night">
-                    {(value: string) => nights.find((night) => night.date === value)?.label ?? "Select a night"}
+                    {(value: string) =>
+                      nights.find((night) => night.date === value)?.label ?? "Select a night"
+                    }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {nights.map((night) => (
                     <SelectItem key={night.date} value={night.date}>
-                      {night.label}
+                      <span className="flex w-full items-center justify-between gap-3">
+                        <span>{night.label}</span>
+                        <span className="text-muted-foreground text-xs">
+                          {remainingSeatsLabel(night.remainingSeats)}
+                        </span>
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -318,8 +377,9 @@ export function PublicOpenPlayRegistrationForm({
         <div>
           <p className="text-sm font-medium">Pay via GCash to complete your registration</p>
           <p className="text-muted-foreground text-xs">
-            Send the registration fee to the account below, then attach your payment screenshot — your seat
-            isn&apos;t held until both this form and the screenshot are submitted together.
+            Send the registration fee to the account below, then attach your payment screenshot —
+            your seat isn&apos;t held until both this form and the screenshot are submitted
+            together.
           </p>
         </div>
 
@@ -365,7 +425,10 @@ export function PublicOpenPlayRegistrationForm({
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="screenshot">Payment screenshot (required)</Label>
           <div className="flex items-center gap-3">
-            <label htmlFor="screenshot" className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}>
+            <label
+              htmlFor="screenshot"
+              className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}
+            >
               Choose file
             </label>
             <span className="text-muted-foreground truncate text-sm">

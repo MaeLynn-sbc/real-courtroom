@@ -1,4 +1,4 @@
-import { isRegistrationOccupyingSeat } from "./open-play-seats";
+import { computeRemainingSeats, isRegistrationOccupyingSeat } from "./open-play-seats";
 
 const now = new Date("2026-08-01T20:00:00.000Z");
 
@@ -63,5 +63,19 @@ describe("isRegistrationOccupyingSeat", () => {
         now,
       ),
     ).toBe(false);
+  });
+});
+
+describe("computeRemainingSeats", () => {
+  it("subtracts registered from capacity", () => {
+    expect(computeRemainingSeats(40, 28)).toBe(12);
+  });
+
+  it("never goes negative, even if registeredCount exceeds capacity", () => {
+    expect(computeRemainingSeats(40, 45)).toBe(0);
+  });
+
+  it("returns the full capacity when nobody is registered", () => {
+    expect(computeRemainingSeats(40, 0)).toBe(40);
   });
 });

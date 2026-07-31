@@ -29,3 +29,17 @@ export function isRegistrationOccupyingSeat(
   }
   return false;
 }
+
+// "Confirm both read from the same function" — the home page's
+// Friday/Saturday cards and the public registration page both need
+// "how many seats are left," derived from getUpcomingNights's own
+// registeredCount (which already applies isRegistrationOccupyingSeat's
+// identical predicate as a DB-side groupBy — see that function's own
+// comment). This is the one-line subtraction both pages do to it,
+// pulled out so neither can drift from the other by re-typing
+// Math.max(0, ...) twice. Never negative — a night can't have fewer
+// than zero seats left even if registeredCount momentarily exceeds
+// capacity (e.g. an owner lowering capacity below current sign-ups).
+export function computeRemainingSeats(capacity: number, registeredCount: number): number {
+  return Math.max(0, capacity - registeredCount);
+}
