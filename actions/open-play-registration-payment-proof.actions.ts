@@ -8,7 +8,7 @@ import {
   type RecordOpenPlayRegistrationPaymentProofReferenceActionInput,
   type RejectOpenPlayRegistrationPaymentProofActionInput,
 } from "@/features/open-play-capacity/schemas/open-play-registration-payment-proof.schema";
-import { requireEmployee, requireEmployeeWithOpenShift } from "@/lib/action-auth";
+import { requireEmployee, requireEmployeeForPaymentApproval } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { openPlayRegistrationPaymentProofService } from "@/services/open-play/open-play-registration-payment-proof.service";
@@ -32,9 +32,9 @@ async function resolveGcashPaymentMethodId(): Promise<string> {
 export async function approveOpenPlayRegistrationPaymentProofAction(
   proofId: string,
 ): Promise<OpenPlayRegistrationPaymentProofActionState> {
-  const authz = await requireEmployeeWithOpenShift(
+  const authz = await requireEmployeeForPaymentApproval(
     PERMISSIONS.OPEN_PLAY_MANAGE,
-    "Start a shift before verifying a payment.",
+    "You don't have permission to verify open-play payments.",
   );
   if (!authz.ok) {
     return { error: authz.error };

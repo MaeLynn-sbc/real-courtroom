@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/rbac";
+import { shiftService } from "@/services/shift/shift.service";
 import { PERMISSIONS, type PermissionKey } from "@/types/permissions";
 
 // Every actions/*.ts file independently redeclared this exact auth() +
@@ -88,6 +89,38 @@ export async function requireEmployeeWithOpenShift(
   }
 
   return { ok: true, userId: authz.userId, employeeId: employee.id, shiftId: openShift.id };
+}
+
+// Approving a payment verification (booking or open-play) — reported
+// live: the Owner needing an open shift just to approve a GCash payment
+// from home was pure friction, but unlike booking creation below,
+// Sale.shiftId is a required column here (approving creates a real
+// Sale immediately) — there's no such thing as "skip the shift" the way
+// requireEmployeeForBookingCreation gets to, since Booking has no
+// shiftId column to skip. shiftService.resolveShiftForSaleAttribution
+// does the actual work: a real open shift if the approver has one
+// (unchanged from requireEmployeeWithOpenShift above — correct for cash
+// reconciliation), otherwise a per-employee perpetual CLOSED shift
+// instead of denying (see that method's own comment for why CLOSED, not
+// OPEN). "Approved by (name)" already works regardless of which shift
+// this resolves to — Sale.employeeId is set independently, from the
+// approver, not derived from the shift.
+export async function requireEmployeeForPaymentApproval(
+  permission: PermissionKey,
+  deniedMessage: string,
+): Promise<EmployeeShiftAuthorizationResult> {
+  const authz = await requirePermission(permission, deniedMessage);
+  if (!authz.ok) {
+    return authz;
+  }
+
+  const employee = await prisma.employee.findUnique({ where: { userId: authz.userId } });
+  if (!employee) {
+    return { ok: false, error: "No employee profile is linked to this account." };
+  }
+
+  const shift = await shiftService.resolveShiftForSaleAttribution(employee.id);
+  return { ok: true, userId: authz.userId, employeeId: employee.id, shiftId: shift.id };
 }
 
 // Booking CREATION only — reported live: the Owner doesn't work a cash

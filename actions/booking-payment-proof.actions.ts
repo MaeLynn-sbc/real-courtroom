@@ -8,7 +8,7 @@ import {
   type RecordBookingPaymentProofReferenceActionInput,
   type RejectBookingPaymentProofActionInput,
 } from "@/features/bookings/schemas/booking-payment-proof.schema";
-import { requireEmployee, requireEmployeeWithOpenShift } from "@/lib/action-auth";
+import { requireEmployee, requireEmployeeForPaymentApproval } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { bookingPaymentProofService } from "@/services/booking/booking-payment-proof.service";
@@ -34,9 +34,9 @@ export async function approveBookingPaymentProofAction(
   proofId: string,
   overrideReason?: string,
 ): Promise<BookingPaymentProofActionState> {
-  const authz = await requireEmployeeWithOpenShift(
+  const authz = await requireEmployeeForPaymentApproval(
     PERMISSIONS.BOOKINGS_MANAGE,
-    "Start a shift before verifying a payment.",
+    "You don't have permission to verify booking payments.",
   );
   if (!authz.ok) {
     return { error: authz.error };

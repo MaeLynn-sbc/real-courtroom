@@ -31,11 +31,58 @@ export class ShiftAlreadyOpenError extends Error {
   }
 }
 
+// Approving a payment verification (booking or open-play) — reported
+// live: the Owner needing an open shift just to approve a GCash payment
+// from home was pure friction. Unlike booking creation
+// (requireEmployeeForBookingCreation, lib/action-auth.ts), there's no
+// "skip the shift" option here — Sale.shiftId is a required column,
+// since approving creates a real Sale immediately. Standalone (no
+// auth()/session dependency) so it's directly testable, same shape as
+// services/booking/website-identity.ts's getWebsiteBookingContext.
+const NOT_A_CASH_DRAWER_MARKER = "Payment-approval attribution shift — not a real cash drawer.";
+
 export class ShiftService {
   async getCurrentShift(employeeId: string) {
     return prisma.shift.findFirst({
       where: { employeeId, status: "OPEN" },
       orderBy: { startedAt: "desc" },
+    });
+  }
+
+  // Real open shift if the employee has one — the Sale attributes to
+  // their actual working shift, unchanged, correct for cash
+  // reconciliation. Otherwise, a per-employee perpetual CLOSED shift,
+  // reused across calls (found by its own marker note) rather than
+  // creating a new throwaway row every approval. Deliberately CLOSED,
+  // not OPEN, so approving a payment can never make someone show up as
+  // "on duty" — every "who's on duty" query in this app filters on
+  // status = OPEN.
+  async resolveShiftForSaleAttribution(employeeId: string): Promise<Shift> {
+    const openShift = await this.getCurrentShift(employeeId);
+    if (openShift) {
+      return openShift;
+    }
+
+    const existingExemptShift = await prisma.shift.findFirst({
+      where: { employeeId, status: "CLOSED", openingNotes: { startsWith: NOT_A_CASH_DRAWER_MARKER } },
+    });
+    if (existingExemptShift) {
+      return existingExemptShift;
+    }
+
+    const now = new Date();
+    const sequence = await nextSequence(dailyScope("SHIFT", now));
+    return prisma.shift.create({
+      data: {
+        shiftNumber: formatShiftNumber(now, sequence),
+        employeeId,
+        status: "CLOSED",
+        openingNotes: NOT_A_CASH_DRAWER_MARKER,
+        closingNotes: NOT_A_CASH_DRAWER_MARKER,
+        endedAt: now,
+        closingCashCents: 0,
+        varianceCents: 0,
+      },
     });
   }
 
