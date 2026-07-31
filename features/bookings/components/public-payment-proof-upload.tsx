@@ -28,6 +28,13 @@ interface PublicPaymentProofUploadProps {
   amountDueCents: number;
   guestPhone: string;
   gcashInfo: GcashPaymentInfo;
+  // Set when the parent already submitted the screenshot automatically
+  // — the initial booking form now collects the screenshot up front
+  // (see public-booking-form.tsx) and submits it right after the
+  // booking is created, one click, no separate step here. Seeds this
+  // component straight into its "received" display instead of showing
+  // a blank upload form for a proof that's already in.
+  initialSubmittedFileName?: string | null;
   // Fires once, right after a successful submission — lets the parent
   // lock the coach add-on (see public-booking-form.tsx): once proof is
   // submitted, the amount is committed and can no longer safely change.
@@ -46,6 +53,7 @@ export function PublicPaymentProofUpload({
   amountDueCents,
   guestPhone,
   gcashInfo,
+  initialSubmittedFileName,
   onSubmitted,
 }: PublicPaymentProofUploadProps) {
   const [submittedAmount, setSubmittedAmount] = useState(String(amountDueCents / 100));
@@ -67,7 +75,7 @@ export function PublicPaymentProofUpload({
   // Set once, at the moment of a successful submission — kept separate
   // from `file` (which stays tied to the now-hidden form input) so the
   // confirmation state below can still show which file went through.
-  const [submittedFileName, setSubmittedFileName] = useState<string | null>(null);
+  const [submittedFileName, setSubmittedFileName] = useState<string | null>(initialSubmittedFileName ?? null);
 
   function onSubmit(event: React.FormEvent) {
     event.preventDefault();

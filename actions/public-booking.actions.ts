@@ -144,6 +144,41 @@ export async function listPublicAvailableCoachesAction(
   return { error: null, coaches };
 }
 
+const COACH_SCHEDULE_DAYS_AHEAD = 14;
+
+export interface PublicCoachScheduleWindow {
+  startAt: string;
+  endAt: string;
+}
+
+export interface ListPublicCoachScheduleState {
+  error: string | null;
+  windows: PublicCoachScheduleWindow[];
+}
+
+// "See this coach's availability," inline on the booking form itself —
+// same underlying data as app/coaches/availability/page.tsx (that page
+// lists every coach; this scopes to one, on demand, so the booking form
+// doesn't have to fetch every coach's whole schedule just to let someone
+// preview the one they're considering). Lazy — only called when a
+// customer actually clicks "See availability," not on every render of
+// the coach picker. No rate limit: read-only, same reasoning as the
+// other public lookups in this file.
+export async function listPublicCoachScheduleAction(coachId: string): Promise<ListPublicCoachScheduleState> {
+  if (!coachId) {
+    return { error: null, windows: [] };
+  }
+  const allCoaches = await coachAvailabilityService.listPublicAvailability(COACH_SCHEDULE_DAYS_AHEAD);
+  const coach = allCoaches.find((entry) => entry.coachId === coachId);
+  return {
+    error: null,
+    windows: (coach?.windows ?? []).map((window) => ({
+      startAt: window.startAt.toISOString(),
+      endAt: window.endAt.toISOString(),
+    })),
+  };
+}
+
 // No session — this is the public, unauthenticated entry point. Thin
 // wrapper: validation + rate-limit + revalidation only. The actual
 // decision logic (including the Phase 8 prepayment-switch check) lives in

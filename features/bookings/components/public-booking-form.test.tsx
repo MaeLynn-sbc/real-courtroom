@@ -4,8 +4,10 @@ import { PublicBookingForm } from "./public-booking-form";
 import {
   createPublicBookingAction,
   listPublicAvailableCoachesAction,
+  listPublicCoachScheduleAction,
   listPublicCourtOccupiedWindowsAction,
 } from "@/actions/public-booking.actions";
+import { submitPublicBookingPaymentProofAction } from "@/actions/public-booking-payment-proof.actions";
 import { addPublicCoachToBookingAction } from "@/actions/public-coaching.actions";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
 
@@ -13,6 +15,7 @@ jest.mock("@/actions/public-booking.actions", () => ({
   createPublicBookingAction: jest.fn(),
   listPublicCourtOccupiedWindowsAction: jest.fn().mockResolvedValue({ error: null, windows: [] }),
   listPublicAvailableCoachesAction: jest.fn().mockResolvedValue({ error: null, coaches: [] }),
+  listPublicCoachScheduleAction: jest.fn().mockResolvedValue({ error: null, windows: [] }),
 }));
 jest.mock("@/actions/public-coaching.actions", () => ({
   addPublicCoachToBookingAction: jest.fn(),
@@ -28,6 +31,10 @@ const mockedListOccupiedWindows = listPublicCourtOccupiedWindowsAction as jest.M
 >;
 const mockedListAvailableCoaches = listPublicAvailableCoachesAction as jest.MockedFunction<
   typeof listPublicAvailableCoachesAction
+>;
+const mockedListCoachSchedule = listPublicCoachScheduleAction as jest.MockedFunction<typeof listPublicCoachScheduleAction>;
+const mockedSubmitBookingProof = submitPublicBookingPaymentProofAction as jest.MockedFunction<
+  typeof submitPublicBookingPaymentProofAction
 >;
 
 const courts = [{ id: "court-1", name: "Court 1", hourlyRateCents: 35000 }];
@@ -99,6 +106,7 @@ describe("PublicBookingForm — coach add-on payment wiring", () => {
         gcashInfo={gcashInfo}
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
+        requiresPrepayment={false}
       />,
     );
 
@@ -108,6 +116,9 @@ describe("PublicBookingForm — coach add-on payment wiring", () => {
     await screen.findByText("BR-0001");
   }
 
+  // This suite fixes previewCoaches to a single coach — the initial
+  // form's own preview picker (not used by this describe block at all)
+  // is a separate concern from the POST-booking add-on tested here.
   async function addCoach() {
     mockedAddCoach.mockResolvedValue({ error: null, coachSessionId: "cs-1", priceCents: 40000 });
     await clickAsync(screen.getByRole("combobox", { name: /^coach$/i }));
@@ -180,6 +191,7 @@ describe("PublicBookingForm — Time dropdown excludes already-booked slots", ()
         gcashInfo={gcashInfo}
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
+        requiresPrepayment={false}
       />,
     );
 
@@ -218,6 +230,7 @@ describe("PublicBookingForm — coach section when no coach is available", () =>
         gcashInfo={gcashInfo}
         contactPhone="0917 000 0000"
         contactFacebookUrl="https://facebook.com/thecourtroom"
+        requiresPrepayment={false}
       />,
     );
 
@@ -291,24 +304,12 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
         gcashInfo={gcashInfo}
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
+        requiresPrepayment={false}
       />,
     );
   }
 
-  it("shows the coach's name directly, with no dropdown to open, when exactly one coach is available", async () => {
-    mockedListAvailableCoaches.mockResolvedValue({
-      error: null,
-      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
-    });
-
-    renderForm();
-    await act(async () => {});
-
-    expect(await screen.findByText("Coach Ana is available for this time.")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: /^coach$/i })).not.toBeInTheDocument();
-  });
-
-  it("shows a dropdown to choose between coaches when more than one is available", async () => {
+  it("shows each available coach as a clickable card — no dropdown, whether there's one or several", async () => {
     mockedListAvailableCoaches.mockResolvedValue({
       error: null,
       coaches: [
@@ -318,23 +319,24 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
     });
 
     renderForm();
-    await act(async () => {});
 
-    expect(await screen.findByRole("combobox", { name: /coach \(optional\)/i })).toBeInTheDocument();
-    expect(screen.queryByText(/is available for this time/)).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Coach Ana" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Coach Ben" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /coach \(optional\)/i })).not.toBeInTheDocument();
   });
 
-  it("adds the coach fee to the Total preview once a group size is chosen, before the form is even submitted", async () => {
+  it("adds the coach fee to the Total preview once a coach card and group size are chosen, before the form is even submitted", async () => {
     mockedListAvailableCoaches.mockResolvedValue({
       error: null,
       coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
     });
 
     renderForm();
-    await screen.findByText("Coach Ana is available for this time.");
+    await screen.findByRole("button", { name: "Coach Ana" });
 
     expect(screen.getByText("₱350.00")).toBeInTheDocument();
 
+    await clickAsync(screen.getByRole("button", { name: "Coach Ana" }));
     await clickAsync(screen.getByRole("combobox", { name: /group size/i }));
     await clickAsync(await screen.findByRole("option", { name: /1 person/i }));
 
@@ -350,7 +352,7 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
     mockedAddCoach.mockResolvedValue({ error: null, coachSessionId: "cs-1", priceCents: 40000 });
 
     renderForm();
-    await screen.findByText("Coach Ana is available for this time.");
+    await clickAsync(await screen.findByRole("button", { name: "Coach Ana" }));
     await clickAsync(screen.getByRole("combobox", { name: /group size/i }));
     await clickAsync(await screen.findByRole("option", { name: /1 person/i }));
 
@@ -366,17 +368,17 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
     expect(screen.getByText("₱750.00")).toBeInTheDocument();
   });
 
-  it("does not add a coach when 'No coach, thanks' was clicked, even though one was available", async () => {
+  it("does not add a coach when its card is clicked again to deselect it, even though one was chosen", async () => {
     mockedListAvailableCoaches.mockResolvedValue({
       error: null,
       coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
     });
 
     renderForm();
-    await screen.findByText("Coach Ana is available for this time.");
+    await clickAsync(await screen.findByRole("button", { name: "Coach Ana" }));
     await clickAsync(screen.getByRole("combobox", { name: /group size/i }));
     await clickAsync(await screen.findByRole("option", { name: /1 person/i }));
-    await clickAsync(screen.getByRole("button", { name: /no coach, thanks/i }));
+    await clickAsync(screen.getByRole("button", { name: "Coach Ana" })); // click again to deselect
 
     expect(screen.getByText("₱350.00")).toBeInTheDocument();
 
@@ -386,5 +388,116 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
 
     await screen.findByText("BR-0001");
     expect(mockedAddCoach).not.toHaveBeenCalled();
+  });
+
+  it("reveals a coach's schedule inline when 'See availability' is clicked", async () => {
+    mockedListAvailableCoaches.mockResolvedValue({
+      error: null,
+      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
+    });
+    mockedListCoachSchedule.mockResolvedValue({
+      error: null,
+      windows: [
+        { startAt: new Date(2026, 6, 30, 9, 0).toISOString(), endAt: new Date(2026, 6, 30, 12, 0).toISOString() },
+      ],
+    });
+
+    renderForm();
+    await screen.findByRole("button", { name: "Coach Ana" });
+
+    await clickAsync(screen.getByRole("button", { name: /see coach ana's availability/i }));
+
+    expect(mockedListCoachSchedule).toHaveBeenCalledWith("coach-1");
+    expect(await screen.findByText(/9:00 AM–12:00 PM/)).toBeInTheDocument();
+  });
+});
+
+// Reported live: customers clicked "Book Now" and walked away without
+// ever sending GCash payment or uploading proof — dead AWAITING_PAYMENT
+// holds tying up a slot until the hold expired on its own. Same fix
+// already shipped for open-play registration: the screenshot is now
+// required in the same click as "Book Now," not a separate step.
+describe("PublicBookingForm — payment screenshot required when prepayment is on", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 6, 29, 9, 0, 0));
+    mockedCreateBooking.mockResolvedValue({
+      error: null,
+      bookingId: "booking-1",
+      bookingReference: "BR-0001",
+      requiresPayment: true,
+      totalAmountCents: 35000,
+      availableCoaches: [],
+    });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function renderForm() {
+    render(
+      <PublicBookingForm
+        courts={courts}
+        courtHours={courtHours}
+        gcashInfo={gcashInfo}
+        contactPhone="0917 000 0000"
+        contactFacebookUrl=""
+        requiresPrepayment
+      />,
+    );
+  }
+
+  it("blocks submission and never calls the booking action when no screenshot is attached", async () => {
+    renderForm();
+    await typeAsync(screen.getByLabelText("Name"), "Test Guest");
+    await typeAsync(screen.getByLabelText("Phone number"), "09171234567");
+
+    await clickAsync(screen.getByRole("button", { name: /book now/i }));
+
+    expect(screen.getByText("Please upload your proof of payment to complete your booking.")).toBeInTheDocument();
+    expect(mockedCreateBooking).not.toHaveBeenCalled();
+  });
+
+  it("creates the booking and submits the proof in one click when a screenshot is attached", async () => {
+    mockedSubmitBookingProof.mockResolvedValue({ error: null, proofId: "proof-1" });
+
+    renderForm();
+    await typeAsync(screen.getByLabelText("Name"), "Test Guest");
+    await typeAsync(screen.getByLabelText("Phone number"), "09171234567");
+
+    const fileInput = document.getElementById("bookingScreenshot") as HTMLInputElement;
+    const file = new File(["x"], "gcash-receipt.png", { type: "image/png" });
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } });
+    });
+
+    await clickAsync(screen.getByRole("button", { name: /book now/i }));
+
+    await screen.findByText("Screenshot received — not verified yet.");
+    expect(mockedSubmitBookingProof).toHaveBeenCalledWith(
+      expect.objectContaining({ bookingId: "booking-1", submittedAmountCents: 35000 }),
+    );
+  });
+
+  it("falls back to the manual retry upload, without losing the booking, if the proof submission itself fails", async () => {
+    mockedSubmitBookingProof.mockResolvedValue({ error: "Upload service unavailable." });
+
+    renderForm();
+    await typeAsync(screen.getByLabelText("Name"), "Test Guest");
+    await typeAsync(screen.getByLabelText("Phone number"), "09171234567");
+
+    const fileInput = document.getElementById("bookingScreenshot") as HTMLInputElement;
+    const file = new File(["x"], "gcash-receipt.png", { type: "image/png" });
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } });
+    });
+
+    await clickAsync(screen.getByRole("button", { name: /book now/i }));
+
+    await screen.findByText("BR-0001");
+    expect(screen.getByText(/Pay via GCash/i)).toBeInTheDocument();
+    expect(screen.queryByText("Screenshot received — not verified yet.")).not.toBeInTheDocument();
   });
 });

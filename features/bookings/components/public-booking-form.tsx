@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -8,11 +8,13 @@ import { toast } from "sonner";
 import {
   createPublicBookingAction,
   listPublicAvailableCoachesAction,
+  listPublicCoachScheduleAction,
   listPublicCourtOccupiedWindowsAction,
   type PublicBookingCoachOption,
 } from "@/actions/public-booking.actions";
+import { submitPublicBookingPaymentProofAction } from "@/actions/public-booking-payment-proof.actions";
 import { addPublicCoachToBookingAction } from "@/actions/public-coaching.actions";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,9 +30,25 @@ import { ContactFallbackLinks } from "@/features/bookings/components/contact-fal
 import { PublicPaymentProofUpload } from "@/features/bookings/components/public-payment-proof-upload";
 import { useLiveNow } from "@/hooks/use-live-now";
 import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
+
+// Mirrors PublicPaymentProofUpload's own fileToBase64 — same established
+// per-file duplicated pattern this codebase already uses (see that
+// component's, and open-play's public registration form's, identical
+// comment) rather than a shared cross-module helper.
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.slice(result.indexOf(",") + 1));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 // Presentation-only convenience list — no schema/service duration limit
 // exists (services/booking/booking.service.ts's totalAmountCents is
@@ -166,6 +184,13 @@ interface PublicBookingFormProps {
   initialDate?: string;
   initialTime?: string;
   initialDurationMinutes?: string;
+  // Phase 8's owner-controlled GCash-prepayment switch (settingsService.
+  // getBookingRequirePrepayment). When true, the payment screenshot is
+  // now required in this same initial form — see onSubmit below — same
+  // "no dead AWAITING_PAYMENT holds" fix already shipped for open-play
+  // registration. When false, this is a pay-at-venue booking and no
+  // screenshot is ever asked for, unchanged from before.
+  requiresPrepayment: boolean;
 }
 
 export function PublicBookingForm({
@@ -178,6 +203,7 @@ export function PublicBookingForm({
   initialDate,
   initialTime,
   initialDurationMinutes,
+  requiresPrepayment,
 }: PublicBookingFormProps) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -203,13 +229,23 @@ export function PublicBookingForm({
   const [isLoadingCoaches, setIsLoadingCoaches] = useState(false);
   const [previewCoachId, setPreviewCoachId] = useState("");
   const [previewGroupSize, setPreviewGroupSize] = useState("");
-  // Only relevant to the single-available-coach case (see the effect
-  // below): lets "No coach, thanks" actually stick instead of the
-  // auto-select effect immediately reselecting the one available coach
-  // on the very next render. Reset whenever the available set changes —
-  // declining a coach for THIS slot shouldn't silently carry over and
-  // suppress auto-select for a different slot later.
-  const [declinedAutoSelectedCoach, setDeclinedAutoSelectedCoach] = useState(false);
+  // "See availability" — lazy per-coach fetch (only when actually
+  // clicked, not for every coach on every render), cached by coachId so
+  // re-opening the same coach's schedule after closing it doesn't
+  // re-fetch. openScheduleCoachId is which panel (if any) is expanded.
+  const [openScheduleCoachId, setOpenScheduleCoachId] = useState<string | null>(null);
+  const [coachSchedules, setCoachSchedules] = useState<Record<string, { startAt: Date; endAt: Date }[]>>({});
+  const [isLoadingSchedule, setIsLoadingSchedule] = useState(false);
+  // Reported live: customers clicked "Book Now" and walked away without
+  // ever sending GCash payment or uploading proof — dead AWAITING_PAYMENT
+  // holds tying up slots until their hold expired on its own. Same fix
+  // already shipped for open-play registration: the screenshot is
+  // required in the SAME click as booking, not a separate step someone
+  // can abandon. Only relevant when requiresPrepayment is true.
+  const [bookingScreenshot, setBookingScreenshot] = useState<File | null>(null);
+  const [bookingSubmittedAmount, setBookingSubmittedAmount] = useState("");
+  const [hasEditedBookingAmount, setHasEditedBookingAmount] = useState(false);
+  const [autoSubmittedProofFileName, setAutoSubmittedProofFileName] = useState<string | null>(null);
 
   const validInitialDuration =
     initialDurationMinutes && DURATIONS_MINUTES.includes(Number(initialDurationMinutes))
@@ -377,24 +413,27 @@ export function PublicBookingForm({
       setPreviewCoachId("");
       setPreviewGroupSize("");
     }
-    setDeclinedAutoSelectedCoach(false);
+    setOpenScheduleCoachId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewCoaches]);
 
-  // Reported live: with only two coaches total, "available or not" is
-  // usually a one-answer question — a dropdown to click open just to
-  // reveal a single name was an extra, pointless step. When exactly one
-  // coach is free for the slot, select them automatically so their name
-  // renders directly (see the "form" JSX below); the dropdown is only
-  // shown when there's an actual choice to make (2+ available).
-  // declinedAutoSelectedCoach guards this — otherwise clicking "No
-  // coach, thanks" would just get immediately overridden by this same
-  // effect on the very next render.
-  useEffect(() => {
-    if (previewCoaches.length === 1 && previewCoachId !== previewCoaches[0].id && !declinedAutoSelectedCoach) {
-      setPreviewCoachId(previewCoaches[0].id);
+  async function toggleCoachSchedule(coachId: string) {
+    if (openScheduleCoachId === coachId) {
+      setOpenScheduleCoachId(null);
+      return;
     }
-  }, [previewCoaches, previewCoachId, declinedAutoSelectedCoach]);
+    setOpenScheduleCoachId(coachId);
+    if (coachSchedules[coachId]) {
+      return;
+    }
+    setIsLoadingSchedule(true);
+    const result = await listPublicCoachScheduleAction(coachId);
+    setIsLoadingSchedule(false);
+    setCoachSchedules((prev) => ({
+      ...prev,
+      [coachId]: result.windows.map((window) => ({ startAt: new Date(window.startAt), endAt: new Date(window.endAt) })),
+    }));
+  }
 
   const selectedPreviewCoach = previewCoaches.find((coach) => coach.id === previewCoachId);
   const previewCoachGroupSizeOptions = selectedPreviewCoach
@@ -404,8 +443,31 @@ export function PublicBookingForm({
   const previewCoachFeeCents = selectedPreviewRate?.priceCents ?? 0;
   const previewTotalCents = previewCourtTotalCents != null ? previewCourtTotalCents + previewCoachFeeCents : null;
 
+  // Pre-fills the "amount sent" field with the live total, same resync-
+  // until-hand-edited guard PublicPaymentProofUpload already uses for
+  // this exact reason (adding a coach, or changing court/date/time,
+  // recomputes the total after the customer may have already started
+  // typing).
+  useEffect(() => {
+    if (!hasEditedBookingAmount && previewTotalCents != null) {
+      setBookingSubmittedAmount(String(previewTotalCents / 100));
+    }
+  }, [previewTotalCents, hasEditedBookingAmount]);
+
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
+
+    if (requiresPrepayment && !bookingScreenshot) {
+      const message = "Please upload your proof of payment to complete your booking.";
+      setServerError(message);
+      toast.error(message);
+      return;
+    }
+    const bookingAmountCents = requiresPrepayment ? Math.round(Number(bookingSubmittedAmount) * 100) : 0;
+    if (requiresPrepayment && (!Number.isFinite(bookingAmountCents) || bookingAmountCents <= 0)) {
+      setServerError("Enter the amount you sent.");
+      return;
+    }
 
     startTransition(async () => {
       const result = await createPublicBookingAction({
@@ -452,6 +514,35 @@ export function PublicBookingForm({
         }
       } else if (previewCoachId && previewGroupSize) {
         toast.error("Your slot is booked, but the coach you picked is no longer available for this time. Add one below if you'd like.");
+      }
+
+      // Same one-click chaining as the coach add-on above: the
+      // screenshot picked in the form is only local state until the
+      // booking exists. Submitted right after, using the amount the
+      // customer confirmed above — not recomputed here, since that's
+      // exactly what they said they sent.
+      if (requiresPrepayment && result.requiresPayment && bookingScreenshot) {
+        try {
+          const dataBase64 = await fileToBase64(bookingScreenshot);
+          const proofResult = await submitPublicBookingPaymentProofAction({
+            bookingId,
+            gcashReference: null,
+            submittedAmountCents: bookingAmountCents,
+            screenshot: {
+              fileName: bookingScreenshot.name,
+              contentType: bookingScreenshot.type || "image/png",
+              dataBase64,
+            },
+          });
+          if (proofResult.error) {
+            toast.error(`Your slot is booked, but the screenshot upload failed: ${proofResult.error} Please try again below.`);
+          } else {
+            setAutoSubmittedProofFileName(bookingScreenshot.name);
+            setHasSubmittedProof(true);
+          }
+        } catch {
+          toast.error("Your slot is booked, but the screenshot upload failed. Please try again below.");
+        }
       }
 
       setConfirmation({
@@ -624,6 +715,7 @@ export function PublicBookingForm({
           amountDueCents={totalDueCents}
           guestPhone={confirmation.guestPhone}
           gcashInfo={gcashInfo}
+          initialSubmittedFileName={autoSubmittedProofFileName}
           onSubmitted={() => setHasSubmittedProof(true)}
         />
         {contactPhone || contactFacebookUrl ? (
@@ -754,58 +846,82 @@ export function PublicBookingForm({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="previewCoachId">Coach (optional)</Label>
+        <Label>Coach (optional)</Label>
         {isLoadingCoaches ? (
           <p className="text-muted-foreground text-xs">Checking coach availability…</p>
         ) : previewCoaches.length === 0 ? (
-          <p className="text-muted-foreground text-xs">
-            No coach available for this time.{" "}
-            <Link href="/coaches/availability" className="underline">
-              See coach availability
-            </Link>
-            .
-          </p>
+          <p className="text-muted-foreground text-xs">No coach available at this slot.</p>
         ) : (
-          <>
-            {/* Reported live: with only two coaches total, "available or
-                not" is usually a one-answer question — showing the name
-                directly when there's exactly one, instead of a dropdown
-                someone has to click open first to see it. The dropdown
-                only appears when there's an actual choice (2+ available). */}
-            {previewCoaches.length > 1 ? (
-              <Select
-                value={previewCoachId}
-                onValueChange={(value) => {
-                  setPreviewCoachId(value ?? "");
-                  setPreviewGroupSize("");
-                }}
-              >
-                <SelectTrigger id="previewCoachId" className="w-full">
-                  <SelectValue placeholder="No coach">
-                    {(value: string) => previewCoaches.find((coach) => coach.id === value)?.name ?? "No coach"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {previewCoaches.map((coach) => (
-                    <SelectItem key={coach.id} value={coach.id}>
-                      {coach.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <p className="border-input bg-muted/40 rounded-lg border px-2.5 py-2 text-sm font-medium">
-                {previewCoaches[0].name} is available for this time.
-              </p>
-            )}
+          <div className="flex flex-col gap-2">
+            {/* Reported live: a dropdown to click open just to see who's
+                available was an extra, pointless step — clickable cards
+                instead, whether there's one coach or several. Clicking
+                the already-selected card again deselects it. */}
+            <div className="flex flex-wrap gap-2">
+              {previewCoaches.map((coach) => {
+                const isSelected = previewCoachId === coach.id;
+                return (
+                  <button
+                    key={coach.id}
+                    type="button"
+                    onClick={() => {
+                      if (isSelected) {
+                        setPreviewCoachId("");
+                        setPreviewGroupSize("");
+                      } else {
+                        setPreviewCoachId(coach.id);
+                        setPreviewGroupSize("");
+                      }
+                    }}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                      isSelected ? "border-success bg-success/10 text-success" : "border-input hover:bg-muted/40",
+                    )}
+                  >
+                    {coach.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            {previewCoaches.map((coach) => (
+              <div key={coach.id} className="flex flex-col gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-foreground w-fit px-0"
+                  onClick={() => toggleCoachSchedule(coach.id)}
+                >
+                  {openScheduleCoachId === coach.id ? "Hide" : "See"} {coach.name}&apos;s availability
+                </Button>
+                {openScheduleCoachId === coach.id ? (
+                  <div className="bg-muted/40 flex flex-col gap-1 rounded-lg border p-2 text-xs">
+                    {isLoadingSchedule && !coachSchedules[coach.id] ? (
+                      <span className="text-muted-foreground">Loading schedule…</span>
+                    ) : (coachSchedules[coach.id]?.length ?? 0) === 0 ? (
+                      <span className="text-muted-foreground">No upcoming open times found.</span>
+                    ) : (
+                      coachSchedules[coach.id]!.map((window, index) => (
+                        <span key={index}>
+                          {window.startAt.toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric" })},{" "}
+                          {window.startAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}–
+                          {window.endAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            ))}
 
             {previewCoachId ? (
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="previewGroupSize">Group size (select to add {selectedPreviewCoach?.name ?? "a coach"})</Label>
                 <Select value={previewGroupSize} onValueChange={(value) => setPreviewGroupSize(value ?? "")}>
                   <SelectTrigger id="previewGroupSize" className="w-full">
-                    <SelectValue placeholder="No coach — select to add one">
-                      {(value: string) => (value ? `${value} ${Number(value) === 1 ? "person" : "people"}` : "No coach — select to add one")}
+                    <SelectValue placeholder="Select group size">
+                      {(value: string) => (value ? `${value} ${Number(value) === 1 ? "person" : "people"}` : "Select group size")}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -822,26 +938,9 @@ export function PublicBookingForm({
                     <span className="font-medium">{formatCurrency(selectedPreviewRate.priceCents)}</span>
                   </p>
                 ) : null}
-                {previewGroupSize ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="self-start"
-                    onClick={() => {
-                      if (previewCoaches.length === 1) {
-                        setDeclinedAutoSelectedCoach(true);
-                        setPreviewCoachId("");
-                      }
-                      setPreviewGroupSize("");
-                    }}
-                  >
-                    No coach, thanks
-                  </Button>
-                ) : null}
               </div>
             ) : null}
-          </>
+          </div>
         )}
       </div>
 
@@ -869,6 +968,82 @@ export function PublicBookingForm({
           </div>
         </CardContent>
       </Card>
+
+      {requiresPrepayment ? (
+        <div className="flex flex-col gap-3 rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">Pay via GCash to confirm your slot</p>
+            <p className="text-muted-foreground text-xs">
+              Send the total above to the account below, then attach your payment screenshot — your slot
+              isn&apos;t held until both this form and the screenshot are submitted together.
+            </p>
+          </div>
+
+          {gcashInfo.qrImageUrl ? (
+            <Image
+              src={gcashInfo.qrImageUrl}
+              alt="GCash QR code"
+              width={140}
+              height={140}
+              unoptimized
+              className="self-center rounded-lg border"
+            />
+          ) : null}
+
+          {gcashInfo.accountName || gcashInfo.accountNumber ? (
+            <div className="rounded-lg border p-2 text-sm">
+              {gcashInfo.accountName ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Account name</span>
+                  <span className="font-medium">{gcashInfo.accountName}</span>
+                </div>
+              ) : null}
+              {gcashInfo.accountNumber ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Account number</span>
+                  <span className="font-mono font-medium">{gcashInfo.accountNumber}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="bookingSubmittedAmount">Amount sent (₱)</Label>
+            <Input
+              id="bookingSubmittedAmount"
+              type="number"
+              step="0.01"
+              value={bookingSubmittedAmount}
+              onChange={(event) => {
+                setHasEditedBookingAmount(true);
+                setBookingSubmittedAmount(event.target.value);
+              }}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="bookingScreenshot">Payment screenshot (required)</Label>
+            <div className="flex items-center gap-3">
+              <label
+                htmlFor="bookingScreenshot"
+                className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}
+              >
+                Choose file
+              </label>
+              <span className="text-muted-foreground truncate text-sm">
+                {bookingScreenshot ? bookingScreenshot.name : "No file chosen"}
+              </span>
+            </div>
+            <input
+              id="bookingScreenshot"
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(event) => setBookingScreenshot(event.target.files?.[0] ?? null)}
+            />
+          </div>
+        </div>
+      ) : null}
 
       {serverError ? (
         <p className="text-destructive text-sm" role="alert">

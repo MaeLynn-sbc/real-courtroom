@@ -60,6 +60,7 @@ export default async function BookPage({ searchParams }: BookPageProps) {
           initialDate={date}
           initialTime={time}
           initialDurationMinutes={durationMinutes}
+          requiresPrepayment={requiresPrepayment}
         />
       </main>
       <SiteFooter />
