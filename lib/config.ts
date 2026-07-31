@@ -53,7 +53,10 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Fri/Sat Open Play", href: "/dashboard/admin/open-play-capacity" },
       { title: "Bookings", href: "/dashboard/bookings" },
       { title: "Verify Payments", href: "/dashboard/bookings/verify-payments" },
-      { title: "Verify Open Play Payments", href: "/dashboard/admin/open-play-capacity/verify-payments" },
+      {
+        title: "Verify Open Play Payments",
+        href: "/dashboard/admin/open-play-capacity/verify-payments",
+      },
       // Previously reachable only by typing the URL directly or via a
       // booking's own "add a coach" step — no nav entry at all. Route
       // protection (lib/rbac.ts: BOOKINGS_MANAGE) is unchanged by this;
@@ -88,7 +91,7 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Settings", href: "/dashboard/admin/settings" },
       { title: "Reports", href: "/dashboard/reports" },
       { title: "Sales", href: "/dashboard/sales" },
-      { title: "GCash Reconciliation", href: "/dashboard/admin/gcash-reconciliation" },
+      { title: "Cash & GCash Reconciliation", href: "/dashboard/admin/gcash-reconciliation" },
       { title: "Analytics", href: "/dashboard/analytics" },
       { title: "Announcements", href: "/dashboard/announcements" },
       { title: "Diagnostics", href: "/dashboard/admin/diagnostics" },
@@ -98,4 +101,6 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
 
 // Flattened view — used anywhere that just needs every nav destination
 // without caring about grouping (e.g. active-link matching).
-export const dashboardNavItems: DashboardNavItem[] = dashboardNavGroups.flatMap((group) => group.items);
+export const dashboardNavItems: DashboardNavItem[] = dashboardNavGroups.flatMap(
+  (group) => group.items,
+);

@@ -41,6 +41,13 @@ export const PERMISSIONS = {
   // required and audit-logged regardless of who does it, so it shares
   // this same permission rather than needing a second one).
   ACCOUNTS_CONFIRM_GCASH_RECONCILIATION: "accounts:confirm_gcash_reconciliation",
+  // Cash's twin of ACCOUNTS_CONFIRM_GCASH_RECONCILIATION directly above
+  // — same shape (seed/confirm/override under one permission), its own
+  // permission rather than reusing the GCash one, since an owner may
+  // want to hand cash-drawer trust to a different set of people than
+  // GCash trust. Granted to nobody by default, checkbox on the roles
+  // screen.
+  ACCOUNTS_CONFIRM_CASH_RECONCILIATION: "accounts:confirm_cash_reconciliation",
   // Expenses tracking Gate 1: its own dedicated, owner-assignable
   // permission (same shape as the GCash reconciliation gate's own
   // ACCOUNTS_CONFIRM_GCASH_RECONCILIATION, built the same session) —

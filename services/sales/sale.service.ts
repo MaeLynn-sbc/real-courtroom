@@ -152,18 +152,30 @@ export class SaleService {
       status: "COMPLETED",
     };
 
-    const [totals, byCategory, byPaymentMethod, byEmployee, paymentMethods, employees] = await Promise.all([
-      prisma.sale.aggregate({ where, _sum: { amountCents: true }, _count: true }),
-      prisma.sale.groupBy({ by: ["category"], where, _sum: { amountCents: true }, _count: true }),
-      prisma.sale.groupBy({ by: ["paymentMethodId"], where, _sum: { amountCents: true }, _count: true }),
-      prisma.sale.groupBy({ by: ["employeeId"], where, _sum: { amountCents: true }, _count: true }),
-      prisma.paymentMethod.findMany(),
-      prisma.employee.findMany(),
-    ]);
+    const [totals, byCategory, byPaymentMethod, byEmployee, paymentMethods, employees] =
+      await Promise.all([
+        prisma.sale.aggregate({ where, _sum: { amountCents: true }, _count: true }),
+        prisma.sale.groupBy({ by: ["category"], where, _sum: { amountCents: true }, _count: true }),
+        prisma.sale.groupBy({
+          by: ["paymentMethodId"],
+          where,
+          _sum: { amountCents: true },
+          _count: true,
+        }),
+        prisma.sale.groupBy({
+          by: ["employeeId"],
+          where,
+          _sum: { amountCents: true },
+          _count: true,
+        }),
+        prisma.paymentMethod.findMany(),
+        prisma.employee.findMany(),
+      ]);
 
     const totalAmountCents = totals._sum.amountCents ?? 0;
     const transactionCount = totals._count;
-    const averageAmountCents = transactionCount > 0 ? Math.round(totalAmountCents / transactionCount) : 0;
+    const averageAmountCents =
+      transactionCount > 0 ? Math.round(totalAmountCents / transactionCount) : 0;
 
     const paymentMethodById = new Map(paymentMethods.map((method) => [method.id, method]));
     const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
@@ -267,6 +279,29 @@ export class SaleService {
     return result._sum.amountCents ?? 0;
   }
 
+  // Cash's twin of getGcashSalesForDate above — same date-scoped (not
+  // shift-scoped) shape, for the new day-level Cash reconciliation
+  // (services/cash/cash-reconciliation.service.ts). Not the same thing
+  // as getCashSalesForShift above, which is per-shift for the drawer
+  // handoff reconciliation that already exists on Shift.
+  async getCashSalesForDate(date: Date): Promise<number> {
+    const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
+    const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const startOfNextDay = new Date(startOfDay);
+    startOfNextDay.setDate(startOfNextDay.getDate() + 1);
+
+    const result = await prisma.sale.aggregate({
+      where: {
+        status: "COMPLETED",
+        paymentMethodId: cashMethod.id,
+        createdAt: { gte: startOfDay, lt: startOfNextDay },
+      },
+      _sum: { amountCents: true },
+    });
+
+    return result._sum.amountCents ?? 0;
+  }
+
   async listPaymentMethods(includeInactive = false): Promise<PaymentMethod[]> {
     return prisma.paymentMethod.findMany({
       where: includeInactive ? undefined : { isActive: true },
@@ -274,7 +309,10 @@ export class SaleService {
     });
   }
 
-  async createPaymentMethod(input: UpsertPaymentMethodInput, actorUserId: string): Promise<PaymentMethod> {
+  async createPaymentMethod(
+    input: UpsertPaymentMethodInput,
+    actorUserId: string,
+  ): Promise<PaymentMethod> {
     const method = await prisma.paymentMethod.create({
       data: { key: input.key, label: input.label, sortOrder: input.sortOrder ?? 0 },
     });
@@ -314,7 +352,11 @@ export class SaleService {
     return method;
   }
 
-  async setPaymentMethodActive(id: string, isActive: boolean, actorUserId: string): Promise<PaymentMethod> {
+  async setPaymentMethodActive(
+    id: string,
+    isActive: boolean,
+    actorUserId: string,
+  ): Promise<PaymentMethod> {
     const existing = await prisma.paymentMethod.findUniqueOrThrow({ where: { id } });
 
     const method = await prisma.paymentMethod.update({ where: { id }, data: { isActive } });

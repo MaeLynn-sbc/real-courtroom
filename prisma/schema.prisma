@@ -362,6 +362,7 @@ model Employee {
   resolvedBookingPaymentProofs              BookingPaymentProof[]
   issuedBookingRefunds                      BookingRefund[]
   confirmedGcashDailyBalances               GcashDailyBalance[]
+  confirmedCashDailyBalances                CashDailyBalance[]
   // Open-play cancellation policy Gate 1 — see OpenPlayRefund, below
   // OpenPlayCredit.
   issuedOpenPlayRefunds                     OpenPlayRefund[]
@@ -542,6 +543,42 @@ model GcashDailyBalance {
   confirmedAt                 DateTime?
   createdAt                   DateTime                @default(now())
   updatedAt                   DateTime                @updatedAt
+
+  confirmedByEmployee Employee? @relation(fields: [confirmedByEmployeeId], references: [id])
+
+  @@index([date])
+  @@index([status])
+}
+
+// Cash's twin of GcashDailyBalance above — same day-scoped, one-shared-
+// float shape (starting cash + today's Cash sales = expected, note
+// required only when confirmed ≠ expected). Deliberately a separate
+// model rather than a payment-method column on GcashDailyBalance: a
+// generalized "PaymentMethodDailyBalance" would need its own migration
+// of every existing GCash row and touch a real-money feature already in
+// daily use, for a savings of a handful of near-identical fields. Not
+// the same thing as Shift.openingCashCents/closingCashCents — that's a
+// per-shift drawer handoff between employees; this is one running total
+// for the whole business per day, same relationship GCash already has
+// to Shift's own cash reconciliation (both exist, side by side).
+enum CashDailyBalanceStatus {
+  OPEN
+  CONFIRMED
+}
+
+model CashDailyBalance {
+  id                          String                 @id @default(cuid())
+  date                        DateTime               @unique
+  startingBalanceCents        Int
+  expectedEndingBalanceCents  Int?
+  confirmedEndingBalanceCents Int?
+  varianceCents               Int?
+  notes                       String?
+  status                      CashDailyBalanceStatus @default(OPEN)
+  confirmedByEmployeeId       String?
+  confirmedAt                 DateTime?
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
 
   confirmedByEmployee Employee? @relation(fields: [confirmedByEmployeeId], references: [id])
 

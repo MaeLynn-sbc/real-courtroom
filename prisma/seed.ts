@@ -14,7 +14,10 @@ import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { dailyScope, nextSequence } from "../lib/reference-counter";
 import type { BillingPeriod, EquipmentType, SkillLevel } from "../lib/generated/prisma/enums";
-import { PAY_AT_VENUE_PAYMENT_METHOD_KEY, WEBSITE_SYSTEM_USER_EMAIL } from "../lib/system-identities";
+import {
+  PAY_AT_VENUE_PAYMENT_METHOD_KEY,
+  WEBSITE_SYSTEM_USER_EMAIL,
+} from "../lib/system-identities";
 import { formatEmployeeNumber } from "../services/employee/employee-number";
 import { formatShiftNumber } from "../services/shift/shift-number";
 import { PERMISSIONS, type PermissionKey } from "../types/permissions";
@@ -101,7 +104,8 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
   },
   [PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY]: {
     label: "Manage Own Coaching Availability",
-    description: "For employees marked as a coach: set and edit their own bookable availability windows.",
+    description:
+      "For employees marked as a coach: set and edit their own bookable availability windows.",
   },
   [PERMISSIONS.COACHING_MANAGE_RATES]: {
     label: "Manage Coaching Rates",
@@ -122,6 +126,14 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     description:
       "Seed, confirm, and correct the daily GCash balance reconciliation — a shared, business-wide financial control.",
   },
+  // Cash's twin of ACCOUNTS_CONFIRM_GCASH_RECONCILIATION directly above
+  // — granted to OWNER below (same "OWNER needs self-service access"
+  // fix), still absent from every other role by default.
+  [PERMISSIONS.ACCOUNTS_CONFIRM_CASH_RECONCILIATION]: {
+    label: "Confirm Cash Reconciliation",
+    description:
+      "Seed, confirm, and correct the daily cash balance reconciliation — a shared, business-wide financial control.",
+  },
   // Expenses tracking Gate 1: same fix, same reasoning as
   // ACCOUNTS_CONFIRM_GCASH_RECONCILIATION directly above — granted to
   // OWNER below, still absent from every other role.
@@ -131,7 +143,8 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
   },
   [PERMISSIONS.BOOKINGS_CREATE_WITHOUT_SHIFT]: {
     label: "Create Bookings Without a Shift",
-    description: "Create court bookings without first starting a shift. Settling payment still requires one.",
+    description:
+      "Create court bookings without first starting a shift. Settling payment still requires one.",
   },
   [PERMISSIONS.DISPLAY_MANAGE]: {
     label: "Manage TV Display Settings",
@@ -143,7 +156,8 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
   // from every other role.
   [PERMISSIONS.SALES_RECORD_MANUAL]: {
     label: "Record Manual Sales",
-    description: "Record an arbitrary cash amount on the current shift for revenue outside every modelled flow.",
+    description:
+      "Record an arbitrary cash amount on the current shift for revenue outside every modelled flow.",
   },
 };
 
@@ -176,6 +190,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     // hold. OWNER gets both directly; MANAGER and below still need an
     // explicit roles-screen grant.
     PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION,
+    PERMISSIONS.ACCOUNTS_CONFIRM_CASH_RECONCILIATION,
     PERMISSIONS.ACCOUNTS_RECORD_EXPENSE,
     PERMISSIONS.BOOKINGS_CREATE_WITHOUT_SHIFT,
     PERMISSIONS.DISPLAY_MANAGE,
@@ -379,7 +394,12 @@ const EQUIPMENT_DEFINITIONS: Record<string, EquipmentDefinition> = {
   },
   "Premium Paddle": { type: "PADDLE", quantity: 6, depositCents: 100000, rentalRateCents: 20000 },
   "Ball Sleeve (4-pack)": { type: "BALL", quantity: 30, depositCents: 0, rentalRateCents: 5000 },
-  "Ball Machine": { type: "BALL_MACHINE", quantity: 2, depositCents: 500000, rentalRateCents: 50000 },
+  "Ball Machine": {
+    type: "BALL_MACHINE",
+    quantity: 2,
+    depositCents: 500000,
+    rentalRateCents: 50000,
+  },
 };
 
 // Phase 6 addition: sample Player profiles (bare User + Player rows) so
@@ -397,17 +417,49 @@ interface SamplePlayerDefinition {
 const SAMPLE_PLAYER_DEFINITIONS: SamplePlayerDefinition[] = [
   { name: "Alex Santos", email: "alex.santos@players.thecourtroom.local", skillLevel: "ADVANCED" },
   { name: "Bea Cruz", email: "bea.cruz@players.thecourtroom.local", skillLevel: "ADVANCED" },
-  { name: "Carlo Reyes", email: "carlo.reyes@players.thecourtroom.local", skillLevel: "INTERMEDIATE" },
-  { name: "Dana Villanueva", email: "dana.villanueva@players.thecourtroom.local", skillLevel: "INTERMEDIATE" },
+  {
+    name: "Carlo Reyes",
+    email: "carlo.reyes@players.thecourtroom.local",
+    skillLevel: "INTERMEDIATE",
+  },
+  {
+    name: "Dana Villanueva",
+    email: "dana.villanueva@players.thecourtroom.local",
+    skillLevel: "INTERMEDIATE",
+  },
   { name: "Erik Bautista", email: "erik.bautista@players.thecourtroom.local", skillLevel: "PRO" },
   { name: "Faye Mendoza", email: "faye.mendoza@players.thecourtroom.local", skillLevel: "PRO" },
-  { name: "Gio Fernandez", email: "gio.fernandez@players.thecourtroom.local", skillLevel: "BEGINNER" },
+  {
+    name: "Gio Fernandez",
+    email: "gio.fernandez@players.thecourtroom.local",
+    skillLevel: "BEGINNER",
+  },
   { name: "Hana Torres", email: "hana.torres@players.thecourtroom.local", skillLevel: "BEGINNER" },
-  { name: "Ivan Ramos", email: "ivan.ramos@players.thecourtroom.local", skillLevel: "INTERMEDIATE" },
-  { name: "Jia Aquino", email: "jia.aquino@players.thecourtroom.local", skillLevel: "INTERMEDIATE" },
-  { name: "Kyle Domingo", email: "kyle.domingo@players.thecourtroom.local", skillLevel: "ADVANCED" },
-  { name: "Lena Castillo", email: "lena.castillo@players.thecourtroom.local", skillLevel: "ADVANCED" },
-  { name: "Miko Navarro", email: "miko.navarro@players.thecourtroom.local", skillLevel: "BEGINNER" },
+  {
+    name: "Ivan Ramos",
+    email: "ivan.ramos@players.thecourtroom.local",
+    skillLevel: "INTERMEDIATE",
+  },
+  {
+    name: "Jia Aquino",
+    email: "jia.aquino@players.thecourtroom.local",
+    skillLevel: "INTERMEDIATE",
+  },
+  {
+    name: "Kyle Domingo",
+    email: "kyle.domingo@players.thecourtroom.local",
+    skillLevel: "ADVANCED",
+  },
+  {
+    name: "Lena Castillo",
+    email: "lena.castillo@players.thecourtroom.local",
+    skillLevel: "ADVANCED",
+  },
+  {
+    name: "Miko Navarro",
+    email: "miko.navarro@players.thecourtroom.local",
+    skillLevel: "BEGINNER",
+  },
   { name: "Nadia Ocampo", email: "nadia.ocampo@players.thecourtroom.local", skillLevel: "PRO" },
 ];
 
@@ -419,7 +471,7 @@ const SAMPLE_PLAYER_DEFINITIONS: SamplePlayerDefinition[] = [
 function assertSafeToSeed(): void {
   if (env.NODE_ENV === "production" && process.env.ALLOW_PROD_SEED !== "true") {
     logger.error(
-      "Refusing to seed: NODE_ENV=production and ALLOW_PROD_SEED is not set to \"true\". " +
+      'Refusing to seed: NODE_ENV=production and ALLOW_PROD_SEED is not set to "true". ' +
         "This script writes a well-known Owner password. If you really intend to seed " +
         "production (e.g. first-time setup), re-run with ALLOW_PROD_SEED=true and change " +
         "the Owner password immediately afterward.",
@@ -446,30 +498,33 @@ async function planSeedCreates(): Promise<string[]> {
   }
 
   for (const name of Object.keys(ROLE_DEFINITIONS) as SystemRoleName[]) {
-    await check(`Role "${name}"`, async () => Boolean(await prisma.role.findUnique({ where: { name } })));
+    await check(`Role "${name}"`, async () =>
+      Boolean(await prisma.role.findUnique({ where: { name } })),
+    );
   }
   for (const key of Object.keys(PERMISSION_DEFINITIONS) as PermissionKey[]) {
-    await check(`Permission "${key}"`, async () => Boolean(await prisma.permission.findUnique({ where: { key } })));
+    await check(`Permission "${key}"`, async () =>
+      Boolean(await prisma.permission.findUnique({ where: { key } })),
+    );
   }
   for (const name of Object.keys(MEMBERSHIP_PLAN_DEFINITIONS)) {
-    await check(`Membership plan "${name}"`, async () => Boolean(await prisma.membershipPlan.findUnique({ where: { name } })));
+    await check(`Membership plan "${name}"`, async () =>
+      Boolean(await prisma.membershipPlan.findUnique({ where: { name } })),
+    );
   }
   for (const definition of PAYMENT_METHOD_DEFINITIONS) {
-    await check(
-      `Payment method "${definition.key}"`,
-      async () => Boolean(await prisma.paymentMethod.findUnique({ where: { key: definition.key } })),
+    await check(`Payment method "${definition.key}"`, async () =>
+      Boolean(await prisma.paymentMethod.findUnique({ where: { key: definition.key } })),
     );
   }
   for (const definition of EXPENSE_CATEGORY_DEFINITIONS) {
-    await check(
-      `Expense category "${definition.name}"`,
-      async () => Boolean(await prisma.expenseCategory.findUnique({ where: { name: definition.name } })),
+    await check(`Expense category "${definition.name}"`, async () =>
+      Boolean(await prisma.expenseCategory.findUnique({ where: { name: definition.name } })),
     );
   }
   for (const definition of PRODUCT_DEFINITIONS) {
-    await check(
-      `Product "${definition.name}"`,
-      async () => Boolean(await prisma.product.findUnique({ where: { name: definition.name } })),
+    await check(`Product "${definition.name}"`, async () =>
+      Boolean(await prisma.product.findUnique({ where: { name: definition.name } })),
     );
   }
   for (let i = 1; i <= COURT_COUNT; i += 1) {
@@ -478,15 +533,22 @@ async function planSeedCreates(): Promise<string[]> {
   }
   for (let i = 1; i <= LOCKER_COUNT; i += 1) {
     const code = `L-${String(i).padStart(2, "0")}`;
-    await check(`Locker ${code}`, async () => Boolean(await prisma.locker.findUnique({ where: { code } })));
+    await check(`Locker ${code}`, async () =>
+      Boolean(await prisma.locker.findUnique({ where: { code } })),
+    );
   }
   for (const name of Object.keys(EQUIPMENT_DEFINITIONS)) {
-    await check(`Equipment "${name}"`, async () => Boolean(await prisma.equipment.findUnique({ where: { name } })));
+    await check(`Equipment "${name}"`, async () =>
+      Boolean(await prisma.equipment.findUnique({ where: { name } })),
+    );
   }
   for (const definition of OPEN_PLAY_CAPACITY_DEFAULTS) {
-    await check(
-      `Open play capacity default for day ${definition.dayOfWeek}`,
-      async () => Boolean(await prisma.openPlayCapacityDefault.findUnique({ where: { dayOfWeek: definition.dayOfWeek } })),
+    await check(`Open play capacity default for day ${definition.dayOfWeek}`, async () =>
+      Boolean(
+        await prisma.openPlayCapacityDefault.findUnique({
+          where: { dayOfWeek: definition.dayOfWeek },
+        }),
+      ),
     );
   }
 
@@ -501,7 +563,9 @@ async function main(): Promise<void> {
   // bootstrap" (nothing to protect yet) from "re-running against an
   // already-seeded production database" (needs the plan + confirmation
   // below).
-  const ownerExistedAlready = Boolean(await prisma.user.findUnique({ where: { email: OWNER_SEED_EMAIL } }));
+  const ownerExistedAlready = Boolean(
+    await prisma.user.findUnique({ where: { email: OWNER_SEED_EMAIL } }),
+  );
 
   if (env.NODE_ENV === "production" && ownerExistedAlready) {
     const wouldCreate = await planSeedCreates();
@@ -517,7 +581,10 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     if (wouldCreate.length > 0) {
-      logger.info({ wouldCreate }, "CONFIRM_PROD_SEED_CREATES=true set — proceeding to create the row(s) listed above");
+      logger.info(
+        { wouldCreate },
+        "CONFIRM_PROD_SEED_CREATES=true set — proceeding to create the row(s) listed above",
+      );
     } else {
       logger.info(
         "Re-running seed against an already-seeded production database — nothing to create, nothing will be overwritten.",
@@ -542,7 +609,12 @@ async function main(): Promise<void> {
     const role = await prisma.role.upsert({
       where: { name },
       update: {},
-      create: { name, label: definition.label, description: definition.description, isSystem: true },
+      create: {
+        name,
+        label: definition.label,
+        description: definition.description,
+        isSystem: true,
+      },
     });
     roleByName.set(name, role);
   }
@@ -705,7 +777,11 @@ async function main(): Promise<void> {
 
     const staffUser = await prisma.user.upsert({
       where: { email: STAFF_SEED_EMAIL },
-      update: { passwordHash: staffPasswordHash, roleId: receptionistRole.id, username: STAFF_SEED_USERNAME },
+      update: {
+        passwordHash: staffPasswordHash,
+        roleId: receptionistRole.id,
+        username: STAFF_SEED_USERNAME,
+      },
       create: {
         email: STAFF_SEED_EMAIL,
         name: "Test Receptionist",
@@ -801,7 +877,10 @@ async function main(): Promise<void> {
       create: { name, ...definition },
     });
   }
-  logger.info({ count: Object.keys(MEMBERSHIP_PLAN_DEFINITIONS).length }, "Seeded membership plans");
+  logger.info(
+    { count: Object.keys(MEMBERSHIP_PLAN_DEFINITIONS).length },
+    "Seeded membership plans",
+  );
 
   for (const definition of PAYMENT_METHOD_DEFINITIONS) {
     await prisma.paymentMethod.upsert({
