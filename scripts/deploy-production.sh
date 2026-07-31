@@ -43,11 +43,20 @@ echo "==> Checking migration status"
 STATUS_OUTPUT=$(as_tcpms "npx prisma migrate status" 2>&1) || true
 echo "$STATUS_OUTPUT"
 if echo "$STATUS_OUTPUT" | grep -q "have not yet been applied"; then
-  echo "==> Applying pending migrations"
-  as_tcpms "npx prisma migrate deploy"
-else
-  echo "==> No pending migrations"
+  echo ""
+  echo "==> STOPPING: pending migrations found (listed above)."
+  echo "    Per docs/DEPLOYMENT.md's own 'Migrations and rollback' section,"
+  echo "    applying a migration is a deliberate, manual step — never"
+  echo "    automatic — because some migrations are destructive/lossy and"
+  echo "    need a backup taken first (see that section for which ones)."
+  echo "    Nothing has been built or restarted. To proceed:"
+  echo "      1. Take a backup if the pending migration(s) aren't purely"
+  echo "         additive (docs/BACKUP_RECOVERY.md)."
+  echo "      2. Run: su -s /bin/bash tcpms -c 'cd $APP_DIR && npx prisma migrate deploy'"
+  echo "      3. Re-run this script."
+  exit 1
 fi
+echo "==> No pending migrations"
 
 echo "==> Building"
 as_tcpms "npm run build"
