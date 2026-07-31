@@ -67,7 +67,10 @@ export class AnalyticsService {
     return Array.from(buckets.entries())
       .map(([date, items]) => ({
         date,
-        value: items.reduce((sum, b) => sum + (b.endAt.getTime() - b.startAt.getTime()) / 3_600_000, 0),
+        value: items.reduce(
+          (sum, b) => sum + (b.endAt.getTime() - b.startAt.getTime()) / 3_600_000,
+          0,
+        ),
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
   }
@@ -143,23 +146,39 @@ export class AnalyticsService {
     weeknightCheckedInCount: number;
   }> {
     const dateFilter = { date: { gte: range.from, lte: range.to } };
-    const [friSatSessionsCount, friSatRegistrationsCount, friSatCheckedInCount, friSatNoShowCount, weeknightCheckedInCount] =
-      await Promise.all([
-        prisma.openPlayNightSession.count({ where: dateFilter }),
-        prisma.openPlayNightRegistration.count({
-          where: { ...dateFilter, sessionId: { not: null }, status: { not: "CANCELLED" } },
-        }),
-        prisma.openPlayNightRegistration.count({
-          where: { ...dateFilter, sessionId: { not: null }, status: { not: "CANCELLED" }, checkedInAt: { not: null } },
-        }),
-        prisma.openPlayNightRegistration.count({
-          where: { ...dateFilter, sessionId: { not: null }, status: "NO_SHOW" },
-        }),
-        prisma.openPlayNightRegistration.count({
-          where: { ...dateFilter, sessionId: null, checkedInAt: { not: null } },
-        }),
-      ]);
-    return { friSatSessionsCount, friSatRegistrationsCount, friSatCheckedInCount, friSatNoShowCount, weeknightCheckedInCount };
+    const [
+      friSatSessionsCount,
+      friSatRegistrationsCount,
+      friSatCheckedInCount,
+      friSatNoShowCount,
+      weeknightCheckedInCount,
+    ] = await Promise.all([
+      prisma.openPlayNightSession.count({ where: dateFilter }),
+      prisma.openPlayNightRegistration.count({
+        where: { ...dateFilter, sessionId: { not: null }, status: { not: "CANCELLED" } },
+      }),
+      prisma.openPlayNightRegistration.count({
+        where: {
+          ...dateFilter,
+          sessionId: { not: null },
+          status: { not: "CANCELLED" },
+          checkedInAt: { not: null },
+        },
+      }),
+      prisma.openPlayNightRegistration.count({
+        where: { ...dateFilter, sessionId: { not: null }, status: "NO_SHOW" },
+      }),
+      prisma.openPlayNightRegistration.count({
+        where: { ...dateFilter, sessionId: null, checkedInAt: { not: null } },
+      }),
+    ]);
+    return {
+      friSatSessionsCount,
+      friSatRegistrationsCount,
+      friSatCheckedInCount,
+      friSatNoShowCount,
+      weeknightCheckedInCount,
+    };
   }
 
   async getTournamentParticipation(
@@ -210,23 +229,31 @@ export class AnalyticsService {
 
   async getDashboardKpis(range: DateRange): Promise<DashboardKpis> {
     // Fetched once, up front, and threaded into getRevenueReport below
-    // instead of letting it (and getTournamentParticipation) each
-    // independently re-fetch the same booking/tournament rows — see
-    // reporting.service.ts's getRevenueReport comment.
+    // instead of letting it re-fetch the same booking rows — see
+    // reporting.service.ts's getRevenueReport comment. tournamentReport
+    // is still fetched here for tournamentsInRange below; getRevenueReport
+    // no longer needs it (tournament fees dropped off the revenue total —
+    // see that function's own comment).
     const [bookingReport, tournamentReport] = await Promise.all([
       reportingService.getBookingReport(range),
       reportingService.getTournamentReport(range),
     ]);
 
-    const [revenueReport, activeMemberships, membershipGrowth, openPlayParticipation, equipmentSummary, lockerUtilization] =
-      await Promise.all([
-        reportingService.getRevenueReport(range, { bookingReport, tournamentReport }),
-        prisma.membership.count({ where: { status: "ACTIVE" } }),
-        this.getMembershipGrowth(range),
-        this.getOpenPlayParticipation(range),
-        equipmentService.getInventorySummary(),
-        this.getLockerUtilization(range),
-      ]);
+    const [
+      revenueReport,
+      activeMemberships,
+      membershipGrowth,
+      openPlayParticipation,
+      equipmentSummary,
+      lockerUtilization,
+    ] = await Promise.all([
+      reportingService.getRevenueReport(range, { bookingReport }),
+      prisma.membership.count({ where: { status: "ACTIVE" } }),
+      this.getMembershipGrowth(range),
+      this.getOpenPlayParticipation(range),
+      equipmentService.getInventorySummary(),
+      this.getLockerUtilization(range),
+    ]);
 
     return {
       totalBookings: bookingReport.totalBookings,

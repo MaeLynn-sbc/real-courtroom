@@ -16,20 +16,36 @@ export const metadata: Metadata = {
 // features/reports/schemas/report.schema.ts's comment on why "openPlay"
 // was removed from this list rather than repaired.
 const REPORT_LINKS: { reportType: string; title: string; description: string }[] = [
-  { reportType: "booking", title: "Booking report", description: "All bookings in the selected range." },
+  {
+    reportType: "booking",
+    title: "Booking report",
+    description: "All bookings in the selected range.",
+  },
   {
     reportType: "courtUtilization",
     title: "Court utilization",
     description: "Booked hours and booking counts per court.",
   },
-  { reportType: "tournament", title: "Tournament report", description: "Tournaments, registrations, and matches." },
-  { reportType: "membership", title: "Membership report", description: "Memberships, enrollments, and renewals." },
+  {
+    reportType: "tournament",
+    title: "Tournament report",
+    description: "Tournaments, registrations, and matches.",
+  },
+  {
+    reportType: "membership",
+    title: "Membership report",
+    description: "Memberships, enrollments, and renewals.",
+  },
   {
     reportType: "equipmentRental",
     title: "Equipment rentals",
     description: "Equipment rental transactions in range.",
   },
-  { reportType: "lockerRental", title: "Locker rentals", description: "Locker rental transactions in range." },
+  {
+    reportType: "lockerRental",
+    title: "Locker rentals",
+    description: "Locker rental transactions in range.",
+  },
   {
     reportType: "salesByCategory",
     title: "Sales by category",
@@ -73,22 +89,26 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-5">
           <div className="flex flex-col gap-1">
             <span className="text-muted-foreground text-xs">Booking</span>
-            <span className="font-semibold tabular-nums">{formatCurrency(revenue.bookingAmountCents)}</span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-muted-foreground text-xs">Tournament fees</span>
             <span className="font-semibold tabular-nums">
-              {formatCurrency(revenue.tournamentFeeAmountCents)}
+              {formatCurrency(revenue.bookingAmountCents)}
             </span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-muted-foreground text-xs">Membership</span>
-            <span className="font-semibold tabular-nums">{formatCurrency(revenue.membershipAmountCents)}</span>
+            <span className="text-muted-foreground text-xs">Shop products</span>
+            <span className="font-semibold tabular-nums">
+              {formatCurrency(revenue.productAmountCents)}
+            </span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-muted-foreground text-xs">Equipment + Lockers</span>
+            <span className="text-muted-foreground text-xs">Coaching</span>
             <span className="font-semibold tabular-nums">
-              {formatCurrency(revenue.equipmentRentalAmountCents + revenue.lockerRentalAmountCents)}
+              {formatCurrency(revenue.coachingAmountCents)}
+            </span>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-muted-foreground text-xs">Open play</span>
+            <span className="font-semibold tabular-nums">
+              {formatCurrency(revenue.openPlayAmountCents)}
             </span>
           </div>
           <div className="flex flex-col gap-1">

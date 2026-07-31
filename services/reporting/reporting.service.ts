@@ -135,13 +135,25 @@ export interface SalesByPaymentMethodRow {
 // schema but are never written to by any service (payment integration is
 // out of scope every phase), so these sums come from each module's own
 // amount fields instead. See ARCHITECTURE.md's Phase 9 addendum.
-
+//
+// Reported live: tournament fees / membership / equipment+lockers were
+// never actually run as businesses here — every one of those cards
+// always read ₱0.00 — while shop products, coaching, and open play (the
+// modules actually in use) were entirely absent from this total. Swapped
+// the unused three for those. Booking stays module-native
+// (bookingReport.totalAmountCents); product/coaching/open play are
+// Sale-sourced (same COMPLETED-in-range predicate as
+// getSalesByCategoryReport) since none of the three has its own
+// domain-native "amount" field to sum the way Booking/Tournament/
+// Membership/Equipment/Locker do — the Sale row IS the amount. Coaching
+// will read ₱0.00 until Phase 8 wires payment through it (see
+// SaleCategory.COACHING's own schema comment) — that's accurate, not a
+// bug, so it's shown rather than hidden.
 export interface RevenueReportResult {
   bookingAmountCents: number;
-  tournamentFeeAmountCents: number;
-  membershipAmountCents: number;
-  equipmentRentalAmountCents: number;
-  lockerRentalAmountCents: number;
+  productAmountCents: number;
+  coachingAmountCents: number;
+  openPlayAmountCents: number;
   totalAmountCents: number;
 }
 
@@ -389,64 +401,49 @@ export class ReportingService {
       .sort((a, b) => b.amountCents - a.amountCents);
   }
 
-  // Phase 10: accepts already-fetched booking/tournament reports so a
-  // caller that's already computed them (analyticsService.getDashboardKpis
-  // fetches both anyway) doesn't pay for a duplicate query — confirmed
-  // both were independently re-fetched on every dashboard load before this
-  // change. Callers that just want a self-contained revenue report (e.g.
-  // the /dashboard/reports page) can still call this with only `range`.
+  // Phase 10: accepts an already-fetched booking report so a caller that's
+  // already computed one (analyticsService.getDashboardKpis fetches its
+  // own anyway) doesn't pay for a duplicate query. Callers that just want
+  // a self-contained revenue report (e.g. the /dashboard/reports page)
+  // can still call this with only `range`.
   async getRevenueReport(
     range: DateRange,
-    precomputed?: { bookingReport?: BookingReportResult; tournamentReport?: TournamentReportRow[] },
+    precomputed?: { bookingReport?: BookingReportResult },
   ): Promise<RevenueReportResult> {
-    const [bookingReport, tournamentRows, membershipHistory, equipmentRentals, lockerRentals] =
-      await Promise.all([
-        precomputed?.bookingReport ?? this.getBookingReport(range),
-        precomputed?.tournamentReport ?? this.getTournamentReport(range),
-        prisma.membershipHistory.findMany({
-          where: {
-            createdAt: { gte: range.from, lte: range.to },
-            eventType: { in: ["ENROLLED", "RENEWED", "UPGRADED"] },
-          },
-          include: { membershipPlan: { select: { priceCents: true } } },
-          take: 500,
-        }),
-        prisma.equipmentRental.findMany({
-          where: { rentedAt: { gte: range.from, lte: range.to } },
-          include: { equipment: { select: { rentalRateCents: true } } },
-          take: 500,
-        }),
-        prisma.lockerRental.findMany({
-          where: { startAt: { gte: range.from, lte: range.to } },
-          select: { amountCents: true },
-          take: 500,
-        }),
-      ]);
+    const [bookingReport, saleCategoryTotals] = await Promise.all([
+      precomputed?.bookingReport ?? this.getBookingReport(range),
+      // Same COMPLETED-in-range predicate as getSalesByCategoryReport
+      // above — one groupBy covers all three, rather than a separate
+      // query (and a separate chance to drift) per category.
+      prisma.sale.groupBy({
+        by: ["category"],
+        where: {
+          category: { in: ["PRODUCT", "COACHING", "OPEN_PLAY"] },
+          status: "COMPLETED",
+          createdAt: { gte: range.from, lte: range.to },
+        },
+        _sum: { amountCents: true },
+      }),
+    ]);
 
-    const tournamentFeeAmountCents = tournamentRows.reduce((sum, t) => sum + t.feeRevenueCents, 0);
-    const membershipAmountCents = membershipHistory.reduce(
-      (sum, h) => sum + (h.membershipPlan?.priceCents ?? 0),
-      0,
+    const amountByCategory = new Map(
+      saleCategoryTotals.map((row) => [row.category, row._sum.amountCents ?? 0]),
     );
-    const equipmentRentalAmountCents = equipmentRentals.reduce(
-      (sum, r) => sum + r.equipment.rentalRateCents + r.lateFeeCents,
-      0,
-    );
-    const lockerRentalAmountCents = lockerRentals.reduce((sum, r) => sum + r.amountCents, 0);
+    const productAmountCents = amountByCategory.get("PRODUCT") ?? 0;
+    const coachingAmountCents = amountByCategory.get("COACHING") ?? 0;
+    const openPlayAmountCents = amountByCategory.get("OPEN_PLAY") ?? 0;
 
     const totalAmountCents =
       bookingReport.totalAmountCents +
-      tournamentFeeAmountCents +
-      membershipAmountCents +
-      equipmentRentalAmountCents +
-      lockerRentalAmountCents;
+      productAmountCents +
+      coachingAmountCents +
+      openPlayAmountCents;
 
     return {
       bookingAmountCents: bookingReport.totalAmountCents,
-      tournamentFeeAmountCents,
-      membershipAmountCents,
-      equipmentRentalAmountCents,
-      lockerRentalAmountCents,
+      productAmountCents,
+      coachingAmountCents,
+      openPlayAmountCents,
       totalAmountCents,
     };
   }
