@@ -17,8 +17,15 @@ import { prisma } from "@/lib/prisma";
 export interface OpenPlaySalesSummary {
   from: Date;
   to: Date;
-  weeknightGameRevenueCents: number;
-  weeknightGameCount: number;
+  // Renamed from weeknightGameRevenueCents/weeknightGameCount — Fri/Sat
+  // now runs regular per-game open play before its own evening cutoff
+  // too (see BUILD-SPEC.md §0's updated table), so "weeknight" stopped
+  // being accurate the moment a Friday-daytime tab could contribute real
+  // revenue here. The underlying computation (below) was already
+  // date-agnostic — GAME line items from any settled tab, whatever day
+  // it's on — only the name was misleading.
+  perGameRevenueCents: number;
+  perGameCount: number;
   equipmentRentalRevenueCents: number;
   // Open-play queue/tabs screen batch: "+ Add-on" line items (Water,
   // Grip Tape, Paddle Rental, ... — the Product catalog), tracked
@@ -27,7 +34,7 @@ export interface OpenPlaySalesSummary {
   addOnRevenueCents: number;
   // Net of discounts and void reversals — typically negative or zero.
   adjustmentsCents: number;
-  // weeknightGameRevenueCents + equipmentRentalRevenueCents +
+  // perGameRevenueCents + equipmentRentalRevenueCents +
   // addOnRevenueCents + adjustmentsCents, i.e. what actually got charged
   // and settled. Write-offs are excluded — §9 "write-offs never count
   // as revenue."
@@ -65,8 +72,8 @@ export class OpenPlaySalesService {
       include: { lineItems: true, writeOffEmployee: true },
     });
 
-    let weeknightGameRevenueCents = 0;
-    let weeknightGameCount = 0;
+    let perGameRevenueCents = 0;
+    let perGameCount = 0;
     let equipmentRentalRevenueCents = 0;
     let addOnRevenueCents = 0;
     let adjustmentsCents = 0;
@@ -84,8 +91,8 @@ export class OpenPlaySalesService {
         settledTabIds.push(tab.id);
         for (const item of tab.lineItems) {
           if (item.type === "GAME") {
-            weeknightGameRevenueCents += item.amountCents;
-            weeknightGameCount += item.qtyOrGames;
+            perGameRevenueCents += item.amountCents;
+            perGameCount += item.qtyOrGames;
           } else if (item.type === "RENTAL") {
             equipmentRentalRevenueCents += item.amountCents;
           } else if (item.type === "PRODUCT") {
@@ -153,13 +160,13 @@ export class OpenPlaySalesService {
     return {
       from,
       to,
-      weeknightGameRevenueCents,
-      weeknightGameCount,
+      perGameRevenueCents,
+      perGameCount,
       equipmentRentalRevenueCents,
       addOnRevenueCents,
       adjustmentsCents,
       netRevenueCents:
-        weeknightGameRevenueCents + equipmentRentalRevenueCents + addOnRevenueCents + adjustmentsCents + friSatRegistrationFeeCents,
+        perGameRevenueCents + equipmentRentalRevenueCents + addOnRevenueCents + adjustmentsCents + friSatRegistrationFeeCents,
       writeOffCents,
       writeOffCount,
       writeOffs,

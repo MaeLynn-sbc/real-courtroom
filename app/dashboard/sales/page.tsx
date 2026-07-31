@@ -53,7 +53,7 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
           <CardContent>
             <p className="text-2xl font-semibold">{formatCurrency(summary.netRevenueCents)}</p>
             <p className="text-muted-foreground text-xs">
-              {summary.weeknightGameCount} game{summary.weeknightGameCount === 1 ? "" : "s"} billed
+              {summary.perGameCount} game{summary.perGameCount === 1 ? "" : "s"} billed
             </p>
           </CardContent>
         </Card>
@@ -88,7 +88,7 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
         <CardContent className="flex flex-col gap-2 text-sm">
           <div className="flex items-center justify-between">
             <span>Regular game revenue</span>
-            <span>{formatCurrency(summary.weeknightGameRevenueCents)}</span>
+            <span>{formatCurrency(summary.perGameRevenueCents)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span>Equipment rentals</span>

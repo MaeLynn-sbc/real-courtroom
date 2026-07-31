@@ -342,8 +342,8 @@ async function testWriteOffRequiresEmployeeAndIsVisibleSeparately(courtId: strin
   assert(summary.writeOffCents === 3500, `expected write-off total to include this ₱35 tab, got ${summary.writeOffCents}`);
   assert(summary.writeOffCount >= 1, "expected at least 1 written-off tab counted");
   assert(
-    summary.weeknightGameRevenueCents === 0,
-    `a written-off tab's game charge must not appear in net revenue — got ${summary.weeknightGameRevenueCents}`,
+    summary.perGameRevenueCents === 0,
+    `a written-off tab's game charge must not appear in net revenue — got ${summary.perGameRevenueCents}`,
   );
 
   const detail = summary.writeOffs.find((w) => w.tabId === tab!.tab.id);
