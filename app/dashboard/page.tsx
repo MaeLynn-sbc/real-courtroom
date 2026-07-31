@@ -12,7 +12,6 @@ import { MyShiftPanel } from "@/features/dashboard/components/my-shift-panel";
 import { QuickActionsPanel } from "@/features/dashboard/components/quick-actions-panel";
 import { RecentActivityPanel } from "@/features/dashboard/components/recent-activity-panel";
 import { TodaysRevenuePanel } from "@/features/dashboard/components/todays-revenue-panel";
-import { formatCurrency } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
 import { activityFeedService } from "@/services/activity/activity-feed.service";
 import { analyticsService } from "@/services/analytics/analytics.service";
@@ -100,16 +99,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       <div>
         <h2 className="mb-3 text-lg font-medium">Trends</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3">
           <KpiCard label="Bookings" value={kpis.totalBookings} />
-          <KpiCard label="Billable amount" value={formatCurrency(kpis.billableAmountCents)} />
-          <KpiCard label="Active memberships" value={kpis.activeMemberships} />
-          <KpiCard label="New enrollments" value={kpis.newEnrollments} />
-          <KpiCard label="Open Play sessions (Fri/Sat)" value={kpis.openPlaySessions} />
           <KpiCard label="Tournaments" value={kpis.tournamentsInRange} />
-          <KpiCard label="Active equipment rentals" value={kpis.equipmentRentalsActive} />
-          <KpiCard label="Lockers occupied" value={kpis.lockersOccupied} />
-          <KpiCard label="Unresolved alerts" value={kpis.unresolvedAlerts} />
         </div>
       </div>
     </div>
