@@ -1,18 +1,38 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useTransition } from "react";
 import { Controller, useForm } from "react-hook-form";
+import { toast } from "sonner";
 
 import { createPublicOpenPlayRegistrationAction } from "@/actions/public-open-play-registration.actions";
-import { Button } from "@/components/ui/button";
+import { submitPublicOpenPlayRegistrationPaymentProofAction } from "@/actions/public-open-play-registration-payment-proof.actions";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OpenPlayRegistrationProofForm } from "@/features/open-play-capacity/components/open-play-registration-proof-form";
 import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
+import { cn } from "@/lib/utils";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
+
+// Mirrors OpenPlayRegistrationProofForm's own fileToBase64 (that file's
+// comment explains why: same file -> base64 -> action shape as
+// record-gcash-payment-form.tsx, an established, already-duplicated
+// pattern in this codebase rather than a shared cross-module helper).
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.slice(result.indexOf(",") + 1));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 export interface PublicOpenPlayNight {
   date: string; // "YYYY-MM-DD"
@@ -33,11 +53,24 @@ interface PublicOpenPlayRegistrationFormValues {
 // (which — unlike Booking's own "call the desk" stopgap — moves
 // straight into a real self-service proof-upload step, this app's
 // first one).
+//
+// Reported live: staff were seeing repeat AWAITING_PAYMENT holds with
+// no proof ever submitted — people clicking "Register," seeing "Slot
+// held," and walking away thinking that was the whole process, never
+// realizing a second step (the screenshot) was still needed. Fix: the
+// screenshot is now collected in the SAME form/click as "Register," so
+// the two service calls (create hold, then submit proof) fire back to
+// back with nothing for a customer to abandon in between. awaitingProof
+// is kept only as the FALLBACK path — reached if the hold was created
+// but the immediately-following proof submission itself failed (upload
+// error, etc.) — so nobody who already has a hold is ever stuck with no
+// way to finish; same manual retry UI as before, just no longer the
+// golden path.
 type Step =
   | { kind: "form" }
   | { kind: "waitlisted" }
   | { kind: "not-yet-open"; opensAt: string }
-  | { kind: "awaiting-proof"; registrationId: string; playerName: string }
+  | { kind: "awaiting-proof"; registrationId: string; playerName: string; proofFailedMessage?: string }
   | { kind: "proof-submitted" };
 
 export function PublicOpenPlayRegistrationForm({
@@ -69,6 +102,8 @@ export function PublicOpenPlayRegistrationForm({
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [step, setStep] = useState<Step>({ kind: "form" });
+  const [screenshot, setScreenshot] = useState<File | null>(null);
+  const [submittedAmount, setSubmittedAmount] = useState(String(registrationFeeCents / 100));
 
   const { control, register, handleSubmit } = useForm<PublicOpenPlayRegistrationFormValues>({
     defaultValues: {
@@ -81,6 +116,18 @@ export function PublicOpenPlayRegistrationForm({
 
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
+
+    if (!screenshot) {
+      const message = "Please upload your payment screenshot to complete registration.";
+      setServerError(message);
+      toast.error(message);
+      return;
+    }
+    const amountCents = Math.round(Number(submittedAmount) * 100);
+    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+      setServerError("Enter the amount you sent.");
+      return;
+    }
 
     startTransition(async () => {
       const result = await createPublicOpenPlayRegistrationAction(values);
@@ -99,7 +146,37 @@ export function PublicOpenPlayRegistrationForm({
         return;
       }
       if (result.status === "registered" && result.registrationId) {
-        setStep({ kind: "awaiting-proof", registrationId: result.registrationId, playerName: values.playerName });
+        // The hold exists now — from here on, ANY failure must still
+        // land the customer on the awaiting-proof fallback (never back
+        // on the plain form, which would let them re-submit and take a
+        // second seat instead of finishing this one).
+        const registrationId = result.registrationId;
+        try {
+          const dataBase64 = await fileToBase64(screenshot);
+          const proofResult = await submitPublicOpenPlayRegistrationPaymentProofAction({
+            registrationId,
+            gcashReference: null,
+            submittedAmountCents: amountCents,
+            screenshot: { fileName: screenshot.name, contentType: screenshot.type || "image/png", dataBase64 },
+          });
+          if (proofResult.error) {
+            setStep({
+              kind: "awaiting-proof",
+              registrationId,
+              playerName: values.playerName,
+              proofFailedMessage: `We saved your slot, but the screenshot upload failed: ${proofResult.error} Please try again below.`,
+            });
+            return;
+          }
+          setStep({ kind: "proof-submitted" });
+        } catch {
+          setStep({
+            kind: "awaiting-proof",
+            registrationId,
+            playerName: values.playerName,
+            proofFailedMessage: "We saved your slot, but the screenshot upload failed. Please try again below.",
+          });
+        }
         return;
       }
       setServerError(result.error ?? "Something went wrong. Please try again.");
@@ -142,8 +219,8 @@ export function PublicOpenPlayRegistrationForm({
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <p className="text-warning-foreground bg-warning/15 rounded-lg p-2 pt-2 text-xs">
-            This slot is held for 30 minutes, not yet confirmed. Send your GCash payment, then submit the
-            reference number and a screenshot below.
+            {step.proofFailedMessage ??
+              "This slot is held for 30 minutes, not yet confirmed. Send your GCash payment, then submit the reference number and a screenshot below."}
           </p>
           <OpenPlayRegistrationProofForm
             registrationId={step.registrationId}
@@ -237,6 +314,74 @@ export function PublicOpenPlayRegistrationForm({
         )}
       </div>
 
+      <div className="flex flex-col gap-3 rounded-lg border p-3">
+        <div>
+          <p className="text-sm font-medium">Pay via GCash to complete your registration</p>
+          <p className="text-muted-foreground text-xs">
+            Send the registration fee to the account below, then attach your payment screenshot — your seat
+            isn&apos;t held until both this form and the screenshot are submitted together.
+          </p>
+        </div>
+
+        {gcashInfo.qrImageUrl ? (
+          <Image
+            src={gcashInfo.qrImageUrl}
+            alt="GCash QR code"
+            width={140}
+            height={140}
+            unoptimized
+            className="self-center rounded-lg border"
+          />
+        ) : null}
+
+        {gcashInfo.accountName || gcashInfo.accountNumber ? (
+          <div className="rounded-lg border p-2 text-sm">
+            {gcashInfo.accountName ? (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Account name</span>
+                <span className="font-medium">{gcashInfo.accountName}</span>
+              </div>
+            ) : null}
+            {gcashInfo.accountNumber ? (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Account number</span>
+                <span className="font-mono font-medium">{gcashInfo.accountNumber}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="submittedAmount">Amount sent (₱)</Label>
+          <Input
+            id="submittedAmount"
+            type="number"
+            step="0.01"
+            value={submittedAmount}
+            onChange={(event) => setSubmittedAmount(event.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="screenshot">Payment screenshot (required)</Label>
+          <div className="flex items-center gap-3">
+            <label htmlFor="screenshot" className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}>
+              Choose file
+            </label>
+            <span className="text-muted-foreground truncate text-sm">
+              {screenshot ? screenshot.name : "No file chosen"}
+            </span>
+          </div>
+          <input
+            id="screenshot"
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(event) => setScreenshot(event.target.files?.[0] ?? null)}
+          />
+        </div>
+      </div>
+
       {serverError ? (
         <p className="text-destructive text-sm" role="alert">
           {serverError}
@@ -244,7 +389,7 @@ export function PublicOpenPlayRegistrationForm({
       ) : null}
 
       <Button type="submit" size="lg" disabled={isPending || (!lockedDate && nights.length === 0)}>
-        {isPending ? "Registering…" : "Register"}
+        {isPending ? "Submitting…" : "Register & submit payment"}
       </Button>
     </form>
   );
