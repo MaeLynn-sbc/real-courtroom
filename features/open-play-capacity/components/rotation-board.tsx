@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Pencil, X } from "lucide-react";
+import { ArrowLeftRight, Check, Pencil, X } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import {
   markWaitingAgainAction,
   moveQueueUnitAfterAction,
   proposeAssignmentAction,
+  swapPartyMemberAction,
   type OpenPlayRotationActionState,
 } from "@/actions/open-play-rotation.actions";
 import {
@@ -108,10 +109,12 @@ function unitLabel(unit: BoardUnit): string {
 // and Edit (new updateRegistrationDetailsAction) — the ask was explicitly
 // "remove and cancel... or edit and change players."
 function NextUpSection({
+  date,
   flatMembers,
   runAction,
   isPending,
 }: {
+  date: string;
   flatMembers: BoardMember[];
   runAction: (promise: Promise<OpenPlayRegistrationActionState>, successMessage: string) => void;
   isPending: boolean;
@@ -120,6 +123,12 @@ function NextUpSection({
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
+  // Group swap ("build the group swap same as tv display"): pick exactly
+  // two players from the preview (either box, doesn't matter which) and
+  // swap which group each is in. A plain toggle-select of up to 2
+  // registrationIds — same interaction shape as the Waiting card's
+  // existing manual-pick checkboxes, just capped at 2 instead of 4.
+  const [swapPicks, setSwapPicks] = useState<string[]>([]);
 
   const nextUp = flatMembers.slice(0, 4);
   const afterThat = flatMembers.slice(4, 8);
@@ -135,6 +144,27 @@ function NextUpSection({
   function closeEdit() {
     setEditingId(null);
     setEditError(null);
+  }
+
+  function toggleSwapPick(registrationId: string) {
+    setSwapPicks((prev) => {
+      if (prev.includes(registrationId)) return prev.filter((id) => id !== registrationId);
+      if (prev.length >= 2) return [prev[1], registrationId];
+      return [...prev, registrationId];
+    });
+  }
+
+  function confirmSwap() {
+    if (swapPicks.length !== 2) return;
+    runAction(
+      swapPartyMemberAction({
+        date,
+        memberARegistrationId: swapPicks[0],
+        memberBRegistrationId: swapPicks[1],
+      }),
+      "Swapped.",
+    );
+    setSwapPicks([]);
   }
 
   function saveEdit() {
@@ -180,37 +210,59 @@ function NextUpSection({
           <p className="text-muted-foreground text-sm">{emptyText}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {members.map((member) => (
-              <div
-                key={member.registrationId}
-                className="bg-background flex items-center gap-1 rounded-md border px-2 py-1 text-sm"
-              >
-                <span className="font-medium">{member.playerName}</span>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label={`Edit ${member.playerName}`}
-                  disabled={isPending}
-                  onClick={() => startEdit(member)}
+            {members.map((member) => {
+              const picked = swapPicks.includes(member.registrationId);
+              return (
+                <div
+                  key={member.registrationId}
+                  className={cn(
+                    "bg-background flex items-center gap-1 rounded-md border px-2 py-1 text-sm",
+                    picked && "border-court-blue ring-court-blue/40 ring-2",
+                  )}
                 >
-                  <Pencil className="size-3.5" />
-                </button>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:text-destructive"
-                  aria-label={`Remove ${member.playerName} from the queue`}
-                  disabled={isPending}
-                  onClick={() =>
-                    runAction(
-                      cancelRegistrationAction({ registrationId: member.registrationId }),
-                      "Removed from the queue.",
-                    )
-                  }
-                >
-                  <X className="size-3.5" />
-                </button>
-              </div>
-            ))}
+                  <span className="font-medium">{member.playerName}</span>
+                  <button
+                    type="button"
+                    className={cn(
+                      "text-muted-foreground hover:text-foreground",
+                      picked && "text-court-blue",
+                    )}
+                    aria-label={
+                      picked
+                        ? `Deselect ${member.playerName} for swap`
+                        : `Select ${member.playerName} to swap groups`
+                    }
+                    disabled={isPending}
+                    onClick={() => toggleSwapPick(member.registrationId)}
+                  >
+                    <ArrowLeftRight className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label={`Edit ${member.playerName}`}
+                    disabled={isPending}
+                    onClick={() => startEdit(member)}
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label={`Remove ${member.playerName} from the queue`}
+                    disabled={isPending}
+                    onClick={() =>
+                      runAction(
+                        cancelRegistrationAction({ registrationId: member.registrationId }),
+                        "Removed from the queue.",
+                      )
+                    }
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -259,6 +311,36 @@ function NextUpSection({
                 variant="ghost"
                 disabled={isPending}
                 onClick={closeEdit}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {swapPicks.length > 0 ? (
+          <div className="border-court-blue/40 bg-court-blue/[0.06] flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+            <p className="text-sm">
+              {swapPicks.length === 1
+                ? `Pick one more player to swap with ${flatMembers.find((m) => m.registrationId === swapPicks[0])?.playerName ?? ""}.`
+                : `Swap ${flatMembers.find((m) => m.registrationId === swapPicks[0])?.playerName ?? ""} with ${
+                    flatMembers.find((m) => m.registrationId === swapPicks[1])?.playerName ?? ""
+                  } — trades who's in each other's group.`}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={isPending || swapPicks.length !== 2}
+                onClick={confirmSwap}
+              >
+                Swap
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={isPending}
+                onClick={() => setSwapPicks([])}
               >
                 Cancel
               </Button>
@@ -526,7 +608,12 @@ export function RotationBoard({
         ))}
       </div>
 
-      <NextUpSection flatMembers={flatWaitingMembers} runAction={runAction} isPending={isPending} />
+      <NextUpSection
+        date={date}
+        flatMembers={flatWaitingMembers}
+        runAction={runAction}
+        isPending={isPending}
+      />
 
       <Card>
         <CardHeader>

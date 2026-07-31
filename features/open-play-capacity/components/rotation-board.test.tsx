@@ -5,6 +5,7 @@ import {
   announceAssignmentAction,
   confirmAssignmentAction,
   moveQueueUnitAfterAction,
+  swapPartyMemberAction,
 } from "@/actions/open-play-rotation.actions";
 
 jest.mock("@/actions/open-play-rotation.actions", () => ({
@@ -18,6 +19,7 @@ jest.mock("@/actions/open-play-rotation.actions", () => ({
   markWaitingAgainAction: jest.fn(),
   moveQueueUnitAfterAction: jest.fn(),
   proposeAssignmentAction: jest.fn(),
+  swapPartyMemberAction: jest.fn(),
 }));
 
 // "Next up" box's Cancel/Edit actions — mocked for the same reason as
@@ -32,9 +34,16 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: jest.fn() }),
 }));
 
-const mockedAnnounce = announceAssignmentAction as jest.MockedFunction<typeof announceAssignmentAction>;
-const mockedConfirm = confirmAssignmentAction as jest.MockedFunction<typeof confirmAssignmentAction>;
-const mockedMoveAfter = moveQueueUnitAfterAction as jest.MockedFunction<typeof moveQueueUnitAfterAction>;
+const mockedAnnounce = announceAssignmentAction as jest.MockedFunction<
+  typeof announceAssignmentAction
+>;
+const mockedConfirm = confirmAssignmentAction as jest.MockedFunction<
+  typeof confirmAssignmentAction
+>;
+const mockedMoveAfter = moveQueueUnitAfterAction as jest.MockedFunction<
+  typeof moveQueueUnitAfterAction
+>;
+const mockedSwap = swapPartyMemberAction as jest.MockedFunction<typeof swapPartyMemberAction>;
 
 async function clickAsync(element: Element) {
   await act(async () => {
@@ -200,17 +209,51 @@ describe("RotationBoard — queue reorder (Move after)", () => {
   });
 
   const waiting: RotationBoardProps["waiting"] = [
-    { partyId: null, members: [{ queueEntryId: "qe-1", registrationId: "r-alice", playerName: "Alice", skillLevel: "BEGINNER" }], waitMinutes: 5, pastMaxWait: false },
+    {
+      partyId: null,
+      members: [
+        {
+          queueEntryId: "qe-1",
+          registrationId: "r-alice",
+          playerName: "Alice",
+          skillLevel: "BEGINNER",
+        },
+      ],
+      waitMinutes: 5,
+      pastMaxWait: false,
+    },
     {
       partyId: "party-1",
       members: [
-        { queueEntryId: "qe-2", registrationId: "r-ben", playerName: "Ben", skillLevel: "BEGINNER" },
-        { queueEntryId: "qe-3", registrationId: "r-carla", playerName: "Carla", skillLevel: "BEGINNER" },
+        {
+          queueEntryId: "qe-2",
+          registrationId: "r-ben",
+          playerName: "Ben",
+          skillLevel: "BEGINNER",
+        },
+        {
+          queueEntryId: "qe-3",
+          registrationId: "r-carla",
+          playerName: "Carla",
+          skillLevel: "BEGINNER",
+        },
       ],
       waitMinutes: 3,
       pastMaxWait: false,
     },
-    { partyId: null, members: [{ queueEntryId: "qe-4", registrationId: "r-dex", playerName: "Dex", skillLevel: "BEGINNER" }], waitMinutes: 1, pastMaxWait: false },
+    {
+      partyId: null,
+      members: [
+        {
+          queueEntryId: "qe-4",
+          registrationId: "r-dex",
+          playerName: "Dex",
+          skillLevel: "BEGINNER",
+        },
+      ],
+      waitMinutes: 1,
+      pastMaxWait: false,
+    },
   ];
 
   function renderBoard() {
@@ -278,5 +321,88 @@ describe("RotationBoard — queue reorder (Move after)", () => {
     const options = Array.from(dexRow.querySelectorAll("option")).map((o) => o.textContent);
     expect(options).not.toContain("Dex");
     expect(options).toEqual(expect.arrayContaining(["Alice", "Ben & Carla"]));
+  });
+});
+
+describe("RotationBoard — Next up preview (group swap)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const waiting: RotationBoardProps["waiting"] = [
+    {
+      partyId: null,
+      members: [
+        {
+          queueEntryId: "qe-1",
+          registrationId: "r-alice",
+          playerName: "Alice",
+          skillLevel: "BEGINNER",
+        },
+      ],
+      waitMinutes: 5,
+      pastMaxWait: false,
+    },
+    {
+      partyId: "party-1",
+      members: [
+        {
+          queueEntryId: "qe-2",
+          registrationId: "r-ben",
+          playerName: "Ben",
+          skillLevel: "BEGINNER",
+        },
+        {
+          queueEntryId: "qe-3",
+          registrationId: "r-carla",
+          playerName: "Carla",
+          skillLevel: "BEGINNER",
+        },
+      ],
+      waitMinutes: 3,
+      pastMaxWait: false,
+    },
+  ];
+
+  function renderBoard() {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={waiting}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+  }
+
+  it("swaps the two selected players' groups once both are picked and Swap is pressed", async () => {
+    mockedSwap.mockResolvedValue({ error: null });
+    renderBoard();
+
+    await clickAsync(screen.getByRole("button", { name: "Select Alice to swap groups" }));
+    await clickAsync(screen.getByRole("button", { name: "Select Ben to swap groups" }));
+    await clickAsync(screen.getByRole("button", { name: /^swap$/i }));
+
+    expect(mockedSwap).toHaveBeenCalledWith({
+      date: "2026-08-01",
+      memberARegistrationId: "r-alice",
+      memberBRegistrationId: "r-ben",
+    });
+  });
+
+  it("caps the swap selection at 2 — picking a third player drops the first", async () => {
+    renderBoard();
+
+    await clickAsync(screen.getByRole("button", { name: "Select Alice to swap groups" }));
+    await clickAsync(screen.getByRole("button", { name: "Select Ben to swap groups" }));
+    await clickAsync(screen.getByRole("button", { name: "Select Carla to swap groups" }));
+
+    expect(
+      screen.queryByRole("button", { name: "Deselect Alice for swap" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deselect Ben for swap" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deselect Carla for swap" })).toBeInTheDocument();
   });
 });

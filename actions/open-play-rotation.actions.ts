@@ -8,16 +8,21 @@ import {
   moveQueueUnitAfterInputSchema,
   proposeAssignmentInputSchema,
   queueEntryIdInputSchema,
+  swapPartyMemberInputSchema,
   type AssignmentIdInput,
   type ManualAssignmentInput,
   type MoveQueueUnitAfterInput,
   type ProposeAssignmentInput,
   type QueueEntryIdInput,
+  type SwapPartyMemberInput,
 } from "@/features/open-play-capacity/schemas/open-play-rotation.schema";
 import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
-import { AssignmentAlreadyCompletedError, openPlayRotationService } from "@/services/open-play/open-play-rotation.service";
+import {
+  AssignmentAlreadyCompletedError,
+  openPlayRotationService,
+} from "@/services/open-play/open-play-rotation.service";
 import { PERMISSIONS } from "@/types/permissions";
 
 export interface OpenPlayRotationActionState {
@@ -25,7 +30,10 @@ export interface OpenPlayRotationActionState {
 }
 
 function requireOpenPlayManage() {
-  return requirePermission(PERMISSIONS.OPEN_PLAY_MANAGE, "You don't have permission to manage open play.");
+  return requirePermission(
+    PERMISSIONS.OPEN_PLAY_MANAGE,
+    "You don't have permission to manage open play.",
+  );
 }
 
 function revalidateRotation(): void {
@@ -36,7 +44,9 @@ function parseDate(dateParam: string): Date {
   return new Date(`${dateParam}T00:00:00`);
 }
 
-export async function proposeAssignmentAction(input: ProposeAssignmentInput): Promise<OpenPlayRotationActionState> {
+export async function proposeAssignmentAction(
+  input: ProposeAssignmentInput,
+): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {
     return { error: authz.error };
@@ -59,11 +69,15 @@ export async function proposeAssignmentAction(input: ProposeAssignmentInput): Pr
     revalidateRotation();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "proposeAssignmentAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "proposeAssignmentAction", userId: authz.userId }),
+    };
   }
 }
 
-export async function createManualAssignmentAction(input: ManualAssignmentInput): Promise<OpenPlayRotationActionState> {
+export async function createManualAssignmentAction(
+  input: ManualAssignmentInput,
+): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {
     return { error: authz.error };
@@ -84,11 +98,15 @@ export async function createManualAssignmentAction(input: ManualAssignmentInput)
     revalidateRotation();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "createManualAssignmentAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "createManualAssignmentAction", userId: authz.userId }),
+    };
   }
 }
 
-export async function confirmAssignmentAction(input: AssignmentIdInput): Promise<OpenPlayRotationActionState> {
+export async function confirmAssignmentAction(
+  input: AssignmentIdInput,
+): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {
     return { error: authz.error };
@@ -104,7 +122,9 @@ export async function confirmAssignmentAction(input: AssignmentIdInput): Promise
     revalidateRotation();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "confirmAssignmentAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "confirmAssignmentAction", userId: authz.userId }),
+    };
   }
 }
 
@@ -114,7 +134,9 @@ export async function confirmAssignmentAction(input: AssignmentIdInput): Promise
 // OPEN_PLAY_MANAGE). Re-pressable: no state check beyond the service's own
 // PROPOSED/ACTIVE guard, so pressing this again just re-stamps the
 // timestamp the TV watches.
-export async function announceAssignmentAction(input: AssignmentIdInput): Promise<OpenPlayRotationActionState> {
+export async function announceAssignmentAction(
+  input: AssignmentIdInput,
+): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {
     return { error: authz.error };
@@ -130,11 +152,15 @@ export async function announceAssignmentAction(input: AssignmentIdInput): Promis
     revalidateRotation();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "announceAssignmentAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "announceAssignmentAction", userId: authz.userId }),
+    };
   }
 }
 
-export async function cancelAssignmentAction(input: AssignmentIdInput): Promise<OpenPlayRotationActionState> {
+export async function cancelAssignmentAction(
+  input: AssignmentIdInput,
+): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {
     return { error: authz.error };
@@ -150,11 +176,15 @@ export async function cancelAssignmentAction(input: AssignmentIdInput): Promise<
     revalidateRotation();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "cancelAssignmentAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "cancelAssignmentAction", userId: authz.userId }),
+    };
   }
 }
 
-export async function completeAssignmentAction(input: AssignmentIdInput): Promise<OpenPlayRotationActionState> {
+export async function completeAssignmentAction(
+  input: AssignmentIdInput,
+): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {
     return { error: authz.error };
@@ -176,15 +206,22 @@ export async function completeAssignmentAction(input: AssignmentIdInput): Promis
     // server-side, but the staff member sees a normal refresh, not an
     // error toast for something that isn't actually wrong.
     if (error instanceof AssignmentAlreadyCompletedError) {
-      logger.info({ assignmentId: parsed.data.assignmentId, userId: authz.userId }, "completeAssignmentAction: already completed, no-op");
+      logger.info(
+        { assignmentId: parsed.data.assignmentId, userId: authz.userId },
+        "completeAssignmentAction: already completed, no-op",
+      );
       revalidateRotation();
       return { error: null };
     }
-    return { error: toActionError(error, { action: "completeAssignmentAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "completeAssignmentAction", userId: authz.userId }),
+    };
   }
 }
 
-export async function markRestingAction(input: QueueEntryIdInput): Promise<OpenPlayRotationActionState> {
+export async function markRestingAction(
+  input: QueueEntryIdInput,
+): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {
     return { error: authz.error };
@@ -204,7 +241,9 @@ export async function markRestingAction(input: QueueEntryIdInput): Promise<OpenP
   }
 }
 
-export async function markWaitingAgainAction(input: QueueEntryIdInput): Promise<OpenPlayRotationActionState> {
+export async function markWaitingAgainAction(
+  input: QueueEntryIdInput,
+): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {
     return { error: authz.error };
@@ -220,7 +259,9 @@ export async function markWaitingAgainAction(input: QueueEntryIdInput): Promise<
     revalidateRotation();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "markWaitingAgainAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "markWaitingAgainAction", userId: authz.userId }),
+    };
   }
 }
 
@@ -228,7 +269,9 @@ export async function markWaitingAgainAction(input: QueueEntryIdInput): Promise<
 // needed. Moves a whole unit (solo or party) to sit right after a chosen,
 // later-queued player; everyone passed advances automatically, since
 // nobody else's row is touched (see moveQueueUnitAfter's own comment).
-export async function moveQueueUnitAfterAction(input: MoveQueueUnitAfterInput): Promise<OpenPlayRotationActionState> {
+export async function moveQueueUnitAfterAction(
+  input: MoveQueueUnitAfterInput,
+): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {
     return { error: authz.error };
@@ -249,11 +292,44 @@ export async function moveQueueUnitAfterAction(input: MoveQueueUnitAfterInput): 
     revalidateRotation();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "moveQueueUnitAfterAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "moveQueueUnitAfterAction", userId: authz.userId }),
+    };
   }
 }
 
-export async function markDoneAction(input: QueueEntryIdInput): Promise<OpenPlayRotationActionState> {
+export async function swapPartyMemberAction(
+  input: SwapPartyMemberInput,
+): Promise<OpenPlayRotationActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = swapPartyMemberInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await openPlayRotationService.swapPartyMember(
+      parseDate(parsed.data.date),
+      parsed.data.memberARegistrationId,
+      parsed.data.memberBRegistrationId,
+      authz.userId,
+    );
+    revalidateRotation();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "swapPartyMemberAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function markDoneAction(
+  input: QueueEntryIdInput,
+): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {
     return { error: authz.error };

@@ -34,3 +34,20 @@ export const moveQueueUnitAfterInputSchema = z.object({
 });
 
 export type MoveQueueUnitAfterInput = z.infer<typeof moveQueueUnitAfterInputSchema>;
+
+// "build the group swap same as tv display" — exchanges which group two
+// waiting players belong to (a forming foursome short on skill fit trades
+// one player for another), from the Next up preview box. Symmetric by
+// design: both players simply trade partyId, so group sizes never change
+// and there's nothing to validate about capacity.
+export const swapPartyMemberInputSchema = z
+  .object({
+    date: z.string().min(1),
+    memberARegistrationId: z.string().min(1),
+    memberBRegistrationId: z.string().min(1),
+  })
+  .refine((value) => value.memberARegistrationId !== value.memberBRegistrationId, {
+    message: "Pick two different players to swap.",
+  });
+
+export type SwapPartyMemberInput = z.infer<typeof swapPartyMemberInputSchema>;

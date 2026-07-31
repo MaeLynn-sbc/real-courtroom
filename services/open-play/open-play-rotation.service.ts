@@ -163,13 +163,17 @@ async function fetchWaitingUnits(
     // this unit is excluded from rotation rather than silently overfilling
     // a doubles court.
     if (group.length > 4) {
-      logger.error({ partyId, size: group.length, date }, "Party larger than 4 in rotation queue — excluding from proposals");
+      logger.error(
+        { partyId, size: group.length, date },
+        "Party larger than 4 in rotation queue — excluding from proposals",
+      );
       continue;
     }
     // All members of a party share the same joinedQueueAt — created
     // together, in the same transaction, the moment the last member
     // checked in (§6) — so any member's value is the party's.
-    const averageSkill = group.reduce((sum, entry) => sum + skillOrder(entry.skillLevel), 0) / group.length;
+    const averageSkill =
+      group.reduce((sum, entry) => sum + skillOrder(entry.skillLevel), 0) / group.length;
 
     partyUnits.push({
       partyId,
@@ -395,7 +399,11 @@ export class OpenPlayRotationService {
         action: "game_assignment.proposed",
         entityType: "GameAssignment",
         entityId: created.id,
-        newValues: { source: "AUTO", courtId, registrationIds: created.participants.map((p) => p.registrationId) },
+        newValues: {
+          source: "AUTO",
+          courtId,
+          registrationIds: created.participants.map((p) => p.registrationId),
+        },
       });
     }
 
@@ -438,13 +446,17 @@ export class OpenPlayRotationService {
             orderBy: { createdAt: "desc" },
           });
           if (existingParticipant?.assignment.status === "ACTIVE") {
-            throw new Error(`${entry.playerName} is already mid-game — finish or cancel that game first.`);
+            throw new Error(
+              `${entry.playerName} is already mid-game — finish or cancel that game first.`,
+            );
           }
           if (existingParticipant?.assignment.status === "PROPOSED") {
             await this.cancelAssignmentTx(tx, existingParticipant.assignment.id);
           }
         } else if (entry.status !== "WAITING") {
-          throw new Error(`${entry.playerName} isn't waiting (status: ${entry.status.toLowerCase()}).`);
+          throw new Error(
+            `${entry.playerName} isn't waiting (status: ${entry.status.toLowerCase()}).`,
+          );
         }
       }
 
@@ -461,16 +473,31 @@ export class OpenPlayRotationService {
 
       return this.createAssignmentTx(
         tx,
-        { date, courtId, sessionId, skillSpread, source: "MANUAL", createdByUserId: actorUserId, registrationIds },
+        {
+          date,
+          courtId,
+          sessionId,
+          skillSpread,
+          source: "MANUAL",
+          createdByUserId: actorUserId,
+          registrationIds,
+        },
         actorUserId,
       );
     });
   }
 
-  async confirmAssignment(assignmentId: string, actorUserId: string): Promise<GameAssignmentWithParticipants> {
-    const assignment = await prisma.gameAssignment.findUniqueOrThrow({ where: { id: assignmentId } });
+  async confirmAssignment(
+    assignmentId: string,
+    actorUserId: string,
+  ): Promise<GameAssignmentWithParticipants> {
+    const assignment = await prisma.gameAssignment.findUniqueOrThrow({
+      where: { id: assignmentId },
+    });
     if (assignment.status !== "PROPOSED") {
-      throw new Error(`Only a proposed assignment can be confirmed (current status: ${assignment.status}).`);
+      throw new Error(
+        `Only a proposed assignment can be confirmed (current status: ${assignment.status}).`,
+      );
     }
 
     const updated = await prisma.gameAssignment.update({
@@ -501,10 +528,17 @@ export class OpenPlayRotationService {
   // again. Works on PROPOSED (the normal case — announce, then start) or
   // ACTIVE (a legitimate re-announce after the timer's already running),
   // but not DONE/CANCELLED — nothing to announce for a game that's over.
-  async announceAssignment(assignmentId: string, actorUserId: string): Promise<GameAssignmentWithParticipants> {
-    const assignment = await prisma.gameAssignment.findUniqueOrThrow({ where: { id: assignmentId } });
+  async announceAssignment(
+    assignmentId: string,
+    actorUserId: string,
+  ): Promise<GameAssignmentWithParticipants> {
+    const assignment = await prisma.gameAssignment.findUniqueOrThrow({
+      where: { id: assignmentId },
+    });
     if (assignment.status !== "PROPOSED" && assignment.status !== "ACTIVE") {
-      throw new Error(`Can't announce an assignment that's already ${assignment.status.toLowerCase()}.`);
+      throw new Error(
+        `Can't announce an assignment that's already ${assignment.status.toLowerCase()}.`,
+      );
     }
 
     const updated = await prisma.gameAssignment.update({
@@ -538,7 +572,9 @@ export class OpenPlayRotationService {
     actorUserId: string,
     testOnlyRaceHook: RaceHook = noopRaceHook,
   ): Promise<GameAssignmentWithParticipants> {
-    const result = await prisma.$transaction((tx) => this.cancelAssignmentTx(tx, assignmentId, testOnlyRaceHook));
+    const result = await prisma.$transaction((tx) =>
+      this.cancelAssignmentTx(tx, assignmentId, testOnlyRaceHook),
+    );
 
     await this.writeAuditLog({
       actorUserId,
@@ -601,7 +637,10 @@ export class OpenPlayRotationService {
   // joinedQueueAt reset and gamesPlayed incremented." Also records
   // RecentPairing for every pair among the 4 (§7's soft repeat-avoidance
   // signal) and never touches capacity/waitlist — that's markDone below.
-  async completeAssignment(assignmentId: string, actorUserId: string): Promise<GameAssignmentWithParticipants> {
+  async completeAssignment(
+    assignmentId: string,
+    actorUserId: string,
+  ): Promise<GameAssignmentWithParticipants> {
     const result = await prisma.$transaction(async (tx) => {
       // Row lock BEFORE reading status — closes a real race: two
       // concurrent completeAssignment calls for the same assignment can
@@ -638,7 +677,9 @@ export class OpenPlayRotationService {
         throw new AssignmentAlreadyCompletedError(assignmentId);
       }
       if (assignment.status !== "ACTIVE") {
-        throw new Error(`Only an active assignment can be completed (current status: ${assignment.status}).`);
+        throw new Error(
+          `Only an active assignment can be completed (current status: ${assignment.status}).`,
+        );
       }
 
       const now = new Date();
@@ -646,16 +687,32 @@ export class OpenPlayRotationService {
 
       await tx.queueEntry.updateMany({
         where: { registrationId: { in: registrationIds } },
-        data: { status: "WAITING", joinedQueueAt: now, lastPlayedAt: now, gamesPlayed: { increment: 1 } },
+        data: {
+          status: "WAITING",
+          joinedQueueAt: now,
+          lastPlayedAt: now,
+          gamesPlayed: { increment: 1 },
+        },
       });
 
       for (let i = 0; i < registrationIds.length; i++) {
         for (let j = i + 1; j < registrationIds.length; j++) {
           const [idA, idB] = orderedPairKey(registrationIds[i], registrationIds[j]);
           await tx.recentPairing.upsert({
-            where: { date_registrationIdA_registrationIdB: { date: assignment.date, registrationIdA: idA, registrationIdB: idB } },
+            where: {
+              date_registrationIdA_registrationIdB: {
+                date: assignment.date,
+                registrationIdA: idA,
+                registrationIdB: idB,
+              },
+            },
             update: { gameCount: { increment: 1 } },
-            create: { date: assignment.date, registrationIdA: idA, registrationIdB: idB, gameCount: 1 },
+            create: {
+              date: assignment.date,
+              registrationIdA: idA,
+              registrationIdB: idB,
+              gameCount: 1,
+            },
           });
         }
       }
@@ -693,9 +750,14 @@ export class OpenPlayRotationService {
   async markResting(queueEntryId: string, actorUserId: string): Promise<QueueEntry> {
     const entry = await prisma.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
     if (entry.status !== "WAITING") {
-      throw new Error(`Can only rest a player who is waiting (current status: ${entry.status.toLowerCase()}).`);
+      throw new Error(
+        `Can only rest a player who is waiting (current status: ${entry.status.toLowerCase()}).`,
+      );
     }
-    const updated = await prisma.queueEntry.update({ where: { id: queueEntryId }, data: { status: "RESTING" } });
+    const updated = await prisma.queueEntry.update({
+      where: { id: queueEntryId },
+      data: { status: "RESTING" },
+    });
     await this.writeAuditLog({
       actorUserId,
       action: "queue_entry.rested",
@@ -711,9 +773,14 @@ export class OpenPlayRotationService {
   async markWaitingAgain(queueEntryId: string, actorUserId: string): Promise<QueueEntry> {
     const entry = await prisma.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
     if (entry.status !== "RESTING") {
-      throw new Error(`Can only un-rest a resting player (current status: ${entry.status.toLowerCase()}).`);
+      throw new Error(
+        `Can only un-rest a resting player (current status: ${entry.status.toLowerCase()}).`,
+      );
     }
-    const updated = await prisma.queueEntry.update({ where: { id: queueEntryId }, data: { status: "WAITING" } });
+    const updated = await prisma.queueEntry.update({
+      where: { id: queueEntryId },
+      data: { status: "WAITING" },
+    });
     await this.writeAuditLog({
       actorUserId,
       action: "queue_entry.waiting_again",
@@ -769,13 +836,17 @@ export class OpenPlayRotationService {
       // is defense against a stale/tampered request, not the normal
       // path — same "parties never split" rule as everywhere else in
       // this file (see createManualAssignment, assembleFoursome).
-      const partyIds = new Set(movers.map((m) => m.partyId).filter((id): id is string => id !== null));
+      const partyIds = new Set(
+        movers.map((m) => m.partyId).filter((id): id is string => id !== null),
+      );
       if (partyIds.size > 1) {
         throw new Error("Selected players span more than one party.");
       }
       if (partyIds.size === 1) {
         const [partyId] = [...partyIds];
-        const fullParty = await tx.queueEntry.findMany({ where: { date, partyId, status: "WAITING" } });
+        const fullParty = await tx.queueEntry.findMany({
+          where: { date, partyId, status: "WAITING" },
+        });
         if (fullParty.length !== movers.length) {
           throw new Error("A party moves together — select the whole party, not part of it.");
         }
@@ -803,6 +874,63 @@ export class OpenPlayRotationService {
     });
   }
 
+  // "build the group swap same as tv display" — the Next up preview box
+  // (rotation-board.tsx) shows flattened members with no visible party
+  // boundary, same as the TV display it mirrors, so swapping is framed as
+  // "trade these two players' groups," not "edit this party's roster."
+  // A plain exchange of partyId between the two entries: whatever group A
+  // was in, B joins it and A leaves it (and vice versa) — size-preserving
+  // by construction, so there's no capacity re-check to do. Both the
+  // QueueEntry (what fetchWaitingUnits actually groups by) and the
+  // OpenPlayNightRegistration (what re-check-in / other reads see) are
+  // updated together so the two never drift apart.
+  async swapPartyMember(
+    date: Date,
+    memberARegistrationId: string,
+    memberBRegistrationId: string,
+    actorUserId: string,
+  ): Promise<void> {
+    if (memberARegistrationId === memberBRegistrationId) {
+      throw new Error("Pick two different players to swap.");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const [entryA, entryB] = await Promise.all([
+        tx.queueEntry.findFirst({
+          where: { date, registrationId: memberARegistrationId, status: "WAITING" },
+        }),
+        tx.queueEntry.findFirst({
+          where: { date, registrationId: memberBRegistrationId, status: "WAITING" },
+        }),
+      ]);
+      if (!entryA || !entryB) {
+        throw new Error("Both players must currently be waiting.");
+      }
+      if (entryA.partyId === entryB.partyId) {
+        throw new Error("Those two players are already in the same group.");
+      }
+
+      await tx.queueEntry.update({ where: { id: entryA.id }, data: { partyId: entryB.partyId } });
+      await tx.queueEntry.update({ where: { id: entryB.id }, data: { partyId: entryA.partyId } });
+      await tx.openPlayNightRegistration.update({
+        where: { id: memberARegistrationId },
+        data: { partyId: entryB.partyId },
+      });
+      await tx.openPlayNightRegistration.update({
+        where: { id: memberBRegistrationId },
+        data: { partyId: entryA.partyId },
+      });
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "queue_entry.party_swapped",
+      entityType: "QueueEntry",
+      entityId: memberARegistrationId,
+      newValues: { memberARegistrationId, memberBRegistrationId },
+    });
+  }
+
   // BUILD-SPEC.md §7 "done (left for the night). done frees a Fri/Sat
   // capacity slot and triggers waitlist promotion, reusing the existing
   // openPlayRegistrationService release/promotion logic" — that's exactly
@@ -811,9 +939,14 @@ export class OpenPlayRotationService {
   async markDone(queueEntryId: string, actorUserId: string): Promise<QueueEntry> {
     const entry = await prisma.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
     if (entry.status !== "WAITING" && entry.status !== "RESTING") {
-      throw new Error(`Can only mark done a player who isn't mid-game (current status: ${entry.status.toLowerCase()}).`);
+      throw new Error(
+        `Can only mark done a player who isn't mid-game (current status: ${entry.status.toLowerCase()}).`,
+      );
     }
-    const updated = await prisma.queueEntry.update({ where: { id: queueEntryId }, data: { status: "DONE" } });
+    const updated = await prisma.queueEntry.update({
+      where: { id: queueEntryId },
+      data: { status: "DONE" },
+    });
     await openPlayRegistrationService.markCheckedOut(entry.registrationId, actorUserId);
     return updated;
   }
@@ -828,7 +961,10 @@ export class OpenPlayRotationService {
         include: { participants: { include: { registration: true } } },
       }),
       fetchWaitingUnits(date),
-      prisma.queueEntry.findMany({ where: { date, status: "RESTING" }, orderBy: { playerName: "asc" } }),
+      prisma.queueEntry.findMany({
+        where: { date, status: "RESTING" },
+        orderBy: { playerName: "asc" },
+      }),
       settingsService.getOpenPlaySettings(),
     ]);
 
@@ -894,14 +1030,20 @@ export class OpenPlayRotationService {
     },
     actorUserId: string | null,
   ): Promise<GameAssignmentWithParticipants> {
-    const result = await prisma.$transaction((tx) => this.createAssignmentTx(tx, input, actorUserId));
+    const result = await prisma.$transaction((tx) =>
+      this.createAssignmentTx(tx, input, actorUserId),
+    );
 
     await this.writeAuditLog({
       actorUserId,
       action: "game_assignment.proposed",
       entityType: "GameAssignment",
       entityId: result.id,
-      newValues: { source: input.source, courtId: input.courtId, registrationIds: input.registrationIds },
+      newValues: {
+        source: input.source,
+        courtId: input.courtId,
+        registrationIds: input.registrationIds,
+      },
     });
 
     return result;
@@ -972,7 +1114,10 @@ export class OpenPlayRotationService {
         },
       });
     } catch (error) {
-      logger.error({ err: error, action: entry.action, userId: entry.actorUserId }, "Failed to write audit log entry");
+      logger.error(
+        { err: error, action: entry.action, userId: entry.actorUserId },
+        "Failed to write audit log entry",
+      );
     }
   }
 }
