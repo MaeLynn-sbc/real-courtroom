@@ -59,7 +59,16 @@ fi
 echo "==> No pending migrations"
 
 echo "==> Building"
-as_tcpms "npm run build"
+# The droplet has 1.9GB RAM. Confirmed live: a plain `npm run build` OOM'd
+# during Next.js's own type-checking pass (V8's auto-detected default heap
+# ceiling landed right around ~1GB on a box this constrained, well before
+# actually running out of the 2GB of swap that was still free) — and it
+# crashed AFTER wiping the previous .next output, leaving the currently-
+# running process serving on borrowed time (already-open file handles to
+# now-deleted files) until its next restart. An explicit higher ceiling,
+# leaning on swap, built successfully on retry — same fix here, up front,
+# so a routine deploy can't hit this again.
+as_tcpms "NODE_OPTIONS='--max-old-space-size=3072' npm run build"
 
 echo "==> Restarting $SERVICE"
 systemctl restart "$SERVICE"

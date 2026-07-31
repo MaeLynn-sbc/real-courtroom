@@ -241,6 +241,18 @@ anymore.
 6. **Start the app** with `npm run build && npm run start` (or your
    platform's equivalent) — never `npm run dev` in production.
 
+   **On the current droplet (1.9GB RAM), build with a higher heap ceiling:**
+   `NODE_OPTIONS='--max-old-space-size=3072' npm run build`. Confirmed
+   live: a plain `npm run build` OOM'd during Next.js's own type-checking
+   pass — V8's auto-detected default heap ceiling landed around ~1GB on a
+   box this constrained, well before actually exhausting the swap that
+   was still free — and crashed AFTER wiping the previous `.next` output,
+   leaving the already-running process serving on borrowed time (via
+   file handles to now-deleted files) until its next restart, at which
+   point it would have failed to come back up at all.
+   `scripts/deploy-production.sh` already sets this; only relevant if
+   building manually, outside that script.
+
 7. **Verify with a REAL page fetch, not just the health endpoint.**
    `GET /api/health` returning `{"status":"ok", "database":"connected", ...}`
    only proves Postgres is reachable — its own database check is a bare
