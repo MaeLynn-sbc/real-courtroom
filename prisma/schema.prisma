@@ -324,6 +324,14 @@ model Employee {
   lastName       String
   phone          String?
   photoUrl       String?
+  // New coaching page (public, no login): a short bio shown alongside
+  // photoUrl for any coach who has one — same "leave room for it, don't
+  // block the page" treatment as photoUrl already gets (both nullable,
+  // both simply omitted from the public page when empty). Free text, not
+  // owner-editable via the CMS's CMS_KEYS pattern (that's for global
+  // site-singleton sections — hero, gallery — not per-employee data);
+  // edited the same place photoUrl already is, employee-detail-panel.tsx.
+  bio            String?
   // v1.2: the ONLY supported way to remove an employee's access —
   // checked in auth.ts's authorize() to block login. There is no delete
   // action anywhere in this codebase for Employee or its User, and none

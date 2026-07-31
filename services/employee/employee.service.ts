@@ -97,6 +97,7 @@ export class EmployeeService {
           lastName: input.lastName,
           phone: input.phone,
           photoUrl: input.photoUrl,
+          bio: input.bio,
         },
         include: employeeWithUser,
       });
@@ -130,6 +131,7 @@ export class EmployeeService {
           lastName: input.lastName,
           phone: input.phone,
           photoUrl: input.photoUrl,
+          bio: input.bio,
         },
         include: employeeWithUser,
       });

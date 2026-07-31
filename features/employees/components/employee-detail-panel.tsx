@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { TempPasswordReveal } from "@/features/employees/components/temp-password-reveal";
 import { updateEmployeeSchema } from "@/features/employees/schemas/employee.schema";
 import type { AuditLog } from "@/lib/generated/prisma/client";
@@ -55,6 +56,7 @@ function ProfileSection({ employee }: { employee: Employee }) {
     phone: employee.phone ?? "",
     email: employee.user.email ?? "",
     photoUrl: employee.photoUrl ?? "",
+    bio: employee.bio ?? "",
   });
 
   function setField<K extends keyof typeof values>(key: K, value: string) {
@@ -71,6 +73,7 @@ function ProfileSection({ employee }: { employee: Employee }) {
       phone: values.phone || undefined,
       email: values.email || undefined,
       photoUrl: values.photoUrl || undefined,
+      bio: values.bio || undefined,
     });
 
     if (!parsed.success) {
@@ -130,6 +133,17 @@ function ProfileSection({ employee }: { employee: Employee }) {
           id="photoUrl"
           value={values.photoUrl}
           onChange={(event) => setField("photoUrl", event.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="bio">
+          Bio {employee.isCoach ? "(shown on the public coaching page)" : ""}
+        </Label>
+        <Textarea
+          id="bio"
+          rows={4}
+          value={values.bio}
+          onChange={(event) => setField("bio", event.target.value)}
         />
       </div>
       {serverError ? (

@@ -14,8 +14,12 @@ const BASE_NAV_LINKS: { href: string; label: string }[] = [
   // court (the post-booking add-on step) — most customers never saw it
   // existed at all. Index 2, matching the OPEN_PLAY conditional insertion
   // logic below (slice(0,2) / slice(2)) — Open Play lands right before
-  // this, both "core activity" links ahead of Rates/Contact.
-  { href: "/coaches/availability", label: "Coaches" },
+  // this, both "core activity" links ahead of Rates/Contact. Points at
+  // the coaching info page (who the coaches are, rates, how it works),
+  // not straight at the availability schedule — that page links onward
+  // to /coaches/availability itself, so this is the one link a customer
+  // actually needs from the header.
+  { href: "/coaches", label: "Coaches" },
   { href: "/rates", label: "Rates" },
   { href: "/contact", label: "Contact" },
 ];

@@ -9,6 +9,10 @@ const employeeProfileSchema = z.object({
   phone: z.string().max(50).optional(),
   photoUrl: z.string().max(500).optional(),
   email: z.string().email("Enter a valid email address.").optional(),
+  // Public coaching page (app/coaches/page.tsx): shown for any coach who
+  // has one, simply omitted otherwise — same nullable, not-required
+  // treatment as photoUrl above.
+  bio: z.string().max(2000, "Keep it under 2000 characters.").optional(),
 });
 
 // v1.2: no password field — the system generates a temp password (see
