@@ -89,7 +89,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     const session = await openPlayCapacityService.getOrCreateSessionForDate(date);
     const [{ registrations, skillBreakdown }, { expected, checkedIn }, board, tabs, paymentMethods, products] = await Promise.all([
       openPlayRegistrationService.getSessionRegistrations(session.id),
-      openPlayCheckinService.getCheckInScreenData({ sessionId: session.id }),
+      openPlayCheckinService.getCheckInScreenData({ sessionId: session.id, date: session.date }),
       openPlayRotationService.getRotationBoardData(date),
       playerTabService.listTabsForDate(date),
       saleService.listPaymentMethods(),

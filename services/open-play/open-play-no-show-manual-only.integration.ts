@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   );
   assert(registration.status === "CONFIRMED", `expected CONFIRMED right after registering, got ${registration.status}`);
 
-  const screenData = await openPlayCheckinService.getCheckInScreenData({ sessionId: session.id });
+  const screenData = await openPlayCheckinService.getCheckInScreenData({ sessionId: session.id, date: session.date });
   const stillExpected = screenData.expected.some((r) => r.id === registration.id);
   console.log(`Still in Expected after loading the check-in screen, well past the old cutoff: ${stillExpected}`);
   assert(stillExpected, "expected the registration to still be in Expected — no automatic release should have happened");

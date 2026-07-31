@@ -395,7 +395,20 @@ export class OpenPlayCheckinService {
 
   // BUILD-SPEC.md §6 correctness #1: "Queue position derives from
   // checkedInAt, never registeredAt" — checkedIn is sorted accordingly.
-  async getCheckInScreenData(where: { sessionId: string } | { date: Date }): Promise<CheckInScreenData> {
+  //
+  // Reported live: regular-mode walk-ins on a Fri/Sat date (before the
+  // evening cutoff — see isBeforeFridaySaturdayOpenPlayCutoff) never
+  // appeared here at all, because the capacity branch filtered strictly
+  // by sessionId. Now filters by DATE whenever a session exists — the
+  // date-matches-session DB trigger (migration 11) guarantees
+  // session.date and the passed date agree, so this is a safe widening,
+  // not a guess — it's the union of both registration types for that
+  // date, exactly "who do I expect to physically show up and check in
+  // today," regardless of which rate they're on. Deliberately NOT
+  // applied to the roster/capacity-count panel (getSessionRegistrations,
+  // still sessionId-scoped) — a regular-mode registration must never
+  // count against the unlimited session's own seat capacity.
+  async getCheckInScreenData(where: { sessionId: string; date: Date } | { date: Date }): Promise<CheckInScreenData> {
     if ("sessionId" in where) {
       // reconcileNoShows is deliberately NOT called here anymore — owner
       // decision, see that method's own comment. Seats free by explicit
@@ -411,7 +424,7 @@ export class OpenPlayCheckinService {
     }
 
     const filter: Prisma.OpenPlayNightRegistrationWhereInput =
-      "sessionId" in where ? { sessionId: where.sessionId } : { sessionId: null, date: where.date };
+      "sessionId" in where ? { date: where.date } : { sessionId: null, date: where.date };
 
     // waitlistPos: null — a waitlisted walk-in (Fri/Sat) has no real
     // seat and hasn't paid; it must never appear as "expected to arrive"

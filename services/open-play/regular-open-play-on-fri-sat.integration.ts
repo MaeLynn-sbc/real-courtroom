@@ -41,6 +41,16 @@
  *      per player) — and the capacity player's own tab still bills ₱0
  *      even while sitting in a mixed queue, proving pooling in the
  *      queue never leaks into billing.
+ *   7. Reported live, follow-up gap: getCheckInScreenData's capacity
+ *      branch used to filter strictly by sessionId, so a regular-mode
+ *      registration on the SAME Fri/Sat date never appeared in the
+ *      Expected/Checked-in panel at all — invisible to the one screen
+ *      staff actually use to check people in. Now date-scoped instead,
+ *      so both a regular and a capacity registration for the same
+ *      Friday appear together — while getSessionRegistrations (the
+ *      roster/capacity-count panel) stays sessionId-scoped, so the
+ *      regular-mode registration correctly never counts against the
+ *      unlimited session's own seat capacity.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -254,6 +264,37 @@ async function main(): Promise<void> {
       `expected the capacity player to still owe ₱0 for a game even while pooled with a regular-mode player, got ${capacityTabAfterMixedQueue!.totalCents}`,
     );
     console.log("PASS: pooling in the shared queue never leaks into billing — the capacity player still owes ₱0 per game.");
+
+    // ============== 7. getCheckInScreenData shows BOTH; getSessionRegistrations (roster/capacity count) shows ONLY the capacity one ==============
+    const thirdRegularRegistration = await openPlayRegistrationService.registerWeeknightWalkIn(
+      friday!,
+      { playerName: "Third Regular Friday Player", phone: nextPhone(), skillLevel: "INTERMEDIATE" },
+      owner.id,
+    );
+    const screenData = await openPlayCheckinService.getCheckInScreenData({ sessionId: session.id, date: session.date });
+    const expectedIds = screenData.expected.map((r) => r.id);
+    const checkedInIds = screenData.checkedIn.map((r) => r.id);
+    assert(
+      expectedIds.includes(thirdRegularRegistration.id),
+      "expected a not-yet-checked-in regular-mode registration to appear in the capacity page's Expected list",
+    );
+    assert(
+      checkedInIds.includes(secondCapacityRegistration.id) && checkedInIds.includes(secondRegularRegistration.id),
+      "expected BOTH the capacity and regular-mode registrations checked in earlier to appear in the same Checked-in list",
+    );
+    console.log("PASS: getCheckInScreenData shows regular and capacity registrations together — the Expected/Checked-in panel staff actually use.");
+
+    const { registrations: rosterRegistrations } = await openPlayRegistrationService.getSessionRegistrations(session.id);
+    const rosterIds = rosterRegistrations.map((r) => r.id);
+    assert(
+      rosterIds.includes(secondCapacityRegistration.id),
+      "expected the capacity registration to still appear on the roster/capacity-count panel",
+    );
+    assert(
+      !rosterIds.includes(thirdRegularRegistration.id) && !rosterIds.includes(secondRegularRegistration.id),
+      "expected regular-mode registrations to stay OFF the roster/capacity-count panel — they must never count against the unlimited session's own seat capacity",
+    );
+    console.log("PASS: the roster/capacity-count panel stays sessionId-scoped — regular-mode registrations never inflate the unlimited session's seat count.");
 
     await cleanUpFridaySession(friday!);
     console.log("\nPASS: regular open play on Fri/Sat is now reachable and behaves identically to any other day.");

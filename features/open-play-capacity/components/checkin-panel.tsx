@@ -20,6 +20,12 @@ interface CheckInRegistration {
   skillLevel: OpenPlaySkillLevel;
   partyId: string | null;
   checkedInAt: string | null; // ISO string — serialized from the server
+  // Reported live: on a Fri/Sat date, this list can now mix regular
+  // (₱35/game, sessionId null) and unlimited-session (₱150, sessionId
+  // set) registrations — see getCheckInScreenData's own comment. Present
+  // (though always null) on weeknight rows too, so this interface stays
+  // one shape for both call sites rather than needing an optional field.
+  sessionId: string | null;
 }
 
 const UNDO_WINDOW_MS = 60_000;
@@ -132,7 +138,20 @@ export function CheckInPanel({
                     className="flex flex-1 items-center justify-between gap-3 text-left"
                   >
                     <div>
-                      <p className="font-medium">{registration.playerName}</p>
+                      <p className="font-medium">
+                        {registration.playerName}
+                        {/* A Fri/Sat date can now mix regular (₱35/game)
+                            and unlimited-session (₱150) registrations in
+                            this same list — see getCheckInScreenData's
+                            own comment. Must be visibly distinguishable,
+                            same reasoning as every other "which rate
+                            applies" indicator this session added. */}
+                        {isCapacityNight ? (
+                          <Badge variant={registration.sessionId ? "warning" : "status"} className="ml-2 align-middle">
+                            {registration.sessionId ? "Unlimited" : "Regular"}
+                          </Badge>
+                        ) : null}
+                      </p>
                       <p className="text-muted-foreground text-xs">
                         {registration.phone} · {OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}
                         {registration.partyId ? " · party" : ""}
@@ -177,7 +196,14 @@ export function CheckInPanel({
                   className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3"
                 >
                   <div>
-                    <p className="font-medium">{registration.playerName}</p>
+                    <p className="font-medium">
+                      {registration.playerName}
+                      {isCapacityNight ? (
+                        <Badge variant={registration.sessionId ? "warning" : "status"} className="ml-2 align-middle">
+                          {registration.sessionId ? "Unlimited" : "Regular"}
+                        </Badge>
+                      ) : null}
+                    </p>
                     <p className="text-muted-foreground text-xs">
                       Arrived {registration.checkedInAt ? timeFormat(registration.checkedInAt) : "—"} ·{" "}
                       {OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}

@@ -17,7 +17,15 @@ jest.mock("next/navigation", () => ({
 const mockedCheckIn = checkInAction as jest.MockedFunction<typeof checkInAction>;
 
 const expected = [
-  { id: "reg-1", playerName: "Jane", phone: "09219846122", skillLevel: "BEGINNER" as const, partyId: null, checkedInAt: null },
+  {
+    id: "reg-1",
+    playerName: "Jane",
+    phone: "09219846122",
+    skillLevel: "BEGINNER" as const,
+    partyId: null,
+    checkedInAt: null,
+    sessionId: null,
+  },
 ];
 
 // Reported live: "Tap to check in" was a Badge sitting OUTSIDE the actual

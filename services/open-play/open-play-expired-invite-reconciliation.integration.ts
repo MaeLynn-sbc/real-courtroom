@@ -115,7 +115,7 @@ async function main(): Promise<void> {
     // stays WAITING forever) — that failure IS the proof the gap is
     // real, not hypothetical. After the fix, this same assertion must
     // pass with no other change to the test.
-    await openPlayCheckinService.getCheckInScreenData({ sessionId: session.id });
+    await openPlayCheckinService.getCheckInScreenData({ sessionId: session.id, date: session.date });
 
     const secondWaiterEntry = await prisma.openPlayWaitlistEntry.findUniqueOrThrow({ where: { id: secondWaiter.waitlistEntryId } });
     const waiterEntryAfter = await prisma.openPlayWaitlistEntry.findUniqueOrThrow({ where: { id: waiterEntry.id } });

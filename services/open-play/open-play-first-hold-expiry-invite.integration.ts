@@ -98,7 +98,7 @@ async function main(): Promise<void> {
     console.log("A's hold force-expired. No cancellation, no capacity change. Loading the roster screen — the one thing that's supposed to catch this lazily.");
 
     const session = await prisma.openPlayNightSession.findUniqueOrThrow({ where: { date: TEST_DATE } });
-    await openPlayCheckinService.getCheckInScreenData({ sessionId: session.id });
+    await openPlayCheckinService.getCheckInScreenData({ sessionId: session.id, date: session.date });
 
     const personBEntry = await prisma.openPlayWaitlistEntry.findUniqueOrThrow({ where: { id: personB.waitlistEntryId } });
     console.log(`After a plain screen-data read: Person B's waitlist status = ${personBEntry.status}`);
