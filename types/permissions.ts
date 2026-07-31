@@ -73,6 +73,21 @@ export const PERMISSIONS = {
   // regenerateDisplaySlug — the slug is the display's own auth token
   // (BUILD-SPEC.md §13), which stays SYSTEM_ADMIN-gated.
   DISPLAY_MANAGE: "display:manage",
+  // Reported live: SaleCategory.OTHER existed in the schema (with
+  // description/notes fields explicitly documented for "categories with
+  // no source row") but nothing ever created one — cash that comes in
+  // outside every modelled flow had nowhere to go, so staff recorded it
+  // on paper instead, invisible to every report and shift reconciliation.
+  // Its own dedicated permission, same reasoning as
+  // ACCOUNTS_RECORD_EXPENSE/ACCOUNTS_CONFIRM_GCASH_RECONCILIATION right
+  // above — an arbitrary-amount, no-linked-record entry is a trust
+  // escape hatch, deliberately narrower than a general sales permission.
+  // Granted to OWNER directly in prisma/seed.ts (same two-permissions-
+  // learned-the-hard-way lesson those comments already document — OWNER
+  // needs a self-service way in, not just "the owner assigns it from the
+  // roles screen" with no way to reach that screen's grant in the first
+  // place), absent from every other role by default.
+  SALES_RECORD_MANUAL: "sales:record_manual",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

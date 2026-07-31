@@ -138,6 +138,13 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     description:
       "Change the TV display's announcement voice, repeat count, flash duration, and refresh interval. Does not include regenerating the display URL.",
   },
+  // Same fix, same reasoning as ACCOUNTS_CONFIRM_GCASH_RECONCILIATION/
+  // ACCOUNTS_RECORD_EXPENSE above — granted to OWNER below, still absent
+  // from every other role.
+  [PERMISSIONS.SALES_RECORD_MANUAL]: {
+    label: "Record Manual Sales",
+    description: "Record an arbitrary cash amount on the current shift for revenue outside every modelled flow.",
+  },
 };
 
 const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
@@ -172,6 +179,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.ACCOUNTS_RECORD_EXPENSE,
     PERMISSIONS.BOOKINGS_CREATE_WITHOUT_SHIFT,
     PERMISSIONS.DISPLAY_MANAGE,
+    PERMISSIONS.SALES_RECORD_MANUAL,
   ],
   [SYSTEM_ROLES.MANAGER]: [
     PERMISSIONS.DASHBOARD_ACCESS,

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { endShiftAction, startShiftAction } from "@/actions/shift.actions";
+import { endShiftAction, recordManualSaleAction, startShiftAction } from "@/actions/shift.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,9 +13,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { deriveSettlementMethod, SettlementPaymentFields } from "@/components/shared/settlement-payment-fields";
 import { CASH_DENOMINATIONS_PESOS, sumCashDenominationBreakdown } from "@/lib/cash-denominations";
+import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
 import type { shiftService } from "@/services/shift/shift.service";
 import { formatCurrency } from "@/lib/utils";
+
+export interface ManualSaleView {
+  id: string;
+  amountCents: number;
+  notes: string | null;
+  createdAt: string;
+}
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" });
 
@@ -30,6 +39,13 @@ interface ShiftWorkspaceProps {
   // Employee column added to the same table), not just their own —
   // false for everyone else, who keep the exact table they had before.
   showEmployeeColumn: boolean;
+  // SALES_RECORD_MANUAL — a trust escape hatch (arbitrary amount, no
+  // linked record), owner-only by default, reassignable via the Roles
+  // screen. Hidden entirely for everyone else, same as every other
+  // permission-gated form in this app.
+  canRecordManualSale: boolean;
+  paymentMethods: SettlementPaymentMethodOption[];
+  manualSales: ManualSaleView[];
 }
 
 function StartShiftForm() {
@@ -98,6 +114,161 @@ function StartShiftForm() {
             {isPending ? "Starting…" : "Start shift"}
           </Button>
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Reported live: cash that comes in outside every modelled revenue flow
+// (a booking, a product sale, a settled tab, ...) had nowhere to go —
+// staff recorded it on paper, invisible to every report and shift
+// reconciliation. Category is always OTHER — never a picker — see
+// recordManualSaleAction's own comment for why. note is required: unlike
+// a product sale (which already has a product name), this note is the
+// ONLY record of what the money actually was.
+function RecordManualSaleForm({ paymentMethods }: { paymentMethods: SettlementPaymentMethodOption[] }) {
+  const router = useRouter();
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [amount, setAmount] = useState("");
+  const [paymentMethodId, setPaymentMethodId] = useState(paymentMethods[0]?.id ?? "");
+  const [gcashReference, setGcashReference] = useState("");
+  const [note, setNote] = useState("");
+
+  function reset() {
+    setAmount("");
+    setGcashReference("");
+    setNote("");
+  }
+
+  function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setServerError(null);
+
+    const amountCents = Math.round(Number(amount) * 100);
+    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+      setServerError("Enter an amount greater than zero.");
+      return;
+    }
+    const method = deriveSettlementMethod(paymentMethods, paymentMethodId);
+    if (!method) {
+      setServerError("Select a payment method.");
+      return;
+    }
+    if (!note.trim()) {
+      setServerError("Enter a note describing what this sale was.");
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await recordManualSaleAction({
+        amountCents,
+        paymentMethodId,
+        gcashReference: method === "GCASH" ? gcashReference.trim() : undefined,
+        note: note.trim(),
+      });
+      if (result.error) {
+        setServerError(result.error);
+        return;
+      }
+      toast.success("Manual sale recorded.");
+      reset();
+      router.refresh();
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Record a manual sale
+          <Badge variant="warning">Manual</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <p className="text-muted-foreground text-sm">
+            For cash that doesn&apos;t go through booking, product, or open-play flows — e.g. backfilling a
+            paper record. Always tagged as a manual entry, never blended in with modelled revenue.
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="manualSaleAmount">Amount (₱)</Label>
+            <Input
+              id="manualSaleAmount"
+              type="number"
+              step="0.01"
+              min="0"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <SettlementPaymentFields
+              paymentMethods={paymentMethods}
+              paymentMethodId={paymentMethodId}
+              onPaymentMethodIdChange={setPaymentMethodId}
+              gcashReference={gcashReference}
+              onGcashReferenceChange={setGcashReference}
+              idPrefix="manualSalePaymentMethod"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="manualSaleNote">Note (required)</Label>
+            <Textarea
+              id="manualSaleNote"
+              placeholder="What was this sale? e.g. Fri/Sat daytime open play, paper-recorded 2026-07-31"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
+          </div>
+          {serverError ? (
+            <p className="text-destructive text-sm" role="alert">
+              {serverError}
+            </p>
+          ) : null}
+          <Button type="submit" variant="outline" disabled={isPending || paymentMethods.length === 0}>
+            {isPending ? "Recording…" : "Record sale"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ManualSalesList({ manualSales }: { manualSales: ManualSaleView[] }) {
+  if (manualSales.length === 0) {
+    return null;
+  }
+  const totalCents = manualSales.reduce((sum, sale) => sum + sale.amountCents, 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Manual sales this shift
+          <Badge variant="warning">{manualSales.length}</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {/* A shift with several of these is itself a signal something
+            isn't being captured properly — the count/total is shown up
+            front, not just buried in a list, so it's noticed before
+            close, not just after. */}
+        <div className="bg-warning/10 flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
+          <span className="text-muted-foreground">Total, not counted in modelled revenue elsewhere</span>
+          <span className="font-semibold">{formatCurrency(totalCents)}</span>
+        </div>
+        <ul className="flex flex-col gap-2 text-sm">
+          {manualSales.map((sale) => (
+            <li key={sale.id} className="flex flex-col gap-0.5 border-b pb-2 last:border-b-0 last:pb-0">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{formatCurrency(sale.amountCents)}</span>
+                <span className="text-muted-foreground text-xs">{dateTimeFormatter.format(new Date(sale.createdAt))}</span>
+              </div>
+              {sale.notes ? <span className="text-muted-foreground text-xs">{sale.notes}</span> : null}
+            </li>
+          ))}
+        </ul>
       </CardContent>
     </Card>
   );
@@ -248,6 +419,9 @@ export function ShiftWorkspace({
   recentShifts,
   expectedCashCents,
   showEmployeeColumn,
+  canRecordManualSale,
+  paymentMethods,
+  manualSales,
 }: ShiftWorkspaceProps) {
   return (
     <div className="flex flex-col gap-6">
@@ -256,6 +430,9 @@ export function ShiftWorkspace({
       ) : (
         <StartShiftForm />
       )}
+
+      {currentShift && canRecordManualSale ? <RecordManualSaleForm paymentMethods={paymentMethods} /> : null}
+      {currentShift ? <ManualSalesList manualSales={manualSales} /> : null}
 
       <Card>
         <CardHeader>

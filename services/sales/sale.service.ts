@@ -212,6 +212,20 @@ export class SaleService {
     };
   }
 
+  // Reported live: manual sales (category OTHER — an arbitrary amount
+  // recorded for revenue outside every modelled flow) need to be
+  // visibly distinguishable, not blended into the shift's plain total —
+  // a shift with several of these is itself a signal something isn't
+  // being captured properly. Itemized (not aggregated, unlike
+  // getSalesForShift above) so staff can see each one's note before
+  // closing out.
+  async listManualSalesForShift(shiftId: string): Promise<Sale[]> {
+    return prisma.sale.findMany({
+      where: { shiftId, category: "OTHER", status: "COMPLETED" },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
   // Gate 1 (shift cash reconciliation): the cash-only counterpart to
   // getSalesForShift above — everything that method sums across every
   // payment method, this narrows to just PaymentMethod.key = "CASH".

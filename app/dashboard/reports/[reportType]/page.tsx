@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { Badge } from "@/components/ui/badge";
 import { DateRangePicker } from "@/features/analytics/components/date-range-picker";
 import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
 import { EquipmentRentalStatusBadge } from "@/features/equipment/components/equipment-rental-status-badge";
@@ -174,7 +175,16 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
     case "salesByCategory": {
       const rows = await reportingService.getSalesByCategoryReport(range);
       const columns: ReportTableColumn<SalesByCategoryRow>[] = [
-        { header: "Category", render: (r) => r.category },
+        {
+          header: "Category",
+          // Reported live: manual sales (SaleCategory.OTHER — an
+          // arbitrary amount with no linked booking/membership/etc. row,
+          // recorded for revenue outside every modelled flow) must be
+          // visibly distinguishable here, not blended in with modelled
+          // revenue — a month with many of these is itself a signal
+          // something isn't being captured properly.
+          render: (r) => (r.category === "OTHER" ? <Badge variant="warning">Manual entry</Badge> : r.category),
+        },
         { header: "Transactions", render: (r) => r.transactionCount },
         { header: "Amount", render: (r) => formatCurrency(r.amountCents) },
       ];

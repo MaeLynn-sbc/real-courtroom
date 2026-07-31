@@ -19,3 +19,17 @@ export const endShiftSchema = z.object({
   closingNotes: z.string().max(1000).optional(),
 });
 export type EndShiftInput = z.infer<typeof endShiftSchema>;
+
+// Reported live: cash that comes in outside every modelled revenue flow
+// had nowhere to go — staff recorded it on paper, invisible to every
+// report and shift reconciliation. note is required (not optional) —
+// unlike a product sale (which already has a product name) or a booking
+// fee (which already has a linked record), this note is the ONLY record
+// of what the money actually was.
+export const manualSaleInputSchema = z.object({
+  amountCents: z.coerce.number().int("Enter a whole peso amount.").positive("Enter an amount greater than zero."),
+  paymentMethodId: z.string().min(1, "Select a payment method."),
+  gcashReference: z.string().max(200).optional(),
+  note: z.string().trim().min(1, "Enter a note describing what this sale was.").max(1000),
+});
+export type ManualSaleInput = z.infer<typeof manualSaleInputSchema>;
