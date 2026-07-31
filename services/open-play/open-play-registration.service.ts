@@ -117,7 +117,11 @@ const OPEN_PLAY_CREDIT_EXPIRY_DAYS = 90;
 // AWAITING_PAYMENT hold only counts while its holdExpiresAt hasn't
 // passed — mirrors booking.service.ts's checkAvailabilityWithClient's
 // identical lazy-exclusion of an expired hold.
-async function countOccupiedSeats(tx: Prisma.TransactionClient, sessionId: string, now: Date): Promise<number> {
+async function countOccupiedSeats(
+  tx: Prisma.TransactionClient,
+  sessionId: string,
+  now: Date,
+): Promise<number> {
   return tx.openPlayNightRegistration.count({
     where: {
       sessionId,
@@ -226,7 +230,10 @@ async function syncPlayerProfileFromWalkIn(
       actorUserId,
     );
   } catch (error) {
-    logger.warn({ err: error, playerId }, "Failed to sync player profile from walk-in registration");
+    logger.warn(
+      { err: error, playerId },
+      "Failed to sync player profile from walk-in registration",
+    );
   }
 }
 
@@ -443,7 +450,9 @@ export class OpenPlayRegistrationService {
         sessionId,
         waitlistPos: registration.waitlistPos,
         skillLevel: registration.skillLevel,
-        ...(saleContext ? { paymentMethod: saleContext.method, paymentMethodId: saleContext.paymentMethodId } : {}),
+        ...(saleContext
+          ? { paymentMethod: saleContext.method, paymentMethodId: saleContext.paymentMethodId }
+          : {}),
       },
     });
 
@@ -452,7 +461,13 @@ export class OpenPlayRegistrationService {
     // for a player this same call just created, which already has
     // exactly this data and nothing to correct.
     if (!isNewPlayer) {
-      await syncPlayerProfileFromWalkIn(resolvedPlayerId, input.playerName, input.phone, input.skillLevel, actorUserId);
+      await syncPlayerProfileFromWalkIn(
+        resolvedPlayerId,
+        input.playerName,
+        input.phone,
+        input.skillLevel,
+        actorUserId,
+      );
     }
 
     return registration;
@@ -508,7 +523,13 @@ export class OpenPlayRegistrationService {
     });
 
     if (!isNewPlayer) {
-      await syncPlayerProfileFromWalkIn(resolvedPlayerId, input.playerName, input.phone, input.skillLevel, actorUserId);
+      await syncPlayerProfileFromWalkIn(
+        resolvedPlayerId,
+        input.playerName,
+        input.phone,
+        input.skillLevel,
+        actorUserId,
+      );
     }
 
     return registration;
@@ -644,7 +665,10 @@ export class OpenPlayRegistrationService {
         // the transition table doesn't allow.
         throw new Error(`Cannot transition waitlist entry ${stale.id} from INVITED to EXPIRED.`);
       }
-      await tx.openPlayWaitlistEntry.update({ where: { id: stale.id }, data: { status: "EXPIRED" } });
+      await tx.openPlayWaitlistEntry.update({
+        where: { id: stale.id },
+        data: { status: "EXPIRED" },
+      });
       await this.writeAuditLog({
         actorUserId,
         action: "open_play_waitlist_entry.invite_expired",
@@ -681,7 +705,9 @@ export class OpenPlayRegistrationService {
       }
 
       if (!canTransitionOpenPlayWaitlistEntryStatus("WAITING", "INVITED")) {
-        throw new Error(`Cannot transition waitlist entry ${nextWaiting.id} from WAITING to INVITED.`);
+        throw new Error(
+          `Cannot transition waitlist entry ${nextWaiting.id} from WAITING to INVITED.`,
+        );
       }
 
       const holdExpiresAt = new Date(now.getTime() + HOLD_DURATION_MINUTES * 60_000);
@@ -728,7 +754,10 @@ export class OpenPlayRegistrationService {
           `The Courtroom: A spot has opened up for Open Play! You have until ${holdExpiresAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })} to confirm and pay, or your spot will be given to the next person.`,
         );
       } catch (error) {
-        logger.error({ error, waitlistEntryId: nextWaiting.id }, "Failed to send open-play waitlist invite SMS");
+        logger.error(
+          { error, waitlistEntryId: nextWaiting.id },
+          "Failed to send open-play waitlist invite SMS",
+        );
       }
     }
   }
@@ -782,13 +811,53 @@ export class OpenPlayRegistrationService {
     });
   }
 
+  // Reported live: no way anywhere to fix a typo'd name or phone number
+  // on an existing registration short of cancelling and re-registering
+  // (losing their place in the queue in the process). Deliberately just
+  // these two fields — skillLevel/partyId aren't editable here, this is
+  // a correction tool, not a re-registration form. No status/waitlistPos
+  // check: a name typo is just as real on a CONFIRMED, checked-in, or
+  // even a CANCELLED row, and restricting this to "only while waiting"
+  // would be an arbitrary limit the actual reported need never asked for.
+  async updateRegistrationDetails(
+    registrationId: string,
+    input: { playerName?: string; phone?: string },
+    actorUserId: string,
+  ): Promise<OpenPlayNightRegistration> {
+    const existing = await prisma.openPlayNightRegistration.findUniqueOrThrow({
+      where: { id: registrationId },
+    });
+
+    const updated = await prisma.openPlayNightRegistration.update({
+      where: { id: registrationId },
+      data: {
+        playerName: input.playerName,
+        phone: input.phone,
+      },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_registration.details_updated",
+      entityType: "OpenPlayNightRegistration",
+      entityId: registrationId,
+      oldValues: { playerName: existing.playerName, phone: existing.phone },
+      newValues: { playerName: updated.playerName, phone: updated.phone },
+    });
+
+    return updated;
+  }
+
   // actorUserId is nullable — widened for cancelRegistrationAsCustomer
   // below, which passes null (same "no real staff user, unauthenticated
   // public path" convention already used by submitOnlineRegistration and
   // markNoShow's system release, not the booking-side "attribute to the
   // seeded Website identity" convention, which this file never adopted).
   // Every staff-initiated call site still passes a real user id.
-  async cancelRegistration(registrationId: string, actorUserId: string | null): Promise<OpenPlayNightRegistration> {
+  async cancelRegistration(
+    registrationId: string,
+    actorUserId: string | null,
+  ): Promise<OpenPlayNightRegistration> {
     return this.releaseRegistration(registrationId, "CANCELLED", actorUserId);
   }
 
@@ -803,11 +872,16 @@ export class OpenPlayRegistrationService {
   // public self-service page for a same-night registration. Delegates to
   // cancelRegistration (actorUserId: null) so the SAME credit-or-forfeit
   // logic in releaseRegistration applies, not a second, diverging path.
-  async cancelRegistrationAsCustomer(registrationId: string, phone: string): Promise<OpenPlayNightRegistration> {
+  async cancelRegistrationAsCustomer(
+    registrationId: string,
+    phone: string,
+  ): Promise<OpenPlayNightRegistration> {
     const normalize = (value: string) => value.replace(/\D/g, "");
     const providedPhone = normalize(phone);
 
-    const registration = await prisma.openPlayNightRegistration.findUnique({ where: { id: registrationId } });
+    const registration = await prisma.openPlayNightRegistration.findUnique({
+      where: { id: registrationId },
+    });
     if (
       !registration ||
       registration.source !== "WEBSITE" ||
@@ -843,11 +917,17 @@ export class OpenPlayRegistrationService {
   // actorUserId is nullable here specifically for reconcileNoShows'
   // system-driven auto-release (BUILD-SPEC.md §6 "No-shows") — every
   // staff-initiated call site still passes a real user id.
-  async markNoShow(registrationId: string, actorUserId: string | null): Promise<OpenPlayNightRegistration> {
+  async markNoShow(
+    registrationId: string,
+    actorUserId: string | null,
+  ): Promise<OpenPlayNightRegistration> {
     return this.releaseRegistration(registrationId, "NO_SHOW", actorUserId);
   }
 
-  async markCheckedOut(registrationId: string, actorUserId: string): Promise<OpenPlayNightRegistration> {
+  async markCheckedOut(
+    registrationId: string,
+    actorUserId: string,
+  ): Promise<OpenPlayNightRegistration> {
     return this.releaseRegistration(registrationId, "CHECKED_OUT", actorUserId);
   }
 
@@ -865,7 +945,9 @@ export class OpenPlayRegistrationService {
   // CANCELLED/REJECTED with no Sale — is, by construction, a row that
   // never became real, billable activity.
   async deleteRegistration(registrationId: string, actorUserId: string): Promise<void> {
-    const registration = await prisma.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+    const registration = await prisma.openPlayNightRegistration.findUniqueOrThrow({
+      where: { id: registrationId },
+    });
 
     if (registration.status === "CONFIRMED" || registration.status === "CHECKED_OUT") {
       throw new Error(
@@ -873,12 +955,18 @@ export class OpenPlayRegistrationService {
       );
     }
 
-    const sale = await prisma.sale.findUnique({ where: { openPlayNightRegistrationId: registrationId } });
+    const sale = await prisma.sale.findUnique({
+      where: { openPlayNightRegistrationId: registrationId },
+    });
     if (sale) {
-      throw new Error("This registration has a recorded sale and can't be deleted — refund it instead if needed.");
+      throw new Error(
+        "This registration has a recorded sale and can't be deleted — refund it instead if needed.",
+      );
     }
 
-    const gameParticipation = await prisma.gameAssignmentParticipant.findFirst({ where: { registrationId } });
+    const gameParticipation = await prisma.gameAssignmentParticipant.findFirst({
+      where: { registrationId },
+    });
     if (gameParticipation) {
       throw new Error("This registration was part of a game assignment and can't be deleted.");
     }
@@ -907,7 +995,10 @@ export class OpenPlayRegistrationService {
   // in Gate 2), so this correctly frees the seat and runs the same
   // walk-in-waitlist-first-then-online-waitlist promotion/invite logic
   // every other release path already uses — no new mechanism.
-  async rejectRegistration(registrationId: string, actorUserId: string): Promise<OpenPlayNightRegistration> {
+  async rejectRegistration(
+    registrationId: string,
+    actorUserId: string,
+  ): Promise<OpenPlayNightRegistration> {
     return this.releaseRegistration(registrationId, "REJECTED", actorUserId);
   }
 
@@ -922,7 +1013,9 @@ export class OpenPlayRegistrationService {
     actorUserId: string | null,
   ): Promise<OpenPlayNightRegistration> {
     const released = await prisma.$transaction(async (tx) => {
-      const existing = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+      const existing = await tx.openPlayNightRegistration.findUniqueOrThrow({
+        where: { id: registrationId },
+      });
 
       // Weeknight (sessionId null) has no capacity/waitlist at all — just
       // flip the status, nothing to lock or promote. Also never eligible
@@ -967,7 +1060,9 @@ export class OpenPlayRegistrationService {
       // OpenPlayNightRegistration lock order, violating §15's canonical
       // order (Registration ranks before Session), for zero behavioral
       // gain.
-      const current = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+      const current = await tx.openPlayNightRegistration.findUniqueOrThrow({
+        where: { id: registrationId },
+      });
       // Open-play online self-registration, Gate 2: widened from
       // CONFIRMED-only. An online registration can be released while
       // AWAITING_PAYMENT (a hold nobody paid) or PENDING_VERIFICATION
@@ -979,7 +1074,11 @@ export class OpenPlayRegistrationService {
       // terminal — cancelling one of those (a concurrent or earlier
       // release already happened) stays the idempotent no-op it always
       // was.
-      const releasableStatuses: (typeof current.status)[] = ["CONFIRMED", "AWAITING_PAYMENT", "PENDING_VERIFICATION"];
+      const releasableStatuses: (typeof current.status)[] = [
+        "CONFIRMED",
+        "AWAITING_PAYMENT",
+        "PENDING_VERIFICATION",
+      ];
       if (!releasableStatuses.includes(current.status)) {
         // Already released by a concurrent (or earlier) call — idempotent
         // no-op, same treatment as check-in's double-tap. No credit here
@@ -1038,7 +1137,11 @@ export class OpenPlayRegistrationService {
           // does the freed seat go to the online waitlist instead. Same
           // transaction, same session lock already held above — not a
           // second, parallel release mechanism.
-          await this.inviteNextWaitlistEntry(tx, { id: existing.sessionId, date: existing.date }, actorUserId);
+          await this.inviteNextWaitlistEntry(
+            tx,
+            { id: existing.sessionId, date: existing.date },
+            actorUserId,
+          );
         }
       } else if (releasedWaitlistPos !== null) {
         // Released registration was itself waitlisted, not seated — no
@@ -1101,7 +1204,9 @@ export class OpenPlayRegistrationService {
       where: { id: current.sessionId! },
       select: { startAt: true },
     });
-    const cutoff = new Date(session.startAt.getTime() - CANCELLATION_CREDIT_CUTOFF_HOURS * 60 * 60 * 1000);
+    const cutoff = new Date(
+      session.startAt.getTime() - CANCELLATION_CREDIT_CUTOFF_HOURS * 60 * 60 * 1000,
+    );
     if (new Date() >= cutoff) {
       return null;
     }
@@ -1114,7 +1219,9 @@ export class OpenPlayRegistrationService {
         reason: `Cancelled registration ${current.id}`,
         sourceRegistrationId: current.id,
         issuedAt,
-        expiresAt: new Date(issuedAt.getTime() + OPEN_PLAY_CREDIT_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
+        expiresAt: new Date(
+          issuedAt.getTime() + OPEN_PLAY_CREDIT_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+        ),
       },
     });
   }
@@ -1199,7 +1306,10 @@ export class OpenPlayRegistrationService {
         },
       });
     } catch (error) {
-      logger.error({ err: error, action: entry.action, userId: entry.actorUserId }, "Failed to write audit log entry");
+      logger.error(
+        { err: error, action: entry.action, userId: entry.actorUserId },
+        "Failed to write audit log entry",
+      );
     }
   }
 }

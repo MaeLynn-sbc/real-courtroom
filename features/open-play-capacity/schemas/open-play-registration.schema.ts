@@ -34,3 +34,20 @@ export const refundRegistrationInputSchema = z.object({
 });
 
 export type RefundRegistrationInput = z.infer<typeof refundRegistrationInputSchema>;
+
+// Reported live: no way anywhere to fix a typo'd name or phone number on
+// an existing registration short of cancelling and re-registering. Both
+// fields optional at this layer — the service only writes whichever one
+// was actually changed — but at least one must be present, checked
+// below via refine (an empty {} update is never a meaningful request).
+export const updateRegistrationDetailsInputSchema = z
+  .object({
+    registrationId: z.string().min(1),
+    playerName: z.string().trim().min(1, "Name can't be empty.").max(200).optional(),
+    phone: z.string().trim().min(1, "Phone can't be empty.").max(50).optional(),
+  })
+  .refine((value) => value.playerName !== undefined || value.phone !== undefined, {
+    message: "Enter a name or phone number to update.",
+  });
+
+export type UpdateRegistrationDetailsInput = z.infer<typeof updateRegistrationDetailsInputSchema>;

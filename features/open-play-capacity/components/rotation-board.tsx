@@ -1,6 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check, Pencil, X } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -18,9 +18,15 @@ import {
   proposeAssignmentAction,
   type OpenPlayRotationActionState,
 } from "@/actions/open-play-rotation.actions";
+import {
+  cancelRegistrationAction,
+  updateRegistrationDetailsAction,
+  type OpenPlayRegistrationActionState,
+} from "@/actions/open-play-registration.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
@@ -94,15 +100,199 @@ function unitLabel(unit: BoardUnit): string {
   return unit.members.map((member) => member.playerName).join(" & ");
 }
 
-export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, unfillableQueueReason }: RotationBoardProps) {
+// "any option to edit next up?" — a compact, TV-display-style preview
+// (same "Next up" / "After that" grouping as features/display's kiosk
+// board, flattened members in queue order — see display.service.ts) sitting
+// right under the court cards, distinct from the detailed "Waiting" card
+// below it. Each chip gets its own Cancel (existing cancelRegistrationAction)
+// and Edit (new updateRegistrationDetailsAction) — the ask was explicitly
+// "remove and cancel... or edit and change players."
+function NextUpSection({
+  flatMembers,
+  runAction,
+  isPending,
+}: {
+  flatMembers: BoardMember[];
+  runAction: (promise: Promise<OpenPlayRegistrationActionState>, successMessage: string) => void;
+  isPending: boolean;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const nextUp = flatMembers.slice(0, 4);
+  const afterThat = flatMembers.slice(4, 8);
+  const editingMember = flatMembers.find((member) => member.registrationId === editingId) ?? null;
+
+  function startEdit(member: BoardMember) {
+    setEditingId(member.registrationId);
+    setEditName(member.playerName);
+    setEditPhone("");
+    setEditError(null);
+  }
+
+  function closeEdit() {
+    setEditingId(null);
+    setEditError(null);
+  }
+
+  function saveEdit() {
+    if (!editingMember) return;
+    const trimmedName = editName.trim();
+    const trimmedPhone = editPhone.trim();
+    const playerName =
+      trimmedName && trimmedName !== editingMember.playerName ? trimmedName : undefined;
+    const phone = trimmedPhone ? trimmedPhone : undefined;
+    if (!playerName && !phone) {
+      setEditError("Change the name or enter a new phone number.");
+      return;
+    }
+    setEditError(null);
+    runAction(
+      updateRegistrationDetailsAction({
+        registrationId: editingMember.registrationId,
+        playerName,
+        phone,
+      }),
+      "Registration updated.",
+    );
+    closeEdit();
+  }
+
+  function renderGroup(label: string, members: BoardMember[], accent: boolean, emptyText: string) {
+    return (
+      <div
+        className={cn(
+          "rounded-lg border px-3 py-2",
+          accent ? "border-court-blue/40 bg-court-blue/[0.06]" : "bg-muted/20",
+        )}
+      >
+        <p
+          className={cn(
+            "mb-2 text-xs font-semibold tracking-wide uppercase",
+            accent ? "text-court-blue" : "text-muted-foreground",
+          )}
+        >
+          {label}
+        </p>
+        {members.length === 0 ? (
+          <p className="text-muted-foreground text-sm">{emptyText}</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {members.map((member) => (
+              <div
+                key={member.registrationId}
+                className="bg-background flex items-center gap-1 rounded-md border px-2 py-1 text-sm"
+              >
+                <span className="font-medium">{member.playerName}</span>
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label={`Edit ${member.playerName}`}
+                  disabled={isPending}
+                  onClick={() => startEdit(member)}
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove ${member.playerName} from the queue`}
+                  disabled={isPending}
+                  onClick={() =>
+                    runAction(
+                      cancelRegistrationAction({ registrationId: member.registrationId }),
+                      "Removed from the queue.",
+                    )
+                  }
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Next up</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {renderGroup("Next up", nextUp, true, "Nobody waiting")}
+        {renderGroup("After that", afterThat, false, "—")}
+        {editingMember ? (
+          <div className="flex flex-col gap-2 rounded-lg border border-dashed p-2">
+            <p className="text-xs font-medium">Editing {editingMember.playerName}</p>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+                placeholder="Name"
+                aria-label="Name"
+                className="max-w-56"
+              />
+              <Input
+                value={editPhone}
+                onChange={(event) => setEditPhone(event.target.value)}
+                placeholder="New phone number (leave blank to keep)"
+                aria-label="Phone"
+                className="max-w-64"
+              />
+            </div>
+            {editError ? (
+              <p className="text-destructive text-xs" role="alert">
+                {editError}
+              </p>
+            ) : null}
+            <div className="flex gap-2">
+              <Button type="button" size="sm" disabled={isPending} onClick={saveEdit}>
+                Save
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={isPending}
+                onClick={closeEdit}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function RotationBoard({
+  date,
+  courts,
+  waiting,
+  resting,
+  maxWaitMinutes,
+  unfillableQueueReason,
+}: RotationBoardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [manualPicks, setManualPicks] = useState<string[]>([]);
   const [manualCourtId, setManualCourtId] = useState<string>(courts[0]?.id ?? "");
   // Queue reorder: which unit each OTHER unit is currently set to move
-  // after, keyed by the mover's own unitKey — a plain <select>, not
-  // drag-and-drop (a busy front-desk laptop, per the ask).
+  // after, keyed by the mover's own unitKey — a plain <select>, kept
+  // alongside drag-and-drop (below) as the precise/keyboard-friendly
+  // fallback on a busy front-desk laptop where a drag can misfire.
   const [moveTargets, setMoveTargets] = useState<Record<string, string>>({});
+  // Drag-and-drop reorder: the unitKey currently being dragged, and which
+  // unitKey it's hovering over (for a drop-target highlight). Dropping
+  // calls the same moveQueueUnitAfterAction as the "Move after" select —
+  // this is just a second way to trigger the identical move.
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
 
   function refresh() {
     router.refresh();
@@ -122,7 +312,9 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
 
   function toggleManualPick(registrationId: string) {
     setManualPicks((prev) =>
-      prev.includes(registrationId) ? prev.filter((id) => id !== registrationId) : [...prev, registrationId],
+      prev.includes(registrationId)
+        ? prev.filter((id) => id !== registrationId)
+        : [...prev, registrationId],
     );
   }
 
@@ -136,7 +328,8 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
   // boundary can be split by this cut (e.g. two parties of 3 back to
   // back) — createManualAssignment has no party-wholeness check to
   // violate, but this is a real, known consequence of "strict FIFO."
-  const flatWaitingIds = waiting.flatMap((unit) => unit.members.map((member) => member.registrationId));
+  const flatWaitingMembers = waiting.flatMap((unit) => unit.members);
+  const flatWaitingIds = flatWaitingMembers.map((member) => member.registrationId);
   const quickQueueIds = flatWaitingIds.slice(0, 4);
 
   return (
@@ -144,9 +337,7 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
       {unfillableQueueReason ? (
         <div className="border-coral/40 bg-coral/[0.08] text-coral flex items-start gap-2 rounded-lg border px-4 py-3 text-sm font-medium">
           <span aria-hidden="true">⚠</span>
-          <span>
-            Queue can&apos;t be filled right now — {unfillableQueueReason}
-          </span>
+          <span>Queue can&apos;t be filled right now — {unfillableQueueReason}</span>
         </div>
       ) : null}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -155,7 +346,11 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
             <CardHeader>
               <CardTitle className="flex items-center justify-between text-base">
                 {court.name}
-                {court.active ? <Badge>On court</Badge> : court.proposed ? <Badge variant="outline">Proposed</Badge> : null}
+                {court.active ? (
+                  <Badge>On court</Badge>
+                ) : court.proposed ? (
+                  <Badge variant="outline">Proposed</Badge>
+                ) : null}
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
@@ -169,8 +364,16 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                     ))}
                   </ul>
                   <p className="text-muted-foreground text-xs">
-                    {court.active.source === "MANUAL" ? "Manual group" : `Skill spread ${court.active.skillSpread}`} · started{" "}
-                    {court.active.startedAt ? new Date(court.active.startedAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }) : "—"}
+                    {court.active.source === "MANUAL"
+                      ? "Manual group"
+                      : `Skill spread ${court.active.skillSpread}`}{" "}
+                    · started{" "}
+                    {court.active.startedAt
+                      ? new Date(court.active.startedAt).toLocaleTimeString("en-PH", {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })
+                      : "—"}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -179,7 +382,10 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                       variant="outline"
                       disabled={isPending}
                       onClick={() =>
-                        runAction(announceAssignmentAction({ assignmentId: court.active!.id }), "Announced.")
+                        runAction(
+                          announceAssignmentAction({ assignmentId: court.active!.id }),
+                          "Announced.",
+                        )
                       }
                     >
                       Announce
@@ -188,7 +394,12 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                       type="button"
                       size="sm"
                       disabled={isPending}
-                      onClick={() => runAction(completeAssignmentAction({ assignmentId: court.active!.id }), "Game complete.")}
+                      onClick={() =>
+                        runAction(
+                          completeAssignmentAction({ assignmentId: court.active!.id }),
+                          "Game complete.",
+                        )
+                      }
                     >
                       Complete game
                     </Button>
@@ -197,7 +408,12 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                       size="sm"
                       variant="ghost"
                       disabled={isPending}
-                      onClick={() => runAction(cancelAssignmentAction({ assignmentId: court.active!.id }), "Game cancelled.")}
+                      onClick={() =>
+                        runAction(
+                          cancelAssignmentAction({ assignmentId: court.active!.id }),
+                          "Game cancelled.",
+                        )
+                      }
                     >
                       Cancel
                     </Button>
@@ -213,7 +429,9 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                     ))}
                   </ul>
                   <p className="text-muted-foreground text-xs">
-                    {court.proposed.source === "MANUAL" ? "Manual group" : `Skill spread ${court.proposed.skillSpread}`}
+                    {court.proposed.source === "MANUAL"
+                      ? "Manual group"
+                      : `Skill spread ${court.proposed.skillSpread}`}
                   </p>
                   {/* Manual timer/announce, forgotten-assignment nudge: same
                       "past a configurable minutes threshold" treatment as
@@ -230,7 +448,10 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                       variant="outline"
                       disabled={isPending}
                       onClick={() =>
-                        runAction(announceAssignmentAction({ assignmentId: court.proposed!.id }), "Announced.")
+                        runAction(
+                          announceAssignmentAction({ assignmentId: court.proposed!.id }),
+                          "Announced.",
+                        )
                       }
                     >
                       Announce
@@ -239,7 +460,12 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                       type="button"
                       size="sm"
                       disabled={isPending}
-                      onClick={() => runAction(confirmAssignmentAction({ assignmentId: court.proposed!.id }), "Timer started.")}
+                      onClick={() =>
+                        runAction(
+                          confirmAssignmentAction({ assignmentId: court.proposed!.id }),
+                          "Timer started.",
+                        )
+                      }
                     >
                       Start timer
                     </Button>
@@ -248,7 +474,12 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                       size="sm"
                       variant="ghost"
                       disabled={isPending}
-                      onClick={() => runAction(cancelAssignmentAction({ assignmentId: court.proposed!.id }), "Proposal discarded.")}
+                      onClick={() =>
+                        runAction(
+                          cancelAssignmentAction({ assignmentId: court.proposed!.id }),
+                          "Proposal discarded.",
+                        )
+                      }
                     >
                       Reject
                     </Button>
@@ -261,7 +492,12 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                     type="button"
                     size="sm"
                     disabled={isPending}
-                    onClick={() => runAction(proposeAssignmentAction({ date, courtId: court.id }), "Group proposed.")}
+                    onClick={() =>
+                      runAction(
+                        proposeAssignmentAction({ date, courtId: court.id }),
+                        "Group proposed.",
+                      )
+                    }
                   >
                     Propose next group
                   </Button>
@@ -272,7 +508,11 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                     disabled={isPending || quickQueueIds.length < 4}
                     onClick={() =>
                       runAction(
-                        createManualAssignmentAction({ date, courtId: court.id, registrationIds: quickQueueIds }),
+                        createManualAssignmentAction({
+                          date,
+                          courtId: court.id,
+                          registrationIds: quickQueueIds,
+                        }),
                         "Group created.",
                       )
                     }
@@ -286,6 +526,8 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
         ))}
       </div>
 
+      <NextUpSection flatMembers={flatWaitingMembers} runAction={runAction} isPending={isPending} />
+
       <Card>
         <CardHeader>
           <CardTitle>Waiting ({waiting.reduce((n, u) => n + u.members.length, 0)})</CardTitle>
@@ -294,25 +536,65 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
           {waiting.length === 0 ? (
             <p className="text-muted-foreground text-sm">Nobody waiting.</p>
           ) : (
-            waiting.map((unit) => {
-              const thisKey = unitKey(unit);
-              const otherUnits = waiting.filter((other) => unitKey(other) !== thisKey);
-              const moveTarget = moveTargets[thisKey] ?? "";
-              return (
-                <div
-                  key={thisKey}
-                  className={cn(
-                    "flex flex-col gap-2 rounded-lg border px-3 py-2",
-                    unit.pastMaxWait && "border-coral/40 bg-coral/[0.08]",
-                  )}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {unit.members.map((member) => {
-                        const picked = manualPicks.includes(member.registrationId);
-                        return (
-                          <label key={member.registrationId} className="flex items-center gap-1.5 text-sm">
-                            {/* Reported live: the raw, unstyled native
+            <>
+              <p className="text-muted-foreground -mt-1 text-xs">
+                Drag a row onto another to reorder, or use &quot;Move after&quot; below.
+              </p>
+              {waiting.map((unit) => {
+                const thisKey = unitKey(unit);
+                const otherUnits = waiting.filter((other) => unitKey(other) !== thisKey);
+                const moveTarget = moveTargets[thisKey] ?? "";
+                return (
+                  <div
+                    key={thisKey}
+                    draggable
+                    onDragStart={() => setDraggingKey(thisKey)}
+                    onDragEnd={() => {
+                      setDraggingKey(null);
+                      setDragOverKey(null);
+                    }}
+                    onDragOver={(event) => {
+                      if (!draggingKey || draggingKey === thisKey) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setDragOverKey(thisKey);
+                    }}
+                    onDragLeave={() => setDragOverKey((prev) => (prev === thisKey ? null : prev))}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setDragOverKey(null);
+                      setDraggingKey(null);
+                      if (!draggingKey || draggingKey === thisKey) return;
+                      const movingUnit = waiting.find((other) => unitKey(other) === draggingKey);
+                      if (!movingUnit) return;
+                      runAction(
+                        moveQueueUnitAfterAction({
+                          date,
+                          movingRegistrationIds: movingUnit.members.map(
+                            (member) => member.registrationId,
+                          ),
+                          targetRegistrationId: unit.members[0].registrationId,
+                        }),
+                        "Moved.",
+                      );
+                    }}
+                    className={cn(
+                      "flex cursor-grab flex-col gap-2 rounded-lg border px-3 py-2 active:cursor-grabbing",
+                      unit.pastMaxWait && "border-coral/40 bg-coral/[0.08]",
+                      draggingKey === thisKey && "opacity-50",
+                      dragOverKey === thisKey && "border-court-blue ring-court-blue/40 ring-2",
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {unit.members.map((member) => {
+                          const picked = manualPicks.includes(member.registrationId);
+                          return (
+                            <label
+                              key={member.registrationId}
+                              className="flex items-center gap-1.5 text-sm"
+                            >
+                              {/* Reported live: the raw, unstyled native
                                 checkbox rendered as an ambiguous solid
                                 dark square against this app's dark theme
                                 — no visible border, no clear "this is
@@ -322,97 +604,122 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                                 icon is drawn separately (appearance-none
                                 removes the native glyph too), overlaid
                                 only while checked. */}
-                            <span className="relative inline-flex size-4 shrink-0">
-                              <input
-                                type="checkbox"
-                                checked={picked}
-                                onChange={() => toggleManualPick(member.registrationId)}
-                                className="size-4 shrink-0 cursor-pointer appearance-none rounded border-2 border-input bg-white checked:border-court-blue checked:bg-court-blue"
-                              />
-                              {picked ? (
-                                <Check className="pointer-events-none absolute inset-0 size-4 p-0.5 text-white" strokeWidth={3} aria-hidden="true" />
-                              ) : null}
-                            </span>
-                            {member.playerName} <span className="text-muted-foreground text-xs">({skillLabel(member.skillLevel)})</span>
-                          </label>
-                        );
-                      })}
-                      {unit.partyId ? <Badge variant="outline">party</Badge> : null}
+                              <span className="relative inline-flex size-4 shrink-0">
+                                <input
+                                  type="checkbox"
+                                  checked={picked}
+                                  onChange={() => toggleManualPick(member.registrationId)}
+                                  className="border-input checked:border-court-blue checked:bg-court-blue size-4 shrink-0 cursor-pointer appearance-none rounded border-2 bg-white"
+                                />
+                                {picked ? (
+                                  <Check
+                                    className="pointer-events-none absolute inset-0 size-4 p-0.5 text-white"
+                                    strokeWidth={3}
+                                    aria-hidden="true"
+                                  />
+                                ) : null}
+                              </span>
+                              {member.playerName}{" "}
+                              <span className="text-muted-foreground text-xs">
+                                ({skillLabel(member.skillLevel)})
+                              </span>
+                            </label>
+                          );
+                        })}
+                        {unit.partyId ? <Badge variant="outline">party</Badge> : null}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "text-xs",
+                            unit.pastMaxWait ? "text-coral font-semibold" : "text-muted-foreground",
+                          )}
+                        >
+                          waiting {unit.waitMinutes}m
+                          {unit.pastMaxWait ? ` (past ${maxWaitMinutes}m)` : ""}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={isPending}
+                          onClick={() =>
+                            runAction(
+                              markRestingAction({ queueEntryId: unit.members[0].queueEntryId }),
+                              "Marked resting.",
+                            )
+                          }
+                        >
+                          Rest
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={isPending}
+                          onClick={() =>
+                            runAction(
+                              markDoneAction({ queueEntryId: unit.members[0].queueEntryId }),
+                              "Marked done.",
+                            )
+                          }
+                        >
+                          Done
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className={cn("text-xs", unit.pastMaxWait ? "text-coral font-semibold" : "text-muted-foreground")}>
-                        waiting {unit.waitMinutes}m{unit.pastMaxWait ? ` (past ${maxWaitMinutes}m)` : ""}
-                      </span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={isPending}
-                        onClick={() =>
-                          runAction(markRestingAction({ queueEntryId: unit.members[0].queueEntryId }), "Marked resting.")
-                        }
-                      >
-                        Rest
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={isPending}
-                        onClick={() => runAction(markDoneAction({ queueEntryId: unit.members[0].queueEntryId }), "Marked done.")}
-                      >
-                        Done
-                      </Button>
-                    </div>
-                  </div>
-                  {/* Queue reorder (reported live): a forming group short a
+                    {/* Queue reorder (reported live): a forming group short a
                       player wants a specific, later-queued player — staff
                       move THIS unit to sit right after whoever's picked
                       below. Everyone between here and there advances
                       automatically; nothing else to click. */}
-                  {otherUnits.length > 0 ? (
-                    <div className="flex flex-wrap items-center gap-2 border-t pt-2">
-                      <span className="text-muted-foreground text-xs">Move after</span>
-                      <select
-                        className="border-input rounded-md border px-2 py-1 text-xs"
-                        value={moveTarget}
-                        onChange={(event) =>
-                          setMoveTargets((prev) => ({ ...prev, [thisKey]: event.target.value }))
-                        }
-                      >
-                        <option value="">Choose a player…</option>
-                        {otherUnits.map((other) => (
-                          <option key={unitKey(other)} value={other.members[0].registrationId}>
-                            {unitLabel(other)}
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={isPending || !moveTarget}
-                        onClick={() =>
-                          runAction(
-                            moveQueueUnitAfterAction({
-                              date,
-                              movingRegistrationIds: unit.members.map((member) => member.registrationId),
-                              targetRegistrationId: moveTarget,
-                            }).then((r) => {
-                              if (!r.error) setMoveTargets((prev) => ({ ...prev, [thisKey]: "" }));
-                              return r;
-                            }),
-                            "Moved.",
-                          )
-                        }
-                      >
-                        Move
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })
+                    {otherUnits.length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-2 border-t pt-2">
+                        <span className="text-muted-foreground text-xs">Move after</span>
+                        <select
+                          className="border-input rounded-md border px-2 py-1 text-xs"
+                          value={moveTarget}
+                          onChange={(event) =>
+                            setMoveTargets((prev) => ({ ...prev, [thisKey]: event.target.value }))
+                          }
+                        >
+                          <option value="">Choose a player…</option>
+                          {otherUnits.map((other) => (
+                            <option key={unitKey(other)} value={other.members[0].registrationId}>
+                              {unitLabel(other)}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={isPending || !moveTarget}
+                          onClick={() =>
+                            runAction(
+                              moveQueueUnitAfterAction({
+                                date,
+                                movingRegistrationIds: unit.members.map(
+                                  (member) => member.registrationId,
+                                ),
+                                targetRegistrationId: moveTarget,
+                              }).then((r) => {
+                                if (!r.error)
+                                  setMoveTargets((prev) => ({ ...prev, [thisKey]: "" }));
+                                return r;
+                              }),
+                              "Moved.",
+                            )
+                          }
+                        >
+                          Move
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </>
           )}
         </CardContent>
       </Card>
@@ -423,8 +730,8 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-muted-foreground text-xs">
-            Pick 4 from the waiting list above (checkboxes), choose a court, then create — skill is ignored
-            entirely. Discards any pending auto-proposal on that court.
+            Pick 4 from the waiting list above (checkboxes), choose a court, then create — skill is
+            ignored entirely. Discards any pending auto-proposal on that court.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -445,7 +752,11 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
               disabled={isPending || manualPicks.length !== 4 || !manualCourtId}
               onClick={() =>
                 runAction(
-                  createManualAssignmentAction({ date, courtId: manualCourtId, registrationIds: manualPicks }).then((r) => {
+                  createManualAssignmentAction({
+                    date,
+                    courtId: manualCourtId,
+                    registrationIds: manualPicks,
+                  }).then((r) => {
                     if (!r.error) setManualPicks([]);
                     return r;
                   }),
@@ -466,9 +777,15 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             {resting.map((player) => (
-              <div key={player.queueEntryId} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+              <div
+                key={player.queueEntryId}
+                className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+              >
                 <span className="text-sm">
-                  {player.playerName} <span className="text-muted-foreground text-xs">({skillLabel(player.skillLevel)})</span>
+                  {player.playerName}{" "}
+                  <span className="text-muted-foreground text-xs">
+                    ({skillLabel(player.skillLevel)})
+                  </span>
                 </span>
                 <Button
                   type="button"
@@ -476,7 +793,10 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                   variant="ghost"
                   disabled={isPending}
                   onClick={() =>
-                    runAction(markWaitingAgainAction({ queueEntryId: player.queueEntryId }), "Back in the queue.")
+                    runAction(
+                      markWaitingAgainAction({ queueEntryId: player.queueEntryId }),
+                      "Back in the queue.",
+                    )
                   }
                 >
                   Back to waiting
