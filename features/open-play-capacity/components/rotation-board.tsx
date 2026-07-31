@@ -1,5 +1,6 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -307,16 +308,35 @@ export function RotationBoard({ date, courts, waiting, resting, maxWaitMinutes, 
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      {unit.members.map((member) => (
-                        <label key={member.registrationId} className="flex items-center gap-1.5 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={manualPicks.includes(member.registrationId)}
-                            onChange={() => toggleManualPick(member.registrationId)}
-                          />
-                          {member.playerName} <span className="text-muted-foreground text-xs">({skillLabel(member.skillLevel)})</span>
-                        </label>
-                      ))}
+                      {unit.members.map((member) => {
+                        const picked = manualPicks.includes(member.registrationId);
+                        return (
+                          <label key={member.registrationId} className="flex items-center gap-1.5 text-sm">
+                            {/* Reported live: the raw, unstyled native
+                                checkbox rendered as an ambiguous solid
+                                dark square against this app's dark theme
+                                — no visible border, no clear "this is
+                                checkable" affordance. appearance-none +
+                                explicit white background/border gives an
+                                unmistakable unchecked state; the checkmark
+                                icon is drawn separately (appearance-none
+                                removes the native glyph too), overlaid
+                                only while checked. */}
+                            <span className="relative inline-flex size-4 shrink-0">
+                              <input
+                                type="checkbox"
+                                checked={picked}
+                                onChange={() => toggleManualPick(member.registrationId)}
+                                className="size-4 shrink-0 cursor-pointer appearance-none rounded border-2 border-input bg-white checked:border-court-blue checked:bg-court-blue"
+                              />
+                              {picked ? (
+                                <Check className="pointer-events-none absolute inset-0 size-4 p-0.5 text-white" strokeWidth={3} aria-hidden="true" />
+                              ) : null}
+                            </span>
+                            {member.playerName} <span className="text-muted-foreground text-xs">({skillLabel(member.skillLevel)})</span>
+                          </label>
+                        );
+                      })}
                       {unit.partyId ? <Badge variant="outline">party</Badge> : null}
                     </div>
                     <div className="flex items-center gap-2">
