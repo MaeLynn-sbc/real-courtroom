@@ -118,33 +118,40 @@ export function CheckInPanel({
                   key={registration.id}
                   className="hover:border-primary flex items-center justify-between gap-3 rounded-lg border px-3 py-3 transition-colors"
                 >
+                  {/* Reported live: "Tap to check in" was a separate Badge
+                      sitting OUTSIDE the actual clickable button — only the
+                      name/phone text to its left was wired to handleCheckIn.
+                      Tapping exactly where it said to tap did nothing. Now
+                      the badge is inside the same button, so the whole row
+                      (except the separate Release seat action) is one
+                      tappable target. */}
                   <button
                     type="button"
                     disabled={isPending}
                     onClick={() => handleCheckIn(registration.id, registration.playerName)}
-                    className="flex-1 text-left"
+                    className="flex flex-1 items-center justify-between gap-3 text-left"
                   >
-                    <p className="font-medium">{registration.playerName}</p>
-                    <p className="text-muted-foreground text-xs">
-                      {registration.phone} · {OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}
-                      {registration.partyId ? " · party" : ""}
-                    </p>
-                  </button>
-                  <div className="flex items-center gap-2">
+                    <div>
+                      <p className="font-medium">{registration.playerName}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {registration.phone} · {OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}
+                        {registration.partyId ? " · party" : ""}
+                      </p>
+                    </div>
                     <Badge variant="outline">Tap to check in</Badge>
-                    {isCapacityNight ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={isPending}
-                        onClick={() => handleRelease(registration.id, registration.playerName)}
-                        title="Release this seat — no refund. The walk-in waiting roster gets first claim."
-                      >
-                        Release seat
-                      </Button>
-                    ) : null}
-                  </div>
+                  </button>
+                  {isCapacityNight ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={isPending}
+                      onClick={() => handleRelease(registration.id, registration.playerName)}
+                      title="Release this seat — no refund. The walk-in waiting roster gets first claim."
+                    >
+                      Release seat
+                    </Button>
+                  ) : null}
                 </div>
               ))}
             </div>
