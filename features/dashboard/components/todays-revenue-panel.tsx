@@ -24,7 +24,7 @@ export function TodaysRevenuePanel({ summary }: { summary: SalesSummary }) {
         <CardTitle>Today&apos;s revenue</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-3 gap-3 text-sm">
+        <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-muted-foreground text-xs">Total</p>
             <p className="text-lg font-semibold tabular-nums">{formatCurrency(summary.totalAmountCents)}</p>
@@ -32,10 +32,6 @@ export function TodaysRevenuePanel({ summary }: { summary: SalesSummary }) {
           <div>
             <p className="text-muted-foreground text-xs">Transactions</p>
             <p className="text-lg font-semibold tabular-nums">{summary.transactionCount}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-xs">Average</p>
-            <p className="text-lg font-semibold tabular-nums">{formatCurrency(summary.averageAmountCents)}</p>
           </div>
         </div>
 
