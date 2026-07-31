@@ -37,6 +37,16 @@ interface RosterRegistration {
   skillLevel: OpenPlaySkillLevel;
   status: string;
   waitlistPos: number | null;
+  date: Date;
+  registeredAt: Date;
+}
+
+function formatNightDate(date: Date): string {
+  return date.toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric" });
+}
+
+function formatRegisteredAt(date: Date): string {
+  return date.toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 interface RegistrationRosterPanelProps {
@@ -267,6 +277,8 @@ export function RegistrationRosterPanel({ registrations, skillBreakdown, capacit
                 <TableHead>Name</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead>Skill</TableHead>
+                <TableHead>Night</TableHead>
+                <TableHead>Registered</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead />
               </TableRow>
@@ -277,6 +289,8 @@ export function RegistrationRosterPanel({ registrations, skillBreakdown, capacit
                   <TableCell className="font-medium">{registration.playerName}</TableCell>
                   <TableCell>{registration.phone}</TableCell>
                   <TableCell>{OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}</TableCell>
+                  <TableCell className="text-muted-foreground text-sm">{formatNightDate(registration.date)}</TableCell>
+                  <TableCell className="text-muted-foreground text-sm">{formatRegisteredAt(registration.registeredAt)}</TableCell>
                   <TableCell>
                     {registration.status !== "CONFIRMED" ? (
                       <Badge variant="destructive">{registration.status.replace("_", " ")}</Badge>
