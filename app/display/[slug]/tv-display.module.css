@@ -373,6 +373,31 @@
   }
 }
 
+/* Owner-configurable "final minute" warning for a running open-play game
+   (tv-display-client.tsx's isGameWarningActive) — reported live,
+   requested distinct from BOTH .ending above (a generic, fixed 2-minute
+   countdown-text blink shared with booked courts) and .timeUp (the
+   post-end-time flash, coral, "running long"). Amber, not coral — same
+   "attention but calmer than urgent" language .opPendingNudge already
+   uses elsewhere on this screen — a pulsing ring around the whole card
+   rather than a background fade, so it reads as a distinct signal at a
+   glance even next to an .ending court's blinking countdown text.
+   Mutually exclusive with .timeUp by construction (the warning only
+   ever applies while real time remains), so the two classes never need
+   to be told apart visually — a card is never both at once. */
+.court.warningSoon {
+  animation: warningSoonPulse 1.6s ease-in-out infinite;
+}
+@keyframes warningSoonPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--amber) 55%, transparent);
+  }
+}
+
 .sched {
   font-family: var(--mono);
   font-size: 1.9vh;

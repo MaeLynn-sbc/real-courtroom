@@ -43,7 +43,17 @@ describe("TvDisplayClient — open-play courts flash when their time limit passe
     // would already have elapsed too.
     const recentlyEnded = new Date(Date.now() - 5_000).toISOString();
     const data = displayData("op", recentlyEnded);
-    render(<TvDisplayClient initialData={data} announcementRepeatCount={1} timeUpFlashDurationSeconds={30} announcementVoice={null} refreshIntervalSeconds={10} />);
+    render(
+      <TvDisplayClient
+        initialData={data}
+        announcementRepeatCount={1}
+        timeUpFlashDurationSeconds={30}
+        announcementVoice={null}
+        refreshIntervalSeconds={10}
+        gameWarningEnabled={false}
+        gameWarningMinutes={1}
+      />,
+    );
 
     const card = screen.getByText("Court 2").parentElement!.parentElement;
     expect(card).not.toBeNull();
@@ -53,7 +63,17 @@ describe("TvDisplayClient — open-play courts flash when their time limit passe
   it("does not flash an open-play court still well within its time limit", () => {
     const farFuture = new Date(Date.now() + 60 * 60_000).toISOString();
     const data = displayData("op", farFuture);
-    render(<TvDisplayClient initialData={data} announcementRepeatCount={1} timeUpFlashDurationSeconds={30} announcementVoice={null} refreshIntervalSeconds={10} />);
+    render(
+      <TvDisplayClient
+        initialData={data}
+        announcementRepeatCount={1}
+        timeUpFlashDurationSeconds={30}
+        announcementVoice={null}
+        refreshIntervalSeconds={10}
+        gameWarningEnabled={false}
+        gameWarningMinutes={1}
+      />,
+    );
 
     const card = screen.getByText("Court 2").parentElement!.parentElement;
     expect(card).not.toBeNull();

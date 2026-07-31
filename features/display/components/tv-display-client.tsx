@@ -126,12 +126,35 @@ export function isTimeUpFlashing(endAt: string, now: number, flashDurationMs: nu
   return overtimeMs >= 0 && overtimeMs <= flashDurationMs;
 }
 
+// One-minute (owner-configurable) warning for a running open-play game
+// — reported live, requested as automatic (unlike the assignment
+// announcement, this is purely clock-driven: relative to a timer staff
+// already started, no human judgment involved). Same lazy-on-read shape
+// as isTimeUpFlashing: true only while genuinely inside the warning
+// window (left > 0 — time hasn't actually run out yet, isTimeUpFlashing
+// picks up from there) and warningMs or less remains.
+export function isGameWarningActive(endAt: string, now: number, warningMs: number): boolean {
+  const left = new Date(endAt).getTime() - now;
+  return left > 0 && left <= warningMs;
+}
+
+// "Court 2, one minute remaining." / "Court 2, 2 minutes remaining." —
+// same court-name-as-stored convention as formatAssignmentAnnouncement
+// above, minutes spoken as a word only for the 1-minute case (the
+// example the ask itself gave), a plain number otherwise.
+export function formatGameWarningAnnouncement(court: { name: string }, warningMinutes: number): string {
+  const time = warningMinutes === 1 ? "one minute" : `${warningMinutes} minutes`;
+  return `${court.name}, ${time} remaining.`;
+}
+
 export function TvDisplayClient({
   initialData,
   announcementRepeatCount,
   timeUpFlashDurationSeconds,
   announcementVoice,
   refreshIntervalSeconds,
+  gameWarningEnabled,
+  gameWarningMinutes,
 }: {
   initialData: DisplayData;
   announcementRepeatCount: number;
@@ -149,6 +172,12 @@ export function TvDisplayClient({
   // faster interval can't cause a duplicate/repeat announcement — that
   // guarantee doesn't depend on the polling cadence at all.
   refreshIntervalSeconds: number;
+  // Owner-toggleable — some nights staff don't want the extra voice
+  // interruption. Off means the warning effect below no-ops entirely
+  // (no speech, no visual class either — see CourtCard's warningSoon).
+  gameWarningEnabled: boolean;
+  // Owner-editable, default 1 — some venues want 2 minutes' notice.
+  gameWarningMinutes: number;
 }) {
   const [data, setData] = useState(initialData);
   const [now, setNow] = useState(() => Date.now());
@@ -294,6 +323,14 @@ export function TvDisplayClient({
     [announcementRepeater],
   );
 
+  // One-minute (owner-configurable) game warning — fires once per game.
+  // Keyed by court.startAt (stable and unique per game instance, same
+  // role announcementRequestedAt's token plays for the assignment
+  // announcement above), not by court.id alone — a new game on the same
+  // court naturally gets a different startAt, which re-arms the guard
+  // for it automatically, no explicit reset needed.
+  const warnedGameStartAtRef = useRef<Record<string, string>>({});
+
   function toggleAnnouncementsMuted() {
     const next = !mutedRef.current;
     mutedRef.current = next;
@@ -318,6 +355,27 @@ export function TvDisplayClient({
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  // Checked on every 1s clock tick (below), not just each ~10s poll —
+  // reading dataRef (not `data` in deps) so this doesn't need its own
+  // separate re-run whenever a poll lands; the 1s tick alone is enough
+  // to catch the warning threshold within a second of it actually being
+  // crossed, closer to "one minute remaining" than a 10s poll interval
+  // would allow. gameWarningEnabled/gameWarningMinutes are read directly
+  // (not via a ref) since this effect already re-runs every second
+  // regardless — no stale-closure risk the way the repeat-count ref
+  // above guards against inside its own long-lived setTimeout chain.
+  useEffect(() => {
+    if (!gameWarningEnabled) return;
+    const warningMs = gameWarningMinutes * 60_000;
+    for (const court of dataRef.current.courts) {
+      if (court.state !== "op") continue;
+      if (!isGameWarningActive(court.endAt, now, warningMs)) continue;
+      if (warnedGameStartAtRef.current[court.id] === court.startAt) continue;
+      warnedGameStartAtRef.current[court.id] = court.startAt;
+      enqueueAnnouncement(formatGameWarningAnnouncement(court, gameWarningMinutes));
+    }
+  }, [now, gameWarningEnabled, gameWarningMinutes, enqueueAnnouncement]);
 
   // Clock + every countdown on screen re-render off this single 1s tick
   // — matches the reference file's own setInterval(tick, 1000).
@@ -543,6 +601,7 @@ export function TvDisplayClient({
             court={court}
             now={now}
             timeUpFlashDurationMs={timeUpFlashDurationSeconds * 1000}
+            gameWarningMs={gameWarningEnabled ? gameWarningMinutes * 60_000 : null}
           />
         ))}
       </div>
@@ -627,10 +686,14 @@ function CourtCard({
   court,
   now,
   timeUpFlashDurationMs,
+  gameWarningMs,
 }: {
   court: DisplayCourt;
   now: number;
   timeUpFlashDurationMs: number;
+  // null means the owner has the warning switched off entirely — no
+  // visual cue either, matching the voice being off too.
+  gameWarningMs: number | null;
 }) {
   if (court.state === "free") {
     return (
@@ -724,8 +787,22 @@ function CourtCard({
   // rotation running long to look any less urgent than an hourly
   // booking running long.
   const timeUp = isTimeUpFlashing(court.endAt, now, timeUpFlashDurationMs);
+  // Distinct from .ending (a generic, fixed 2-minute countdown blink
+  // shared with booked courts) and from .timeUp (the post-end-time
+  // flash) — this is specifically the owner-configurable "final minute"
+  // cue for a running open-play game, mutually exclusive with .timeUp
+  // by construction (isGameWarningActive requires real time still left).
+  const warningSoon = gameWarningMs != null && isGameWarningActive(court.endAt, now, gameWarningMs);
   return (
-    <div className={cls(styles.court, styles.op, timing.ending && styles.ending, timeUp && styles.timeUp)}>
+    <div
+      className={cls(
+        styles.court,
+        styles.op,
+        timing.ending && styles.ending,
+        timeUp && styles.timeUp,
+        warningSoon && styles.warningSoon,
+      )}
+    >
       <div className={styles["court-head"]}>
         <span className={styles["court-no"]}>{court.name}</span>
         <span className={styles.pill}>Open play</span>

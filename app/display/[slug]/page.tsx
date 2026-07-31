@@ -31,13 +31,14 @@ export default async function DisplayPage({ params }: DisplayPageProps) {
     notFound();
   }
 
-  const [initialData, announcementRepeatCount, timeUpFlashDurationSeconds, announcementVoice, refreshIntervalSeconds] =
+  const [initialData, announcementRepeatCount, timeUpFlashDurationSeconds, announcementVoice, refreshIntervalSeconds, gameWarning] =
     await Promise.all([
       displayService.getDisplayData(),
       settingsService.getAnnouncementRepeatCount(),
       settingsService.getTimeUpFlashDurationSeconds(),
       settingsService.getAnnouncementVoice(),
       settingsService.getDisplayRefreshIntervalSeconds(),
+      settingsService.getGameWarningSettings(),
     ]);
 
   return (
@@ -47,6 +48,8 @@ export default async function DisplayPage({ params }: DisplayPageProps) {
       timeUpFlashDurationSeconds={timeUpFlashDurationSeconds}
       announcementVoice={announcementVoice}
       refreshIntervalSeconds={refreshIntervalSeconds}
+      gameWarningEnabled={gameWarning.enabled}
+      gameWarningMinutes={gameWarning.minutes}
     />
   );
 }

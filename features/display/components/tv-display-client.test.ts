@@ -1,4 +1,10 @@
-import { formatAssignmentAnnouncement, isTimeUpFlashing, joinNamesForSpeech } from "./tv-display-client";
+import {
+  formatAssignmentAnnouncement,
+  formatGameWarningAnnouncement,
+  isGameWarningActive,
+  isTimeUpFlashing,
+  joinNamesForSpeech,
+} from "./tv-display-client";
 import type { DisplayCourtActive } from "@/services/display/display.service";
 
 function court(names: string[], name = "Court 2"): DisplayCourtActive {
@@ -71,5 +77,39 @@ describe("isTimeUpFlashing", () => {
   it("is false once the flash window has elapsed — stops on its own", () => {
     expect(isTimeUpFlashing(endAt, endMs + flashDurationMs + 1, flashDurationMs)).toBe(false);
     expect(isTimeUpFlashing(endAt, endMs + 60 * 60_000, flashDurationMs)).toBe(false);
+  });
+});
+
+describe("isGameWarningActive", () => {
+  const endAt = "2026-07-28T10:00:00.000Z";
+  const endMs = new Date(endAt).getTime();
+  const warningMs = 60_000; // 1 minute
+
+  it("is false with more than the warning window left", () => {
+    expect(isGameWarningActive(endAt, endMs - warningMs - 1, warningMs)).toBe(false);
+  });
+
+  it("is true the instant the warning window is entered", () => {
+    expect(isGameWarningActive(endAt, endMs - warningMs, warningMs)).toBe(true);
+  });
+
+  it("stays true right up to the end time", () => {
+    expect(isGameWarningActive(endAt, endMs - 1, warningMs)).toBe(true);
+  });
+
+  it("is false once time is actually up — isTimeUpFlashing takes over from there, never both at once", () => {
+    expect(isGameWarningActive(endAt, endMs, warningMs)).toBe(false);
+    expect(isGameWarningActive(endAt, endMs + 1, warningMs)).toBe(false);
+  });
+});
+
+describe("formatGameWarningAnnouncement", () => {
+  it('reads "Court, one minute remaining." for the 1-minute default', () => {
+    expect(formatGameWarningAnnouncement({ name: "Court 2" }, 1)).toBe("Court 2, one minute remaining.");
+  });
+
+  it("reads a plain number of minutes for any other owner-configured warning time", () => {
+    expect(formatGameWarningAnnouncement({ name: "Court 3" }, 2)).toBe("Court 3, 2 minutes remaining.");
+    expect(formatGameWarningAnnouncement({ name: "Court 1" }, 5)).toBe("Court 1, 5 minutes remaining.");
   });
 });

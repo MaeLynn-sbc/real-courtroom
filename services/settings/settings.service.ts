@@ -119,6 +119,24 @@ interface AnnouncementVoiceSettings {
 }
 const DEFAULT_ANNOUNCEMENT_VOICE: AnnouncementVoiceSettings = { voice: null };
 
+// TV display "one minute remaining" warning for a running open-play
+// game — reported live: the assignment announcement is deliberately
+// manual (players take time to walk over, so that timing depends on a
+// human), but this one is purely clock-driven, relative to the timer
+// staff already started manually — no human judgment involved, so it
+// can fire on its own. Same lazy-on-read pattern as isTimeUpFlashing:
+// derived from a court's own endAt at render/poll time, no scheduler.
+// minutes is owner-editable (some venues want 2, not just 1) — same
+// small-object convention as this file's other display settings.
+// enabled defaults true: this is a feature staff explicitly asked to be
+// built and want active, not an opt-in add-on nobody's seen yet.
+const DISPLAY_GAME_WARNING_KEY = "display.gameWarning";
+interface GameWarningSettings {
+  enabled: boolean;
+  minutes: number;
+}
+const DEFAULT_GAME_WARNING: GameWarningSettings = { enabled: true, minutes: 1 };
+
 // Open-play online self-registration, Gate 1 — see
 // getOpenPlayOnlineRegistrationEnabled/setOpenPlayOnlineRegistrationEnabled.
 // Named differently from BOOKING_REQUIRE_PREPAYMENT_KEY on purpose:
@@ -558,6 +576,14 @@ export class SettingsService {
 
   async setAnnouncementVoice(value: { name: string; lang: string } | null, actorUserId: string) {
     return this.setJsonValue(DISPLAY_ANNOUNCEMENT_VOICE_KEY, { voice: value }, actorUserId);
+  }
+
+  async getGameWarningSettings(): Promise<GameWarningSettings> {
+    return this.getJsonValue<GameWarningSettings>(DISPLAY_GAME_WARNING_KEY, DEFAULT_GAME_WARNING);
+  }
+
+  async setGameWarningSettings(value: GameWarningSettings, actorUserId: string) {
+    return this.setJsonValue(DISPLAY_GAME_WARNING_KEY, value, actorUserId);
   }
 
   private async getJsonValue<T>(key: string, fallback: T): Promise<T> {

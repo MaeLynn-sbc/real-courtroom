@@ -43,6 +43,10 @@ export interface SetDisplayRefreshIntervalActionState {
   error: string | null;
 }
 
+export interface SetGameWarningSettingsActionState {
+  error: string | null;
+}
+
 // BUILD-SPEC.md §13: "Owner-only 'Regenerate URL' issues a new slug and
 // invalidates the old one — for when staff leave or the URL gets
 // shared." Staff can otherwise VIEW the setup page freely; only this
@@ -159,5 +163,34 @@ export async function setAnnouncementVoiceAction(
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "setAnnouncementVoiceAction", userId: authz.userId }) };
+  }
+}
+
+// Reported live: the assignment announcement is deliberately manual —
+// players take time to walk over. This one is purely clock-driven
+// (relative to a timer staff already started), so it's automatic by
+// design; the only owner-facing decisions are how many minutes' warning,
+// and whether the venue wants it at all tonight. 1-10 is a sanity bound
+// — below 1 isn't "a warning" anymore, and a target game is rarely
+// longer than 20-30 minutes, so 10 already comfortably covers "most of
+// the game," never a real product need to go further.
+export async function setGameWarningSettingsAction(
+  value: { enabled: boolean; minutes: number },
+): Promise<SetGameWarningSettingsActionState> {
+  const authz = await requireDisplayManage("You don't have permission to change the game warning settings.");
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  if (!Number.isInteger(value.minutes) || value.minutes < 1 || value.minutes > 10) {
+    return { error: "Warning time must be a whole number of minutes between 1 and 10." };
+  }
+
+  try {
+    await settingsService.setGameWarningSettings(value, authz.userId);
+    revalidatePath("/dashboard/admin/tv-display");
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "setGameWarningSettingsAction", userId: authz.userId }) };
   }
 }

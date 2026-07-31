@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function TvDisplaySetupPage() {
-  const [session, slug, announcementRepeatCount, timeUpFlashDurationSeconds, announcementVoice, refreshIntervalSeconds] =
+  const [session, slug, announcementRepeatCount, timeUpFlashDurationSeconds, announcementVoice, refreshIntervalSeconds, gameWarning] =
     await Promise.all([
       auth(),
       settingsService.getOrCreateDisplaySlug(),
@@ -30,6 +30,7 @@ export default async function TvDisplaySetupPage() {
       settingsService.getTimeUpFlashDurationSeconds(),
       settingsService.getAnnouncementVoice(),
       settingsService.getDisplayRefreshIntervalSeconds(),
+      settingsService.getGameWarningSettings(),
     ]);
   const canRegenerate = hasPermission(session?.user.permissions ?? [], PERMISSIONS.SYSTEM_ADMIN);
   const canManageDisplaySettings = hasPermission(session?.user.permissions ?? [], PERMISSIONS.DISPLAY_MANAGE);
@@ -66,6 +67,8 @@ export default async function TvDisplaySetupPage() {
         timeUpFlashDurationSeconds={timeUpFlashDurationSeconds}
         announcementVoice={announcementVoice}
         refreshIntervalSeconds={refreshIntervalSeconds}
+        gameWarningEnabled={gameWarning.enabled}
+        gameWarningMinutes={gameWarning.minutes}
       />
     </div>
   );
