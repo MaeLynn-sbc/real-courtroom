@@ -135,6 +135,47 @@ behavior:
   container IS down between restarts, just not for long enough for a
   naive check to notice.
 
+## The production deploy script
+
+`scripts/deploy-production.sh` (tracked in this repo) encodes the
+repeatable subset of the release checklist below — fetch, reset to
+`origin/main`, `npm ci`, `prisma generate`, stop if migrations are
+pending (see "Migrations and rollback" below for why this is never
+automatic), `npm run build`, restart `tcpms.service`, then verify with
+both `/api/health` and a real page fetch.
+
+**The copy that actually runs lives OUTSIDE the repo, at
+`/opt/tcpms/deploy.sh` on the droplet — deliberately a plain copy, not a
+symlink into the git-managed app directory.** The script itself runs
+`git reset --hard origin/main` partway through; a symlink would let that
+reset change the very file the running shell is still reading line by
+line, a real class of self-modifying-script bug. A copy sitting outside
+the repo is immune to that, but it means the two files can drift.
+
+**Whenever `scripts/deploy-production.sh` changes, `/opt/tcpms/deploy.sh`
+on the droplet needs re-copying before the next deploy** — the running
+copy does not update itself:
+
+```
+cp /opt/tcpms/app/scripts/deploy-production.sh /opt/tcpms/deploy.sh
+chmod +x /opt/tcpms/deploy.sh
+```
+
+This project's deploys are run by Claude over SSH (the droplet's root
+key already lives on the operator's machine) — "deploy" is a spoken
+instruction, not a terminal session. Re-copying the script when it's
+changed is part of that same deploy step, done automatically before
+running it, not a separate thing the operator has to remember. This is
+a change from how this project started (a manual habit that already
+failed once — an earlier version of this script ran for days missing
+`prisma generate` because nobody re-copied it) — worth keeping in mind
+if that division of labor ever changes back.
+
+A change to this script is still called out explicitly, on its own, in
+whatever report announces it — so it's never buried in an unrelated
+summary even though the re-copy itself isn't a separate manual step
+anymore.
+
 ## Release checklist
 
 1. **Run the full verification suite** against a production build:
