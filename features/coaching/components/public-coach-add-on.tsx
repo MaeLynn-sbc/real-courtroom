@@ -38,6 +38,13 @@ interface PublicCoachAddOnProps {
   hasSubmittedProof: boolean;
   contactPhone: string;
   contactFacebookUrl: string;
+  // Set when the parent already added a coach automatically (the
+  // initial booking form now collects coach + group size up front —
+  // see public-booking-form.tsx — and adds it right after the booking
+  // is created, one click, no separate confirm step here). Seeds this
+  // component straight into its "Coach added" display instead of
+  // showing a blank picker for a coach that's already attached.
+  initialConfirmed?: PublicCoachAddOnConfirmed | null;
   // Reports the current coach session (or null once removed) so the
   // parent can recompute the amount due and show a court/coaching
   // breakdown — see public-booking-form.tsx.
@@ -54,13 +61,14 @@ export function PublicCoachAddOn({
   hasSubmittedProof,
   contactPhone,
   contactFacebookUrl,
+  initialConfirmed,
   onCoachSessionChange,
 }: PublicCoachAddOnProps) {
   const [isPending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
   const [coachId, setCoachId] = useState("");
   const [groupSize, setGroupSize] = useState("");
-  const [confirmed, setConfirmed] = useState<PublicCoachAddOnConfirmed | null>(null);
+  const [confirmed, setConfirmed] = useState<PublicCoachAddOnConfirmed | null>(initialConfirmed ?? null);
 
   const selectedCoach = availableCoaches.find((coach) => coach.id === coachId);
   const groupSizeOptions = useMemo(

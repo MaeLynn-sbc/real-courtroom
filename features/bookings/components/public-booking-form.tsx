@@ -1,13 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
+import { toast } from "sonner";
 
 import {
   createPublicBookingAction,
+  listPublicAvailableCoachesAction,
   listPublicCourtOccupiedWindowsAction,
   type PublicBookingCoachOption,
 } from "@/actions/public-booking.actions";
+import { addPublicCoachToBookingAction } from "@/actions/public-coaching.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -186,6 +190,26 @@ export function PublicBookingForm({
   const [hasSubmittedProof, setHasSubmittedProof] = useState(false);
   const [occupiedWindows, setOccupiedWindows] = useState<{ startAt: Date; endAt: Date }[]>([]);
   const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
+  // Reported live: coaching was only offered AFTER a booking was
+  // created, on a separate screen — customers clicked "Book Now" and
+  // walked away without ever seeing it. Collected here instead, in the
+  // same form/click, so the Total below is coach-inclusive before
+  // anyone submits. previewCoachId/previewGroupSize are plain form
+  // state, not react-hook-form fields — there's no bookingId yet for
+  // them to attach to; that only happens inside onSubmit, right after
+  // the booking itself is created (see addPublicCoachToBookingAction
+  // call below).
+  const [previewCoaches, setPreviewCoaches] = useState<PublicBookingCoachOption[]>([]);
+  const [isLoadingCoaches, setIsLoadingCoaches] = useState(false);
+  const [previewCoachId, setPreviewCoachId] = useState("");
+  const [previewGroupSize, setPreviewGroupSize] = useState("");
+  // Only relevant to the single-available-coach case (see the effect
+  // below): lets "No coach, thanks" actually stick instead of the
+  // auto-select effect immediately reselecting the one available coach
+  // on the very next render. Reset whenever the available set changes —
+  // declining a coach for THIS slot shouldn't silently carry over and
+  // suppress auto-select for a different slot later.
+  const [declinedAutoSelectedCoach, setDeclinedAutoSelectedCoach] = useState(false);
 
   const validInitialDuration =
     initialDurationMinutes && DURATIONS_MINUTES.includes(Number(initialDurationMinutes))
@@ -226,7 +250,7 @@ export function PublicBookingForm({
   const watchedDurationMinutes = useWatch({ control, name: "durationMinutes" });
   const selectedCourt = courts.find((court) => court.id === watchedCourtId);
   const previewDurationHours = Number(watchedDurationMinutes) / 60;
-  const previewTotalCents =
+  const previewCourtTotalCents =
     selectedCourt?.hourlyRateCents != null && Number.isFinite(previewDurationHours)
       ? Math.round(selectedCourt.hourlyRateCents * previewDurationHours)
       : null;
@@ -320,6 +344,66 @@ export function PublicBookingForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableTimeOptions.join(","), watchedTime]);
 
+  // Live coach availability for the currently-selected slot — same
+  // "candidate slot" the time-conflict check above already computes, one
+  // fetch whenever the slot actually changes. Resets the picked coach
+  // whenever the slot moves out from under it (a coach available at 5 PM
+  // isn't necessarily available at 8 PM), same reasoning as the time
+  // dropdown resetting itself above.
+  useEffect(() => {
+    const slot = candidateSlot(watchedTime);
+    if (!slot) {
+      setPreviewCoaches([]);
+      setIsLoadingCoaches(false);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingCoaches(true);
+    listPublicAvailableCoachesAction(slot.startAt, slot.endAt).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      setIsLoadingCoaches(false);
+      setPreviewCoaches(result.coaches);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCourt?.id, watchedDate, watchedTime, watchedDurationMinutes]);
+
+  useEffect(() => {
+    if (previewCoachId && !previewCoaches.some((coach) => coach.id === previewCoachId)) {
+      setPreviewCoachId("");
+      setPreviewGroupSize("");
+    }
+    setDeclinedAutoSelectedCoach(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewCoaches]);
+
+  // Reported live: with only two coaches total, "available or not" is
+  // usually a one-answer question — a dropdown to click open just to
+  // reveal a single name was an extra, pointless step. When exactly one
+  // coach is free for the slot, select them automatically so their name
+  // renders directly (see the "form" JSX below); the dropdown is only
+  // shown when there's an actual choice to make (2+ available).
+  // declinedAutoSelectedCoach guards this — otherwise clicking "No
+  // coach, thanks" would just get immediately overridden by this same
+  // effect on the very next render.
+  useEffect(() => {
+    if (previewCoaches.length === 1 && previewCoachId !== previewCoaches[0].id && !declinedAutoSelectedCoach) {
+      setPreviewCoachId(previewCoaches[0].id);
+    }
+  }, [previewCoaches, previewCoachId, declinedAutoSelectedCoach]);
+
+  const selectedPreviewCoach = previewCoaches.find((coach) => coach.id === previewCoachId);
+  const previewCoachGroupSizeOptions = selectedPreviewCoach
+    ? selectedPreviewCoach.rates.map((rate) => rate.groupSize).sort((a, b) => a - b)
+    : [];
+  const selectedPreviewRate = selectedPreviewCoach?.rates.find((rate) => rate.groupSize === Number(previewGroupSize));
+  const previewCoachFeeCents = selectedPreviewRate?.priceCents ?? 0;
+  const previewTotalCents = previewCourtTotalCents != null ? previewCourtTotalCents + previewCoachFeeCents : null;
+
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
 
@@ -338,8 +422,40 @@ export function PublicBookingForm({
         return;
       }
 
+      const bookingId = result.bookingId ?? "";
+
+      // The coach picked in the form above is only local state until now
+      // — attach it right after the booking itself exists, same action
+      // PublicCoachAddOn's own "Add coach" button calls, just fired
+      // automatically instead of waiting for a second click. Re-checked
+      // against result.availableCoaches (the just-fetched, authoritative
+      // list) rather than trusting the preview picker blindly — coach
+      // availability could have changed in the moments between preview
+      // and submit.
+      if (
+        previewCoachId &&
+        previewGroupSize &&
+        (result.availableCoaches ?? []).some((coach) => coach.id === previewCoachId)
+      ) {
+        const addResult = await addPublicCoachToBookingAction({
+          bookingId,
+          coachId: previewCoachId,
+          groupSize: Number(previewGroupSize),
+        });
+        if (addResult.error) {
+          toast.error(`Your slot is booked, but we couldn't add the coach automatically: ${addResult.error} Add them below.`);
+        } else {
+          setCoachSession({
+            coachName: previewCoaches.find((coach) => coach.id === previewCoachId)?.name ?? "Coach",
+            priceCents: addResult.priceCents ?? previewCoachFeeCents,
+          });
+        }
+      } else if (previewCoachId && previewGroupSize) {
+        toast.error("Your slot is booked, but the coach you picked is no longer available for this time. Add one below if you'd like.");
+      }
+
       setConfirmation({
-        bookingId: result.bookingId ?? "",
+        bookingId,
         bookingReference: result.bookingReference,
         courtName: courts.find((court) => court.id === values.courtId)?.name ?? "",
         date: values.date,
@@ -425,6 +541,7 @@ export function PublicBookingForm({
                 hasSubmittedProof={hasSubmittedProof}
                 contactPhone={contactPhone}
                 contactFacebookUrl={contactFacebookUrl}
+                initialConfirmed={coachSession}
                 onCoachSessionChange={setCoachSession}
               />
             </div>
@@ -529,6 +646,7 @@ export function PublicBookingForm({
             hasSubmittedProof={hasSubmittedProof}
             contactPhone={contactPhone}
             contactFacebookUrl={contactFacebookUrl}
+            initialConfirmed={coachSession}
             onCoachSessionChange={setCoachSession}
           />
         </div>
@@ -635,16 +753,114 @@ export function PublicBookingForm({
         />
       </div>
 
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="previewCoachId">Coach (optional)</Label>
+        {isLoadingCoaches ? (
+          <p className="text-muted-foreground text-xs">Checking coach availability…</p>
+        ) : previewCoaches.length === 0 ? (
+          <p className="text-muted-foreground text-xs">
+            No coach available for this time.{" "}
+            <Link href="/coaches/availability" className="underline">
+              See coach availability
+            </Link>
+            .
+          </p>
+        ) : (
+          <>
+            {/* Reported live: with only two coaches total, "available or
+                not" is usually a one-answer question — showing the name
+                directly when there's exactly one, instead of a dropdown
+                someone has to click open first to see it. The dropdown
+                only appears when there's an actual choice (2+ available). */}
+            {previewCoaches.length > 1 ? (
+              <Select
+                value={previewCoachId}
+                onValueChange={(value) => {
+                  setPreviewCoachId(value ?? "");
+                  setPreviewGroupSize("");
+                }}
+              >
+                <SelectTrigger id="previewCoachId" className="w-full">
+                  <SelectValue placeholder="No coach">
+                    {(value: string) => previewCoaches.find((coach) => coach.id === value)?.name ?? "No coach"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {previewCoaches.map((coach) => (
+                    <SelectItem key={coach.id} value={coach.id}>
+                      {coach.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="border-input bg-muted/40 rounded-lg border px-2.5 py-2 text-sm font-medium">
+                {previewCoaches[0].name} is available for this time.
+              </p>
+            )}
+
+            {previewCoachId ? (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="previewGroupSize">Group size (select to add {selectedPreviewCoach?.name ?? "a coach"})</Label>
+                <Select value={previewGroupSize} onValueChange={(value) => setPreviewGroupSize(value ?? "")}>
+                  <SelectTrigger id="previewGroupSize" className="w-full">
+                    <SelectValue placeholder="No coach — select to add one">
+                      {(value: string) => (value ? `${value} ${Number(value) === 1 ? "person" : "people"}` : "No coach — select to add one")}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {previewCoachGroupSizeOptions.map((size) => (
+                      <SelectItem key={size} value={String(size)}>
+                        {size} {size === 1 ? "person" : "people"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedPreviewRate ? (
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Coach rate: </span>
+                    <span className="font-medium">{formatCurrency(selectedPreviewRate.priceCents)}</span>
+                  </p>
+                ) : null}
+                {previewGroupSize ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => {
+                      if (previewCoaches.length === 1) {
+                        setDeclinedAutoSelectedCoach(true);
+                        setPreviewCoachId("");
+                      }
+                      setPreviewGroupSize("");
+                    }}
+                  >
+                    No coach, thanks
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+
       <Card>
         <CardContent className="flex flex-col gap-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Rate</span>
+            <span className="text-muted-foreground">Court rate</span>
             <span className="font-medium tabular-nums">
               {selectedCourt?.hourlyRateCents != null
                 ? `${formatCurrency(selectedCourt.hourlyRateCents)}/hr`
                 : "—"}
             </span>
           </div>
+          {previewCoachFeeCents > 0 ? (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Coach rate</span>
+              <span className="font-medium tabular-nums">{formatCurrency(previewCoachFeeCents)}</span>
+            </div>
+          ) : null}
           <div className="flex justify-between border-t pt-2 text-base">
             <span className="font-medium">Total</span>
             <span className="font-semibold tabular-nums">

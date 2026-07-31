@@ -94,8 +94,55 @@ export interface PublicBookingActionState {
   availableCoaches?: PublicBookingCoachOption[];
 }
 
+// Shared by createPublicBookingAction (coach options for a slot that was
+// JUST booked) and listPublicAvailableCoachesAction below (a live preview
+// for a slot the customer hasn't booked yet, so the initial form's total
+// can include the coach fee up front) — one query shape, not two
+// diverging copies.
+async function buildAvailableCoachOptions(startAt: Date, endAt: Date): Promise<PublicBookingCoachOption[]> {
+  const coaches = await coachAvailabilityService.listAvailableCoaches(startAt, endAt);
+  const coachOptions: PublicBookingCoachOption[] = await Promise.all(
+    coaches.map(async (coach) => ({
+      id: coach.id,
+      name: coach.user.name ?? coach.user.email ?? "Coach",
+      rates: (await coachRateService.listRates(coach.id)).map((rate) => ({
+        groupSize: rate.groupSize,
+        priceCents: rate.priceCents,
+      })),
+    })),
+  );
+  // A coach with no rate table can't actually be booked for any group
+  // size — don't offer an option that would just error on submit.
+  return coachOptions.filter((coach) => coach.rates.length > 0);
+}
+
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+
+export interface ListPublicAvailableCoachesState {
+  error: string | null;
+  coaches: PublicBookingCoachOption[];
+}
+
+// Preview-only, read-only lookup for the initial booking form (Gate:
+// "coach selection moved into the first step, so the Total shown before
+// submit already includes the coach fee" — reported live, customers were
+// clicking "Register"/"Book Now" without realizing coaching was a
+// separate, later step). Same underlying query as
+// createPublicBookingAction's own post-booking coach lookup — a candidate
+// slot here, an already-booked one there, but coach availability only
+// ever depends on the time window either way. No rate limit: read-only,
+// same reasoning as listPublicCourtOccupiedWindowsAction just above.
+export async function listPublicAvailableCoachesAction(
+  startAt: Date,
+  endAt: Date,
+): Promise<ListPublicAvailableCoachesState> {
+  if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime()) || endAt.getTime() <= startAt.getTime()) {
+    return { error: null, coaches: [] };
+  }
+  const coaches = await buildAvailableCoachOptions(startAt, endAt);
+  return { error: null, coaches };
+}
 
 // No session — this is the public, unauthenticated entry point. Thin
 // wrapper: validation + rate-limit + revalidation only. The actual
@@ -145,20 +192,7 @@ export async function createPublicBookingAction(
     // Coach availability only depends on the slot's time, not whether
     // this booking landed CONFIRMED or as a Phase 8 AWAITING_PAYMENT
     // hold — same startAt/endAt already used to create it, above.
-    const coaches = await coachAvailabilityService.listAvailableCoaches(startAt, endAt);
-    const coachOptions: PublicBookingCoachOption[] = await Promise.all(
-      coaches.map(async (coach) => ({
-        id: coach.id,
-        name: coach.user.name ?? coach.user.email ?? "Coach",
-        rates: (await coachRateService.listRates(coach.id)).map((rate) => ({
-          groupSize: rate.groupSize,
-          priceCents: rate.priceCents,
-        })),
-      })),
-    );
-    // A coach with no rate table can't actually be booked for any group
-    // size — don't offer an option that would just error on submit.
-    const availableCoaches = coachOptions.filter((coach) => coach.rates.length > 0);
+    const availableCoaches = await buildAvailableCoachOptions(startAt, endAt);
 
     return {
       error: null,

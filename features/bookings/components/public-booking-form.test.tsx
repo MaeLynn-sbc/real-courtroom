@@ -1,13 +1,18 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { PublicBookingForm } from "./public-booking-form";
-import { createPublicBookingAction, listPublicCourtOccupiedWindowsAction } from "@/actions/public-booking.actions";
+import {
+  createPublicBookingAction,
+  listPublicAvailableCoachesAction,
+  listPublicCourtOccupiedWindowsAction,
+} from "@/actions/public-booking.actions";
 import { addPublicCoachToBookingAction } from "@/actions/public-coaching.actions";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
 
 jest.mock("@/actions/public-booking.actions", () => ({
   createPublicBookingAction: jest.fn(),
   listPublicCourtOccupiedWindowsAction: jest.fn().mockResolvedValue({ error: null, windows: [] }),
+  listPublicAvailableCoachesAction: jest.fn().mockResolvedValue({ error: null, coaches: [] }),
 }));
 jest.mock("@/actions/public-coaching.actions", () => ({
   addPublicCoachToBookingAction: jest.fn(),
@@ -20,6 +25,9 @@ const mockedCreateBooking = createPublicBookingAction as jest.MockedFunction<typ
 const mockedAddCoach = addPublicCoachToBookingAction as jest.MockedFunction<typeof addPublicCoachToBookingAction>;
 const mockedListOccupiedWindows = listPublicCourtOccupiedWindowsAction as jest.MockedFunction<
   typeof listPublicCourtOccupiedWindowsAction
+>;
+const mockedListAvailableCoaches = listPublicAvailableCoachesAction as jest.MockedFunction<
+  typeof listPublicAvailableCoachesAction
 >;
 
 const courts = [{ id: "court-1", name: "Court 1", hourlyRateCents: 35000 }];
@@ -249,5 +257,134 @@ describe("PublicBookingForm — coach section when no coach is available", () =>
 
     expect(screen.getByText(/no coaches available for this time/i)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /facebook/i }).length).toBeGreaterThan(0);
+  });
+});
+
+// Reported live: coaching was only offered AFTER a booking already
+// existed, on a separate screen — customers clicked "Book Now" and never
+// saw it. Coach selection now lives in the initial form itself, and the
+// Total shown there must already include the coach fee before submit.
+describe("PublicBookingForm — coach selection moved into the initial form", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 6, 29, 9, 0, 0));
+    mockedCreateBooking.mockResolvedValue({
+      error: null,
+      bookingId: "booking-1",
+      bookingReference: "BR-0001",
+      requiresPayment: true,
+      totalAmountCents: 35000, // ₱350 court-only
+      availableCoaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
+    });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function renderForm() {
+    render(
+      <PublicBookingForm
+        courts={courts}
+        courtHours={courtHours}
+        gcashInfo={gcashInfo}
+        contactPhone="0917 000 0000"
+        contactFacebookUrl=""
+      />,
+    );
+  }
+
+  it("shows the coach's name directly, with no dropdown to open, when exactly one coach is available", async () => {
+    mockedListAvailableCoaches.mockResolvedValue({
+      error: null,
+      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
+    });
+
+    renderForm();
+    await act(async () => {});
+
+    expect(await screen.findByText("Coach Ana is available for this time.")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /^coach$/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a dropdown to choose between coaches when more than one is available", async () => {
+    mockedListAvailableCoaches.mockResolvedValue({
+      error: null,
+      coaches: [
+        { id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] },
+        { id: "coach-2", name: "Coach Ben", rates: [{ groupSize: 1, priceCents: 45000 }] },
+      ],
+    });
+
+    renderForm();
+    await act(async () => {});
+
+    expect(await screen.findByRole("combobox", { name: /coach \(optional\)/i })).toBeInTheDocument();
+    expect(screen.queryByText(/is available for this time/)).not.toBeInTheDocument();
+  });
+
+  it("adds the coach fee to the Total preview once a group size is chosen, before the form is even submitted", async () => {
+    mockedListAvailableCoaches.mockResolvedValue({
+      error: null,
+      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
+    });
+
+    renderForm();
+    await screen.findByText("Coach Ana is available for this time.");
+
+    expect(screen.getByText("₱350.00")).toBeInTheDocument();
+
+    await clickAsync(screen.getByRole("combobox", { name: /group size/i }));
+    await clickAsync(await screen.findByRole("option", { name: /1 person/i }));
+
+    expect(screen.getByText("Coach rate:")).toBeInTheDocument();
+    expect(screen.getByText("₱750.00")).toBeInTheDocument(); // 350 court + 400 coach
+  });
+
+  it("submits the booking and adds the coach automatically in one click — no separate 'Add coach' step", async () => {
+    mockedListAvailableCoaches.mockResolvedValue({
+      error: null,
+      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
+    });
+    mockedAddCoach.mockResolvedValue({ error: null, coachSessionId: "cs-1", priceCents: 40000 });
+
+    renderForm();
+    await screen.findByText("Coach Ana is available for this time.");
+    await clickAsync(screen.getByRole("combobox", { name: /group size/i }));
+    await clickAsync(await screen.findByRole("option", { name: /1 person/i }));
+
+    await typeAsync(screen.getByLabelText("Name"), "Test Guest");
+    await typeAsync(screen.getByLabelText("Phone number"), "09171234567");
+    await clickAsync(screen.getByRole("button", { name: /book now/i }));
+
+    await screen.findByText("BR-0001");
+
+    expect(mockedAddCoach).toHaveBeenCalledWith({ bookingId: "booking-1", coachId: "coach-1", groupSize: 1 });
+    // Already reflected on the confirmation screen, no extra click needed.
+    expect(screen.getByText("Coach added")).toBeInTheDocument();
+    expect(screen.getByText("₱750.00")).toBeInTheDocument();
+  });
+
+  it("does not add a coach when 'No coach, thanks' was clicked, even though one was available", async () => {
+    mockedListAvailableCoaches.mockResolvedValue({
+      error: null,
+      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
+    });
+
+    renderForm();
+    await screen.findByText("Coach Ana is available for this time.");
+    await clickAsync(screen.getByRole("combobox", { name: /group size/i }));
+    await clickAsync(await screen.findByRole("option", { name: /1 person/i }));
+    await clickAsync(screen.getByRole("button", { name: /no coach, thanks/i }));
+
+    expect(screen.getByText("₱350.00")).toBeInTheDocument();
+
+    await typeAsync(screen.getByLabelText("Name"), "Test Guest");
+    await typeAsync(screen.getByLabelText("Phone number"), "09171234567");
+    await clickAsync(screen.getByRole("button", { name: /book now/i }));
+
+    await screen.findByText("BR-0001");
+    expect(mockedAddCoach).not.toHaveBeenCalled();
   });
 });
