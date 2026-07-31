@@ -45,22 +45,28 @@ export function TodaysRevenuePanel({ summary }: { summary: SalesSummary }) {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <p className="text-muted-foreground mb-2 text-xs">By category</p>
-              <ul className="flex flex-col gap-1 text-sm">
+              <ul className="flex flex-col gap-1.5 text-sm">
                 {summary.byCategory.map((row) => (
-                  <li key={row.category} className="flex justify-between">
+                  <li
+                    key={row.category}
+                    className="bg-muted/50 flex items-center justify-between gap-3 rounded-lg px-3 py-2"
+                  >
                     <span>{CATEGORY_LABELS[row.category] ?? row.category}</span>
-                    <span className="tabular-nums">{formatCurrency(row.amountCents)}</span>
+                    <span className="tabular-nums font-medium">{formatCurrency(row.amountCents)}</span>
                   </li>
                 ))}
               </ul>
             </div>
             <div>
               <p className="text-muted-foreground mb-2 text-xs">By payment method</p>
-              <ul className="flex flex-col gap-1 text-sm">
+              <ul className="flex flex-col gap-1.5 text-sm">
                 {summary.byPaymentMethod.map((row) => (
-                  <li key={row.paymentMethodId} className="flex justify-between">
+                  <li
+                    key={row.paymentMethodId}
+                    className="bg-muted/50 flex items-center justify-between gap-3 rounded-lg px-3 py-2"
+                  >
                     <span>{row.label}</span>
-                    <span className="tabular-nums">{formatCurrency(row.amountCents)}</span>
+                    <span className="tabular-nums font-medium">{formatCurrency(row.amountCents)}</span>
                   </li>
                 ))}
               </ul>
