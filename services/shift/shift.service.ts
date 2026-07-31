@@ -128,9 +128,22 @@ export class ShiftService {
   // the desk right now" indicator. Filtered by the system user's
   // seeded email (the same identifier website-identity.ts itself uses
   // to resolve it), not a name-based guess.
+  // Reported live: every staff member with no email on file (a real,
+  // supported case — a staff account doesn't require one, see
+  // features/employees/schemas/employee.schema.ts's own comment) was
+  // silently invisible in the "who's on duty" dropdown. `email: { not:
+  // X }` compiles to SQL `<>`, and NULL <> 'x' evaluates to UNKNOWN, not
+  // TRUE — Postgres excludes the row entirely, not just from matching X.
+  // Confirmed against real production data: two genuinely on-duty
+  // attendants, both with email: null, both silently missing. Explicit
+  // OR handles both cases: no email at all is trivially "not the
+  // website account," and a real email just has to not equal it.
   async listOpenShiftsWithEmployee() {
     return prisma.shift.findMany({
-      where: { status: "OPEN", employee: { user: { email: { not: WEBSITE_SYSTEM_USER_EMAIL } } } },
+      where: {
+        status: "OPEN",
+        employee: { user: { OR: [{ email: null }, { email: { not: WEBSITE_SYSTEM_USER_EMAIL } }] } },
+      },
       include: { employee: { select: { firstName: true, lastName: true } } },
       orderBy: { startedAt: "asc" },
     });
