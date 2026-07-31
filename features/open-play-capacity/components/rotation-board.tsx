@@ -154,6 +154,10 @@ function NextUpSection({
 
   const nextUp = flatMembers.slice(0, 4);
   const afterThat = flatMembers.slice(4, 8);
+  // Third grouped preview — same "Next up / After that / Then" set the
+  // TV display and /phone now both show, kept consistent across all
+  // three screens.
+  const then = flatMembers.slice(8, 12);
   const editingMember = flatMembers.find((member) => member.registrationId === editingId) ?? null;
 
   function startEdit(member: BoardMember) {
@@ -314,6 +318,7 @@ function NextUpSection({
       <CardContent className="flex flex-col gap-3">
         {renderGroup("Next up", nextUp, true, "Nobody waiting")}
         {renderGroup("After that", afterThat, false, "—")}
+        {renderGroup("Then", then, false, "—")}
         {editingMember ? (
           <div className="flex flex-col gap-2 rounded-lg border border-dashed p-2">
             <p className="text-xs font-medium">Editing {editingMember.playerName}</p>

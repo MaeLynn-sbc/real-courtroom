@@ -18,7 +18,11 @@ import type { DisplayCourt, DisplayData } from "@/services/display/display.servi
 const POLL_INTERVAL_MS = 10_000;
 const RETRY_INTERVAL_MS = 5_000;
 
-const timeFormatter = new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit", hour12: true });
+const timeFormatter = new Intl.DateTimeFormat("en-PH", {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
 
 function hhmm(iso: string): string {
   return timeFormatter.format(new Date(iso));
@@ -82,7 +86,11 @@ export function PhoneDisplayClient({ initialData }: { initialData: DisplayData }
   }, []);
 
   const staleSeconds = Math.round((now - lastUpdatedAt) / 1000);
-  const liveLabel = reconnecting ? "Reconnecting…" : staleSeconds < 5 ? "Just updated" : `Updated ${staleSeconds}s ago`;
+  const liveLabel = reconnecting
+    ? "Reconnecting…"
+    : staleSeconds < 5
+      ? "Just updated"
+      : `Updated ${staleSeconds}s ago`;
   const empty = isFullyEmpty(data);
 
   return (
@@ -103,7 +111,9 @@ export function PhoneDisplayClient({ initialData }: { initialData: DisplayData }
       {empty ? (
         <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-2 py-20 text-center">
           <p className="text-bone text-lg font-semibold">Nobody&apos;s playing right now.</p>
-          <p className="text-slate text-sm">Check back later, or come find us — every court&apos;s open.</p>
+          <p className="text-slate text-sm">
+            Check back later, or come find us — every court&apos;s open.
+          </p>
         </div>
       ) : (
         <div className="mx-auto flex w-full max-w-md flex-col gap-3 pt-5">
@@ -113,24 +123,63 @@ export function PhoneDisplayClient({ initialData }: { initialData: DisplayData }
 
           <section className="border-line bg-navy-800 mt-2 rounded-2xl border p-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-bone text-sm font-semibold uppercase tracking-wide">Waiting</h2>
-              <span className="font-jetbrains text-green text-xs font-bold">{data.queue.length}</span>
+              <h2 className="text-bone text-sm font-semibold tracking-wide uppercase">Waiting</h2>
+              <span className="font-jetbrains text-green text-xs font-bold">
+                {data.queue.length}
+              </span>
             </div>
             {data.queue.length === 0 ? (
               <p className="text-slate mt-2 text-sm">Nobody in the queue.</p>
             ) : (
-              <ol className="mt-2 flex max-h-64 flex-col gap-1 overflow-y-auto text-sm">
-                {data.queue.map((name, index) => (
-                  <li key={`${name}-${index}`} className="text-bone flex items-baseline gap-2 py-0.5">
-                    <span className="font-jetbrains text-slate w-5 shrink-0 text-xs">{index + 1}</span>
-                    <span>{name}</span>
-                  </li>
-                ))}
-              </ol>
+              <div className="mt-2 flex flex-col gap-3">
+                {/* Same "Next up / After that / Then" grouping the TV
+                    display and staff Rotation Board both use, stacked
+                    instead of side-by-side to fit a phone screen. */}
+                <QueueGroup label="Next up" names={data.queue.slice(0, 4)} accent />
+                <QueueGroup label="After that" names={data.queue.slice(4, 8)} />
+                <QueueGroup label="Then" names={data.queue.slice(8, 12)} />
+                {data.queue.length > 12 ? (
+                  <ol className="border-line/60 flex max-h-40 flex-col gap-1 overflow-y-auto border-t pt-2 text-sm">
+                    {data.queue.slice(12).map((name, index) => (
+                      <li
+                        key={`${name}-${index}`}
+                        className="text-bone flex items-baseline gap-2 py-0.5"
+                      >
+                        <span className="font-jetbrains text-slate w-6 shrink-0 text-xs">
+                          {index + 13}
+                        </span>
+                        <span>{name}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
+              </div>
             )}
           </section>
         </div>
       )}
+    </div>
+  );
+}
+
+function QueueGroup({
+  label,
+  names,
+  accent,
+}: {
+  label: string;
+  names: string[];
+  accent?: boolean;
+}) {
+  if (names.length === 0) return null;
+  return (
+    <div>
+      <p
+        className={`${accent ? "text-green" : "text-slate"} text-xs font-bold tracking-wide uppercase`}
+      >
+        {label}
+      </p>
+      <p className="text-bone mt-1 text-sm">{names.join(", ")}</p>
     </div>
   );
 }
@@ -142,10 +191,14 @@ function CourtRow({ court, now }: { court: DisplayCourt; now: number }) {
         <div>
           <p className="text-bone font-semibold">{court.name}</p>
           <p className="text-slate text-xs">
-            {court.next ? `Next: ${court.next.name} · ${hhmm(court.next.startAt)}` : "No bookings today"}
+            {court.next
+              ? `Next: ${court.next.name} · ${hhmm(court.next.startAt)}`
+              : "No bookings today"}
           </p>
         </div>
-        <span className="bg-green/15 text-green rounded-full px-3 py-1 text-xs font-bold uppercase">Available</span>
+        <span className="bg-green/15 text-green rounded-full px-3 py-1 text-xs font-bold uppercase">
+          Available
+        </span>
       </div>
     );
   }
@@ -163,7 +216,9 @@ function CourtRow({ court, now }: { court: DisplayCourt; now: number }) {
           </span>
         </div>
         <p className="text-bone mt-2 text-sm">
-          {court.players.length > 0 ? court.players.map((player) => player.name).join(", ") : "Guest"}
+          {court.players.length > 0
+            ? court.players.map((player) => player.name).join(", ")
+            : "Guest"}
         </p>
         <p className="text-slate mt-1 text-xs">Not started yet</p>
       </div>

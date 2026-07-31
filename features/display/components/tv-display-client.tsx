@@ -95,7 +95,11 @@ export function formatAssignmentAnnouncement(court: DisplayCourt): string {
 }
 
 const clockFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
-const dateFormatter = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric" });
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  weekday: "long",
+  month: "short",
+  day: "numeric",
+});
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
 
 function hhmm(iso: string): string {
@@ -154,7 +158,10 @@ export function isGameWarningActive(endAt: string, now: number, warningMs: numbe
 // same court-name-as-stored convention as formatAssignmentAnnouncement
 // above, minutes spoken as a word only for the 1-minute case (the
 // example the ask itself gave), a plain number otherwise.
-export function formatGameWarningAnnouncement(court: { name: string }, warningMinutes: number): string {
+export function formatGameWarningAnnouncement(
+  court: { name: string },
+  warningMinutes: number,
+): string {
   const time = warningMinutes === 1 ? "one minute" : `${warningMinutes} minutes`;
   return `${court.name}, ${time} remaining.`;
 }
@@ -258,7 +265,11 @@ export function TvDisplayClient({
     function resolveVoice() {
       const match = window.speechSynthesis
         .getVoices()
-        .find((candidate) => candidate.name === announcementVoice!.name && candidate.lang === announcementVoice!.lang);
+        .find(
+          (candidate) =>
+            candidate.name === announcementVoice!.name &&
+            candidate.lang === announcementVoice!.lang,
+        );
       if (match) {
         resolvedVoiceRef.current = match;
       }
@@ -298,7 +309,13 @@ export function TvDisplayClient({
   // landing in the same poll never overlap.
   const enqueueAnnouncement = useCallback(
     (text: string) => {
-      if (!text || mutedRef.current || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+      if (
+        !text ||
+        mutedRef.current ||
+        typeof window === "undefined" ||
+        !("speechSynthesis" in window)
+      )
+        return;
       speechQueueRef.current.push(text);
       processSpeechQueue();
     },
@@ -572,11 +589,19 @@ export function TvDisplayClient({
   }
 
   const staleSeconds = Math.round((now - lastUpdatedAt) / 1000);
-  const liveLabel = reconnecting ? "Reconnecting…" : staleSeconds < 5 ? "Just updated" : `Updated ${staleSeconds}s ago`;
+  const liveLabel = reconnecting
+    ? "Reconnecting…"
+    : staleSeconds < 5
+      ? "Just updated"
+      : `Updated ${staleSeconds}s ago`;
 
   const queueUp = data.queue.slice(0, 4);
   const queueThen = data.queue.slice(4, 8);
-  const queueRest = data.queue.slice(8);
+  // Third grouped box, added alongside Next up/After that — room to
+  // show one more group of 4 before falling back to the flat numbered
+  // overflow row.
+  const queueLater = data.queue.slice(8, 12);
+  const queueRest = data.queue.slice(12);
   const queueShown = queueRest.slice(0, 8);
   const queueExtra = queueRest.length - queueShown.length;
 
@@ -598,7 +623,8 @@ export function TvDisplayClient({
           </div>
         </div>
         <div className={styles.sub}>
-          Live · Updates every {refreshIntervalSeconds} second{refreshIntervalSeconds === 1 ? "" : "s"}
+          Live · Updates every {refreshIntervalSeconds} second
+          {refreshIntervalSeconds === 1 ? "" : "s"}
         </div>
         <div className={styles.clock}>
           <b>{clockFormatter.format(now)}</b>
@@ -657,16 +683,32 @@ export function TvDisplayClient({
               )}
             </span>
           </div>
+          <div className={cls(styles["next-up"], styles.later)}>
+            <span className={styles.tag}>Then</span>
+            <span className={styles.names}>
+              {queueLater.length ? (
+                queueLater.map((name, i) => (
+                  <span key={`${name}-${i}`} className={styles.n}>
+                    {name}
+                  </span>
+                ))
+              ) : (
+                <span className={styles.n}>—</span>
+              )}
+            </span>
+          </div>
         </div>
         <div className={cls(styles["q-row"], styles.rest)}>
           <div className={styles.waiting}>
             {queueShown.map((name, i) => (
               <span key={`${name}-${i}`} className={styles.w}>
-                <i>{i + 9}</i>
+                <i>{i + 13}</i>
                 {name}
               </span>
             ))}
-            {queueExtra > 0 && <span className={cls(styles.w, styles.more)}>+{queueExtra} more</span>}
+            {queueExtra > 0 && (
+              <span className={cls(styles.w, styles.more)}>+{queueExtra} more</span>
+            )}
           </div>
         </div>
       </div>
@@ -716,7 +758,9 @@ function CourtCard({
         <div className={styles["big-open"]}>Available</div>
         <div className={styles.sched}>
           <span>Next booking</span>
-          <span>{court.next ? `${court.next.name} · ${hhmm(court.next.startAt)}` : "No bookings today"}</span>
+          <span>
+            {court.next ? `${court.next.name} · ${hhmm(court.next.startAt)}` : "No bookings today"}
+          </span>
         </div>
       </div>
     );
@@ -754,7 +798,12 @@ function CourtCard({
     const timeUp = isTimeUpFlashing(court.endAt, now, timeUpFlashDurationMs);
     return (
       <div
-        className={cls(styles.court, styles.res, timing.ending && styles.ending, timeUp && styles.timeUp)}
+        className={cls(
+          styles.court,
+          styles.res,
+          timing.ending && styles.ending,
+          timeUp && styles.timeUp,
+        )}
       >
         <div className={styles["court-head"]}>
           <span className={styles["court-no"]}>{court.name}</span>
