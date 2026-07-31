@@ -22,12 +22,11 @@ jest.mock("@/actions/open-play-rotation.actions", () => ({
   swapPartyMemberAction: jest.fn(),
 }));
 
-// "Next up" box's Cancel/Edit actions — mocked for the same reason as
+// "Next up" box's Cancel action — mocked for the same reason as
 // open-play-rotation.actions above: the real module pulls in next/cache,
 // which the jsdom test environment can't execute.
 jest.mock("@/actions/open-play-registration.actions", () => ({
   cancelRegistrationAction: jest.fn(),
-  updateRegistrationDetailsAction: jest.fn(),
 }));
 
 jest.mock("next/navigation", () => ({

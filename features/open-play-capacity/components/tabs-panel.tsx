@@ -1,6 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check, Pencil } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -11,12 +11,22 @@ import {
   settleTabAction,
   writeOffTabAction,
 } from "@/actions/player-tab.actions";
+import { updateRegistrationDetailsAction } from "@/actions/open-play-registration.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { deriveSettlementMethod, SettlementPaymentFields } from "@/components/shared/settlement-payment-fields";
+import {
+  deriveSettlementMethod,
+  SettlementPaymentFields,
+} from "@/components/shared/settlement-payment-fields";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -26,6 +36,7 @@ const SETTLE_SUCCESS_DISPLAY_MS = 900;
 
 interface TabRow {
   id: string;
+  registrationId: string;
   playerName: string;
   status: "OPEN" | "SETTLED" | "WRITTEN_OFF";
   totalCents: number;
@@ -59,6 +70,14 @@ export function TabsPanel({
   const [addOnOpenTabId, setAddOnOpenTabId] = useState<string | null>(null);
   const [addOnProductId, setAddOnProductId] = useState(products[0]?.id ?? "");
   const [justSettledTabId, setJustSettledTabId] = useState<string | null>(null);
+  // Reported live: no way anywhere to fix a typo'd name short of
+  // cancelling and re-registering. Moved here from the Rotation Board's
+  // "Next up" preview — "that's not the place for editing names" — the
+  // tab is where staff actually deal with a player by name for the
+  // whole night, so a correction here also fixes the tab's own
+  // (snapshotted) name, not just the underlying registration.
+  const [editNameTabId, setEditNameTabId] = useState<string | null>(null);
+  const [editNameValue, setEditNameValue] = useState("");
 
   function refresh() {
     router.refresh();
@@ -149,6 +168,24 @@ export function TabsPanel({
     });
   }
 
+  function handleSaveName(registrationId: string) {
+    const playerName = editNameValue.trim();
+    if (!playerName) {
+      toast.error("Enter a name.");
+      return;
+    }
+    startTransition(async () => {
+      const result = await updateRegistrationDetailsAction({ registrationId, playerName });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Name corrected.");
+      setEditNameTabId(null);
+      refresh();
+    });
+  }
+
   function handleWriteOff(tabId: string) {
     const reason = window.prompt("Reason for writing off this tab?");
     if (!reason?.trim()) return;
@@ -178,6 +215,7 @@ export function TabsPanel({
           openTabs.map((tab) => {
             const isSettling = openTabId === tab.id;
             const justSettled = justSettledTabId === tab.id;
+            const isEditingName = editNameTabId === tab.id;
             return (
               <div
                 key={tab.id}
@@ -196,7 +234,26 @@ export function TabsPanel({
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <div>
-                          <p className={cn("font-medium", isSettling && "text-base font-semibold")}>{tab.playerName}</p>
+                          <p
+                            className={cn(
+                              "flex items-center gap-1.5 font-medium",
+                              isSettling && "text-base font-semibold",
+                            )}
+                          >
+                            {tab.playerName}
+                            <button
+                              type="button"
+                              className="text-muted-foreground hover:text-foreground"
+                              aria-label={`Edit ${tab.playerName}'s name`}
+                              disabled={isPending}
+                              onClick={() => {
+                                setEditNameTabId(isEditingName ? null : tab.id);
+                                setEditNameValue(tab.playerName);
+                              }}
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                          </p>
                           <p className="text-muted-foreground text-xs">
                             {tab.gamesPlayed} game{tab.gamesPlayed === 1 ? "" : "s"}
                           </p>
@@ -217,7 +274,9 @@ export function TabsPanel({
                           size="sm"
                           variant="ghost"
                           disabled={isPending}
-                          onClick={() => setAddOnOpenTabId(addOnOpenTabId === tab.id ? null : tab.id)}
+                          onClick={() =>
+                            setAddOnOpenTabId(addOnOpenTabId === tab.id ? null : tab.id)
+                          }
                         >
                           + Add-on
                         </Button>
@@ -230,15 +289,53 @@ export function TabsPanel({
                         >
                           {isSettling ? "Cancel" : "Settle"}
                         </Button>
-                        <Button type="button" size="sm" variant="ghost" disabled={isPending} onClick={() => handleWriteOff(tab.id)}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={isPending}
+                          onClick={() => handleWriteOff(tab.id)}
+                        >
                           Write off
                         </Button>
                       </div>
                     </div>
 
+                    {isEditingName ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+                        <Input
+                          value={editNameValue}
+                          onChange={(e) => setEditNameValue(e.target.value)}
+                          placeholder="Corrected name"
+                          className="w-56"
+                          autoFocus
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={isPending}
+                          onClick={() => handleSaveName(tab.registrationId)}
+                        >
+                          Save name
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={isPending}
+                          onClick={() => setEditNameTabId(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : null}
+
                     {addOnOpenTabId === tab.id ? (
                       <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
-                        <Select value={addOnProductId} onValueChange={(v) => setAddOnProductId(v ?? "")}>
+                        <Select
+                          value={addOnProductId}
+                          onValueChange={(v) => setAddOnProductId(v ?? "")}
+                        >
                           <SelectTrigger className="w-44">
                             <SelectValue>
                               {() =>
@@ -256,7 +353,12 @@ export function TabsPanel({
                             ))}
                           </SelectContent>
                         </Select>
-                        <Button type="button" size="sm" disabled={isPending || !addOnProductId} onClick={() => handleAddOn(tab.id)}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={isPending || !addOnProductId}
+                          onClick={() => handleAddOn(tab.id)}
+                        >
                           Add
                         </Button>
                       </div>
@@ -273,7 +375,12 @@ export function TabsPanel({
                             onGcashReferenceChange={setGcashReference}
                             idPrefix={`tabSettlePaymentMethod-${tab.id}`}
                           />
-                          <Button type="button" size="sm" disabled={isPending} onClick={() => handleSettle(tab.id)}>
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={isPending}
+                            onClick={() => handleSettle(tab.id)}
+                          >
                             Confirm {formatCurrency(tab.totalCents)} settled
                           </Button>
                         </div>
@@ -299,7 +406,13 @@ export function TabsPanel({
                             onChange={(e) => setAdjustReason(e.target.value)}
                             className="w-44"
                           />
-                          <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={() => handleAddAdjustment(tab.id)}>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={isPending}
+                            onClick={() => handleAddAdjustment(tab.id)}
+                          >
                             Add adjustment
                           </Button>
                         </div>
@@ -322,7 +435,9 @@ export function TabsPanel({
                 <div key={tab.id} className="flex items-center justify-between gap-3 text-sm">
                   <span>{tab.playerName}</span>
                   <span className="flex items-center gap-2">
-                    <Badge variant="outline">{tab.status === "SETTLED" ? `Settled (${tab.settledVia})` : "Written off"}</Badge>
+                    <Badge variant="outline">
+                      {tab.status === "SETTLED" ? `Settled (${tab.settledVia})` : "Written off"}
+                    </Badge>
                     <span className="text-muted-foreground">{formatCurrency(tab.totalCents)}</span>
                   </span>
                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftRight, Check, Pencil, X } from "lucide-react";
+import { ArrowLeftRight, Check, X } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -21,13 +21,11 @@ import {
 } from "@/actions/open-play-rotation.actions";
 import {
   cancelRegistrationAction,
-  updateRegistrationDetailsAction,
   type OpenPlayRegistrationActionState,
 } from "@/actions/open-play-registration.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
@@ -128,8 +126,9 @@ function formatGameTimeRemaining(endAt: string | null): { text: string; overtime
 // board, flattened members in queue order — see display.service.ts) sitting
 // right under the court cards, distinct from the detailed "Waiting" card
 // below it. Each chip gets its own Cancel (existing cancelRegistrationAction)
-// and Edit (new updateRegistrationDetailsAction) — the ask was explicitly
-// "remove and cancel... or edit and change players."
+// and Swap. No Edit here — reported live: "that's not the place for
+// editing names," pulled after shipping (name/phone corrections belong
+// wherever the registration itself is managed, not this preview).
 function NextUpSection({
   date,
   flatMembers,
@@ -141,10 +140,6 @@ function NextUpSection({
   runAction: (promise: Promise<OpenPlayRegistrationActionState>, successMessage: string) => void;
   isPending: boolean;
 }) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editPhone, setEditPhone] = useState("");
-  const [editError, setEditError] = useState<string | null>(null);
   // Group swap ("build the group swap same as tv display"): pick exactly
   // two players from the preview (either box, doesn't matter which) and
   // swap which group each is in. A plain toggle-select of up to 2
@@ -158,19 +153,6 @@ function NextUpSection({
   // TV display and /phone now both show, kept consistent across all
   // three screens.
   const then = flatMembers.slice(8, 12);
-  const editingMember = flatMembers.find((member) => member.registrationId === editingId) ?? null;
-
-  function startEdit(member: BoardMember) {
-    setEditingId(member.registrationId);
-    setEditName(member.playerName);
-    setEditPhone("");
-    setEditError(null);
-  }
-
-  function closeEdit() {
-    setEditingId(null);
-    setEditError(null);
-  }
 
   function toggleSwapPick(registrationId: string) {
     setSwapPicks((prev) => {
@@ -191,29 +173,6 @@ function NextUpSection({
       "Swapped.",
     );
     setSwapPicks([]);
-  }
-
-  function saveEdit() {
-    if (!editingMember) return;
-    const trimmedName = editName.trim();
-    const trimmedPhone = editPhone.trim();
-    const playerName =
-      trimmedName && trimmedName !== editingMember.playerName ? trimmedName : undefined;
-    const phone = trimmedPhone ? trimmedPhone : undefined;
-    if (!playerName && !phone) {
-      setEditError("Change the name or enter a new phone number.");
-      return;
-    }
-    setEditError(null);
-    runAction(
-      updateRegistrationDetailsAction({
-        registrationId: editingMember.registrationId,
-        playerName,
-        phone,
-      }),
-      "Registration updated.",
-    );
-    closeEdit();
   }
 
   function renderGroup(label: string, members: BoardMember[], accent: boolean, emptyText: string) {
@@ -280,15 +239,6 @@ function NextUpSection({
                   </button>
                   <button
                     type="button"
-                    className="text-card-foreground/50 hover:text-card-foreground"
-                    aria-label={`Edit ${member.playerName}`}
-                    disabled={isPending}
-                    onClick={() => startEdit(member)}
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
                     className="text-card-foreground/50 hover:text-destructive"
                     aria-label={`Remove ${member.playerName} from the queue`}
                     disabled={isPending}
@@ -319,46 +269,6 @@ function NextUpSection({
         {renderGroup("Next up", nextUp, true, "Nobody waiting")}
         {renderGroup("After that", afterThat, false, "—")}
         {renderGroup("Then", then, false, "—")}
-        {editingMember ? (
-          <div className="flex flex-col gap-2 rounded-lg border border-dashed p-2">
-            <p className="text-xs font-medium">Editing {editingMember.playerName}</p>
-            <div className="flex flex-wrap gap-2">
-              <Input
-                value={editName}
-                onChange={(event) => setEditName(event.target.value)}
-                placeholder="Name"
-                aria-label="Name"
-                className="max-w-56"
-              />
-              <Input
-                value={editPhone}
-                onChange={(event) => setEditPhone(event.target.value)}
-                placeholder="New phone number (leave blank to keep)"
-                aria-label="Phone"
-                className="max-w-64"
-              />
-            </div>
-            {editError ? (
-              <p className="text-destructive text-xs" role="alert">
-                {editError}
-              </p>
-            ) : null}
-            <div className="flex gap-2">
-              <Button type="button" size="sm" disabled={isPending} onClick={saveEdit}>
-                Save
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={isPending}
-                onClick={closeEdit}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : null}
         {swapPicks.length > 0 ? (
           <div className="border-court-blue/40 bg-court-blue/[0.06] flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
             <p className="text-sm">

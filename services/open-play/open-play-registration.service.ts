@@ -842,6 +842,22 @@ export class OpenPlayRegistrationService {
       },
     });
 
+    // playerName is snapshotted (copied, not joined) onto QueueEntry
+    // (rotation board grouping/display) and PlayerTab (billing) at
+    // creation time — a name correction here must reach both, or the
+    // corrected name would show on the registration but the old,
+    // typo'd one everywhere else. phone has no such snapshot to update.
+    if (input.playerName) {
+      await prisma.queueEntry.updateMany({
+        where: { registrationId },
+        data: { playerName: input.playerName },
+      });
+      await prisma.playerTab.updateMany({
+        where: { registrationId },
+        data: { playerName: input.playerName },
+      });
+    }
+
     await this.writeAuditLog({
       actorUserId,
       action: "open_play_night_registration.details_updated",

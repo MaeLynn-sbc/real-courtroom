@@ -247,6 +247,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
 function serializeTabs(tabs: (PlayerTab & { totalCents: number; gamesPlayed: number })[]) {
   return tabs.map((tab) => ({
     id: tab.id,
+    registrationId: tab.registrationId,
     playerName: tab.playerName,
     status: tab.status,
     totalCents: tab.totalCents,
