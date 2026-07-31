@@ -116,7 +116,13 @@ const OPEN_PLAY_CREDIT_EXPIRY_DAYS = 90;
 // mirrors Booking's own "not excluded until REJECTED" stance). An
 // AWAITING_PAYMENT hold only counts while its holdExpiresAt hasn't
 // passed — mirrors booking.service.ts's checkAvailabilityWithClient's
-// identical lazy-exclusion of an expired hold.
+// identical lazy-exclusion of an expired hold. A DB-side count, not a
+// JS filter, because every call site here already holds a transaction
+// and only needs the number — see lib/open-play-seats.ts's
+// isRegistrationOccupyingSeat for the identical predicate expressed as
+// a plain function, for callers (the capacity page header, the Roster
+// panel) that already have the rows in hand and don't want a second
+// query. Keep both in sync if this predicate ever changes.
 async function countOccupiedSeats(
   tx: Prisma.TransactionClient,
   sessionId: string,

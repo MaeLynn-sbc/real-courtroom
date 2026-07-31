@@ -25,9 +25,20 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
+import { isRegistrationOccupyingSeat } from "@/lib/open-play-seats";
+import {
+  OPEN_PLAY_SKILL_LEVEL_ORDER,
+  OPEN_PLAY_SKILL_LEVELS,
+} from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 
 interface RosterRegistration {
@@ -37,6 +48,7 @@ interface RosterRegistration {
   skillLevel: OpenPlaySkillLevel;
   status: string;
   waitlistPos: number | null;
+  holdExpiresAt: Date | null;
   date: Date;
   registeredAt: Date;
 }
@@ -46,7 +58,12 @@ function formatNightDate(date: Date): string {
 }
 
 function formatRegisteredAt(date: Date): string {
-  return date.toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return date.toLocaleString("en-PH", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 interface RegistrationRosterPanelProps {
@@ -59,7 +76,10 @@ function RowActions({ registrationId }: { registrationId: string }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  function run(action: (input: { registrationId: string }) => Promise<{ error: string | null }>, label: string) {
+  function run(
+    action: (input: { registrationId: string }) => Promise<{ error: string | null }>,
+    label: string,
+  ) {
     startTransition(async () => {
       const result = await action({ registrationId });
       if (result.error) {
@@ -122,7 +142,10 @@ function RefundAction({ registrationId }: { registrationId: string }) {
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-dashed p-2">
       <div className="flex flex-col gap-1">
-        <Label htmlFor={`refund-amount-${registrationId}`} className="text-muted-foreground text-xs">
+        <Label
+          htmlFor={`refund-amount-${registrationId}`}
+          className="text-muted-foreground text-xs"
+        >
           Amount (₱)
         </Label>
         <Input
@@ -135,7 +158,10 @@ function RefundAction({ registrationId }: { registrationId: string }) {
         />
       </div>
       <div className="flex flex-col gap-1">
-        <Label htmlFor={`refund-reason-${registrationId}`} className="text-muted-foreground text-xs">
+        <Label
+          htmlFor={`refund-reason-${registrationId}`}
+          className="text-muted-foreground text-xs"
+        >
           Reason (required)
         </Label>
         <Textarea
@@ -166,7 +192,11 @@ function RefundAction({ registrationId }: { registrationId: string }) {
               return;
             }
             startTransition(async () => {
-              const result = await refundRegistrationAction({ registrationId, amountCents, reason: reason.trim() });
+              const result = await refundRegistrationAction({
+                registrationId,
+                amountCents,
+                reason: reason.trim(),
+              });
               if (result.error) {
                 setServerError(result.error);
                 return;
@@ -179,7 +209,13 @@ function RefundAction({ registrationId }: { registrationId: string }) {
         >
           {isPending ? "Saving…" : "Save refund"}
         </Button>
-        <Button type="button" size="sm" variant="ghost" disabled={isPending} onClick={() => setOpen(false)}>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={isPending}
+          onClick={() => setOpen(false)}
+        >
           Cancel
         </Button>
       </div>
@@ -194,7 +230,13 @@ function RefundAction({ registrationId }: { registrationId: string }) {
 // deleteRegistrationAction's own guard blocks those server-side too, this
 // just keeps the button from ever appearing for a real seat). Confirm
 // dialog since this is a hard, irreversible delete, unlike Cancel/No-show.
-function DeleteAction({ registrationId, playerName }: { registrationId: string; playerName: string }) {
+function DeleteAction({
+  registrationId,
+  playerName,
+}: {
+  registrationId: string;
+  playerName: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -215,8 +257,9 @@ function DeleteAction({ registrationId, playerName }: { registrationId: string; 
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {playerName}&apos;s registration?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes the registration — there&apos;s no undo. Use this for test or mistaken
-              entries only; a real registration that already showed up or paid can&apos;t be deleted this way.
+              This permanently removes the registration — there&apos;s no undo. Use this for test or
+              mistaken entries only; a real registration that already showed up or paid can&apos;t
+              be deleted this way.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -246,8 +289,18 @@ function DeleteAction({ registrationId, playerName }: { registrationId: string; 
   );
 }
 
-export function RegistrationRosterPanel({ registrations, skillBreakdown, capacity }: RegistrationRosterPanelProps) {
-  const seated = registrations.filter((r) => r.status === "CONFIRMED" && r.waitlistPos === null);
+export function RegistrationRosterPanel({
+  registrations,
+  skillBreakdown,
+  capacity,
+}: RegistrationRosterPanelProps) {
+  // Same occupied-seat predicate the capacity page's header now uses
+  // (lib/open-play-seats.ts) — this used to be a narrower, silently
+  // drifted "CONFIRMED only" count that disagreed with the canonical
+  // definition (excluded PENDING_VERIFICATION and live AWAITING_PAYMENT
+  // holds). Two numbers for "how many seats are taken" on the same page
+  // is worse than one, even a correct one.
+  const seated = registrations.filter((r) => isRegistrationOccupyingSeat(r, new Date()));
   const waitlisted = registrations.filter((r) => r.waitlistPos !== null);
   const active = registrations.filter((r) => r.status === "CONFIRMED");
 
@@ -265,7 +318,9 @@ export function RegistrationRosterPanel({ registrations, skillBreakdown, capacit
           <span className="font-medium">
             {seated.length} / {capacity} · {waitlisted.length} waiting
           </span>
-          {active.length > 0 ? <span className="text-muted-foreground">{breakdownText}</span> : null}
+          {active.length > 0 ? (
+            <span className="text-muted-foreground">{breakdownText}</span>
+          ) : null}
         </div>
 
         {registrations.length === 0 ? (
@@ -289,8 +344,12 @@ export function RegistrationRosterPanel({ registrations, skillBreakdown, capacit
                   <TableCell className="font-medium">{registration.playerName}</TableCell>
                   <TableCell>{registration.phone}</TableCell>
                   <TableCell>{OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}</TableCell>
-                  <TableCell className="text-muted-foreground text-sm">{formatNightDate(registration.date)}</TableCell>
-                  <TableCell className="text-muted-foreground text-sm">{formatRegisteredAt(registration.registeredAt)}</TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {formatNightDate(registration.date)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {formatRegisteredAt(registration.registeredAt)}
+                  </TableCell>
                   <TableCell>
                     {registration.status !== "CONFIRMED" ? (
                       <Badge variant="destructive">{registration.status.replace("_", " ")}</Badge>
@@ -309,14 +368,20 @@ export function RegistrationRosterPanel({ registrations, skillBreakdown, capacit
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col items-start gap-1.5">
-                      {registration.status === "CONFIRMED" ? <RowActions registrationId={registration.id} /> : null}
+                      {registration.status === "CONFIRMED" ? (
+                        <RowActions registrationId={registration.id} />
+                      ) : null}
                       {registration.status === "CONFIRMED" ||
                       registration.status === "CANCELLED" ||
                       registration.status === "REJECTED" ? (
                         <RefundAction registrationId={registration.id} />
                       ) : null}
-                      {registration.status !== "CONFIRMED" && registration.status !== "CHECKED_OUT" ? (
-                        <DeleteAction registrationId={registration.id} playerName={registration.playerName} />
+                      {registration.status !== "CONFIRMED" &&
+                      registration.status !== "CHECKED_OUT" ? (
+                        <DeleteAction
+                          registrationId={registration.id}
+                          playerName={registration.playerName}
+                        />
                       ) : null}
                     </div>
                   </TableCell>

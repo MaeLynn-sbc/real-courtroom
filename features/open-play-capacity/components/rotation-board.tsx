@@ -52,6 +52,12 @@ interface BoardAssignment {
   status: "PROPOSED" | "ACTIVE" | "DONE" | "CANCELLED";
   skillSpread: number;
   startedAt: string | null;
+  // Reported live: staff could see elapsed time ("started 7:32 PM") but
+  // had to look at the TV to see how much is left — same targetGameMinutes
+  // soft target the TV's own countdown uses (page.tsx's serializeAssignment
+  // mirrors display.service.ts's identical computation). Null unless the
+  // game is ACTIVE with a real startedAt.
+  endAt: string | null;
   // Manual timer/announce: null until ANNOUNCE has been pressed at least
   // once. Re-pressable — a fresh value each time, which is also what the
   // TV/phone displays watch to decide when to (re-)speak.
@@ -99,6 +105,22 @@ function unitKey(unit: BoardUnit): string {
 
 function unitLabel(unit: BoardUnit): string {
   return unit.members.map((member) => member.playerName).join(" & ");
+}
+
+// "Is there any way to see how much time is left on a running game from
+// this screen?" — same targetGameMinutes soft target the TV display
+// counts down to, just rendered here too so staff don't have to look up
+// at the TV for it. Recomputed on every render, same as the rest of this
+// staff screen (no client-side ticking clock) — accurate as of the last
+// action or the tab wrapper's own auto-poll.
+function formatGameTimeRemaining(endAt: string | null): { text: string; overtime: boolean } | null {
+  if (!endAt) return null;
+  const msLeft = new Date(endAt).getTime() - Date.now();
+  const minutes = Math.round(Math.abs(msLeft) / 60_000);
+  if (msLeft <= 0) {
+    return { text: minutes === 0 ? "time's up" : `${minutes}m over`, overtime: true };
+  }
+  return { text: `${minutes}m left`, overtime: false };
 }
 
 // "any option to edit next up?" — a compact, TV-display-style preview
@@ -472,6 +494,15 @@ export function RotationBoard({
                         })
                       : "—"}
                   </p>
+                  {(() => {
+                    const remaining = formatGameTimeRemaining(court.active.endAt);
+                    if (!remaining) return null;
+                    return (
+                      <Badge variant={remaining.overtime ? "warning" : "outline"} className="w-fit">
+                        {remaining.text}
+                      </Badge>
+                    );
+                  })()}
                   <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
@@ -622,6 +653,52 @@ export function RotationBoard({
           </Card>
         ))}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Build a group by hand</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-muted-foreground text-xs">
+            Pick 4 from the waiting list below (checkboxes), choose a court, then create — skill is
+            ignored entirely. Discards any pending auto-proposal on that court.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="border-input rounded-md border px-2 py-1.5 text-sm"
+              value={manualCourtId}
+              onChange={(event) => setManualCourtId(event.target.value)}
+            >
+              {courts.map((court) => (
+                <option key={court.id} value={court.id}>
+                  {court.name}
+                </option>
+              ))}
+            </select>
+            <span className="text-muted-foreground text-xs">{manualPicks.length}/4 picked</span>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isPending || manualPicks.length !== 4 || !manualCourtId}
+              onClick={() =>
+                runAction(
+                  createManualAssignmentAction({
+                    date,
+                    courtId: manualCourtId,
+                    registrationIds: manualPicks,
+                  }).then((r) => {
+                    if (!r.error) setManualPicks([]);
+                    return r;
+                  }),
+                  "Group created.",
+                )
+              }
+            >
+              Create group
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <NextUpSection
         date={date}
@@ -823,52 +900,6 @@ export function RotationBoard({
               })}
             </>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Build a group by hand</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <p className="text-muted-foreground text-xs">
-            Pick 4 from the waiting list above (checkboxes), choose a court, then create — skill is
-            ignored entirely. Discards any pending auto-proposal on that court.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              className="border-input rounded-md border px-2 py-1.5 text-sm"
-              value={manualCourtId}
-              onChange={(event) => setManualCourtId(event.target.value)}
-            >
-              {courts.map((court) => (
-                <option key={court.id} value={court.id}>
-                  {court.name}
-                </option>
-              ))}
-            </select>
-            <span className="text-muted-foreground text-xs">{manualPicks.length}/4 picked</span>
-            <Button
-              type="button"
-              size="sm"
-              disabled={isPending || manualPicks.length !== 4 || !manualCourtId}
-              onClick={() =>
-                runAction(
-                  createManualAssignmentAction({
-                    date,
-                    courtId: manualCourtId,
-                    registrationIds: manualPicks,
-                  }).then((r) => {
-                    if (!r.error) setManualPicks([]);
-                    return r;
-                  }),
-                  "Group created.",
-                )
-              }
-            >
-              Create group
-            </Button>
-          </div>
         </CardContent>
       </Card>
 

@@ -6,14 +6,22 @@ import { buttonVariants } from "@/components/ui/button";
 import { CheckInPanel } from "@/features/open-play-capacity/components/checkin-panel";
 import { CloseSessionButton } from "@/features/open-play-capacity/components/close-session-button";
 import { OnlineRegistrationBlockToggle } from "@/features/open-play-capacity/components/online-registration-block-toggle";
+import { OpenPlaySessionTabs } from "@/features/open-play-capacity/components/open-play-session-tabs";
 import { RegistrationRosterPanel } from "@/features/open-play-capacity/components/registration-roster-panel";
 import { RotationBoard } from "@/features/open-play-capacity/components/rotation-board";
 import { TabsPanel } from "@/features/open-play-capacity/components/tabs-panel";
-import { WalkInRegistrationForm, type RegistrablePlayer } from "@/features/open-play-capacity/components/walk-in-registration-form";
+import {
+  WalkInRegistrationForm,
+  type RegistrablePlayer,
+} from "@/features/open-play-capacity/components/walk-in-registration-form";
 import type { PlayerTab } from "@/lib/generated/prisma/client";
 import { isBeforeFridaySaturdayOpenPlayCutoff } from "@/lib/court-hours";
 import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
-import type { GameAssignmentWithParticipants, RotationBoardData } from "@/services/open-play/open-play-rotation.service";
+import type {
+  GameAssignmentWithParticipants,
+  RotationBoardData,
+} from "@/services/open-play/open-play-rotation.service";
+import { isRegistrationOccupyingSeat } from "@/lib/open-play-seats";
 import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { openPlayCheckinService } from "@/services/open-play/open-play-checkin.service";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
@@ -87,29 +95,52 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     // exist) the same way an owner setting a per-date override does —
     // "one per date, created on demand" (BUILD-SPEC.md §5).
     const session = await openPlayCapacityService.getOrCreateSessionForDate(date);
-    const [{ registrations, skillBreakdown }, { expected, checkedIn }, board, tabs, paymentMethods, products] = await Promise.all([
+    const [
+      { registrations, skillBreakdown },
+      { expected, checkedIn },
+      board,
+      tabs,
+      paymentMethods,
+      products,
+      refreshIntervalSeconds,
+    ] = await Promise.all([
       openPlayRegistrationService.getSessionRegistrations(session.id),
       openPlayCheckinService.getCheckInScreenData({ sessionId: session.id, date: session.date }),
       openPlayRotationService.getRotationBoardData(date),
       playerTabService.listTabsForDate(date),
       saleService.listPaymentMethods(),
       productService.listActiveProducts(),
+      // Same interval the TV display's own auto-refresh already uses
+      // (owner-editable) — see OpenPlaySessionTabs's own comment.
+      settingsService.getDisplayRefreshIntervalSeconds(),
     ]);
     const hasUnsettledTabs = tabs.some((t) => t.status === "OPEN" && t.totalCents > 0);
+    const now = new Date();
+    const occupiedCount = registrations.filter((r) => isRegistrationOccupyingSeat(r, now)).length;
+    const waitlistedCount = registrations.filter((r) => r.waitlistPos !== null).length;
 
     return (
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <Link href="/dashboard/admin/open-play-capacity" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+            <Link
+              href="/dashboard/admin/open-play-capacity"
+              className={buttonVariants({ variant: "ghost", size: "sm" })}
+            >
               ‹ Open Play Capacity
             </Link>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight">{labelFormatter.format(session.date)}</h1>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight">
+              {labelFormatter.format(session.date)}
+            </h1>
             <p className="text-muted-foreground text-sm">
-              Capacity {session.capacity}. Status: {session.status}.
+              {occupiedCount} / {session.capacity} seats · {waitlistedCount} waiting ·{" "}
+              {session.status}
             </p>
             <div className="mt-2">
-              <OnlineRegistrationBlockToggle date={dateParam} blocked={session.onlineRegistrationBlocked} />
+              <OnlineRegistrationBlockToggle
+                date={dateParam}
+                blocked={session.onlineRegistrationBlocked}
+              />
             </div>
           </div>
           {session.status === "OPEN" ? (
@@ -117,24 +148,44 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
           ) : null}
         </div>
 
-        <WalkInRegistrationForm
-          target={walkInRegularMode ? { date: dateParam } : { sessionId: session.id }}
-          players={players}
-          paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
-          weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
-          friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
-        />
-        <CheckInPanel
-          expected={serializeRegistrations(expected)}
-          checkedIn={serializeRegistrations(checkedIn)}
-          isCapacityNight
-        />
-        <RegistrationRosterPanel registrations={registrations} skillBreakdown={skillBreakdown} capacity={session.capacity} />
-        <RotationBoard {...serializeBoard(dateParam, board)} />
-        <TabsPanel
-          tabs={serializeTabs(tabs)}
-          paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
-          products={products.map((p) => ({ id: p.id, name: p.name, priceCents: p.priceCents }))}
+        <OpenPlaySessionTabs
+          expectedNotCheckedInCount={expected.length}
+          refreshIntervalSeconds={refreshIntervalSeconds}
+          rotation={
+            <RotationBoard
+              {...serializeBoard(dateParam, board, openPlaySettings.targetGameMinutes)}
+            />
+          }
+          checkIn={
+            <div className="flex flex-col gap-4">
+              <WalkInRegistrationForm
+                target={walkInRegularMode ? { date: dateParam } : { sessionId: session.id }}
+                players={players}
+                paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
+                weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
+                friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
+              />
+              <CheckInPanel
+                expected={serializeRegistrations(expected)}
+                checkedIn={serializeRegistrations(checkedIn)}
+                isCapacityNight
+              />
+            </div>
+          }
+          tabs={
+            <TabsPanel
+              tabs={serializeTabs(tabs)}
+              paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
+              products={products.map((p) => ({ id: p.id, name: p.name, priceCents: p.priceCents }))}
+            />
+          }
+          roster={
+            <RegistrationRosterPanel
+              registrations={registrations}
+              skillBreakdown={skillBreakdown}
+              capacity={session.capacity}
+            />
+          }
         />
       </div>
     );
@@ -165,8 +216,12 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
         <Link href="/dashboard" className={buttonVariants({ variant: "ghost", size: "sm" })}>
           ‹ Back to Dashboard
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">{labelFormatter.format(date)}</h1>
-        <p className="text-muted-foreground text-sm">Regular drop-in — no capacity, no prepayment.</p>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight">
+          {labelFormatter.format(date)}
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Regular drop-in — no capacity, no prepayment.
+        </p>
       </div>
 
       <WalkInRegistrationForm
@@ -175,8 +230,11 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
         showRegisterOnly={false}
         weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
       />
-      <CheckInPanel expected={serializeRegistrations(expected)} checkedIn={serializeRegistrations(checkedIn)} />
-      <RotationBoard {...serializeBoard(dateParam, board)} />
+      <CheckInPanel
+        expected={serializeRegistrations(expected)}
+        checkedIn={serializeRegistrations(checkedIn)}
+      />
+      <RotationBoard {...serializeBoard(dateParam, board, openPlaySettings.targetGameMinutes)} />
       <TabsPanel
         tabs={serializeTabs(tabs)}
         paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
@@ -197,23 +255,39 @@ function serializeTabs(tabs: (PlayerTab & { totalCents: number; gamesPlayed: num
   }));
 }
 
-function serializeAssignment(assignment: GameAssignmentWithParticipants, nudgeMinutes: number) {
+function serializeAssignment(
+  assignment: GameAssignmentWithParticipants,
+  nudgeMinutes: number,
+  targetGameMinutes: number,
+) {
   const waitingToStart =
     assignment.status === "PROPOSED" &&
     Date.now() - assignment.proposedAt.getTime() >= nudgeMinutes * 60_000;
+  // Court timer, staff-facing: same targetGameMinutes soft target the TV
+  // display's own countdown uses (display.service.ts's identical
+  // start + targetGameMinutes computation) — a shared setting, not a
+  // second one invented here, so the two screens never disagree. Only
+  // meaningful once a game is actually ACTIVE (has a real startedAt);
+  // a PROPOSED group hasn't started its clock yet.
+  const endAt =
+    assignment.status === "ACTIVE" && assignment.startedAt
+      ? new Date(assignment.startedAt.getTime() + targetGameMinutes * 60_000).toISOString()
+      : null;
   return {
     id: assignment.id,
     source: assignment.source,
     status: assignment.status,
     skillSpread: assignment.skillSpread,
     startedAt: assignment.startedAt ? assignment.startedAt.toISOString() : null,
-    announcementRequestedAt: assignment.announcementRequestedAt ? assignment.announcementRequestedAt.toISOString() : null,
+    endAt,
+    announcementRequestedAt: assignment.announcementRequestedAt
+      ? assignment.announcementRequestedAt.toISOString()
+      : null,
     // Manual timer/announce forgotten-assignment nudge: computed here,
     // at render time, not pushed to the client as raw proposedAt +
-    // minutes — this page re-renders on each staff action (router.
-    // refresh()) or manual reload, not a live poll, so "now" at
-    // serialization time is the right, simplest signal, same as
-    // getRotationBoardData's own pastMaxWait just above it.
+    // minutes — this page now re-renders on the tab wrapper's own
+    // auto-poll (OpenPlaySessionTabs), so "now" at serialization time
+    // stays fresh automatically every refresh, same as before.
     waitingToStart,
     participants: assignment.participants.map((p) => ({
       registrationId: p.registrationId,
@@ -223,14 +297,18 @@ function serializeAssignment(assignment: GameAssignmentWithParticipants, nudgeMi
   };
 }
 
-function serializeBoard(dateParam: string, board: RotationBoardData) {
+function serializeBoard(dateParam: string, board: RotationBoardData, targetGameMinutes: number) {
   return {
     date: dateParam,
     courts: board.courts.map((c) => ({
       id: c.court.id,
       name: c.court.name,
-      active: c.active ? serializeAssignment(c.active, board.forgottenAssignmentNudgeMinutes) : null,
-      proposed: c.proposed ? serializeAssignment(c.proposed, board.forgottenAssignmentNudgeMinutes) : null,
+      active: c.active
+        ? serializeAssignment(c.active, board.forgottenAssignmentNudgeMinutes, targetGameMinutes)
+        : null,
+      proposed: c.proposed
+        ? serializeAssignment(c.proposed, board.forgottenAssignmentNudgeMinutes, targetGameMinutes)
+        : null,
     })),
     waiting: board.waiting,
     resting: board.resting,
