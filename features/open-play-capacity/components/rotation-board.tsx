@@ -216,15 +216,30 @@ function NextUpSection({
                 <div
                   key={member.registrationId}
                   className={cn(
-                    "bg-background flex items-center gap-1 rounded-md border px-2 py-1 text-sm",
+                    // bg-card, not bg-background: bg-background flips
+                    // dark in this app's dark theme while the chip still
+                    // inherits the surrounding Card's fixed-dark
+                    // text-card-foreground (Card intentionally stays
+                    // white/light in both themes — see card.tsx) —
+                    // dark-on-dark, functionally invisible. Confirmed
+                    // live: reported as "black box, text is black."
+                    "bg-card flex items-center gap-1 rounded-md border px-2 py-1 text-sm",
                     picked && "border-court-blue ring-court-blue/40 ring-2",
                   )}
                 >
-                  <span className="font-medium">{member.playerName}</span>
+                  <span className="text-card-foreground font-medium">{member.playerName}</span>
+                  {/* text-card-foreground/N, not text-muted-foreground:
+                      muted-foreground flips light in this app's dark
+                      theme, which is illegible on this chip's always-
+                      white bg-card — same failure mode as the name text
+                      above, just for the icon row. card-foreground is
+                      pinned dark in both themes (see card.tsx), so /50
+                      opacity of it stays readable-but-secondary
+                      regardless of the page theme. */}
                   <button
                     type="button"
                     className={cn(
-                      "text-muted-foreground hover:text-foreground",
+                      "text-card-foreground/50 hover:text-court-blue",
                       picked && "text-court-blue",
                     )}
                     aria-label={
@@ -239,7 +254,7 @@ function NextUpSection({
                   </button>
                   <button
                     type="button"
-                    className="text-muted-foreground hover:text-foreground"
+                    className="text-card-foreground/50 hover:text-card-foreground"
                     aria-label={`Edit ${member.playerName}`}
                     disabled={isPending}
                     onClick={() => startEdit(member)}
@@ -248,7 +263,7 @@ function NextUpSection({
                   </button>
                   <button
                     type="button"
-                    className="text-muted-foreground hover:text-destructive"
+                    className="text-card-foreground/50 hover:text-destructive"
                     aria-label={`Remove ${member.playerName} from the queue`}
                     disabled={isPending}
                     onClick={() =>
