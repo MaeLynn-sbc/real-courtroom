@@ -104,6 +104,45 @@ export async function createManualAssignmentAction(
   }
 }
 
+// "Put the action where the group is" — assigns a pending group straight
+// from the Next up / After that / Then preview to a court, instead of
+// staff scrolling up to a court card. Reuses manualAssignmentInputSchema
+// (identical shape: date, courtId, registrationIds) — same
+// requireOpenPlayManage() gate as every other rotation action. The
+// service method's own occupied-court and not-waiting checks are what
+// make the race in requirement 8 fail clean; nothing extra needed here.
+export async function assignPendingGroupToCourtAction(
+  input: ManualAssignmentInput,
+): Promise<OpenPlayRotationActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = manualAssignmentInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await openPlayRotationService.assignPendingGroupToCourt(
+      parseDate(parsed.data.date),
+      parsed.data.courtId,
+      parsed.data.registrationIds,
+      authz.userId,
+    );
+    revalidateRotation();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, {
+        action: "assignPendingGroupToCourtAction",
+        userId: authz.userId,
+      }),
+    };
+  }
+}
+
 export async function confirmAssignmentAction(
   input: AssignmentIdInput,
 ): Promise<OpenPlayRotationActionState> {

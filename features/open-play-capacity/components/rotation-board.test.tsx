@@ -4,6 +4,7 @@ import { RotationBoard, type RotationBoardProps } from "./rotation-board";
 import {
   announceAssignmentAction,
   announceTimesUpAction,
+  assignPendingGroupToCourtAction,
   confirmAssignmentAction,
   createManualAssignmentAction,
   moveQueueUnitAfterAction,
@@ -13,6 +14,7 @@ import {
 jest.mock("@/actions/open-play-rotation.actions", () => ({
   announceAssignmentAction: jest.fn(),
   announceTimesUpAction: jest.fn(),
+  assignPendingGroupToCourtAction: jest.fn(),
   cancelAssignmentAction: jest.fn(),
   completeAssignmentAction: jest.fn(),
   confirmAssignmentAction: jest.fn(),
@@ -49,6 +51,9 @@ const mockedSwap = swapPartyMemberAction as jest.MockedFunction<typeof swapParty
 const mockedTimesUp = announceTimesUpAction as jest.MockedFunction<typeof announceTimesUpAction>;
 const mockedCreateManual = createManualAssignmentAction as jest.MockedFunction<
   typeof createManualAssignmentAction
+>;
+const mockedAssignPending = assignPendingGroupToCourtAction as jest.MockedFunction<
+  typeof assignPendingGroupToCourtAction
 >;
 
 async function clickAsync(element: Element) {
@@ -565,5 +570,192 @@ describe("RotationBoard — build a group by hand (2-4 players)", () => {
 
     act(() => pickCheckbox("Eve"));
     expect(screen.getByRole("button", { name: /^create group$/i })).toBeDisabled();
+  });
+});
+
+// "Put the action where the group is" — court dropdown + Assign button on
+// each pending group (Next up/After that/Then). Proves: only vacant courts
+// (no active, no proposed) show up in the dropdown; assigning sends exactly
+// that group's registrationIds; and an all-courts-busy state hides the
+// control entirely rather than rendering an empty select.
+describe("RotationBoard — assign pending group to court", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const fourWaiting: RotationBoardProps["waiting"] = ["Alice", "Ben", "Carla", "Dex"].map(
+    (name, i) => ({
+      partyId: null,
+      members: [
+        {
+          queueEntryId: `qe-${i}`,
+          registrationId: `r-${name.toLowerCase()}`,
+          playerName: name,
+          skillLevel: "BEGINNER",
+        },
+      ],
+      waitMinutes: i,
+      pastMaxWait: false,
+    }),
+  );
+
+  const occupiedAssignment: RotationBoardProps["courts"][number]["active"] = {
+    id: "assignment-occupied",
+    source: "AUTO",
+    status: "ACTIVE",
+    skillSpread: 0,
+    startedAt: "2026-08-01T00:00:00.000Z",
+    endAt: null,
+    announcementRequestedAt: null,
+    timesUpRequestedAt: null,
+    waitingToStart: false,
+    participants: [],
+  };
+
+  function nextUpGroup(): HTMLElement {
+    const label = screen.getByText("Next up", { selector: "p" });
+    return label.closest("div.rounded-lg")!;
+  }
+
+  it("only lists vacant courts in the dropdown — active/proposed courts are absent, not disabled", () => {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={fourWaiting}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        courts={[
+          { id: "court-1", name: "Court 1", active: null, proposed: null },
+          { id: "court-2", name: "Court 2", active: occupiedAssignment, proposed: null },
+          {
+            id: "court-3",
+            name: "Court 3",
+            active: null,
+            proposed: { ...occupiedAssignment, id: "assignment-proposed", status: "PROPOSED" },
+          },
+        ]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    const select = within(group).getByRole("combobox");
+    const optionLabels = Array.from(select.querySelectorAll("option")).map((o) => o.textContent);
+
+    expect(optionLabels).toContain("Court 1");
+    expect(optionLabels).not.toContain("Court 2");
+    expect(optionLabels).not.toContain("Court 3");
+  });
+
+  it("assigns the group's exact registrationIds to the chosen court", async () => {
+    mockedAssignPending.mockResolvedValue({ error: null });
+
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={fourWaiting}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    const select = within(group).getByRole("combobox");
+    fireEvent.change(select, { target: { value: "court-1" } });
+    await clickAsync(within(group).getByRole("button", { name: /^assign$/i }));
+
+    expect(mockedAssignPending).toHaveBeenCalledWith({
+      date: "2026-08-01",
+      courtId: "court-1",
+      registrationIds: ["r-alice", "r-ben", "r-carla", "r-dex"],
+    });
+  });
+
+  it("hides the dropdown and shows a busy note when no court is vacant", () => {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={fourWaiting}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        courts={[{ id: "court-1", name: "Court 1", active: occupiedAssignment, proposed: null }]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    expect(within(group).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(group).queryByRole("button", { name: /^assign$/i })).not.toBeInTheDocument();
+    expect(within(group).getByText(/all courts are busy/i)).toBeInTheDocument();
+  });
+});
+
+// Reported live: "Marc ." / "Paul ." — a bare trailing separator with no
+// surname after it. Proves the rotation board strips it wherever a name
+// renders, without touching a genuine last initial.
+describe("RotationBoard — trailing-dot name display fix", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("strips a bare trailing ' .' from a pending group's chip", () => {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={[
+          {
+            partyId: null,
+            members: [
+              {
+                queueEntryId: "qe-1",
+                registrationId: "r-marc",
+                playerName: "Marc .",
+                skillLevel: "BEGINNER",
+              },
+            ],
+            waitMinutes: 1,
+            pastMaxWait: false,
+          },
+        ]}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    expect(screen.getAllByText("Marc").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Marc .")).not.toBeInTheDocument();
+  });
+
+  it("leaves a genuine last initial untouched", () => {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={[
+          {
+            partyId: null,
+            members: [
+              {
+                queueEntryId: "qe-1",
+                registrationId: "r-paul",
+                playerName: "Paul C.",
+                skillLevel: "BEGINNER",
+              },
+            ],
+            waitMinutes: 1,
+            pastMaxWait: false,
+          },
+        ]}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    expect(screen.getAllByText("Paul C.").length).toBeGreaterThan(0);
   });
 });

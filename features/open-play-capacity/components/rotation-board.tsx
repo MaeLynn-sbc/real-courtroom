@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import {
   announceAssignmentAction,
   announceTimesUpAction,
+  assignPendingGroupToCourtAction,
   cancelAssignmentAction,
   completeAssignmentAction,
   confirmAssignmentAction,
@@ -99,6 +100,20 @@ function skillLabel(level: OpenPlaySkillLevel): string {
   return OPEN_PLAY_SKILL_LEVELS[level].label;
 }
 
+// Reported live: "Marc ." / "Paul ." — names with no surname on file were
+// rendering with a trailing separator and nothing after it. playerName is
+// raw free text (no first/last split anywhere in the schema — see
+// OpenPlayNightRegistration/QueueEntry), so this can only be a stray
+// trailing " ." someone typed (a habit picked up from the TV display's own
+// "First L." shortening, see display.service.ts's shortDisplayName).
+// Stripped at render time here rather than "fixed" in stored data, since
+// there's no reliable way to tell a genuine one-letter surname ("Paul C.")
+// from this artifact — only a BARE trailing " ." with nothing after it is
+// unambiguous.
+function displayPlayerName(name: string): string {
+  return name.replace(/\s+\.$/, "").trim();
+}
+
 // Queue reorder: a unit (solo or party) is keyed and labeled the same way
 // throughout — partyId when there is one, else the sole member's
 // queueEntryId, matching the existing key= on the waiting-list row below.
@@ -107,7 +122,7 @@ function unitKey(unit: BoardUnit): string {
 }
 
 function unitLabel(unit: BoardUnit): string {
-  return unit.members.map((member) => member.playerName).join(" & ");
+  return unit.members.map((member) => displayPlayerName(member.playerName)).join(" & ");
 }
 
 // "Is there any way to see how much time is left on a running game from
@@ -134,14 +149,18 @@ function formatGameTimeRemaining(endAt: string | null): { text: string; overtime
 // and Swap. No Edit here — reported live: "that's not the place for
 // editing names," pulled after shipping (name/phone corrections belong
 // wherever the registration itself is managed, not this preview).
+type PendingGroupKey = "nextUp" | "afterThat" | "then";
+
 function NextUpSection({
   date,
   flatMembers,
+  courts,
   runAction,
   isPending,
 }: {
   date: string;
   flatMembers: BoardMember[];
+  courts: BoardCourt[];
   runAction: (promise: Promise<OpenPlayRegistrationActionState>, successMessage: string) => void;
   isPending: boolean;
 }) {
@@ -151,6 +170,35 @@ function NextUpSection({
   // registrationIds — same interaction shape as the Waiting card's
   // existing manual-pick checkboxes, just capped at 2 instead of 4.
   const [swapPicks, setSwapPicks] = useState<string[]>([]);
+
+  // Court assignment control ("put the action where the group is"): one
+  // court pick per pending group, keyed by group so Next up/After that/
+  // Then don't share a single selection. Recomputed from `courts` every
+  // render (a prop, driven by the page's own 10-second poll via
+  // OpenPlaySessionTabs) — never cached in state, so a court freeing up
+  // or filling mid-session shows up here without any extra wiring.
+  const [assignCourtPicks, setAssignCourtPicks] = useState<Record<PendingGroupKey, string>>({
+    nextUp: "",
+    afterThat: "",
+    then: "",
+  });
+  const vacantCourts = courts.filter((court) => !court.active && !court.proposed);
+
+  function assignGroup(groupKey: PendingGroupKey, members: BoardMember[]) {
+    const courtId = assignCourtPicks[groupKey];
+    if (!courtId || members.length < 2) return;
+    runAction(
+      assignPendingGroupToCourtAction({
+        date,
+        courtId,
+        registrationIds: members.map((member) => member.registrationId),
+      }).then((r) => {
+        if (!r.error) setAssignCourtPicks((prev) => ({ ...prev, [groupKey]: "" }));
+        return r;
+      }),
+      "Group assigned to court.",
+    );
+  }
 
   const nextUp = flatMembers.slice(0, 4);
   const afterThat = flatMembers.slice(4, 8);
@@ -180,7 +228,13 @@ function NextUpSection({
     setSwapPicks([]);
   }
 
-  function renderGroup(label: string, members: BoardMember[], accent: boolean, emptyText: string) {
+  function renderGroup(
+    label: string,
+    groupKey: PendingGroupKey,
+    members: BoardMember[],
+    accent: boolean,
+    emptyText: string,
+  ) {
     return (
       <div
         className={cn(
@@ -217,7 +271,9 @@ function NextUpSection({
                     picked && "border-court-blue ring-court-blue/40 ring-2",
                   )}
                 >
-                  <span className="text-card-foreground font-medium">{member.playerName}</span>
+                  <span className="text-card-foreground font-medium">
+                    {displayPlayerName(member.playerName)}
+                  </span>
                   {/* text-card-foreground/N, not text-muted-foreground:
                       muted-foreground flips light in this app's dark
                       theme, which is illegible on this chip's always-
@@ -261,6 +317,40 @@ function NextUpSection({
             })}
           </div>
         )}
+        {members.length >= 2 ? (
+          vacantCourts.length === 0 ? (
+            <p className="text-muted-foreground mt-2 text-xs">
+              All courts are busy — nothing to assign to right now.
+            </p>
+          ) : (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <select
+                className="border-input rounded-md border px-2 py-1 text-xs"
+                value={assignCourtPicks[groupKey]}
+                onChange={(event) =>
+                  setAssignCourtPicks((prev) => ({ ...prev, [groupKey]: event.target.value }))
+                }
+                disabled={isPending}
+              >
+                <option value="">Assign to court…</option>
+                {vacantCourts.map((court) => (
+                  <option key={court.id} value={court.id}>
+                    {court.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isPending || !assignCourtPicks[groupKey]}
+                onClick={() => assignGroup(groupKey, members)}
+              >
+                Assign
+              </Button>
+            </div>
+          )
+        ) : null}
       </div>
     );
   }
@@ -271,17 +361,17 @@ function NextUpSection({
         <CardTitle className="text-base">Next up</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {renderGroup("Next up", nextUp, true, "Nobody waiting")}
-        {renderGroup("After that", afterThat, false, "—")}
-        {renderGroup("Then", then, false, "—")}
+        {renderGroup("Next up", "nextUp", nextUp, true, "Nobody waiting")}
+        {renderGroup("After that", "afterThat", afterThat, false, "—")}
+        {renderGroup("Then", "then", then, false, "—")}
         {swapPicks.length > 0 ? (
           <div className="border-court-blue/40 bg-court-blue/[0.06] flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
             <p className="text-sm">
               {swapPicks.length === 1
-                ? `Pick one more player to swap with ${flatMembers.find((m) => m.registrationId === swapPicks[0])?.playerName ?? ""}.`
-                : `Swap ${flatMembers.find((m) => m.registrationId === swapPicks[0])?.playerName ?? ""} with ${
-                    flatMembers.find((m) => m.registrationId === swapPicks[1])?.playerName ?? ""
-                  } — trades who's in each other's group.`}
+                ? `Pick one more player to swap with ${displayPlayerName(flatMembers.find((m) => m.registrationId === swapPicks[0])?.playerName ?? "")}.`
+                : `Swap ${displayPlayerName(flatMembers.find((m) => m.registrationId === swapPicks[0])?.playerName ?? "")} with ${displayPlayerName(
+                    flatMembers.find((m) => m.registrationId === swapPicks[1])?.playerName ?? "",
+                  )} — trades who's in each other's group.`}
             </p>
             <div className="flex gap-2">
               <Button
@@ -398,7 +488,7 @@ export function RotationBoard({
                   <ul className="text-sm">
                     {court.active.participants.map((p) => (
                       <li key={p.registrationId}>
-                        {p.playerName} · {skillLabel(p.skillLevel)}
+                        {displayPlayerName(p.playerName)} · {skillLabel(p.skillLevel)}
                       </li>
                     ))}
                   </ul>
@@ -495,7 +585,7 @@ export function RotationBoard({
                   <ul className="text-sm">
                     {court.proposed.participants.map((p) => (
                       <li key={p.registrationId}>
-                        {p.playerName} · {skillLabel(p.skillLevel)}
+                        {displayPlayerName(p.playerName)} · {skillLabel(p.skillLevel)}
                       </li>
                     ))}
                   </ul>
@@ -649,6 +739,7 @@ export function RotationBoard({
       <NextUpSection
         date={date}
         flatMembers={flatWaitingMembers}
+        courts={courts}
         runAction={runAction}
         isPending={isPending}
       />
@@ -744,7 +835,7 @@ export function RotationBoard({
                                   />
                                 ) : null}
                               </span>
-                              {member.playerName}{" "}
+                              {displayPlayerName(member.playerName)}{" "}
                               <span className="text-muted-foreground text-xs">
                                 ({skillLabel(member.skillLevel)})
                               </span>
@@ -861,7 +952,7 @@ export function RotationBoard({
                 className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
               >
                 <span className="text-sm">
-                  {player.playerName}{" "}
+                  {displayPlayerName(player.playerName)}{" "}
                   <span className="text-muted-foreground text-xs">
                     ({skillLabel(player.skillLevel)})
                   </span>

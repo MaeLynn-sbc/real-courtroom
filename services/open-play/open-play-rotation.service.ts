@@ -10,6 +10,7 @@ import type {
 } from "@/lib/generated/prisma/client";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import { noopRaceHook, type RaceHook } from "@/lib/race-test-hooks";
+import { runSerializableWithRetry } from "@/lib/serializable-retry";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
 import { playerTabService } from "@/services/open-play/player-tab.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -493,6 +494,90 @@ export class OpenPlayRotationService {
         actorUserId,
       );
     });
+  }
+
+  // "Put the action where the group is" — a court-assignment control on
+  // each pending group in the rotation board's Next up / After that /
+  // Then preview. Deliberately NOT built on createManualAssignment's
+  // override semantics above (cancel-and-replace any PROPOSED game on
+  // the chosen court): that method is for a staff member intentionally
+  // picking a court, including one that already has a stale proposal
+  // sitting on it. This control only ever offers VACANT courts in its
+  // dropdown (see the client's own filtering), so a court showing up as
+  // occupied here can only mean someone else's action landed in the
+  // window between this page's last 10-second poll and this click — a
+  // race, not an intentional override. That must fail cleanly with a
+  // clear message, not silently cancel the other staff member's work.
+  // Serializable + retry (not a plain transaction) closes the actual
+  // TOCTOU gap: two concurrent calls for the same court could otherwise
+  // both read "vacant" before either commits its INSERT, since
+  // GameAssignment has no unique constraint on (courtId, date, status)
+  // to backstop a plain read-committed check.
+  async assignPendingGroupToCourt(
+    date: Date,
+    courtId: string,
+    registrationIds: string[],
+    actorUserId: string,
+  ): Promise<GameAssignmentWithParticipants> {
+    if (registrationIds.length < 2 || registrationIds.length > 4) {
+      throw new Error("Pick 2 to 4 players for a manual group.");
+    }
+    if (new Set(registrationIds).size !== registrationIds.length) {
+      throw new Error("A player can't be picked twice for the same group.");
+    }
+
+    const created = await runSerializableWithRetry(async (tx) => {
+      const occupied = await tx.gameAssignment.findFirst({
+        where: { courtId, date, status: { in: ["ACTIVE", "PROPOSED"] } },
+      });
+      if (occupied) {
+        throw new Error(
+          "That court was just taken by another assignment — pick a different court.",
+        );
+      }
+
+      const entries = await tx.queueEntry.findMany({
+        where: { registrationId: { in: registrationIds }, date },
+      });
+      if (entries.length !== registrationIds.length) {
+        throw new Error("One or more selected players aren't in today's queue.");
+      }
+      for (const entry of entries) {
+        if (entry.status !== "WAITING") {
+          throw new Error(
+            `${entry.playerName} isn't waiting anymore (status: ${entry.status.toLowerCase()}) — someone else's action likely moved them.`,
+          );
+        }
+      }
+
+      const skillLevels = entries.map((entry) => skillOrder(entry.skillLevel));
+      const skillSpread = Math.max(...skillLevels) - Math.min(...skillLevels);
+      const sessionId = entries[0]?.sessionId ?? null;
+
+      return this.createAssignmentTx(
+        tx,
+        {
+          date,
+          courtId,
+          sessionId,
+          skillSpread,
+          source: "MANUAL",
+          createdByUserId: actorUserId,
+          registrationIds,
+        },
+        actorUserId,
+      );
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "game_assignment.assigned_from_pending_group",
+      entityType: "GameAssignment",
+      entityId: created.id,
+      newValues: { source: "MANUAL", courtId, registrationIds },
+    });
+
+    return created;
   }
 
   async confirmAssignment(
