@@ -63,8 +63,7 @@ export async function requireSystemAdmin(deniedMessage: string): Promise<Authori
 // the same Employee lookup shift.actions.ts's requireOwnEmployee already
 // does, plus a fresh open-shift lookup.
 export type EmployeeShiftAuthorizationResult =
-  | { ok: true; userId: string; employeeId: string; shiftId: string }
-  | { ok: false; error: string };
+  { ok: true; userId: string; employeeId: string; shiftId: string } | { ok: false; error: string };
 
 export async function requireEmployeeWithOpenShift(
   permission: PermissionKey,
@@ -163,7 +162,10 @@ export async function requireEmployeeForBookingCreation(
   }
 
   const session = await auth();
-  const canSkipShift = hasPermission(session?.user.permissions ?? [], PERMISSIONS.BOOKINGS_CREATE_WITHOUT_SHIFT);
+  const canSkipShift = hasPermission(
+    session?.user.permissions ?? [],
+    PERMISSIONS.BOOKINGS_CREATE_WITHOUT_SHIFT,
+  );
   if (!canSkipShift) {
     return { ok: false, error: "Start a shift before recording this transaction." };
   }
@@ -171,9 +173,58 @@ export async function requireEmployeeForBookingCreation(
   return { ok: true, userId: authz.userId, employeeId: employee.id, shiftId: undefined };
 }
 
+// Reported live: the Owner, acting from home with no cash drawer to
+// clock into, was blocked registering someone for open play — a real,
+// immediate Sale — with "Start a shift before recording this
+// transaction." A real open shift always wins when one exists (correct
+// for cash-drawer reconciliation, unchanged from requireEmployeeWith
+// OpenShift above); absent one, SALES_CREATE_WITHOUT_SHIFT decides
+// whether this falls through to a synthetic, always-CLOSED, never-"on
+// duty" shift (shiftService.resolveShiftForSaleAttribution — the same
+// mechanism requireEmployeeForPaymentApproval already uses for GCash
+// approval) or is refused outright. Deliberately its OWN, permission-
+// gated function rather than changing requireEmployeeWithOpenShift's
+// behavior for everyone — front-desk staff ringing up real cash all day
+// still need a real shift for reconciliation to mean anything; this is
+// an explicit, owner-assignable exemption, same shape as
+// BOOKINGS_CREATE_WITHOUT_SHIFT.
+export async function requireEmployeeForSaleWithShiftBypass(
+  permission: PermissionKey,
+  deniedMessage: string,
+): Promise<EmployeeShiftAuthorizationResult> {
+  const authz = await requirePermission(permission, deniedMessage);
+  if (!authz.ok) {
+    return authz;
+  }
+
+  const employee = await prisma.employee.findUnique({ where: { userId: authz.userId } });
+  if (!employee) {
+    return { ok: false, error: "No employee profile is linked to this account." };
+  }
+
+  const openShift = await prisma.shift.findFirst({
+    where: { employeeId: employee.id, status: "OPEN" },
+    orderBy: { startedAt: "desc" },
+  });
+  if (openShift) {
+    return { ok: true, userId: authz.userId, employeeId: employee.id, shiftId: openShift.id };
+  }
+
+  const session = await auth();
+  const canSkipShift = hasPermission(
+    session?.user.permissions ?? [],
+    PERMISSIONS.SALES_CREATE_WITHOUT_SHIFT,
+  );
+  if (!canSkipShift) {
+    return { ok: false, error: "Start a shift before recording this transaction." };
+  }
+
+  const shift = await shiftService.resolveShiftForSaleAttribution(employee.id);
+  return { ok: true, userId: authz.userId, employeeId: employee.id, shiftId: shift.id };
+}
+
 export type EmployeeAuthorizationResult =
-  | { ok: true; userId: string; employeeId: string }
-  | { ok: false; error: string };
+  { ok: true; userId: string; employeeId: string } | { ok: false; error: string };
 
 // Same Employee-lookup half as requireEmployeeWithOpenShift, without the
 // open-Shift requirement — for actions that need a real, attributable

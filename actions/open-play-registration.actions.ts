@@ -14,7 +14,7 @@ import {
 } from "@/features/open-play-capacity/schemas/open-play-registration.schema";
 import {
   requireEmployee,
-  requireEmployeeWithOpenShift,
+  requireEmployeeForSaleWithShiftBypass,
   requirePermission,
 } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
@@ -39,8 +39,12 @@ function requireOpenPlayManage() {
 // registration fee), so — same standard as settleTabAction and every
 // other Sale-creating action in this app — it needs a real Employee
 // and a currently open Shift, not just the permission check alone.
+// SALES_CREATE_WITHOUT_SHIFT-holders (OWNER by default — reported live:
+// registering from home with no shift open) fall through to a synthetic
+// non-cash-drawer shift instead of being refused; see that helper's own
+// comment.
 function requireOpenPlayManageWithOpenShift() {
-  return requireEmployeeWithOpenShift(
+  return requireEmployeeForSaleWithShiftBypass(
     PERMISSIONS.OPEN_PLAY_MANAGE,
     "You don't have permission to manage open play.",
   );

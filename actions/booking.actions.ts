@@ -16,7 +16,7 @@ import {
 } from "@/features/bookings/schemas/booking.schema";
 import {
   requireEmployeeForBookingCreation,
-  requireEmployeeWithOpenShift,
+  requireEmployeeForSaleWithShiftBypass,
   requirePermission,
 } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
@@ -185,12 +185,15 @@ export async function checkInByTokenAction(
 
 // Settle-bill (pay-at-venue gap fix): records payment for a booking
 // that was created unpaid (createBookingAction, above, no longer
-// collects a payment method up front). requireEmployeeWithOpenShift,
-// not just requireBookingsManage — this creates a Sale, same
+// collects a payment method up front). requireEmployeeForSaleWithShift
+// Bypass, not just requireBookingsManage — this creates a Sale, same
 // employee-with-open-shift requirement every Sale-creating action in
-// this app has (see lib/action-auth.ts's own comment).
+// this app has (see lib/action-auth.ts's own comment). Reported live:
+// the Owner settling a booking from outside the front desk was blocked
+// on "start a shift" — SALES_CREATE_WITHOUT_SHIFT-holders now fall
+// through to a synthetic non-cash-drawer shift instead.
 export async function settleBookingAction(input: SettleBookingInput): Promise<BookingActionState> {
-  const authz = await requireEmployeeWithOpenShift(
+  const authz = await requireEmployeeForSaleWithShiftBypass(
     PERMISSIONS.BOOKINGS_MANAGE,
     "You don't have permission to manage bookings.",
   );

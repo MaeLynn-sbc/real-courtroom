@@ -9,7 +9,11 @@ import {
   type CheckInInput,
   type RegisterAndCheckInInput,
 } from "@/features/open-play-capacity/schemas/open-play-checkin.schema";
-import { requireEmployeeWithOpenShift, requirePermission, requireSystemAdmin } from "@/lib/action-auth";
+import {
+  requireEmployeeForSaleWithShiftBypass,
+  requirePermission,
+  requireSystemAdmin,
+} from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { openPlayCheckinService } from "@/services/open-play/open-play-checkin.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -25,7 +29,10 @@ export interface OpenPlayCheckinActionState {
 }
 
 function requireOpenPlayManage() {
-  return requirePermission(PERMISSIONS.OPEN_PLAY_MANAGE, "You don't have permission to manage open play.");
+  return requirePermission(
+    PERMISSIONS.OPEN_PLAY_MANAGE,
+    "You don't have permission to manage open play.",
+  );
 }
 
 function revalidateCheckIn(): void {
@@ -104,7 +111,10 @@ export async function registerAndCheckInAction(
   };
 
   if (parsed.data.sessionId) {
-    const authz = await requireEmployeeWithOpenShift(
+    // SALES_CREATE_WITHOUT_SHIFT-holders fall through to a synthetic
+    // non-cash-drawer shift instead of being refused — see that helper's
+    // own comment.
+    const authz = await requireEmployeeForSaleWithShiftBypass(
       PERMISSIONS.OPEN_PLAY_MANAGE,
       "You don't have permission to manage open play.",
     );
@@ -136,7 +146,9 @@ export async function registerAndCheckInAction(
       revalidateCheckIn();
       return { error: null, waitlisted: result.registration.waitlistPos !== null };
     } catch (error) {
-      return { error: toActionError(error, { action: "registerAndCheckInAction", userId: authz.userId }) };
+      return {
+        error: toActionError(error, { action: "registerAndCheckInAction", userId: authz.userId }),
+      };
     }
   }
 
@@ -154,13 +166,17 @@ export async function registerAndCheckInAction(
     revalidateCheckIn();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "registerAndCheckInAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "registerAndCheckInAction", userId: authz.userId }),
+    };
   }
 }
 
 // Owner-only, matching Court Hours/Open Play Capacity — business-policy
 // configuration, not day-to-day operations.
-export async function setOpenPlaySettingsAction(input: OpenPlaySettings): Promise<OpenPlayCheckinActionState> {
+export async function setOpenPlaySettingsAction(
+  input: OpenPlaySettings,
+): Promise<OpenPlayCheckinActionState> {
   const authz = await requireSystemAdmin("You don't have permission to manage open play settings.");
   if (!authz.ok) {
     return { error: authz.error };
@@ -176,6 +192,8 @@ export async function setOpenPlaySettingsAction(input: OpenPlaySettings): Promis
     revalidateCheckIn();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "setOpenPlaySettingsAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "setOpenPlaySettingsAction", userId: authz.userId }),
+    };
   }
 }

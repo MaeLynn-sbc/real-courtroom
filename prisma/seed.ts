@@ -159,6 +159,11 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     description:
       "Record an arbitrary cash amount on the current shift for revenue outside every modelled flow.",
   },
+  [PERMISSIONS.SALES_CREATE_WITHOUT_SHIFT]: {
+    label: "Create Sales Without a Shift",
+    description:
+      "Register open-play walk-ins and settle bookings without first starting a shift. A real open shift is still used whenever one exists.",
+  },
 };
 
 const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
@@ -195,6 +200,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.BOOKINGS_CREATE_WITHOUT_SHIFT,
     PERMISSIONS.DISPLAY_MANAGE,
     PERMISSIONS.SALES_RECORD_MANUAL,
+    PERMISSIONS.SALES_CREATE_WITHOUT_SHIFT,
   ],
   [SYSTEM_ROLES.MANAGER]: [
     PERMISSIONS.DASHBOARD_ACCESS,

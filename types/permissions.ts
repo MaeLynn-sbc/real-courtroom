@@ -95,6 +95,24 @@ export const PERMISSIONS = {
   // roles screen" with no way to reach that screen's grant in the first
   // place), absent from every other role by default.
   SALES_RECORD_MANUAL: "sales:record_manual",
+  // Reported live: the Owner doesn't work a cash drawer, and got blocked
+  // registering someone for open play (a real, immediate Sale — the
+  // ₱150 unlimited-session fee) with "Start a shift before recording
+  // this transaction." Broader than BOOKINGS_CREATE_WITHOUT_SHIFT above
+  // (which only ever skips the shiftId requirement for booking CREATION,
+  // a no-money action) — this one covers actions that DO move money
+  // immediately (open-play walk-in registration, booking settlement),
+  // by falling through to a synthetic, always-CLOSED, never-"on duty"
+  // shift for Sale attribution instead of a real one (same
+  // shiftService.resolveShiftForSaleAttribution mechanism already used
+  // for GCash payment approval — see requireEmployeeForPaymentApproval).
+  // A real open shift still wins whenever one exists; this only ever
+  // matters when there isn't one. Granted to OWNER by default — coaches
+  // at this venue are Owner/Manager-role employees (see
+  // COACHING_MANAGE_OWN_AVAILABILITY's own comment), so reassign to
+  // MANAGER via the Roles screen too if a coach who isn't the Owner
+  // needs the same.
+  SALES_CREATE_WITHOUT_SHIFT: "sales:create_without_shift",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
