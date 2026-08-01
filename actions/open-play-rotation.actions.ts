@@ -4,16 +4,24 @@ import { revalidatePath } from "next/cache";
 
 import {
   assignmentIdInputSchema,
+  assignStagedGroupToCourtInputSchema,
   manualAssignmentInputSchema,
   moveQueueUnitAfterInputSchema,
   proposeAssignmentInputSchema,
   queueEntryIdInputSchema,
+  stageAutoQueueInputSchema,
+  stagedGroupIdInputSchema,
+  stageManualGroupInputSchema,
   swapPartyMemberInputSchema,
   type AssignmentIdInput,
+  type AssignStagedGroupToCourtInput,
   type ManualAssignmentInput,
   type MoveQueueUnitAfterInput,
   type ProposeAssignmentInput,
   type QueueEntryIdInput,
+  type StageAutoQueueInput,
+  type StagedGroupIdInput,
+  type StageManualGroupInput,
   type SwapPartyMemberInput,
 } from "@/features/open-play-capacity/schemas/open-play-rotation.schema";
 import { requirePermission } from "@/lib/action-auth";
@@ -104,22 +112,22 @@ export async function createManualAssignmentAction(
   }
 }
 
-// "Put the action where the group is" — assigns a pending group straight
-// from the Next up / After that / Then preview to a court, instead of
-// staff scrolling up to a court card. Reuses manualAssignmentInputSchema
-// (identical shape: date, courtId, registrationIds) — same
+// "Put the action where the group is" — assigns a STAGED group (Next up/
+// After that/Then) straight to a court, instead of staff scrolling up to
+// a court card. Works from any slot, not only Next up. Same
 // requireOpenPlayManage() gate as every other rotation action. The
-// service method's own occupied-court and not-waiting checks are what
-// make the race in requirement 8 fail clean; nothing extra needed here.
+// service method's own occupied-court, real-membership-resolution, and
+// pipeline-advance logic are what make the race in requirement 8 fail
+// clean; nothing extra needed here.
 export async function assignPendingGroupToCourtAction(
-  input: ManualAssignmentInput,
+  input: AssignStagedGroupToCourtInput,
 ): Promise<OpenPlayRotationActionState> {
   const authz = await requireOpenPlayManage();
   if (!authz.ok) {
     return { error: authz.error };
   }
 
-  const parsed = manualAssignmentInputSchema.safeParse(input);
+  const parsed = assignStagedGroupToCourtInputSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
   }
@@ -128,7 +136,7 @@ export async function assignPendingGroupToCourtAction(
     await openPlayRotationService.assignPendingGroupToCourt(
       parseDate(parsed.data.date),
       parsed.data.courtId,
-      parsed.data.registrationIds,
+      parsed.data.stagedGroupId,
       authz.userId,
     );
     revalidateRotation();
@@ -139,6 +147,117 @@ export async function assignPendingGroupToCourtAction(
         action: "assignPendingGroupToCourtAction",
         userId: authz.userId,
       }),
+    };
+  }
+}
+
+// Auto queue: takes the next `size` waiting players, strict FIFO, into
+// `slot`.
+export async function stageAutoQueueAction(
+  input: StageAutoQueueInput,
+): Promise<OpenPlayRotationActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = stageAutoQueueInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await openPlayRotationService.stageAutoQueue(
+      parseDate(parsed.data.date),
+      parsed.data.slot,
+      parsed.data.size,
+      authz.userId,
+    );
+    revalidateRotation();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "stageAutoQueueAction", userId: authz.userId }),
+    };
+  }
+}
+
+// Build by hand, targeting a slot instead of a court.
+export async function stageManualGroupAction(
+  input: StageManualGroupInput,
+): Promise<OpenPlayRotationActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = stageManualGroupInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await openPlayRotationService.stageManualGroup(
+      parseDate(parsed.data.date),
+      parsed.data.slot,
+      parsed.data.registrationIds,
+      authz.userId,
+    );
+    revalidateRotation();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "stageManualGroupAction", userId: authz.userId }),
+    };
+  }
+}
+
+// The × control on a staged chip.
+export async function unstageQueueEntryAction(
+  input: QueueEntryIdInput,
+): Promise<OpenPlayRotationActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = queueEntryIdInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await openPlayRotationService.unstageQueueEntry(parsed.data.queueEntryId, authz.userId);
+    revalidateRotation();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "unstageQueueEntryAction", userId: authz.userId }),
+    };
+  }
+}
+
+// Removing a whole staged group at once.
+export async function unstageGroupAction(
+  input: StagedGroupIdInput,
+): Promise<OpenPlayRotationActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = stagedGroupIdInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await openPlayRotationService.unstageGroup(parsed.data.stagedGroupId, authz.userId);
+    revalidateRotation();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "unstageGroupAction", userId: authz.userId }),
     };
   }
 }

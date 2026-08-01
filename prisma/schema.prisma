@@ -1459,14 +1459,63 @@ model QueueEntry {
   status         QueueEntryStatus   @default(WAITING)
   gamesPlayed    Int                @default(0)
   lastPlayedAt   DateTime?
+  // Staging pipeline (Next up/After that/Then, reported live: "staff need
+  // to compose the staging slots, not just watch them fill"). Null means
+  // "not staged" — plain WAITING. Non-null points at the StagedGroup this
+  // entry currently belongs to; membership IS "QueueEntry rows pointing
+  // at this StagedGroup," no separate join table. Deliberately does NOT
+  // change joinedQueueAt or queue order — staging is an orthogonal flag,
+  // not a reorder, which is what makes "un-stage returns you to your
+  // existing position, not the bottom" true for free (see
+  // unstageQueueEntry's own comment).
+  stagedGroupId  String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
   registration OpenPlayNightRegistration @relation(fields: [registrationId], references: [id])
   session      OpenPlayNightSession?     @relation(fields: [sessionId], references: [id])
+  stagedGroup  StagedGroup?              @relation(fields: [stagedGroupId], references: [id])
 
   @@index([date, status])
   @@index([sessionId, status])
+  @@index([stagedGroupId])
+}
+
+enum StagedGroupSlot {
+  NEXT_UP
+  AFTER_THAT
+  THEN
+}
+
+enum StagedGroupSource {
+  MANUAL
+  AUTO_QUEUE
+}
+
+// Staging pipeline (reported live): a REAL, saved group waiting for a
+// court — not a live-recomputed preview of the top of the queue (the
+// previous "Next up" behavior). Staff fill a slot either by Auto Queue
+// (strict FIFO, same selection rule Quick-queue already uses) or Build by
+// hand (the existing manual picker, targeting a slot instead of a court).
+// @@unique([date, slot]) is the "one group per slot per night" guard
+// (requirement 7: filling an occupied slot is a clean rejection, never a
+// silent overwrite or fallthrough — same "fail clean" precedent as
+// assignPendingGroupToCourt's occupied-court check). Scoped by date, not
+// sessionId — the rotation queue already pools regular and unlimited
+// registrations on the same date (see the Fri/Sat pooling comment on
+// fetchWaitingUnits), so the staging pipeline matches that same scope.
+model StagedGroup {
+  id              String            @id @default(cuid())
+  date            DateTime
+  slot            StagedGroupSlot
+  source          StagedGroupSource
+  createdByUserId String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  queueEntries QueueEntry[]
+
+  @@unique([date, slot])
 }
 
 // --- Open-play online self-registration (BUILD-SPEC.md §6, "PARKED"

@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+// Staging pipeline (Next up/After that/Then — reported live: "staff need
+// to compose the staging slots, not just watch them fill"). Real, saved
+// groups now, not a computed preview.
+export const stagedGroupSlotSchema = z.enum(["NEXT_UP", "AFTER_THAT", "THEN"]);
+
 export const proposeAssignmentInputSchema = z.object({
   date: z.string().min(1),
   courtId: z.string().min(1),
@@ -60,3 +65,46 @@ export const swapPartyMemberInputSchema = z
   });
 
 export type SwapPartyMemberInput = z.infer<typeof swapPartyMemberInputSchema>;
+
+// "Put the action where the group is" — assigns a STAGED group (not raw
+// registrationIds — those are resolved fresh, server-side, from the real
+// group; see assignPendingGroupToCourt's own comment for why that's a
+// tightening over the old preview-based version).
+export const assignStagedGroupToCourtInputSchema = z.object({
+  date: z.string().min(1),
+  courtId: z.string().min(1),
+  stagedGroupId: z.string().min(1),
+});
+
+export type AssignStagedGroupToCourtInput = z.infer<typeof assignStagedGroupToCourtInputSchema>;
+
+// Auto queue: next `size` waiting players, strict FIFO, into `slot`.
+export const stageAutoQueueInputSchema = z.object({
+  date: z.string().min(1),
+  slot: stagedGroupSlotSchema,
+  size: z
+    .number()
+    .int()
+    .min(2, "Pick a group size of 2 to 4.")
+    .max(4, "Pick a group size of 2 to 4."),
+});
+
+export type StageAutoQueueInput = z.infer<typeof stageAutoQueueInputSchema>;
+
+// Build by hand, targeting a slot instead of a court.
+export const stageManualGroupInputSchema = z.object({
+  date: z.string().min(1),
+  slot: stagedGroupSlotSchema,
+  registrationIds: z
+    .array(z.string().min(1))
+    .min(2, "Pick at least 2 players.")
+    .max(4, "A group holds at most 4 players."),
+});
+
+export type StageManualGroupInput = z.infer<typeof stageManualGroupInputSchema>;
+
+export const stagedGroupIdInputSchema = z.object({
+  stagedGroupId: z.string().min(1),
+});
+
+export type StagedGroupIdInput = z.infer<typeof stagedGroupIdInputSchema>;

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftRight, Check, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -18,19 +18,18 @@ import {
   markWaitingAgainAction,
   moveQueueUnitAfterAction,
   proposeAssignmentAction,
-  swapPartyMemberAction,
+  stageAutoQueueAction,
+  stageManualGroupAction,
+  unstageGroupAction,
+  unstageQueueEntryAction,
   type OpenPlayRotationActionState,
 } from "@/actions/open-play-rotation.actions";
-import {
-  cancelRegistrationAction,
-  type OpenPlayRegistrationActionState,
-} from "@/actions/open-play-registration.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
-import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
+import type { OpenPlaySkillLevel, StagedGroupSlot } from "@/lib/generated/prisma/enums";
 
 interface BoardMember {
   queueEntryId: string;
@@ -87,6 +86,15 @@ interface BoardRestingPlayer {
   skillLevel: OpenPlaySkillLevel;
 }
 
+// Staging pipeline: a REAL, saved group (not a computed preview) — stays
+// put in its slot until assigned to a court or explicitly removed.
+export interface BoardStagedGroup {
+  id: string;
+  slot: StagedGroupSlot;
+  source: "MANUAL" | "AUTO_QUEUE";
+  members: BoardMember[];
+}
+
 export interface RotationBoardProps {
   date: string; // YYYY-MM-DD
   courts: BoardCourt[];
@@ -94,6 +102,7 @@ export interface RotationBoardProps {
   resting: BoardRestingPlayer[];
   maxWaitMinutes: number;
   unfillableQueueReason: string | null;
+  stagedGroups: BoardStagedGroup[];
 }
 
 function skillLabel(level: OpenPlaySkillLevel): string {
@@ -141,100 +150,72 @@ function formatGameTimeRemaining(endAt: string | null): { text: string; overtime
   return { text: `${minutes}m left`, overtime: false };
 }
 
-// "any option to edit next up?" — a compact, TV-display-style preview
-// (same "Next up" / "After that" grouping as features/display's kiosk
-// board, flattened members in queue order — see display.service.ts) sitting
-// right under the court cards, distinct from the detailed "Waiting" card
-// below it. Each chip gets its own Cancel (existing cancelRegistrationAction)
-// and Swap. No Edit here — reported live: "that's not the place for
-// editing names," pulled after shipping (name/phone corrections belong
-// wherever the registration itself is managed, not this preview).
-type PendingGroupKey = "nextUp" | "afterThat" | "then";
+const STAGED_SLOTS: StagedGroupSlot[] = ["NEXT_UP", "AFTER_THAT", "THEN"];
 
+function stagedSlotLabel(slot: StagedGroupSlot): string {
+  return slot === "NEXT_UP" ? "Next up" : slot === "AFTER_THAT" ? "After that" : "Then";
+}
+
+// Staging pipeline (reported live: "staff need to compose the staging
+// slots, not just watch them fill"). Next up/After that/Then are real,
+// saved groups now — not a recomputed preview of the top of the queue.
+// Each slot is either filled (a real group: chips + court-assignment
+// control) or empty (Auto queue + a note that Build a group by hand,
+// below, can also target it). Sits right under the court cards, distinct
+// from the detailed "Waiting" card further down.
 function NextUpSection({
   date,
-  flatMembers,
+  stagedGroups,
   courts,
   runAction,
   isPending,
+  totalWaiting,
 }: {
   date: string;
-  flatMembers: BoardMember[];
+  stagedGroups: BoardStagedGroup[];
   courts: BoardCourt[];
-  runAction: (promise: Promise<OpenPlayRegistrationActionState>, successMessage: string) => void;
+  runAction: (promise: Promise<OpenPlayRotationActionState>, successMessage: string) => void;
   isPending: boolean;
+  totalWaiting: number;
 }) {
-  // Group swap ("build the group swap same as tv display"): pick exactly
-  // two players from the preview (either box, doesn't matter which) and
-  // swap which group each is in. A plain toggle-select of up to 2
-  // registrationIds — same interaction shape as the Waiting card's
-  // existing manual-pick checkboxes, just capped at 2 instead of 4.
-  const [swapPicks, setSwapPicks] = useState<string[]>([]);
-
   // Court assignment control ("put the action where the group is"): one
-  // court pick per pending group, keyed by group so Next up/After that/
-  // Then don't share a single selection. Recomputed from `courts` every
-  // render (a prop, driven by the page's own 10-second poll via
-  // OpenPlaySessionTabs) — never cached in state, so a court freeing up
-  // or filling mid-session shows up here without any extra wiring.
-  const [assignCourtPicks, setAssignCourtPicks] = useState<Record<PendingGroupKey, string>>({
-    nextUp: "",
-    afterThat: "",
-    then: "",
+  // court pick per slot. Recomputed from `courts` every render (a prop,
+  // driven by the page's own 10-second poll via OpenPlaySessionTabs) —
+  // never cached in state, so a court freeing up or filling mid-session
+  // shows up here without any extra wiring.
+  const [assignCourtPicks, setAssignCourtPicks] = useState<Record<StagedGroupSlot, string>>({
+    NEXT_UP: "",
+    AFTER_THAT: "",
+    THEN: "",
+  });
+  const [autoQueueSizes, setAutoQueueSizes] = useState<Record<StagedGroupSlot, string>>({
+    NEXT_UP: "4",
+    AFTER_THAT: "4",
+    THEN: "4",
   });
   const vacantCourts = courts.filter((court) => !court.active && !court.proposed);
 
-  function assignGroup(groupKey: PendingGroupKey, members: BoardMember[]) {
-    const courtId = assignCourtPicks[groupKey];
-    if (!courtId || members.length < 2) return;
+  function assignGroup(slot: StagedGroupSlot, stagedGroupId: string) {
+    const courtId = assignCourtPicks[slot];
+    if (!courtId) return;
     runAction(
-      assignPendingGroupToCourtAction({
-        date,
-        courtId,
-        registrationIds: members.map((member) => member.registrationId),
-      }).then((r) => {
-        if (!r.error) setAssignCourtPicks((prev) => ({ ...prev, [groupKey]: "" }));
+      assignPendingGroupToCourtAction({ date, courtId, stagedGroupId }).then((r) => {
+        if (!r.error) setAssignCourtPicks((prev) => ({ ...prev, [slot]: "" }));
         return r;
       }),
       "Group assigned to court.",
     );
   }
 
-  const nextUp = flatMembers.slice(0, 4);
-  const afterThat = flatMembers.slice(4, 8);
-  // Third grouped preview — same "Next up / After that / Then" set the
-  // TV display and /phone now both show, kept consistent across all
-  // three screens.
-  const then = flatMembers.slice(8, 12);
-
-  function toggleSwapPick(registrationId: string) {
-    setSwapPicks((prev) => {
-      if (prev.includes(registrationId)) return prev.filter((id) => id !== registrationId);
-      if (prev.length >= 2) return [prev[1], registrationId];
-      return [...prev, registrationId];
-    });
+  function autoQueue(slot: StagedGroupSlot) {
+    const size = Number(autoQueueSizes[slot]);
+    runAction(stageAutoQueueAction({ date, slot, size }), "Group staged.");
   }
 
-  function confirmSwap() {
-    if (swapPicks.length !== 2) return;
-    runAction(
-      swapPartyMemberAction({
-        date,
-        memberARegistrationId: swapPicks[0],
-        memberBRegistrationId: swapPicks[1],
-      }),
-      "Swapped.",
-    );
-    setSwapPicks([]);
-  }
+  function renderSlot(slot: StagedGroupSlot, accent: boolean) {
+    const group = stagedGroups.find((g) => g.slot === slot);
+    const label = stagedSlotLabel(slot);
 
-  function renderGroup(
-    label: string,
-    groupKey: PendingGroupKey,
-    members: BoardMember[],
-    accent: boolean,
-    emptyText: string,
-  ) {
     return (
       <div
         className={cn(
@@ -242,34 +223,75 @@ function NextUpSection({
           accent ? "border-court-blue/40 bg-court-blue/[0.06]" : "bg-muted/20",
         )}
       >
-        <p
-          className={cn(
-            "mb-2 text-xs font-semibold tracking-wide uppercase",
-            accent ? "text-court-blue" : "text-muted-foreground",
-          )}
-        >
-          {label}
-        </p>
-        {members.length === 0 ? (
-          <p className="text-muted-foreground text-sm">{emptyText}</p>
+        <div className="mb-2 flex items-center justify-between">
+          <p
+            className={cn(
+              "text-xs font-semibold tracking-wide uppercase",
+              accent ? "text-court-blue" : "text-muted-foreground",
+            )}
+          >
+            {label}
+          </p>
+          {group ? (
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-destructive text-xs"
+              disabled={isPending}
+              onClick={() =>
+                runAction(unstageGroupAction({ stagedGroupId: group.id }), "Group removed.")
+              }
+            >
+              Remove group
+            </button>
+          ) : null}
+        </div>
+
+        {!group ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-muted-foreground text-sm">
+              Empty
+              {totalWaiting === 0 ? " — nobody waiting." : "."}
+            </p>
+            {totalWaiting >= 2 ? (
+              <div className="flex items-center gap-1.5">
+                <select
+                  className="border-input rounded-md border px-1.5 py-1 text-xs"
+                  value={autoQueueSizes[slot]}
+                  onChange={(event) =>
+                    setAutoQueueSizes((prev) => ({ ...prev, [slot]: event.target.value }))
+                  }
+                  disabled={isPending}
+                >
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                </select>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isPending}
+                  onClick={() => autoQueue(slot)}
+                >
+                  Auto queue
+                </Button>
+              </div>
+            ) : null}
+          </div>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {members.map((member) => {
-              const picked = swapPicks.includes(member.registrationId);
-              return (
+          <>
+            <div className="flex flex-wrap gap-2">
+              {group.members.map((member) => (
                 <div
                   key={member.registrationId}
-                  className={cn(
-                    // bg-card, not bg-background: bg-background flips
-                    // dark in this app's dark theme while the chip still
-                    // inherits the surrounding Card's fixed-dark
-                    // text-card-foreground (Card intentionally stays
-                    // white/light in both themes — see card.tsx) —
-                    // dark-on-dark, functionally invisible. Confirmed
-                    // live: reported as "black box, text is black."
-                    "bg-card flex items-center gap-1 rounded-md border px-2 py-1 text-sm",
-                    picked && "border-court-blue ring-court-blue/40 ring-2",
-                  )}
+                  // bg-card, not bg-background: bg-background flips dark
+                  // in this app's dark theme while the chip still
+                  // inherits the surrounding Card's fixed-dark
+                  // text-card-foreground (Card intentionally stays
+                  // white/light in both themes — see card.tsx) —
+                  // dark-on-dark, functionally invisible. Confirmed live:
+                  // reported as "black box, text is black."
+                  className="bg-card flex items-center gap-1 rounded-md border px-2 py-1 text-sm"
                 >
                   <span className="text-card-foreground font-medium">
                     {displayPlayerName(member.playerName)}
@@ -277,80 +299,60 @@ function NextUpSection({
                   {/* text-card-foreground/N, not text-muted-foreground:
                       muted-foreground flips light in this app's dark
                       theme, which is illegible on this chip's always-
-                      white bg-card — same failure mode as the name text
-                      above, just for the icon row. card-foreground is
-                      pinned dark in both themes (see card.tsx), so /50
-                      opacity of it stays readable-but-secondary
-                      regardless of the page theme. */}
-                  <button
-                    type="button"
-                    className={cn(
-                      "text-card-foreground/50 hover:text-court-blue",
-                      picked && "text-court-blue",
-                    )}
-                    aria-label={
-                      picked
-                        ? `Deselect ${member.playerName} for swap`
-                        : `Select ${member.playerName} to swap groups`
-                    }
-                    disabled={isPending}
-                    onClick={() => toggleSwapPick(member.registrationId)}
-                  >
-                    <ArrowLeftRight className="size-3.5" />
-                  </button>
+                      white bg-card. card-foreground is pinned dark in
+                      both themes (see card.tsx), so /50 opacity of it
+                      stays readable-but-secondary regardless of theme. */}
                   <button
                     type="button"
                     className="text-card-foreground/50 hover:text-destructive"
-                    aria-label={`Remove ${member.playerName} from the queue`}
+                    aria-label={`Remove ${member.playerName} from this group`}
                     disabled={isPending}
                     onClick={() =>
                       runAction(
-                        cancelRegistrationAction({ registrationId: member.registrationId }),
-                        "Removed from the queue.",
+                        unstageQueueEntryAction({ queueEntryId: member.queueEntryId }),
+                        "Returned to waiting.",
                       )
                     }
                   >
                     <X className="size-3.5" />
                   </button>
                 </div>
-              );
-            })}
-          </div>
-        )}
-        {members.length >= 2 ? (
-          vacantCourts.length === 0 ? (
-            <p className="text-muted-foreground mt-2 text-xs">
-              All courts are busy — nothing to assign to right now.
-            </p>
-          ) : (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <select
-                className="border-input rounded-md border px-2 py-1 text-xs"
-                value={assignCourtPicks[groupKey]}
-                onChange={(event) =>
-                  setAssignCourtPicks((prev) => ({ ...prev, [groupKey]: event.target.value }))
-                }
-                disabled={isPending}
-              >
-                <option value="">Assign to court…</option>
-                {vacantCourts.map((court) => (
-                  <option key={court.id} value={court.id}>
-                    {court.name}
-                  </option>
-                ))}
-              </select>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={isPending || !assignCourtPicks[groupKey]}
-                onClick={() => assignGroup(groupKey, members)}
-              >
-                Assign
-              </Button>
+              ))}
             </div>
-          )
-        ) : null}
+            {vacantCourts.length === 0 ? (
+              <p className="text-muted-foreground mt-2 text-xs">
+                All courts are busy — nothing to assign to right now.
+              </p>
+            ) : (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <select
+                  className="border-input rounded-md border px-2 py-1 text-xs"
+                  value={assignCourtPicks[slot]}
+                  onChange={(event) =>
+                    setAssignCourtPicks((prev) => ({ ...prev, [slot]: event.target.value }))
+                  }
+                  disabled={isPending}
+                >
+                  <option value="">Assign to court…</option>
+                  {vacantCourts.map((court) => (
+                    <option key={court.id} value={court.id}>
+                      {court.name}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isPending || !assignCourtPicks[slot]}
+                  onClick={() => assignGroup(slot, group.id)}
+                >
+                  Assign
+                </Button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     );
   }
@@ -361,39 +363,9 @@ function NextUpSection({
         <CardTitle className="text-base">Next up</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {renderGroup("Next up", "nextUp", nextUp, true, "Nobody waiting")}
-        {renderGroup("After that", "afterThat", afterThat, false, "—")}
-        {renderGroup("Then", "then", then, false, "—")}
-        {swapPicks.length > 0 ? (
-          <div className="border-court-blue/40 bg-court-blue/[0.06] flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
-            <p className="text-sm">
-              {swapPicks.length === 1
-                ? `Pick one more player to swap with ${displayPlayerName(flatMembers.find((m) => m.registrationId === swapPicks[0])?.playerName ?? "")}.`
-                : `Swap ${displayPlayerName(flatMembers.find((m) => m.registrationId === swapPicks[0])?.playerName ?? "")} with ${displayPlayerName(
-                    flatMembers.find((m) => m.registrationId === swapPicks[1])?.playerName ?? "",
-                  )} — trades who's in each other's group.`}
-            </p>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                disabled={isPending || swapPicks.length !== 2}
-                onClick={confirmSwap}
-              >
-                Swap
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={isPending}
-                onClick={() => setSwapPicks([])}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : null}
+        {renderSlot("NEXT_UP", true)}
+        {renderSlot("AFTER_THAT", false)}
+        {renderSlot("THEN", false)}
       </CardContent>
     </Card>
   );
@@ -406,11 +378,23 @@ export function RotationBoard({
   resting,
   maxWaitMinutes,
   unfillableQueueReason,
+  stagedGroups,
 }: RotationBoardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [manualPicks, setManualPicks] = useState<string[]>([]);
-  const [manualCourtId, setManualCourtId] = useState<string>(courts[0]?.id ?? "");
+  // Build a group by hand's destination — a slot (staging) or a specific
+  // court (straight to a game, unchanged from before this feature).
+  // "slot:NEXT_UP" / "court:<id>" — a single dropdown covers both, per
+  // the ask ("the existing checkbox picker, but with a destination
+  // choice"). Only EMPTY slots are offered, same "occupied is simply
+  // absent, not disabled" philosophy as the court-assignment control's
+  // own vacant-courts-only dropdown — a slot already holding a group
+  // isn't a valid destination here (stageManualGroup's own occupied-slot
+  // guard would just reject it).
+  const [manualDestination, setManualDestination] = useState<string>(
+    courts[0] ? `court:${courts[0].id}` : "",
+  );
   // Queue reorder: which unit each OTHER unit is currently set to move
   // after, keyed by the mover's own unitKey — a plain <select>, kept
   // alongside drag-and-drop (below) as the precise/keyboard-friendly
@@ -460,6 +444,10 @@ export function RotationBoard({
   const flatWaitingMembers = waiting.flatMap((unit) => unit.members);
   const flatWaitingIds = flatWaitingMembers.map((member) => member.registrationId);
   const quickQueueIds = flatWaitingIds.slice(0, 4);
+  const totalWaiting = flatWaitingMembers.length;
+  const emptySlots = STAGED_SLOTS.filter(
+    (slot) => !stagedGroups.some((group) => group.slot === slot),
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -693,18 +681,24 @@ export function RotationBoard({
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-muted-foreground text-xs">
-            Pick 2 to 4 from the waiting list below (checkboxes), choose a court, then create —
-            skill is ignored entirely. Fewer than 4 is real, valid ₱35/game play — early mornings, a
-            short-handed group. Discards any pending auto-proposal on that court.
+            Pick 2 to 4 from the waiting list below (checkboxes), choose where they go, then create
+            — skill is ignored entirely. Fewer than 4 is real, valid ₱35/game play — early mornings,
+            a short-handed group. A court destination discards any pending auto-proposal on that
+            court; a slot destination is only offered while empty.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <select
               className="border-input rounded-md border px-2 py-1.5 text-sm"
-              value={manualCourtId}
-              onChange={(event) => setManualCourtId(event.target.value)}
+              value={manualDestination}
+              onChange={(event) => setManualDestination(event.target.value)}
             >
+              {emptySlots.map((slot) => (
+                <option key={slot} value={`slot:${slot}`}>
+                  {stagedSlotLabel(slot)}
+                </option>
+              ))}
               {courts.map((court) => (
-                <option key={court.id} value={court.id}>
+                <option key={court.id} value={`court:${court.id}`}>
                   {court.name}
                 </option>
               ))}
@@ -714,21 +708,30 @@ export function RotationBoard({
               type="button"
               size="sm"
               disabled={
-                isPending || manualPicks.length < 2 || manualPicks.length > 4 || !manualCourtId
+                isPending || manualPicks.length < 2 || manualPicks.length > 4 || !manualDestination
               }
-              onClick={() =>
+              onClick={() => {
+                const [kind, id] = manualDestination.split(":");
+                const action =
+                  kind === "slot"
+                    ? stageManualGroupAction({
+                        date,
+                        slot: id as StagedGroupSlot,
+                        registrationIds: manualPicks,
+                      })
+                    : createManualAssignmentAction({
+                        date,
+                        courtId: id,
+                        registrationIds: manualPicks,
+                      });
                 runAction(
-                  createManualAssignmentAction({
-                    date,
-                    courtId: manualCourtId,
-                    registrationIds: manualPicks,
-                  }).then((r) => {
+                  action.then((r) => {
                     if (!r.error) setManualPicks([]);
                     return r;
                   }),
-                  "Group created.",
-                )
-              }
+                  kind === "slot" ? "Group staged." : "Group created.",
+                );
+              }}
             >
               Create group
             </Button>
@@ -738,10 +741,11 @@ export function RotationBoard({
 
       <NextUpSection
         date={date}
-        flatMembers={flatWaitingMembers}
+        stagedGroups={stagedGroups}
         courts={courts}
         runAction={runAction}
         isPending={isPending}
+        totalWaiting={totalWaiting}
       />
 
       <Card>

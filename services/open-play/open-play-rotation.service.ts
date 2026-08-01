@@ -7,8 +7,9 @@ import type {
   OpenPlayNightRegistration,
   Prisma,
   QueueEntry,
+  StagedGroup,
 } from "@/lib/generated/prisma/client";
-import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
+import type { OpenPlaySkillLevel, StagedGroupSlot } from "@/lib/generated/prisma/enums";
 import { noopRaceHook, type RaceHook } from "@/lib/race-test-hooks";
 import { runSerializableWithRetry } from "@/lib/serializable-retry";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
@@ -97,6 +98,17 @@ export interface RotationBoardRestingPlayer {
   skillLevel: OpenPlaySkillLevel;
 }
 
+// Staging pipeline: a StagedGroup with its current, real members resolved
+// (not a computed preview — see StagedGroup's own schema comment).
+export interface StagedGroupWithMembers extends StagedGroup {
+  members: {
+    queueEntryId: string;
+    registrationId: string;
+    playerName: string;
+    skillLevel: OpenPlaySkillLevel;
+  }[];
+}
+
 export interface RotationBoardData {
   courts: RotationBoardCourt[];
   waiting: RotationBoardUnit[];
@@ -119,14 +131,29 @@ export interface RotationBoardData {
   // a real deadlock, not "not enough people yet" (which is simply not
   // reported here — that's the normal, unremarkable idle state).
   unfillableQueueReason: string | null;
+  // Staging pipeline: real, saved groups (Next up/After that/Then), never
+  // more than one per slot per night (StagedGroup's own @@unique). Empty
+  // slots simply have no entry here — the board renders those as
+  // "Empty, fill it" rather than any kind of computed guess.
+  stagedGroups: StagedGroupWithMembers[];
 }
 
 async function fetchWaitingUnits(
   date: Date,
   client: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<QueueUnit[]> {
+  // Staging pipeline: stagedGroupId: null excludes anyone currently
+  // parked in Next up/After that/Then — "exactly one place at a time"
+  // (waiting, staged, on a court, or resting, never two). This is the
+  // ONE shared query behind both the Waiting list (getRotationBoardData
+  // below) AND the automatic skill-matching engine (assembleFoursome via
+  // proposeNextAssignment) — staged players are correctly invisible to
+  // auto-proposals too, for free, since both read through here. The TV
+  // display and /phone also derive their own waiting list from
+  // getRotationBoardData (display.service.ts), so this one filter covers
+  // every surface at once.
   const entries = await client.queueEntry.findMany({
-    where: { date, status: "WAITING" },
+    where: { date, status: "WAITING", stagedGroupId: null },
     orderBy: { joinedQueueAt: "asc" },
   });
 
@@ -467,6 +494,15 @@ export class OpenPlayRotationService {
             `${entry.playerName} isn't waiting (status: ${entry.status.toLowerCase()}).`,
           );
         }
+        // Staging pipeline: "exactly one place at a time" — a staged
+        // player shouldn't normally reach this picker at all (the
+        // build-by-hand checkboxes exclude them), so this is defense
+        // against a stale request, same shape as the WAITING check above.
+        if (entry.stagedGroupId) {
+          throw new Error(
+            `${entry.playerName} is staged in a pending group — remove them from that group first.`,
+          );
+        }
       }
 
       const existingCourtProposal = await tx.gameAssignment.findFirst({
@@ -496,36 +532,237 @@ export class OpenPlayRotationService {
     });
   }
 
-  // "Put the action where the group is" — a court-assignment control on
-  // each pending group in the rotation board's Next up / After that /
-  // Then preview. Deliberately NOT built on createManualAssignment's
-  // override semantics above (cancel-and-replace any PROPOSED game on
-  // the chosen court): that method is for a staff member intentionally
-  // picking a court, including one that already has a stale proposal
-  // sitting on it. This control only ever offers VACANT courts in its
-  // dropdown (see the client's own filtering), so a court showing up as
-  // occupied here can only mean someone else's action landed in the
-  // window between this page's last 10-second poll and this click — a
-  // race, not an intentional override. That must fail cleanly with a
-  // clear message, not silently cancel the other staff member's work.
-  // Serializable + retry (not a plain transaction) closes the actual
-  // TOCTOU gap: two concurrent calls for the same court could otherwise
-  // both read "vacant" before either commits its INSERT, since
-  // GameAssignment has no unique constraint on (courtId, date, status)
-  // to backstop a plain read-committed check.
-  async assignPendingGroupToCourt(
+  // Staging pipeline (reported live: "staff need to compose the staging
+  // slots, not just watch them fill"). Next up/After that/Then are real,
+  // saved groups now — not a recomputed preview of the top of the queue.
+  // Human-readable label for error messages only; the enum values
+  // themselves are what's actually stored/compared everywhere else.
+  private stagedSlotLabel(slot: StagedGroupSlot): string {
+    return slot === "NEXT_UP" ? "Next up" : slot === "AFTER_THAT" ? "After that" : "Then";
+  }
+
+  private async loadStagedGroupWithMembers(stagedGroupId: string): Promise<StagedGroupWithMembers> {
+    const { queueEntries, ...group } = await prisma.stagedGroup.findUniqueOrThrow({
+      where: { id: stagedGroupId },
+      include: { queueEntries: true },
+    });
+    return {
+      ...group,
+      members: queueEntries.map((entry) => ({
+        queueEntryId: entry.id,
+        registrationId: entry.registrationId,
+        playerName: entry.playerName,
+        skillLevel: entry.skillLevel,
+      })),
+    };
+  }
+
+  // Auto queue: takes the next `size` (2-4) waiting players in strict
+  // FIFO order and stages them into `slot` — same party-agnostic
+  // selection rule Quick-queue already uses (a party split across the
+  // cut is a real, known, already-accepted consequence of "strict
+  // FIFO," not new here). Serializable + retry for the same reason
+  // assignPendingGroupToCourt needs it: two staff filling the same slot
+  // seconds apart must not both succeed, and StagedGroup's own
+  // @@unique([date, slot]) alone can't prevent that under plain
+  // read-committed (the occupied-check-then-insert gap).
+  async stageAutoQueue(
     date: Date,
-    courtId: string,
+    slot: StagedGroupSlot,
+    size: number,
+    actorUserId: string,
+  ): Promise<StagedGroupWithMembers> {
+    if (size < 2 || size > 4) {
+      throw new Error("Pick a group size of 2 to 4.");
+    }
+
+    const created = await runSerializableWithRetry(async (tx) => {
+      const occupied = await tx.stagedGroup.findUnique({ where: { date_slot: { date, slot } } });
+      if (occupied) {
+        throw new Error(`${this.stagedSlotLabel(slot)} already has a group — remove it first.`);
+      }
+
+      const units = await fetchWaitingUnits(date, tx);
+      const flatIds = units
+        .flatMap((unit) => unit.members.map((member) => member.registrationId))
+        .slice(0, size);
+      if (flatIds.length < size) {
+        throw new Error(`Only ${flatIds.length} waiting — need ${size} to fill this group.`);
+      }
+
+      const group = await tx.stagedGroup.create({
+        data: { date, slot, source: "AUTO_QUEUE", createdByUserId: actorUserId },
+      });
+      await tx.queueEntry.updateMany({
+        where: { date, status: "WAITING", registrationId: { in: flatIds } },
+        data: { stagedGroupId: group.id },
+      });
+      return group;
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "staged_group.auto_queued",
+      entityType: "StagedGroup",
+      entityId: created.id,
+      newValues: { date, slot, size },
+    });
+
+    return this.loadStagedGroupWithMembers(created.id);
+  }
+
+  // Build by hand, targeting a slot instead of a court — same picker,
+  // same 2-4 validation as createManualAssignment, staging instead of
+  // assigning.
+  async stageManualGroup(
+    date: Date,
+    slot: StagedGroupSlot,
     registrationIds: string[],
     actorUserId: string,
-  ): Promise<GameAssignmentWithParticipants> {
+  ): Promise<StagedGroupWithMembers> {
     if (registrationIds.length < 2 || registrationIds.length > 4) {
-      throw new Error("Pick 2 to 4 players for a manual group.");
+      throw new Error("Pick 2 to 4 players for a group.");
     }
     if (new Set(registrationIds).size !== registrationIds.length) {
       throw new Error("A player can't be picked twice for the same group.");
     }
 
+    const created = await runSerializableWithRetry(async (tx) => {
+      const occupied = await tx.stagedGroup.findUnique({ where: { date_slot: { date, slot } } });
+      if (occupied) {
+        throw new Error(`${this.stagedSlotLabel(slot)} already has a group — remove it first.`);
+      }
+
+      const entries = await tx.queueEntry.findMany({
+        where: { date, registrationId: { in: registrationIds } },
+      });
+      if (entries.length !== registrationIds.length) {
+        throw new Error("One or more selected players aren't in today's queue.");
+      }
+      for (const entry of entries) {
+        if (entry.status !== "WAITING") {
+          throw new Error(
+            `${entry.playerName} isn't waiting (status: ${entry.status.toLowerCase()}).`,
+          );
+        }
+        if (entry.stagedGroupId) {
+          throw new Error(`${entry.playerName} is already staged in another group.`);
+        }
+      }
+
+      const group = await tx.stagedGroup.create({
+        data: { date, slot, source: "MANUAL", createdByUserId: actorUserId },
+      });
+      await tx.queueEntry.updateMany({
+        where: { id: { in: entries.map((entry) => entry.id) } },
+        data: { stagedGroupId: group.id },
+      });
+      return group;
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "staged_group.built_by_hand",
+      entityType: "StagedGroup",
+      entityId: created.id,
+      newValues: { date, slot, registrationIds },
+    });
+
+    return this.loadStagedGroupWithMembers(created.id);
+  }
+
+  // The × control on a staged chip — un-stages exactly one player.
+  // Deliberately does NOT touch joinedQueueAt: staging was never a
+  // reorder, just an orthogonal flag (see QueueEntry.stagedGroupId's
+  // own schema comment), so simply clearing it is what makes "returns
+  // to Waiting at their correct position, not the bottom" true for
+  // free — there's no position to recompute. A group that drops below
+  // 2 members is dissolved outright (a manually-built group can't be
+  // 1 person either, so a staged one shouldn't end up there by
+  // attrition) — deleteMany, not delete, since a concurrent removal of
+  // the same group is a benign no-op here, not an error.
+  async unstageQueueEntry(queueEntryId: string, actorUserId: string): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+      const entry = await tx.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
+      await this.unstageQueueEntryTx(tx, queueEntryId, entry.stagedGroupId);
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "queue_entry.unstaged",
+      entityType: "QueueEntry",
+      entityId: queueEntryId,
+    });
+  }
+
+  // Removing the whole group at once (the slot's own "remove" control) —
+  // same effect as pressing × on every chip, in one transaction.
+  async unstageGroup(stagedGroupId: string, actorUserId: string): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+      await tx.queueEntry.updateMany({ where: { stagedGroupId }, data: { stagedGroupId: null } });
+      await tx.stagedGroup.deleteMany({ where: { id: stagedGroupId } });
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "staged_group.removed",
+      entityType: "StagedGroup",
+      entityId: stagedGroupId,
+    });
+  }
+
+  // Pipeline auto-advance: whatever staged group sits in the slot right
+  // behind the one that was just vacated moves up to fill it, and so on
+  // forward. Deliberately does NOT touch announcementRequestedAt or call
+  // announce anywhere — advancing the pipeline is silent; Announce stays
+  // its own, separate, manual staff action, same as it always has been.
+  private async advancePipelineTx(
+    tx: Prisma.TransactionClient,
+    date: Date,
+    vacatedSlot: StagedGroupSlot,
+  ): Promise<void> {
+    if (vacatedSlot === "THEN") {
+      return;
+    }
+    const nextSlot: StagedGroupSlot = vacatedSlot === "NEXT_UP" ? "AFTER_THAT" : "THEN";
+    const groupBehind = await tx.stagedGroup.findUnique({
+      where: { date_slot: { date, slot: nextSlot } },
+    });
+    if (!groupBehind) {
+      return;
+    }
+    await tx.stagedGroup.update({ where: { id: groupBehind.id }, data: { slot: vacatedSlot } });
+    await this.advancePipelineTx(tx, date, nextSlot);
+  }
+
+  // "Put the action where the group is" — a court-assignment control on
+  // each staged group (requirement: works from any slot, not only Next
+  // up). Deliberately NOT built on createManualAssignment's override
+  // semantics above (cancel-and-replace any PROPOSED game on the chosen
+  // court): that method is for a staff member intentionally picking a
+  // court, including one that already has a stale proposal sitting on
+  // it. This control only ever offers VACANT courts in its dropdown (see
+  // the client's own filtering), so a court showing up as occupied here
+  // can only mean someone else's action landed in the window between
+  // this page's last 10-second poll and this click — a race, not an
+  // intentional override. That must fail cleanly with a clear message,
+  // not silently cancel the other staff member's work. Serializable +
+  // retry (not a plain transaction) closes the actual TOCTOU gap: two
+  // concurrent calls for the same court could otherwise both read
+  // "vacant" before either commits its INSERT, since GameAssignment has
+  // no unique constraint on (courtId, date, status) to backstop a plain
+  // read-committed check.
+  //
+  // Takes a stagedGroupId, not a client-supplied registrationIds array —
+  // members are resolved fresh, server-side, from the real staged group
+  // (a real tightening over the old preview-based version: the client's
+  // last render can never be trusted as the actual current membership).
+  async assignPendingGroupToCourt(
+    date: Date,
+    courtId: string,
+    stagedGroupId: string,
+    actorUserId: string,
+  ): Promise<GameAssignmentWithParticipants> {
     const created = await runSerializableWithRetry(async (tx) => {
       const occupied = await tx.gameAssignment.findFirst({
         where: { courtId, date, status: { in: ["ACTIVE", "PROPOSED"] } },
@@ -536,11 +773,18 @@ export class OpenPlayRotationService {
         );
       }
 
-      const entries = await tx.queueEntry.findMany({
-        where: { registrationId: { in: registrationIds }, date },
+      const group = await tx.stagedGroup.findUnique({
+        where: { id: stagedGroupId },
+        include: { queueEntries: true },
       });
-      if (entries.length !== registrationIds.length) {
-        throw new Error("One or more selected players aren't in today's queue.");
+      if (!group || group.date.getTime() !== date.getTime()) {
+        throw new Error(
+          "That group no longer exists — someone else may have already assigned or removed it.",
+        );
+      }
+      const entries = group.queueEntries;
+      if (entries.length < 2) {
+        throw new Error("That group is empty — nothing to assign.");
       }
       for (const entry of entries) {
         if (entry.status !== "WAITING") {
@@ -550,11 +794,12 @@ export class OpenPlayRotationService {
         }
       }
 
+      const registrationIds = entries.map((entry) => entry.registrationId);
       const skillLevels = entries.map((entry) => skillOrder(entry.skillLevel));
       const skillSpread = Math.max(...skillLevels) - Math.min(...skillLevels);
       const sessionId = entries[0]?.sessionId ?? null;
 
-      return this.createAssignmentTx(
+      const assignment = await this.createAssignmentTx(
         tx,
         {
           date,
@@ -567,14 +812,23 @@ export class OpenPlayRotationService {
         },
         actorUserId,
       );
+
+      // The assigned group's slot is now empty — delete the row itself
+      // (not just clear its members) so it doesn't block a NEW group
+      // from being staged there (StagedGroup's own @@unique([date,
+      // slot])), then shift whatever's staged behind it forward.
+      await tx.stagedGroup.deleteMany({ where: { id: stagedGroupId } });
+      await this.advancePipelineTx(tx, date, group.slot);
+
+      return assignment;
     });
 
     await this.writeAuditLog({
       actorUserId,
-      action: "game_assignment.assigned_from_pending_group",
+      action: "game_assignment.assigned_from_staged_group",
       entityType: "GameAssignment",
       entityId: created.id,
-      newValues: { source: "MANUAL", courtId, registrationIds },
+      newValues: { source: "MANUAL", courtId, stagedGroupId },
     });
 
     return created;
@@ -877,16 +1131,41 @@ export class OpenPlayRotationService {
   // BUILD-SPEC.md §7 "Staff can mark a player resting (skips rotations,
   // stays registered)." Only valid from WAITING — a player mid-game must
   // have their assignment completed/cancelled first.
-  async markResting(queueEntryId: string, actorUserId: string): Promise<QueueEntry> {
-    const entry = await prisma.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
-    if (entry.status !== "WAITING") {
-      throw new Error(
-        `Can only rest a player who is waiting (current status: ${entry.status.toLowerCase()}).`,
-      );
+  // Staging pipeline: if `queueEntryId` is currently staged, clears it
+  // (dissolving the group if that drops it below 2 members) — shared by
+  // markResting/markDone below and the public unstageQueueEntry, so
+  // "leaves active rotation" always implies "leaves any staged group
+  // too," from every entry point, not just the × button. No-op when the
+  // entry was never staged.
+  private async unstageQueueEntryTx(
+    tx: Prisma.TransactionClient,
+    queueEntryId: string,
+    stagedGroupId: string | null,
+  ): Promise<void> {
+    if (!stagedGroupId) {
+      return;
     }
-    const updated = await prisma.queueEntry.update({
-      where: { id: queueEntryId },
-      data: { status: "RESTING" },
+    await tx.queueEntry.update({ where: { id: queueEntryId }, data: { stagedGroupId: null } });
+    const remaining = await tx.queueEntry.count({ where: { stagedGroupId } });
+    if (remaining < 2) {
+      await tx.queueEntry.updateMany({ where: { stagedGroupId }, data: { stagedGroupId: null } });
+      await tx.stagedGroup.deleteMany({ where: { id: stagedGroupId } });
+    }
+  }
+
+  async markResting(queueEntryId: string, actorUserId: string): Promise<QueueEntry> {
+    const updated = await prisma.$transaction(async (tx) => {
+      const entry = await tx.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
+      if (entry.status !== "WAITING") {
+        throw new Error(
+          `Can only rest a player who is waiting (current status: ${entry.status.toLowerCase()}).`,
+        );
+      }
+      await tx.queueEntry.update({ where: { id: queueEntryId }, data: { status: "RESTING" } });
+      // "A player is in exactly one place at a time" — resting removes
+      // them from active rotation, so un-stage them too.
+      await this.unstageQueueEntryTx(tx, queueEntryId, entry.stagedGroupId);
+      return tx.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
     });
     await this.writeAuditLog({
       actorUserId,
@@ -1067,36 +1346,57 @@ export class OpenPlayRotationService {
   // markCheckedOut's job (Phase 5), so this delegates rather than
   // reimplementing release+promotion here.
   async markDone(queueEntryId: string, actorUserId: string): Promise<QueueEntry> {
-    const entry = await prisma.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
-    if (entry.status !== "WAITING" && entry.status !== "RESTING") {
-      throw new Error(
-        `Can only mark done a player who isn't mid-game (current status: ${entry.status.toLowerCase()}).`,
-      );
-    }
-    const updated = await prisma.queueEntry.update({
-      where: { id: queueEntryId },
-      data: { status: "DONE" },
+    const { updated, registrationId } = await prisma.$transaction(async (tx) => {
+      const entry = await tx.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
+      if (entry.status !== "WAITING" && entry.status !== "RESTING") {
+        throw new Error(
+          `Can only mark done a player who isn't mid-game (current status: ${entry.status.toLowerCase()}).`,
+        );
+      }
+      await tx.queueEntry.update({ where: { id: queueEntryId }, data: { status: "DONE" } });
+      // "A player is in exactly one place at a time" — done for the
+      // night leaves rotation entirely, so un-stage them too.
+      await this.unstageQueueEntryTx(tx, queueEntryId, entry.stagedGroupId);
+      const updated = await tx.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
+      return { updated, registrationId: entry.registrationId };
     });
-    await openPlayRegistrationService.markCheckedOut(entry.registrationId, actorUserId);
+    await openPlayRegistrationService.markCheckedOut(registrationId, actorUserId);
     return updated;
   }
 
   // BUILD-SPEC.md §7 "Staff view — Live queue in order, wait times counting
   // up... Per court: who's on, elapsed time, next proposed foursome."
   async getRotationBoardData(date: Date): Promise<RotationBoardData> {
-    const [courts, assignments, units, restingEntries, settings] = await Promise.all([
-      prisma.court.findMany({ where: { deletedAt: null }, orderBy: { name: "asc" } }),
-      prisma.gameAssignment.findMany({
-        where: { date, status: { in: ["ACTIVE", "PROPOSED"] } },
-        include: { participants: { include: { registration: true } } },
+    const [courts, assignments, units, restingEntries, settings, stagedGroupRows] =
+      await Promise.all([
+        prisma.court.findMany({ where: { deletedAt: null }, orderBy: { name: "asc" } }),
+        prisma.gameAssignment.findMany({
+          where: { date, status: { in: ["ACTIVE", "PROPOSED"] } },
+          include: { participants: { include: { registration: true } } },
+        }),
+        fetchWaitingUnits(date),
+        prisma.queueEntry.findMany({
+          where: { date, status: "RESTING" },
+          orderBy: { playerName: "asc" },
+        }),
+        settingsService.getOpenPlaySettings(),
+        prisma.stagedGroup.findMany({
+          where: { date },
+          include: { queueEntries: true },
+        }),
+      ]);
+
+    const stagedGroups: StagedGroupWithMembers[] = stagedGroupRows.map(
+      ({ queueEntries, ...group }) => ({
+        ...group,
+        members: queueEntries.map((entry) => ({
+          queueEntryId: entry.id,
+          registrationId: entry.registrationId,
+          playerName: entry.playerName,
+          skillLevel: entry.skillLevel,
+        })),
       }),
-      fetchWaitingUnits(date),
-      prisma.queueEntry.findMany({
-        where: { date, status: "RESTING" },
-        orderBy: { playerName: "asc" },
-      }),
-      settingsService.getOpenPlaySettings(),
-    ]);
+    );
 
     const now = Date.now();
     const boardCourts: RotationBoardCourt[] = courts.map((court) => ({
@@ -1145,6 +1445,7 @@ export class OpenPlayRotationService {
       maxWaitMinutes: settings.maxWaitMinutes,
       forgottenAssignmentNudgeMinutes: settings.forgottenAssignmentNudgeMinutes,
       unfillableQueueReason,
+      stagedGroups,
     };
   }
 
@@ -1222,9 +1523,15 @@ export class OpenPlayRotationService {
     // because this flip and that INSERT commit together. Splitting them
     // across transactions reopens a real deadlock risk between this
     // method and completeAssignment/cancelAssignmentTx's opposite order.
+    // stagedGroupId: null is a no-op for the AUTO/most MANUAL paths
+    // (never staged to begin with) and the real cleanup for
+    // assignPendingGroupToCourt's staged-group path — belt-and-braces
+    // alongside that method's own explicit StagedGroup row deletion, so
+    // "assigned to a court" always implies "not staged" regardless of
+    // which caller reaches this shared method.
     await tx.queueEntry.updateMany({
       where: { registrationId: { in: input.registrationIds } },
-      data: { status: "PLAYING" },
+      data: { status: "PLAYING", stagedGroupId: null },
     });
 
     void actorUserId; // logged by the caller, not here — see createAssignment/createManualAssignment

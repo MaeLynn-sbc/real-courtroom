@@ -348,6 +348,12 @@ function serializeBoard(dateParam: string, board: RotationBoardData, targetGameM
     resting: board.resting,
     maxWaitMinutes: board.maxWaitMinutes,
     unfillableQueueReason: board.unfillableQueueReason,
+    stagedGroups: board.stagedGroups.map((group) => ({
+      id: group.id,
+      slot: group.slot,
+      source: group.source,
+      members: group.members,
+    })),
   };
 }
 

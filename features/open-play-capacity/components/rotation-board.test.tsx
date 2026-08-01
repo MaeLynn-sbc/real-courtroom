@@ -8,7 +8,10 @@ import {
   confirmAssignmentAction,
   createManualAssignmentAction,
   moveQueueUnitAfterAction,
-  swapPartyMemberAction,
+  stageAutoQueueAction,
+  stageManualGroupAction,
+  unstageGroupAction,
+  unstageQueueEntryAction,
 } from "@/actions/open-play-rotation.actions";
 
 jest.mock("@/actions/open-play-rotation.actions", () => ({
@@ -24,14 +27,10 @@ jest.mock("@/actions/open-play-rotation.actions", () => ({
   markWaitingAgainAction: jest.fn(),
   moveQueueUnitAfterAction: jest.fn(),
   proposeAssignmentAction: jest.fn(),
-  swapPartyMemberAction: jest.fn(),
-}));
-
-// "Next up" box's Cancel action — mocked for the same reason as
-// open-play-rotation.actions above: the real module pulls in next/cache,
-// which the jsdom test environment can't execute.
-jest.mock("@/actions/open-play-registration.actions", () => ({
-  cancelRegistrationAction: jest.fn(),
+  stageAutoQueueAction: jest.fn(),
+  stageManualGroupAction: jest.fn(),
+  unstageGroupAction: jest.fn(),
+  unstageQueueEntryAction: jest.fn(),
 }));
 
 jest.mock("next/navigation", () => ({
@@ -47,13 +46,22 @@ const mockedConfirm = confirmAssignmentAction as jest.MockedFunction<
 const mockedMoveAfter = moveQueueUnitAfterAction as jest.MockedFunction<
   typeof moveQueueUnitAfterAction
 >;
-const mockedSwap = swapPartyMemberAction as jest.MockedFunction<typeof swapPartyMemberAction>;
 const mockedTimesUp = announceTimesUpAction as jest.MockedFunction<typeof announceTimesUpAction>;
 const mockedCreateManual = createManualAssignmentAction as jest.MockedFunction<
   typeof createManualAssignmentAction
 >;
 const mockedAssignPending = assignPendingGroupToCourtAction as jest.MockedFunction<
   typeof assignPendingGroupToCourtAction
+>;
+const mockedStageAutoQueue = stageAutoQueueAction as jest.MockedFunction<
+  typeof stageAutoQueueAction
+>;
+const mockedStageManualGroup = stageManualGroupAction as jest.MockedFunction<
+  typeof stageManualGroupAction
+>;
+const mockedUnstageGroup = unstageGroupAction as jest.MockedFunction<typeof unstageGroupAction>;
+const mockedUnstageQueueEntry = unstageQueueEntryAction as jest.MockedFunction<
+  typeof unstageQueueEntryAction
 >;
 
 async function clickAsync(element: Element) {
@@ -69,6 +77,7 @@ function baseProps(overrides: Partial<RotationBoardProps["courts"][number]>): Ro
     resting: [],
     maxWaitMinutes: 20,
     unfillableQueueReason: null,
+    stagedGroups: [],
     courts: [
       {
         id: "court-1",
@@ -338,6 +347,7 @@ describe("RotationBoard — queue reorder (Move after)", () => {
         resting={[]}
         maxWaitMinutes={20}
         unfillableQueueReason={null}
+        stagedGroups={[]}
         courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
       />,
     );
@@ -398,89 +408,6 @@ describe("RotationBoard — queue reorder (Move after)", () => {
   });
 });
 
-describe("RotationBoard — Next up preview (group swap)", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  const waiting: RotationBoardProps["waiting"] = [
-    {
-      partyId: null,
-      members: [
-        {
-          queueEntryId: "qe-1",
-          registrationId: "r-alice",
-          playerName: "Alice",
-          skillLevel: "BEGINNER",
-        },
-      ],
-      waitMinutes: 5,
-      pastMaxWait: false,
-    },
-    {
-      partyId: "party-1",
-      members: [
-        {
-          queueEntryId: "qe-2",
-          registrationId: "r-ben",
-          playerName: "Ben",
-          skillLevel: "BEGINNER",
-        },
-        {
-          queueEntryId: "qe-3",
-          registrationId: "r-carla",
-          playerName: "Carla",
-          skillLevel: "BEGINNER",
-        },
-      ],
-      waitMinutes: 3,
-      pastMaxWait: false,
-    },
-  ];
-
-  function renderBoard() {
-    render(
-      <RotationBoard
-        date="2026-08-01"
-        waiting={waiting}
-        resting={[]}
-        maxWaitMinutes={20}
-        unfillableQueueReason={null}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
-      />,
-    );
-  }
-
-  it("swaps the two selected players' groups once both are picked and Swap is pressed", async () => {
-    mockedSwap.mockResolvedValue({ error: null });
-    renderBoard();
-
-    await clickAsync(screen.getByRole("button", { name: "Select Alice to swap groups" }));
-    await clickAsync(screen.getByRole("button", { name: "Select Ben to swap groups" }));
-    await clickAsync(screen.getByRole("button", { name: /^swap$/i }));
-
-    expect(mockedSwap).toHaveBeenCalledWith({
-      date: "2026-08-01",
-      memberARegistrationId: "r-alice",
-      memberBRegistrationId: "r-ben",
-    });
-  });
-
-  it("caps the swap selection at 2 — picking a third player drops the first", async () => {
-    renderBoard();
-
-    await clickAsync(screen.getByRole("button", { name: "Select Alice to swap groups" }));
-    await clickAsync(screen.getByRole("button", { name: "Select Ben to swap groups" }));
-    await clickAsync(screen.getByRole("button", { name: "Select Carla to swap groups" }));
-
-    expect(
-      screen.queryByRole("button", { name: "Deselect Alice for swap" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deselect Ben for swap" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deselect Carla for swap" })).toBeInTheDocument();
-  });
-});
-
 // Reported live: early mornings only 2-3 people show up, and staff
 // couldn't start a game at all — "Build a group by hand" required
 // exactly 4 picks. Proves the Create group button now enables at 2, 3,
@@ -514,6 +441,7 @@ describe("RotationBoard — build a group by hand (2-4 players)", () => {
         resting={[]}
         maxWaitMinutes={20}
         unfillableQueueReason={null}
+        stagedGroups={[]}
         courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
       />,
     );
@@ -574,30 +502,29 @@ describe("RotationBoard — build a group by hand (2-4 players)", () => {
 });
 
 // "Put the action where the group is" — court dropdown + Assign button on
-// each pending group (Next up/After that/Then). Proves: only vacant courts
-// (no active, no proposed) show up in the dropdown; assigning sends exactly
-// that group's registrationIds; and an all-courts-busy state hides the
-// control entirely rather than rendering an empty select.
-describe("RotationBoard — assign pending group to court", () => {
+// each REAL staged group (Next up/After that/Then). Proves: only vacant
+// courts (no active, no proposed) show up in the dropdown; assigning sends
+// the group's stagedGroupId (members resolved server-side, never trusted
+// from the client); and an all-courts-busy state hides the control
+// entirely rather than rendering an empty select.
+describe("RotationBoard — assign a staged group to court", () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  const fourWaiting: RotationBoardProps["waiting"] = ["Alice", "Ben", "Carla", "Dex"].map(
-    (name, i) => ({
-      partyId: null,
-      members: [
-        {
-          queueEntryId: `qe-${i}`,
-          registrationId: `r-${name.toLowerCase()}`,
-          playerName: name,
-          skillLevel: "BEGINNER",
-        },
-      ],
-      waitMinutes: i,
-      pastMaxWait: false,
-    }),
-  );
+  const stagedNextUp: RotationBoardProps["stagedGroups"] = [
+    {
+      id: "staged-1",
+      slot: "NEXT_UP",
+      source: "MANUAL",
+      members: ["Alice", "Ben", "Carla", "Dex"].map((name, i) => ({
+        queueEntryId: `qe-${i}`,
+        registrationId: `r-${name.toLowerCase()}`,
+        playerName: name,
+        skillLevel: "BEGINNER",
+      })),
+    },
+  ];
 
   const occupiedAssignment: RotationBoardProps["courts"][number]["active"] = {
     id: "assignment-occupied",
@@ -621,10 +548,11 @@ describe("RotationBoard — assign pending group to court", () => {
     render(
       <RotationBoard
         date="2026-08-01"
-        waiting={fourWaiting}
+        waiting={[]}
         resting={[]}
         maxWaitMinutes={20}
         unfillableQueueReason={null}
+        stagedGroups={stagedNextUp}
         courts={[
           { id: "court-1", name: "Court 1", active: null, proposed: null },
           { id: "court-2", name: "Court 2", active: occupiedAssignment, proposed: null },
@@ -647,16 +575,17 @@ describe("RotationBoard — assign pending group to court", () => {
     expect(optionLabels).not.toContain("Court 3");
   });
 
-  it("assigns the group's exact registrationIds to the chosen court", async () => {
+  it("assigns the group's stagedGroupId to the chosen court", async () => {
     mockedAssignPending.mockResolvedValue({ error: null });
 
     render(
       <RotationBoard
         date="2026-08-01"
-        waiting={fourWaiting}
+        waiting={[]}
         resting={[]}
         maxWaitMinutes={20}
         unfillableQueueReason={null}
+        stagedGroups={stagedNextUp}
         courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
       />,
     );
@@ -669,7 +598,7 @@ describe("RotationBoard — assign pending group to court", () => {
     expect(mockedAssignPending).toHaveBeenCalledWith({
       date: "2026-08-01",
       courtId: "court-1",
-      registrationIds: ["r-alice", "r-ben", "r-carla", "r-dex"],
+      stagedGroupId: "staged-1",
     });
   });
 
@@ -677,10 +606,11 @@ describe("RotationBoard — assign pending group to court", () => {
     render(
       <RotationBoard
         date="2026-08-01"
-        waiting={fourWaiting}
+        waiting={[]}
         resting={[]}
         maxWaitMinutes={20}
         unfillableQueueReason={null}
+        stagedGroups={stagedNextUp}
         courts={[{ id: "court-1", name: "Court 1", active: occupiedAssignment, proposed: null }]}
       />,
     );
@@ -689,6 +619,285 @@ describe("RotationBoard — assign pending group to court", () => {
     expect(within(group).queryByRole("combobox")).not.toBeInTheDocument();
     expect(within(group).queryByRole("button", { name: /^assign$/i })).not.toBeInTheDocument();
     expect(within(group).getByText(/all courts are busy/i)).toBeInTheDocument();
+  });
+});
+
+// Staging pipeline (reported live: "staff need to compose the staging
+// slots, not just watch them fill"). Proves: an empty slot offers Auto
+// queue (only when >=2 waiting); × on a chip un-stages that one player;
+// "Remove group" un-stages the whole group; a slot already holding a
+// group doesn't offer Auto queue/Build-by-hand controls (occupied slots
+// are absent from the destination dropdown too — see the "build a group
+// by hand" describe block below).
+describe("RotationBoard — staging slots", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const twoWaiting: RotationBoardProps["waiting"] = ["Alice", "Ben"].map((name, i) => ({
+    partyId: null,
+    members: [
+      {
+        queueEntryId: `qe-${i}`,
+        registrationId: `r-${name.toLowerCase()}`,
+        playerName: name,
+        skillLevel: "BEGINNER",
+      },
+    ],
+    waitMinutes: i,
+    pastMaxWait: false,
+  }));
+
+  function nextUpGroup(): HTMLElement {
+    const label = screen.getByText("Next up", { selector: "p" });
+    return label.closest("div.rounded-lg")!;
+  }
+
+  it("shows Auto queue on an empty slot when at least 2 are waiting", () => {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={twoWaiting}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        stagedGroups={[]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    expect(within(group).getByText(/empty/i)).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: /auto queue/i })).toBeInTheDocument();
+  });
+
+  it("does not offer Auto queue on an empty slot when nobody is waiting", () => {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={[]}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        stagedGroups={[]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    expect(within(group).queryByRole("button", { name: /auto queue/i })).not.toBeInTheDocument();
+  });
+
+  it("Auto queue sends the date/slot/chosen size", async () => {
+    mockedStageAutoQueue.mockResolvedValue({ error: null });
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={twoWaiting}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        stagedGroups={[]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    await clickAsync(within(group).getByRole("button", { name: /auto queue/i }));
+
+    expect(mockedStageAutoQueue).toHaveBeenCalledWith({
+      date: "2026-08-01",
+      slot: "NEXT_UP",
+      size: 4,
+    });
+  });
+
+  it("× on a staged chip un-stages exactly that player", async () => {
+    mockedUnstageQueueEntry.mockResolvedValue({ error: null });
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={[]}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        stagedGroups={[
+          {
+            id: "staged-1",
+            slot: "NEXT_UP",
+            source: "MANUAL",
+            members: [
+              {
+                queueEntryId: "qe-1",
+                registrationId: "r-alice",
+                playerName: "Alice",
+                skillLevel: "BEGINNER",
+              },
+              {
+                queueEntryId: "qe-2",
+                registrationId: "r-ben",
+                playerName: "Ben",
+                skillLevel: "BEGINNER",
+              },
+            ],
+          },
+        ]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    await clickAsync(within(group).getByRole("button", { name: /remove alice/i }));
+
+    expect(mockedUnstageQueueEntry).toHaveBeenCalledWith({ queueEntryId: "qe-1" });
+  });
+
+  it("Remove group un-stages the whole group at once", async () => {
+    mockedUnstageGroup.mockResolvedValue({ error: null });
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={[]}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        stagedGroups={[
+          {
+            id: "staged-1",
+            slot: "NEXT_UP",
+            source: "MANUAL",
+            members: [
+              {
+                queueEntryId: "qe-1",
+                registrationId: "r-alice",
+                playerName: "Alice",
+                skillLevel: "BEGINNER",
+              },
+              {
+                queueEntryId: "qe-2",
+                registrationId: "r-ben",
+                playerName: "Ben",
+                skillLevel: "BEGINNER",
+              },
+            ],
+          },
+        ]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    await clickAsync(within(group).getByRole("button", { name: /remove group/i }));
+
+    expect(mockedUnstageGroup).toHaveBeenCalledWith({ stagedGroupId: "staged-1" });
+  });
+});
+
+// "Build by hand ... with a destination choice." Proves: occupied slots
+// are absent from the destination dropdown (same "absent, not disabled"
+// philosophy as the vacant-courts dropdown); picking a slot destination
+// calls stageManualGroupAction, not createManualAssignmentAction.
+describe("RotationBoard — build a group by hand, slot destination", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const names = ["Alice", "Ben"];
+  const waiting: RotationBoardProps["waiting"] = names.map((name, i) => ({
+    partyId: null,
+    members: [
+      {
+        queueEntryId: `qe-${i}`,
+        registrationId: `r-${name.toLowerCase()}`,
+        playerName: name,
+        skillLevel: "BEGINNER",
+      },
+    ],
+    waitMinutes: i,
+    pastMaxWait: false,
+  }));
+
+  function destinationSelect(): HTMLSelectElement {
+    return screen.getByText("2/4 picked").previousElementSibling as HTMLSelectElement;
+  }
+
+  it("only offers empty slots as a destination — an occupied slot is absent, not disabled", () => {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={waiting}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        stagedGroups={[
+          {
+            id: "staged-1",
+            slot: "NEXT_UP",
+            source: "MANUAL",
+            members: [
+              {
+                queueEntryId: "qe-x",
+                registrationId: "r-x",
+                playerName: "X",
+                skillLevel: "BEGINNER",
+              },
+              {
+                queueEntryId: "qe-y",
+                registrationId: "r-y",
+                playerName: "Y",
+                skillLevel: "BEGINNER",
+              },
+            ],
+          },
+        ]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    act(() => {
+      fireEvent.click(
+        screen.getAllByText("Alice", { exact: false }).find((el) => el.closest("label"))!,
+      );
+    });
+    const options = Array.from(document.querySelectorAll("select option")).map(
+      (o) => o.textContent,
+    );
+    expect(options).not.toContain("Next up");
+    expect(options).toContain("After that");
+    expect(options).toContain("Then");
+  });
+
+  it("sends a slot destination via stageManualGroupAction, not createManualAssignmentAction", async () => {
+    mockedStageManualGroup.mockResolvedValue({ error: null });
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={waiting}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        stagedGroups={[]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    function pickCheckbox(name: string) {
+      const label = screen.getAllByText(name, { exact: false }).find((el) => el.closest("label"));
+      fireEvent.click(label!.closest("label")!.querySelector("input[type=checkbox]")!);
+    }
+    act(() => pickCheckbox("Alice"));
+    act(() => pickCheckbox("Ben"));
+
+    const select = destinationSelect();
+    fireEvent.change(select, { target: { value: "slot:AFTER_THAT" } });
+    await clickAsync(screen.getByRole("button", { name: /^create group$/i }));
+
+    expect(mockedStageManualGroup).toHaveBeenCalledWith({
+      date: "2026-08-01",
+      slot: "AFTER_THAT",
+      registrationIds: ["r-alice", "r-ben"],
+    });
+    expect(mockedCreateManual).not.toHaveBeenCalled();
   });
 });
 
@@ -722,6 +931,7 @@ describe("RotationBoard — trailing-dot name display fix", () => {
         resting={[]}
         maxWaitMinutes={20}
         unfillableQueueReason={null}
+        stagedGroups={[]}
         courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
       />,
     );
@@ -752,6 +962,7 @@ describe("RotationBoard — trailing-dot name display fix", () => {
         resting={[]}
         maxWaitMinutes={20}
         unfillableQueueReason={null}
+        stagedGroups={[]}
         courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
       />,
     );
