@@ -3,16 +3,22 @@
 import { revalidatePath } from "next/cache";
 
 import {
+  changeBookingCourtSchema,
   checkInByTokenSchema,
   createBookingSchema,
   settleBookingSchema,
   updateBookingStatusSchema,
+  type ChangeBookingCourtInput,
   type CheckInByTokenInput,
   type CreateBookingInput,
   type SettleBookingInput,
   type UpdateBookingStatusInput,
 } from "@/features/bookings/schemas/booking.schema";
-import { requireEmployeeForBookingCreation, requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
+import {
+  requireEmployeeForBookingCreation,
+  requireEmployeeWithOpenShift,
+  requirePermission,
+} from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import {
   BookingConflictError,
@@ -41,7 +47,10 @@ export interface ListOccupiedWindowsState {
 }
 
 function requireBookingsManage() {
-  return requirePermission(PERMISSIONS.BOOKINGS_MANAGE, "You don't have permission to manage bookings.");
+  return requirePermission(
+    PERMISSIONS.BOOKINGS_MANAGE,
+    "You don't have permission to manage bookings.",
+  );
 }
 
 // Staff booking form's Time dropdown live-availability preview — see
@@ -58,14 +67,22 @@ export async function listCourtOccupiedWindowsAction(
     return { error: authz.error, windows: [] };
   }
 
-  if (!courtId || Number.isNaN(dayStart.getTime()) || Number.isNaN(dayEnd.getTime()) || dayEnd.getTime() <= dayStart.getTime()) {
+  if (
+    !courtId ||
+    Number.isNaN(dayStart.getTime()) ||
+    Number.isNaN(dayEnd.getTime()) ||
+    dayEnd.getTime() <= dayStart.getTime()
+  ) {
     return { error: null, windows: [] };
   }
 
   const windows = await bookingService.listOccupiedWindows(courtId, dayStart, dayEnd);
   return {
     error: null,
-    windows: windows.map((window) => ({ startAt: window.startAt.toISOString(), endAt: window.endAt.toISOString() })),
+    windows: windows.map((window) => ({
+      startAt: window.startAt.toISOString(),
+      endAt: window.endAt.toISOString(),
+    })),
   };
 }
 
@@ -160,7 +177,9 @@ export async function checkInByTokenAction(
     revalidatePath(`/dashboard/bookings/${booking.id}`);
     return { error: null, bookingId: booking.id };
   } catch (error) {
-    return { error: toActionError(error, { action: "checkInByTokenAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "checkInByTokenAction", userId: authz.userId }),
+    };
   }
 }
 
@@ -189,7 +208,11 @@ export async function settleBookingAction(input: SettleBookingInput): Promise<Bo
       parsed.data.bookingId,
       parsed.data.method,
       parsed.data.gcashReference?.trim() || null,
-      { employeeId: authz.employeeId, shiftId: authz.shiftId, paymentMethodId: parsed.data.paymentMethodId },
+      {
+        employeeId: authz.employeeId,
+        shiftId: authz.shiftId,
+        paymentMethodId: parsed.data.paymentMethodId,
+      },
       authz.userId,
     );
     revalidatePath("/dashboard/bookings");
@@ -197,6 +220,43 @@ export async function settleBookingAction(input: SettleBookingInput): Promise<Bo
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "settleBookingAction", userId: authz.userId }) };
+  }
+}
+
+// "Sometimes customer change their mind... rather play in further court"
+// — same time slot, a different court. Plain requireBookingsManage, not
+// requireEmployeeWithOpenShift: this never touches a Sale (blocked
+// entirely once one exists — see changeBookingCourt's own comment), so
+// it's not a money-moving action the way settleBookingAction is.
+export async function changeBookingCourtAction(
+  input: ChangeBookingCourtInput,
+): Promise<BookingActionState> {
+  const authz = await requireBookingsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = changeBookingCourtSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await bookingService.changeBookingCourt(
+      parsed.data.bookingId,
+      parsed.data.newCourtId,
+      authz.userId,
+    );
+    revalidatePath("/dashboard/bookings");
+    revalidatePath(`/dashboard/bookings/${parsed.data.bookingId}`);
+    return { error: null };
+  } catch (error) {
+    if (error instanceof BookingConflictError) {
+      return { error: error.message, conflict: error.conflict };
+    }
+    return {
+      error: toActionError(error, { action: "changeBookingCourtAction", userId: authz.userId }),
+    };
   }
 }
 

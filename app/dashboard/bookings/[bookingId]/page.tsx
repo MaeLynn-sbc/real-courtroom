@@ -11,12 +11,14 @@ import { BookingStatusBadge } from "@/features/bookings/components/booking-statu
 import { RecordGcashPaymentForm } from "@/features/bookings/components/record-gcash-payment-form";
 import { RegenerateQrButton } from "@/features/bookings/components/regenerate-qr-button";
 import { SettleBookingForm } from "@/features/bookings/components/settle-booking-form";
+import { SwitchCourtForm } from "@/features/bookings/components/switch-court-form";
 import { CoachSessionPanel } from "@/features/coaching/components/coach-session-panel";
 import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
 import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
+import { courtService } from "@/services/court/court.service";
 import { saleService } from "@/services/sales/sale.service";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
@@ -43,13 +45,15 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
     notFound();
   }
 
-  const guestOrPlayerName = booking.player?.user.name ?? booking.player?.user.email ?? booking.guestName;
+  const guestOrPlayerName =
+    booking.player?.user.name ?? booking.player?.user.email ?? booking.guestName;
 
-  const [coachSession, allCoaches, availableCoaches, paymentMethods] = await Promise.all([
+  const [coachSession, allCoaches, availableCoaches, paymentMethods, courts] = await Promise.all([
     coachSessionService.getByBookingId(booking.id),
     coachAvailabilityService.listCoaches(),
     coachAvailabilityService.listAvailableCoaches(booking.startAt, booking.endAt),
     saleService.listPaymentMethods(),
+    courtService.listCourts(),
   ]);
   const availableCoachIds = new Set(availableCoaches.map((coach) => coach.id));
   // Cash/GCash only — Pay at Venue (a booking-creation-time concept,
@@ -77,6 +81,16 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
   ]);
   const showSettleForm = !booking.sale && !UNSETTLEABLE_STATUSES.has(booking.status);
 
+  // "Sometimes customer change their mind... rather play in further
+  // court" — pre-payment only (changeBookingCourt itself blocks once a
+  // Sale exists, same "cancel and rebook instead of a one-off
+  // reconciliation" reasoning as that method's own comment). A
+  // slightly wider status set than showSettleForm's UNSETTLEABLE_STATUSES
+  // deliberately — AWAITING_PAYMENT/PENDING_VERIFICATION are still
+  // unpaid holds, switching courts under either is fine.
+  const TERMINAL_STATUSES = new Set(["CANCELLED", "NO_SHOW", "REJECTED", "COMPLETED", "REFUNDED"]);
+  const showSwitchCourtForm = !booking.sale && !TERMINAL_STATUSES.has(booking.status);
+
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -92,6 +106,15 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
               {formatRelativeTime(booking.createdAt)}
             </span>
           </p>
+          {showSwitchCourtForm ? (
+            <div className="mt-2">
+              <SwitchCourtForm
+                bookingId={booking.id}
+                currentCourtId={booking.courtId}
+                courts={courts.map((court) => ({ id: court.id, name: court.name }))}
+              />
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center gap-1.5">
           <BookingSourceBadge source={booking.source} />
@@ -192,7 +215,10 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
         // gates on Booking.status) — the panel below shows it regardless
         // of where this booking is in the payment lifecycle.
         <section className="flex flex-col gap-3">
-          <RecordGcashPaymentForm bookingId={booking.id} expectedAmountCents={booking.totalAmountCents ?? 0} />
+          <RecordGcashPaymentForm
+            bookingId={booking.id}
+            expectedAmountCents={booking.totalAmountCents ?? 0}
+          />
         </section>
       ) : null}
       {booking.status === "PENDING_VERIFICATION" ? (

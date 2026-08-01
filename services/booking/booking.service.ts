@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 
 import type { CreateBookingInput } from "@/features/bookings/schemas/booking.schema";
+import type { Booking, BookingHistory, Prisma } from "@/lib/generated/prisma/client";
 import type {
-  Booking,
-  BookingHistory,
-  Prisma,
-} from "@/lib/generated/prisma/client";
-import type { BookingSource, BookingStatus, CourtStatus, SaleSource } from "@/lib/generated/prisma/enums";
+  BookingSource,
+  BookingStatus,
+  CourtStatus,
+  SaleSource,
+} from "@/lib/generated/prisma/enums";
 import { getBusinessDateRange } from "@/lib/business-date";
 import { isWithinCourtBookingWindow } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
@@ -64,10 +65,7 @@ export interface CreateBookingSaleContext {
 export type CreateBookingHoldInput = CreateBookingInput;
 
 export type AvailabilityConflictType =
-  | "COURT_DISABLED"
-  | "OUTSIDE_OPERATING_HOURS"
-  | "MAINTENANCE"
-  | "BOOKING";
+  "COURT_DISABLED" | "OUTSIDE_OPERATING_HOURS" | "MAINTENANCE" | "BOOKING";
 
 export interface AvailabilityConflict {
   type: AvailabilityConflictType;
@@ -253,7 +251,11 @@ export class BookingService {
         where: {
           courtId,
           status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-          OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
+          OR: [
+            { status: { not: "AWAITING_PAYMENT" } },
+            { holdExpiresAt: null },
+            { holdExpiresAt: { gte: now } },
+          ],
           startAt: { lt: dayEnd },
           endAt: { gt: dayStart },
         },
@@ -346,7 +348,11 @@ export class BookingService {
         // status yet — left as future work to decide alongside it, not
         // assumed here.
         status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-        OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
+        OR: [
+          { status: { not: "AWAITING_PAYMENT" } },
+          { holdExpiresAt: null },
+          { holdExpiresAt: { gte: now } },
+        ],
         ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
       },
       select: { id: true, startAt: true, endAt: true },
@@ -430,7 +436,9 @@ export class BookingService {
       // separate flag needed on Booking itself to tell the two pricing
       // paths apart later.
       const totalAmountCents =
-        durationMinutes === 30 ? court.shortSessionPriceCents : Math.round((court.hourlyRateCents ?? 0) * durationHours);
+        durationMinutes === 30
+          ? court.shortSessionPriceCents
+          : Math.round((court.hourlyRateCents ?? 0) * durationHours);
 
       // Staff/owner bookings outside the effective operating window
       // are allowed (unlike WEBSITE, which checkAvailabilityWithClient
@@ -440,7 +448,12 @@ export class BookingService {
       // passed the operating-hours check, so this always resolves to
       // false for it.
       const courtHours = await settingsService.getCourtHours();
-      const isAfterHours = !isWithinCourtBookingWindow(courtHours, court.name, input.startAt, input.endAt);
+      const isAfterHours = !isWithinCourtBookingWindow(
+        courtHours,
+        court.name,
+        input.startAt,
+        input.endAt,
+      );
 
       // Pre-Phase-8 booking visibility: set once, here, never inferred
       // later from Sale.source (a separate, nullable-linked row) or
@@ -449,7 +462,8 @@ export class BookingService {
       // the twin Sale row created below — WEBSITE is exclusively passed
       // by createPublicBookingAction; every staff call site leaves this
       // undefined, defaulting (like Sale's own source) to the staff case.
-      const source: Prisma.BookingCreateInput["source"] = saleContext.source === "WEBSITE" ? "PUBLIC" : "STAFF";
+      const source: Prisma.BookingCreateInput["source"] =
+        saleContext.source === "WEBSITE" ? "PUBLIC" : "STAFF";
 
       const created = await tx.booking.create({
         data: {
@@ -488,7 +502,9 @@ export class BookingService {
       // violation, not a normal "no shift open" case, if it's ever
       // missing here.
       if (saleContext.paymentMethodId && !saleContext.shiftId) {
-        throw new Error("A payment method was provided but no shift is open — cannot create a Sale.");
+        throw new Error(
+          "A payment method was provided but no shift is open — cannot create a Sale.",
+        );
       }
       const sale = saleContext.paymentMethodId
         ? await saleService.createSale(
@@ -525,6 +541,105 @@ export class BookingService {
     }
 
     return booking.booking;
+  }
+
+  // "Sometimes customer change their mind... rather play in further
+  // court which is court 3 if it's available." Same time slot, a
+  // different court — re-checks availability on the NEW court/time
+  // combo exactly like createBooking does (excludeBookingId so the
+  // booking doesn't conflict with its own current slot), and
+  // recomputes totalAmountCents/isAfterHours from the new court's own
+  // rate/operating-hours rather than assuming they're unchanged —
+  // Court.hourlyRateCents is genuinely per-court data, not guaranteed
+  // equal across courts even though today's seed happens to set them
+  // all the same. Blocked once a Sale already exists — an already-paid
+  // amount can't silently drift if the new court's rate differs;
+  // cancel and rebook covers that case instead of a one-off
+  // reconciliation path nobody asked for.
+  async changeBookingCourt(
+    bookingId: string,
+    newCourtId: string,
+    actorUserId: string,
+  ): Promise<Booking> {
+    const existing = await prisma.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      include: { court: true, sale: true },
+    });
+
+    if (existing.sale) {
+      throw new BookingAlreadySettledError();
+    }
+    const TERMINAL_STATUSES: BookingStatus[] = [
+      "CANCELLED",
+      "NO_SHOW",
+      "REJECTED",
+      "COMPLETED",
+      "REFUNDED",
+    ];
+    if (TERMINAL_STATUSES.includes(existing.status)) {
+      throw new Error(
+        `Can't change the court on a ${existing.status.toLowerCase().replace("_", " ")} booking.`,
+      );
+    }
+    if (newCourtId === existing.courtId) {
+      throw new Error("Already on that court.");
+    }
+
+    const updated = await runSerializableWithRetry(async (tx) => {
+      const availability = await this.checkAvailabilityWithClient(
+        tx,
+        newCourtId,
+        existing.startAt,
+        existing.endAt,
+        existing.id,
+        existing.source === "PUBLIC",
+      );
+      if (!availability.available && availability.conflict) {
+        throw new BookingConflictError(availability.conflict);
+      }
+
+      const newCourt = await tx.court.findUniqueOrThrow({
+        where: { id: newCourtId },
+        select: { name: true, hourlyRateCents: true, shortSessionPriceCents: true },
+      });
+      const durationMinutes = (existing.endAt.getTime() - existing.startAt.getTime()) / 60_000;
+      const durationHours = durationMinutes / 60;
+      const totalAmountCents =
+        durationMinutes === 30
+          ? newCourt.shortSessionPriceCents
+          : Math.round((newCourt.hourlyRateCents ?? 0) * durationHours);
+
+      const courtHours = await settingsService.getCourtHours();
+      const isAfterHours = !isWithinCourtBookingWindow(
+        courtHours,
+        newCourt.name,
+        existing.startAt,
+        existing.endAt,
+      );
+
+      return tx.booking.update({
+        where: { id: bookingId },
+        data: { courtId: newCourtId, totalAmountCents, isAfterHours },
+        include: { court: true },
+      });
+    });
+
+    await this.writeBookingHistory(
+      bookingId,
+      existing.status,
+      actorUserId,
+      `Switched from ${existing.court.name} to ${updated.court.name}`,
+    );
+    await this.writeAuditLog({
+      actorUserId,
+      action: "booking.court_changed",
+      entityType: "Booking",
+      entityId: bookingId,
+      oldValues: { courtId: existing.courtId, totalAmountCents: existing.totalAmountCents },
+      newValues: { courtId: updated.courtId, totalAmountCents: updated.totalAmountCents },
+    });
+
+    return updated;
   }
 
   // Settle-bill (pay-at-venue gap fix): the customer's payment method
@@ -582,7 +697,10 @@ export class BookingService {
     // default" path) with settledAt still null, since that path never
     // touches these settlement fields at all — "already paid" is
     // genuinely `sale != null`, not this action's own settledAt marker.
-    const precheck = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId }, include: { sale: true } });
+    const precheck = await prisma.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      include: { sale: true },
+    });
     if (precheck.sale) {
       throw new Error("This booking is already paid.");
     }
@@ -768,7 +886,9 @@ export class BookingService {
     // real usage). Scoped to CANCELLED only, matching the literal ask —
     // NO_SHOW is a separate, unasked-for question left alone.
     if (status === "CANCELLED") {
-      const coachSession = await prisma.coachSession.findUnique({ where: { bookingId: booking.id } });
+      const coachSession = await prisma.coachSession.findUnique({
+        where: { bookingId: booking.id },
+      });
       if (coachSession && coachSession.status !== "CANCELLED") {
         await coachSessionService.cancelCoachSession(
           coachSession.id,
@@ -836,7 +956,11 @@ export class BookingService {
         where: {
           courtId: { in: courtIds },
           status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-          OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
+          OR: [
+            { status: { not: "AWAITING_PAYMENT" } },
+            { holdExpiresAt: null },
+            { holdExpiresAt: { gte: now } },
+          ],
           startAt: { lt: endOfDay },
           endAt: { gt: startOfDay },
         },

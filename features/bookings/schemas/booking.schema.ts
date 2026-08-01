@@ -90,3 +90,12 @@ export const checkInByTokenSchema = z.object({
 });
 
 export type CheckInByTokenInput = z.infer<typeof checkInByTokenSchema>;
+
+// "Customer changed their mind... rather play in further court" — same
+// time slot, a different court.
+export const changeBookingCourtSchema = z.object({
+  bookingId: z.string().min(1),
+  newCourtId: z.string().min(1, "Choose a court."),
+});
+
+export type ChangeBookingCourtInput = z.infer<typeof changeBookingCourtSchema>;
