@@ -424,10 +424,18 @@ export class OpenPlayRotationService {
     registrationIds: string[],
     actorUserId: string,
   ): Promise<GameAssignmentWithParticipants> {
-    if (registrationIds.length !== 4) {
-      throw new Error("A manual assignment needs exactly 4 players — doubles only.");
+    // Reported live: doubles (4) is still the normal case, but a court
+    // with 2 or 3 players (early mornings, a short-handed group) is
+    // real, valid ₱35/game play, not an error — see this method's own
+    // early-return-free billing (playerTabService.creditGame is called
+    // once per participant, so 2 players correctly means 2×₱35, not a
+    // split ₱140). The AUTOMATIC skill-matching path
+    // (assembleFoursome/proposeNextAssignment) still requires exactly 4
+    // — that rule is untouched, this guard is manual-only.
+    if (registrationIds.length < 2 || registrationIds.length > 4) {
+      throw new Error("Pick 2 to 4 players for a manual group.");
     }
-    if (new Set(registrationIds).size !== 4) {
+    if (new Set(registrationIds).size !== registrationIds.length) {
       throw new Error("A player can't be picked twice for the same group.");
     }
 
@@ -435,7 +443,7 @@ export class OpenPlayRotationService {
       const entries = await tx.queueEntry.findMany({
         where: { registrationId: { in: registrationIds }, date },
       });
-      if (entries.length !== 4) {
+      if (entries.length !== registrationIds.length) {
         throw new Error("One or more selected players aren't in today's queue.");
       }
       for (const entry of entries) {

@@ -603,8 +603,9 @@ export function RotationBoard({
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-muted-foreground text-xs">
-            Pick 4 from the waiting list below (checkboxes), choose a court, then create — skill is
-            ignored entirely. Discards any pending auto-proposal on that court.
+            Pick 2 to 4 from the waiting list below (checkboxes), choose a court, then create —
+            skill is ignored entirely. Fewer than 4 is real, valid ₱35/game play — early mornings, a
+            short-handed group. Discards any pending auto-proposal on that court.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -622,7 +623,9 @@ export function RotationBoard({
             <Button
               type="button"
               size="sm"
-              disabled={isPending || manualPicks.length !== 4 || !manualCourtId}
+              disabled={
+                isPending || manualPicks.length < 2 || manualPicks.length > 4 || !manualCourtId
+              }
               onClick={() =>
                 runAction(
                   createManualAssignmentAction({

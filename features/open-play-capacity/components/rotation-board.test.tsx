@@ -5,6 +5,7 @@ import {
   announceAssignmentAction,
   announceTimesUpAction,
   confirmAssignmentAction,
+  createManualAssignmentAction,
   moveQueueUnitAfterAction,
   swapPartyMemberAction,
 } from "@/actions/open-play-rotation.actions";
@@ -46,6 +47,9 @@ const mockedMoveAfter = moveQueueUnitAfterAction as jest.MockedFunction<
 >;
 const mockedSwap = swapPartyMemberAction as jest.MockedFunction<typeof swapPartyMemberAction>;
 const mockedTimesUp = announceTimesUpAction as jest.MockedFunction<typeof announceTimesUpAction>;
+const mockedCreateManual = createManualAssignmentAction as jest.MockedFunction<
+  typeof createManualAssignmentAction
+>;
 
 async function clickAsync(element: Element) {
   await act(async () => {
@@ -469,5 +473,97 @@ describe("RotationBoard — Next up preview (group swap)", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deselect Ben for swap" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deselect Carla for swap" })).toBeInTheDocument();
+  });
+});
+
+// Reported live: early mornings only 2-3 people show up, and staff
+// couldn't start a game at all — "Build a group by hand" required
+// exactly 4 picks. Proves the Create group button now enables at 2, 3,
+// or 4 picks (never 1 or 5+), and sends exactly the picked
+// registrationIds.
+describe("RotationBoard — build a group by hand (2-4 players)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const names = ["Alice", "Ben", "Carla", "Dex", "Eve"];
+  const waiting: RotationBoardProps["waiting"] = names.map((name, i) => ({
+    partyId: null,
+    members: [
+      {
+        queueEntryId: `qe-${i}`,
+        registrationId: `r-${name.toLowerCase()}`,
+        playerName: name,
+        skillLevel: "BEGINNER",
+      },
+    ],
+    waitMinutes: i,
+    pastMaxWait: false,
+  }));
+
+  function renderBoard() {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={waiting}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+  }
+
+  function pickCheckbox(name: string) {
+    const label = screen.getAllByText(name, { exact: false }).find((el) => el.closest("label"));
+    if (!label) throw new Error(`No checkbox label found for "${name}"`);
+    const input = label.closest("label")!.querySelector("input[type=checkbox]")!;
+    return fireEvent.click(input);
+  }
+
+  it("stays disabled with only 1 player picked", () => {
+    renderBoard();
+    act(() => pickCheckbox("Alice"));
+
+    expect(screen.getByRole("button", { name: /^create group$/i })).toBeDisabled();
+  });
+
+  it("enables at 2 players and sends exactly those registrationIds", async () => {
+    mockedCreateManual.mockResolvedValue({ error: null });
+    renderBoard();
+
+    act(() => pickCheckbox("Alice"));
+    act(() => pickCheckbox("Ben"));
+    const button = screen.getByRole("button", { name: /^create group$/i });
+    expect(button).not.toBeDisabled();
+
+    await clickAsync(button);
+
+    expect(mockedCreateManual).toHaveBeenCalledWith({
+      date: "2026-08-01",
+      courtId: "court-1",
+      registrationIds: ["r-alice", "r-ben"],
+    });
+  });
+
+  it("enables at 3 players", () => {
+    renderBoard();
+    act(() => pickCheckbox("Alice"));
+    act(() => pickCheckbox("Ben"));
+    act(() => pickCheckbox("Carla"));
+
+    expect(screen.getByRole("button", { name: /^create group$/i })).not.toBeDisabled();
+  });
+
+  it("enables at 4 players but disables again at 5", () => {
+    renderBoard();
+    act(() => pickCheckbox("Alice"));
+    act(() => pickCheckbox("Ben"));
+    act(() => pickCheckbox("Carla"));
+    act(() => pickCheckbox("Dex"));
+    expect(screen.getByRole("button", { name: /^create group$/i })).not.toBeDisabled();
+
+    act(() => pickCheckbox("Eve"));
+    expect(screen.getByRole("button", { name: /^create group$/i })).toBeDisabled();
   });
 });
