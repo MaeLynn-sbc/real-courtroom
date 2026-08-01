@@ -206,6 +206,17 @@ export class BookingService {
           orderBy: { createdAt: "asc" },
           include: { changedBy: { select: { id: true, name: true } } },
         },
+        // "Viewable after approval" (reported live): the detail page had
+        // no link into a submitted GCash proof once it left the pending-
+        // verification queue — getProofById() itself is unfiltered by
+        // status and already renders an approved/rejected view, so this
+        // is just wiring reachability. Only the latest proof (a
+        // rejected-then-resubmitted booking's older proof is superseded).
+        paymentProofs: {
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+          select: { id: true, status: true },
+        },
       },
     });
   }

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -51,6 +52,39 @@ interface RosterRegistration {
   holdExpiresAt: Date | null;
   date: Date;
   registeredAt: Date;
+  // "Viewable after approval" (reported live): the roster used to have
+  // no link at all into a submitted payment proof, pending or resolved
+  // — the detail page itself already handles every status, so this is
+  // just wiring a link to it. At most one row (getSessionRegistrations'
+  // own take: 1, most recent submission first).
+  paymentProofs: { id: string; status: string }[];
+}
+
+const PROOF_STATUS_BADGE_VARIANT: Record<string, "status" | "warning" | "destructive"> = {
+  PENDING: "warning",
+  APPROVED: "status",
+  REJECTED: "destructive",
+};
+
+function ProofLink({ proof }: { proof: { id: string; status: string } }) {
+  return (
+    <Link
+      href={`/dashboard/admin/open-play-capacity/verify-payments/${proof.id}`}
+      className="inline-flex"
+    >
+      <Badge
+        variant={PROOF_STATUS_BADGE_VARIANT[proof.status] ?? "status"}
+        className="cursor-pointer"
+      >
+        Proof ·{" "}
+        {proof.status === "APPROVED"
+          ? "Approved"
+          : proof.status === "REJECTED"
+            ? "Rejected"
+            : "Pending"}
+      </Badge>
+    </Link>
+  );
 }
 
 function formatNightDate(date: Date): string {
@@ -368,6 +402,9 @@ export function RegistrationRosterPanel({
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col items-start gap-1.5">
+                      {registration.paymentProofs[0] ? (
+                        <ProofLink proof={registration.paymentProofs[0]} />
+                      ) : null}
                       {registration.status === "CONFIRMED" ? (
                         <RowActions registrationId={registration.id} />
                       ) : null}

@@ -8,7 +8,10 @@ import type {
   OpenPlayWaitlistEntry,
   Prisma,
 } from "@/lib/generated/prisma/client";
-import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
+import type {
+  OpenPlaySkillLevel,
+  OpenPlayRegistrationPaymentProofStatus,
+} from "@/lib/generated/prisma/enums";
 import { canTransitionOpenPlayWaitlistEntryStatus } from "@/services/open-play/open-play-waitlist-status";
 import { playerService } from "@/services/player/player.service";
 import { saleService } from "@/services/sales/sale.service";
@@ -141,8 +144,21 @@ async function countOccupiedSeats(
   });
 }
 
+// "Viewable after approval" (reported live): the roster had no link at
+// all into a proof once it left the pending-verification queue —
+// getProofById() itself is unfiltered by status and the detail page
+// already renders an "already approved/rejected" view, so the only real
+// gap was reachability. Carrying just the LATEST proof (submittedAt
+// desc, take 1) per registration is enough for that link — a rejected-
+// then-resubmitted registration's older proof is superseded, not lost
+// (still reachable by anyone who already has that older proofId, e.g.
+// from Audit Logs).
+export type SessionRegistrationWithLatestProof = OpenPlayNightRegistration & {
+  paymentProofs: { id: string; status: OpenPlayRegistrationPaymentProofStatus }[];
+};
+
 export interface SessionRegistrations {
-  registrations: OpenPlayNightRegistration[];
+  registrations: SessionRegistrationWithLatestProof[];
   skillBreakdown: Record<OpenPlaySkillLevel, number>;
 }
 
@@ -1301,6 +1317,13 @@ export class OpenPlayRegistrationService {
     const registrations = await prisma.openPlayNightRegistration.findMany({
       where: { sessionId },
       orderBy: [{ waitlistPos: "asc" }, { registeredAt: "asc" }],
+      include: {
+        paymentProofs: {
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+          select: { id: true, status: true },
+        },
+      },
     });
 
     const skillBreakdown = Object.fromEntries(

@@ -120,6 +120,32 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
           <BookingSourceBadge source={booking.source} />
           <BookingStatusBadge status={booking.status} />
           {booking.isAfterHours ? <Badge variant="warning">After Hours</Badge> : null}
+          {/* "Viewable after approval" (reported live): links straight
+              into the proof detail page regardless of status — that page
+              already renders an approved/rejected view fine, this was
+              the only missing piece (nothing pointed at it once the
+              proof left the pending queue). */}
+          {booking.paymentProofs[0] ? (
+            <Link href={`/dashboard/bookings/verify-payments/${booking.paymentProofs[0].id}`}>
+              <Badge
+                variant={
+                  booking.paymentProofs[0].status === "APPROVED"
+                    ? "status"
+                    : booking.paymentProofs[0].status === "REJECTED"
+                      ? "destructive"
+                      : "warning"
+                }
+                className="cursor-pointer"
+              >
+                Proof ·{" "}
+                {booking.paymentProofs[0].status === "APPROVED"
+                  ? "Approved"
+                  : booking.paymentProofs[0].status === "REJECTED"
+                    ? "Rejected"
+                    : "Pending"}
+              </Badge>
+            </Link>
+          ) : null}
         </div>
       </div>
 
