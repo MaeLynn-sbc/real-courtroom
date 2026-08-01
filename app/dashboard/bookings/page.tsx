@@ -19,6 +19,13 @@ const STATUS_FILTER_OPTIONS: { value: BookingStatus; label: string }[] = [
   { value: "COMPLETED", label: "Completed" },
   { value: "CANCELLED", label: "Cancelled" },
   { value: "NO_SHOW", label: "No Show" },
+  // Reported live: the payment states had no way to filter for at all —
+  // "pull up everything awaiting verification, or everything unpaid, for
+  // a given date" was unreachable from this dropdown.
+  { value: "AWAITING_PAYMENT", label: "Awaiting Payment" },
+  { value: "PENDING_VERIFICATION", label: "Pending Verification" },
+  { value: "REJECTED", label: "Rejected" },
+  { value: "REFUNDED", label: "Refunded" },
 ];
 
 const SOURCE_FILTER_OPTIONS: { value: BookingSource; label: string }[] = [
@@ -43,7 +50,12 @@ function todayInputValue(): string {
 }
 
 export default async function BookingsPage({ searchParams }: BookingsPageProps) {
-  const { date: dateParam, status: statusParam, source: sourceParam, sort: sortParam } = await searchParams;
+  const {
+    date: dateParam,
+    status: statusParam,
+    source: sourceParam,
+    sort: sortParam,
+  } = await searchParams;
   const dateValue = dateParam ?? todayInputValue();
   const statusValue = STATUS_FILTER_OPTIONS.some((option) => option.value === statusParam)
     ? (statusParam as BookingStatus)
@@ -70,13 +82,13 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/dashboard/bookings/check-in" className={buttonVariants({ variant: "outline" })}>
+          <Link
+            href="/dashboard/bookings/check-in"
+            className={buttonVariants({ variant: "outline" })}
+          >
             Check in
           </Link>
-          <Link
-            href="/dashboard/bookings/new"
-            className={buttonVariants()}
-          >
+          <Link href="/dashboard/bookings/new" className={buttonVariants()}>
             <PlusCircle className="size-4" aria-hidden="true" />
             New booking
           </Link>

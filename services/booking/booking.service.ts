@@ -180,6 +180,18 @@ export class BookingService {
         // convention getBookingById's own "Booked by" already uses — see
         // booking-list.tsx.
         bookedBy: { select: { id: true, name: true, email: true } },
+        // Payment column (reported live): "has this been paid" is
+        // sale != null (see Booking.sale's own comment) — a plain select,
+        // not a full include, since the list only needs to know a Sale
+        // exists and when. Latest proof only (same as getBookingById) for
+        // the "awaiting verification" / "rejected" states and the row's
+        // own proof link.
+        sale: { select: { createdAt: true } },
+        paymentProofs: {
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+          select: { id: true, status: true, submittedAt: true, resolvedAt: true },
+        },
       },
       orderBy: filters?.sortBy === "createdAt" ? { createdAt: "desc" } : { startAt: "asc" },
       // Defensive cap — most calls already narrow by date/court/status;
