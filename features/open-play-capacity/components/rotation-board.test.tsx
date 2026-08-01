@@ -906,6 +906,80 @@ describe("RotationBoard — staging slots", () => {
     const group = nextUpGroup();
     expect(within(group).queryByRole("button", { name: /^add$/i })).not.toBeInTheDocument();
   });
+
+  // "Same as the court cards — there's a button to create a manual
+  // group?" A self-contained hand-pick picker directly on an empty slot,
+  // not just the separate shared "Build a group by hand" card.
+  it("Build by hand on an empty slot opens a checkbox picker and stages the pick via stageManualGroupAction", async () => {
+    mockedStageManualGroup.mockResolvedValue({ error: null });
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={["Alice", "Ben"].map((name, i) => ({
+          partyId: null,
+          members: [
+            {
+              queueEntryId: `qe-${i}`,
+              registrationId: `r-${name.toLowerCase()}`,
+              playerName: name,
+              skillLevel: "BEGINNER",
+            },
+          ],
+          waitMinutes: i,
+          pastMaxWait: false,
+        }))}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        stagedGroups={[]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    expect(within(group).queryByText("Alice")).not.toBeInTheDocument();
+
+    await clickAsync(within(group).getByRole("button", { name: /build by hand/i }));
+    expect(within(group).getByText("Alice")).toBeInTheDocument();
+
+    const aliceCheckbox = within(group)
+      .getByText("Alice")
+      .closest("label")!
+      .querySelector("input[type=checkbox]")!;
+    const benCheckbox = within(group)
+      .getByText("Ben")
+      .closest("label")!
+      .querySelector("input[type=checkbox]")!;
+    act(() => {
+      fireEvent.click(aliceCheckbox);
+      fireEvent.click(benCheckbox);
+    });
+
+    await clickAsync(within(group).getByRole("button", { name: /^create group$/i }));
+
+    expect(mockedStageManualGroup).toHaveBeenCalledWith({
+      date: "2026-08-01",
+      slot: "NEXT_UP",
+      registrationIds: ["r-alice", "r-ben"],
+    });
+  });
+
+  it("does not offer Build by hand when nobody is waiting", () => {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={[]}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        stagedGroups={[]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    expect(within(group).queryByRole("button", { name: /build by hand/i })).not.toBeInTheDocument();
+  });
 });
 
 // "Build by hand ... with a destination choice." Proves: occupied slots

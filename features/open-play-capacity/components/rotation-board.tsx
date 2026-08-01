@@ -207,7 +207,47 @@ function NextUpSection({
     AFTER_THAT: "",
     THEN: "",
   });
+  // "Same as the court cards" (reported live) — a self-contained hand-pick
+  // checkbox picker directly on each empty slot, not just the separate
+  // "Build a group by hand" card further down the page (which still works
+  // too — this is a second, more convenient path to the exact same
+  // stageManualGroup action, same relationship Quick-queue has to the
+  // shared card's court destination). Closed by default; opens per slot.
+  const [handPickOpen, setHandPickOpen] = useState<Record<StagedGroupSlot, boolean>>({
+    NEXT_UP: false,
+    AFTER_THAT: false,
+    THEN: false,
+  });
+  const [handPicks, setHandPicks] = useState<Record<StagedGroupSlot, string[]>>({
+    NEXT_UP: [],
+    AFTER_THAT: [],
+    THEN: [],
+  });
   const vacantCourts = courts.filter((court) => !court.active && !court.proposed);
+
+  function toggleHandPick(slot: StagedGroupSlot, registrationId: string) {
+    setHandPicks((prev) => ({
+      ...prev,
+      [slot]: prev[slot].includes(registrationId)
+        ? prev[slot].filter((id) => id !== registrationId)
+        : [...prev[slot], registrationId],
+    }));
+  }
+
+  function buildByHand(slot: StagedGroupSlot) {
+    const registrationIds = handPicks[slot];
+    if (registrationIds.length < 2 || registrationIds.length > 4) return;
+    runAction(
+      stageManualGroupAction({ date, slot, registrationIds }).then((r) => {
+        if (!r.error) {
+          setHandPicks((prev) => ({ ...prev, [slot]: [] }));
+          setHandPickOpen((prev) => ({ ...prev, [slot]: false }));
+        }
+        return r;
+      }),
+      "Group staged.",
+    );
+  }
 
   function addPlayer(slot: StagedGroupSlot, stagedGroupId: string) {
     const registrationId = addPlayerPicks[slot];
@@ -273,34 +313,83 @@ function NextUpSection({
         </div>
 
         {!group ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-muted-foreground text-sm">
-              Empty
-              {totalWaiting === 0 ? " — nobody waiting." : "."}
-            </p>
-            {totalWaiting >= 2 ? (
-              <div className="flex items-center gap-1.5">
-                <select
-                  className="border-input rounded-md border px-1.5 py-1 text-xs"
-                  value={autoQueueSizes[slot]}
-                  onChange={(event) =>
-                    setAutoQueueSizes((prev) => ({ ...prev, [slot]: event.target.value }))
-                  }
-                  disabled={isPending}
-                >
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                  <option value="4">4</option>
-                </select>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={isPending}
-                  onClick={() => autoQueue(slot)}
-                >
-                  Auto queue
-                </Button>
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-muted-foreground text-sm">
+                Empty
+                {totalWaiting === 0 ? " — nobody waiting." : "."}
+              </p>
+              {totalWaiting >= 2 ? (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      className="border-input rounded-md border px-1.5 py-1 text-xs"
+                      value={autoQueueSizes[slot]}
+                      onChange={(event) =>
+                        setAutoQueueSizes((prev) => ({ ...prev, [slot]: event.target.value }))
+                      }
+                      disabled={isPending}
+                    >
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                    </select>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isPending}
+                      onClick={() => autoQueue(slot)}
+                    >
+                      Auto queue
+                    </Button>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={isPending}
+                    onClick={() => setHandPickOpen((prev) => ({ ...prev, [slot]: !prev[slot] }))}
+                  >
+                    {handPickOpen[slot] ? "Cancel" : "Build by hand"}
+                  </Button>
+                </>
+              ) : null}
+            </div>
+            {handPickOpen[slot] ? (
+              <div className="flex flex-col gap-2 rounded-md border border-dashed p-2">
+                <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
+                  {flatWaitingMembers.map((member) => {
+                    const picked = handPicks[slot].includes(member.registrationId);
+                    return (
+                      <label
+                        key={member.registrationId}
+                        className="flex items-center gap-1.5 text-xs"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={picked}
+                          onChange={() => toggleHandPick(slot, member.registrationId)}
+                          className="border-input checked:border-court-blue checked:bg-court-blue size-3.5 shrink-0 cursor-pointer appearance-none rounded border bg-white"
+                        />
+                        {displayPlayerName(member.playerName)}
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground text-xs">
+                    {handPicks[slot].length}/4 picked
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isPending || handPicks[slot].length < 2 || handPicks[slot].length > 4}
+                    onClick={() => buildByHand(slot)}
+                  >
+                    Create group
+                  </Button>
+                </div>
               </div>
             ) : null}
           </div>
