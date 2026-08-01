@@ -678,15 +678,21 @@ export function TvDisplayClient({
       ? "Just updated"
       : `Updated ${staleSeconds}s ago`;
 
-  const queueUp = data.queue.slice(0, 4);
-  const queueThen = data.queue.slice(4, 8);
-  // Third grouped box, added alongside Next up/After that — room to
-  // show one more group of 4 before falling back to the flat numbered
-  // overflow row.
-  const queueLater = data.queue.slice(8, 12);
-  const queueRest = data.queue.slice(12);
-  const queueShown = queueRest.slice(0, 8);
-  const queueExtra = queueRest.length - queueShown.length;
+  // Staging pipeline: Next up/After that/Then are real, saved groups now
+  // (see DisplayStagedGroup's own comment) — never re-derived by
+  // chunking the queue's own head. A slot with nothing staged shows "—",
+  // the same empty state the other two boxes already used, rather than
+  // borrowing 4 names from whoever's currently at the front of Waiting.
+  const stagedBySlot = new Map(data.stagedGroups.map((group) => [group.slot, group.names]));
+  const queueUp = stagedBySlot.get("NEXT_UP") ?? [];
+  const queueThen = stagedBySlot.get("AFTER_THAT") ?? [];
+  const queueLater = stagedBySlot.get("THEN") ?? [];
+  // data.queue no longer overlaps the three boxes above at all — staged
+  // players are excluded from it entirely (same query the admin board's
+  // own Waiting list reads) — so this is simply everyone still waiting,
+  // numbered from 1, not "position 13 onward."
+  const queueShown = data.queue.slice(0, 8);
+  const queueExtra = data.queue.length - queueShown.length;
 
   return (
     <div className={styles.page} ref={containerRef}>
@@ -748,7 +754,7 @@ export function TvDisplayClient({
                   </span>
                 ))
               ) : (
-                <span className={cls(styles.n, styles.c0)}>Nobody waiting</span>
+                <span className={cls(styles.n, styles.c0)}>—</span>
               )}
             </span>
           </div>
@@ -785,7 +791,7 @@ export function TvDisplayClient({
           <div className={styles.waiting}>
             {queueShown.map((name, i) => (
               <span key={`${name}-${i}`} className={styles.w}>
-                <i>{i + 13}</i>
+                <i>{i + 1}</i>
                 {name}
               </span>
             ))}

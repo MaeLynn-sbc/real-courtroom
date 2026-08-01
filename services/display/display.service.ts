@@ -89,14 +89,32 @@ export interface DisplayCourtOpPending {
 
 export type DisplayCourt = DisplayCourtFree | DisplayCourtActive | DisplayCourtOpPending;
 
+// Staging pipeline: mirrors the admin board's real, saved Next up/After
+// that/Then groups — never a re-derived preview of the queue's own head.
+// The TV/phone displays used to independently chunk `queue` into groups
+// of 4 (the OLD preview behavior, from before staged groups existed);
+// that chunking is exactly the "fake preview that keeps recomputing"
+// confusion this feature was built to eliminate on the admin side, and
+// it produced the same confusion here once staging shipped — a slot
+// with nothing actually staged still showed 4 names, borrowed from
+// whoever happened to be at the front of Waiting. Names arrive pre-
+// shortened, same as everywhere else in this file.
+export interface DisplayStagedGroup {
+  slot: "NEXT_UP" | "AFTER_THAT" | "THEN";
+  names: string[];
+}
+
 export interface DisplayData {
   generatedAt: string;
   targetGameMinutes: number;
   courts: DisplayCourt[];
   // Flattened wait-order names (parties expand to their members,
   // adjacent, in the unit's position) — same flat shape the reference
-  // design's demo DATA.queue already used.
+  // design's demo DATA.queue already used. Staged players are excluded
+  // (same fetchWaitingUnits query the admin board's Waiting list reads),
+  // so this is genuinely "still waiting, nothing lined up for them yet."
   queue: string[];
+  stagedGroups: DisplayStagedGroup[];
 }
 
 // "initial" (First L.) is the TV kiosk's format — useful for telling two
@@ -310,11 +328,17 @@ export class DisplayService {
       unit.members.map((member) => shortDisplayName(member.playerName, nameFormat)),
     );
 
+    const stagedGroups: DisplayStagedGroup[] = rotationBoard.stagedGroups.map((group) => ({
+      slot: group.slot,
+      names: group.members.map((member) => shortDisplayName(member.playerName, nameFormat)),
+    }));
+
     return {
       generatedAt: now.toISOString(),
       targetGameMinutes: settings.targetGameMinutes,
       courts,
       queue,
+      stagedGroups,
     };
   }
 }

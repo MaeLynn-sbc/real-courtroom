@@ -33,7 +33,15 @@ function minutesLeft(endAt: string, now: number): number {
 }
 
 function isFullyEmpty(data: DisplayData): boolean {
-  return data.courts.every((court) => court.state === "free") && data.queue.length === 0;
+  return (
+    data.courts.every((court) => court.state === "free") &&
+    data.queue.length === 0 &&
+    data.stagedGroups.length === 0
+  );
+}
+
+function stagedNames(data: DisplayData, slot: "NEXT_UP" | "AFTER_THAT" | "THEN"): string[] {
+  return data.stagedGroups.find((group) => group.slot === slot)?.names ?? [];
 }
 
 export function PhoneDisplayClient({ initialData }: { initialData: DisplayData }) {
@@ -128,25 +136,34 @@ export function PhoneDisplayClient({ initialData }: { initialData: DisplayData }
                 {data.queue.length}
               </span>
             </div>
-            {data.queue.length === 0 ? (
+            {data.queue.length === 0 && data.stagedGroups.length === 0 ? (
               <p className="text-slate mt-2 text-sm">Nobody in the queue.</p>
             ) : (
               <div className="mt-2 flex flex-col gap-3">
-                {/* Same "Next up / After that / Then" grouping the TV
-                    display and staff Rotation Board both use, stacked
-                    instead of side-by-side to fit a phone screen. */}
-                <QueueGroup label="Next up" names={data.queue.slice(0, 4)} accent />
-                <QueueGroup label="After that" names={data.queue.slice(4, 8)} />
-                <QueueGroup label="Then" names={data.queue.slice(8, 12)} />
-                {data.queue.length > 12 ? (
+                {/* Staging pipeline: real, saved groups now (see
+                    DisplayStagedGroup's own comment) — same data the TV
+                    display and staff Rotation Board both read, stacked
+                    instead of side-by-side to fit a phone screen. An
+                    empty slot renders nothing here (QueueGroup's own
+                    early return), same as the TV's "—" for the same
+                    reason: nothing staged isn't the same claim as
+                    nobody waiting. */}
+                <QueueGroup label="Next up" names={stagedNames(data, "NEXT_UP")} accent />
+                <QueueGroup label="After that" names={stagedNames(data, "AFTER_THAT")} />
+                <QueueGroup label="Then" names={stagedNames(data, "THEN")} />
+                {/* data.queue no longer overlaps the three groups above
+                    at all — staged players are excluded from it
+                    entirely — so this is simply everyone still waiting,
+                    numbered from 1. */}
+                {data.queue.length > 0 ? (
                   <ol className="border-line/60 flex max-h-40 flex-col gap-1 overflow-y-auto border-t pt-2 text-sm">
-                    {data.queue.slice(12).map((name, index) => (
+                    {data.queue.map((name, index) => (
                       <li
                         key={`${name}-${index}`}
                         className="text-bone flex items-baseline gap-2 py-0.5"
                       >
                         <span className="font-jetbrains text-slate w-6 shrink-0 text-xs">
-                          {index + 13}
+                          {index + 1}
                         </span>
                         <span>{name}</span>
                       </li>

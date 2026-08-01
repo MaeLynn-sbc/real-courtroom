@@ -31,6 +31,7 @@ function displayData(endAt: string): DisplayData {
       },
     ],
     queue: [],
+    stagedGroups: [],
   };
 }
 

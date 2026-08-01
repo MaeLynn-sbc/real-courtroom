@@ -41,6 +41,7 @@ function displayData(courtState: "op" | "free", endAt: string): DisplayData {
           },
     ],
     queue: [],
+    stagedGroups: [],
   };
 }
 
