@@ -61,6 +61,15 @@ function courtAnnouncementToken(court: DisplayCourt): string | null {
   return court.announcementRequestedAt;
 }
 
+// "Time's up" — the manual call to players OFF the court. ACTIVE
+// ("op") only, unlike courtAnnouncementToken above: there's no running
+// clock on an "op-pending" (proposed, not yet started) court, so
+// there's no meaningful "time's up" for it.
+function courtTimesUpToken(court: DisplayCourt): string | null {
+  if (court.state !== "op") return null;
+  return court.timesUpRequestedAt;
+}
+
 // Natural spoken list, in the order names appear on the assignment —
 // "Ana", "Ana and Ben", "Ana, Ben, and Carla". No abbreviation to "and
 // partner(s)": four-name groups were tested live and read acceptably,
@@ -92,6 +101,15 @@ export function formatAssignmentAnnouncement(court: DisplayCourt): string {
   const names = court.players.map((player) => firstNameOnly(player.name));
   if (names.length === 0) return "";
   return `Attention: ${joinNamesForSpeech(names)}, please proceed to ${court.name}.`;
+}
+
+// Owner-editable phrasing (settingsService.getTimesUpTemplate,
+// DEFAULT_TIMES_UP_TEMPLATE "Reminder, {court}, your time is up!") —
+// one placeholder, {court}, replaced with the court's own name (e.g.
+// "Court 2"), same court-name-as-stored convention as
+// formatAssignmentAnnouncement above.
+export function formatTimesUpAnnouncement(court: DisplayCourt, template: string): string {
+  return template.replaceAll("{court}", court.name);
 }
 
 const clockFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
@@ -174,6 +192,7 @@ export function TvDisplayClient({
   refreshIntervalSeconds,
   gameWarningEnabled,
   gameWarningMinutes,
+  timesUpTemplate,
 }: {
   initialData: DisplayData;
   announcementRepeatCount: number;
@@ -197,6 +216,9 @@ export function TvDisplayClient({
   gameWarningEnabled: boolean;
   // Owner-editable, default 1 — some venues want 2 minutes' notice.
   gameWarningMinutes: number;
+  // Owner-editable phrasing for the manual "Time's up" call — see
+  // formatTimesUpAnnouncement above.
+  timesUpTemplate: string;
 }) {
   const [data, setData] = useState(initialData);
   const [now, setNow] = useState(() => Date.now());
@@ -217,6 +239,15 @@ export function TvDisplayClient({
     Object.fromEntries(
       initialData.courts
         .map((court) => [court.id, courtAnnouncementToken(court)] as const)
+        .filter((entry): entry is [string, string] => entry[1] !== null),
+    ),
+  );
+  // Same seeding reasoning as previousAnnouncementTokensRef above, for
+  // the manual "Time's up" call.
+  const previousTimesUpTokensRef = useRef<Record<string, string>>(
+    Object.fromEntries(
+      initialData.courts
+        .map((court) => [court.id, courtTimesUpToken(court)] as const)
         .filter((entry): entry is [string, string] => entry[1] !== null),
     ),
   );
@@ -352,6 +383,32 @@ export function TvDisplayClient({
     [announcementRepeater],
   );
 
+  // A SEPARATE repeater instance, not a second call into the one above
+  // — schedule() cancels any pending repeat chain from a PREVIOUS
+  // announcement first, and an assignment announcement mid-repeat on
+  // one court has nothing to do with a "Time's up" call on another (or
+  // even the same) court. Both still funnel through the same
+  // enqueueAnnouncement/speechQueueRef, so they never overlap or talk
+  // over each other — same FIFO queue, independent repeat/cancel state.
+  const timesUpRepeater = useMemo(
+    () =>
+      createAnnouncementRepeater({
+        speak: (text) => enqueueAnnouncement(text),
+        gapMs: ANNOUNCEMENT_REPEAT_GAP_MS,
+        getRepeatCount: () => announcementRepeatCountRef.current,
+      }),
+    [enqueueAnnouncement],
+  );
+
+  const scheduleTimesUpAnnouncement = useCallback(
+    (court: DisplayCourt) => {
+      const text = formatTimesUpAnnouncement(court, timesUpTemplate);
+      if (!text) return;
+      timesUpRepeater.schedule(text);
+    },
+    [timesUpRepeater, timesUpTemplate],
+  );
+
   // One-minute (owner-configurable) game warning — fires once per game.
   // Keyed by court.startAt (stable and unique per game instance, same
   // role announcementRequestedAt's token plays for the assignment
@@ -378,6 +435,7 @@ export function TvDisplayClient({
       // a missed clear here couldn't have caused an audible bug — but
       // it would leave a dangling timer doing nothing until it fires.)
       announcementRepeater.cancelPending();
+      timesUpRepeater.cancelPending();
     }
   }
 
@@ -451,6 +509,24 @@ export function TvDisplayClient({
           }
         }
 
+        // Same diff-and-schedule shape as the assignment announcement
+        // above, for the manual "Time's up" call — a change in
+        // timesUpRequestedAt (staff pressed the button, first time or
+        // again) speaks; an unchanged or never-pressed court never
+        // fires on a routine refresh.
+        for (const court of json.courts) {
+          const token = courtTimesUpToken(court);
+          const previousToken = previousTimesUpTokensRef.current[court.id];
+          if (token && token !== previousToken) {
+            scheduleTimesUpAnnouncement(court);
+          }
+          if (token) {
+            previousTimesUpTokensRef.current[court.id] = token;
+          } else {
+            delete previousTimesUpTokensRef.current[court.id];
+          }
+        }
+
         setData(json);
         setLastUpdatedAt(Date.now());
         setReconnecting(false);
@@ -471,8 +547,15 @@ export function TvDisplayClient({
       // this component could unmount — a pending repeat has no page
       // left to matter to once this effect tears down.
       announcementRepeater.cancelPending();
+      timesUpRepeater.cancelPending();
     };
-  }, [scheduleAnnouncement, announcementRepeater, refreshIntervalSeconds]);
+  }, [
+    scheduleAnnouncement,
+    announcementRepeater,
+    scheduleTimesUpAnnouncement,
+    timesUpRepeater,
+    refreshIntervalSeconds,
+  ]);
 
   // Long names shrink, never truncate (BUILD-SPEC.md §12) — same pass
   // as the reference file's fitNames(), scoped to this component's own

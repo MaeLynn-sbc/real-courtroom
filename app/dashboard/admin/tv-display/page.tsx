@@ -4,7 +4,10 @@ import { auth } from "@/auth";
 import { TvDisplaySetupPanel } from "@/features/display/components/tv-display-setup-panel";
 import { env } from "@/lib/env";
 import { hasPermission } from "@/lib/rbac";
-import { generateDisplayQrCode, generateOpenPlayRegistrationQrCode } from "@/services/display/qr-code";
+import {
+  generateDisplayQrCode,
+  generateOpenPlayRegistrationQrCode,
+} from "@/services/display/qr-code";
 import { settingsService } from "@/services/settings/settings.service";
 import { PERMISSIONS } from "@/types/permissions";
 
@@ -22,18 +25,30 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function TvDisplaySetupPage() {
-  const [session, slug, announcementRepeatCount, timeUpFlashDurationSeconds, announcementVoice, refreshIntervalSeconds, gameWarning] =
-    await Promise.all([
-      auth(),
-      settingsService.getOrCreateDisplaySlug(),
-      settingsService.getAnnouncementRepeatCount(),
-      settingsService.getTimeUpFlashDurationSeconds(),
-      settingsService.getAnnouncementVoice(),
-      settingsService.getDisplayRefreshIntervalSeconds(),
-      settingsService.getGameWarningSettings(),
-    ]);
+  const [
+    session,
+    slug,
+    announcementRepeatCount,
+    timeUpFlashDurationSeconds,
+    announcementVoice,
+    refreshIntervalSeconds,
+    gameWarning,
+    timesUpTemplate,
+  ] = await Promise.all([
+    auth(),
+    settingsService.getOrCreateDisplaySlug(),
+    settingsService.getAnnouncementRepeatCount(),
+    settingsService.getTimeUpFlashDurationSeconds(),
+    settingsService.getAnnouncementVoice(),
+    settingsService.getDisplayRefreshIntervalSeconds(),
+    settingsService.getGameWarningSettings(),
+    settingsService.getTimesUpTemplate(),
+  ]);
   const canRegenerate = hasPermission(session?.user.permissions ?? [], PERMISSIONS.SYSTEM_ADMIN);
-  const canManageDisplaySettings = hasPermission(session?.user.permissions ?? [], PERMISSIONS.DISPLAY_MANAGE);
+  const canManageDisplaySettings = hasPermission(
+    session?.user.permissions ?? [],
+    PERMISSIONS.DISPLAY_MANAGE,
+  );
 
   const [displayQrDataUrl, openPlayQrDataUrl] = await Promise.all([
     generateDisplayQrCode(slug),
@@ -50,8 +65,8 @@ export default async function TvDisplaySetupPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">TV Display</h1>
         <p className="text-muted-foreground text-sm">
-          The URL and QR code for the lobby TV, plus a live preview so you can confirm it works without walking
-          out to check.
+          The URL and QR code for the lobby TV, plus a live preview so you can confirm it works
+          without walking out to check.
         </p>
       </div>
 
@@ -69,6 +84,7 @@ export default async function TvDisplaySetupPage() {
         refreshIntervalSeconds={refreshIntervalSeconds}
         gameWarningEnabled={gameWarning.enabled}
         gameWarningMinutes={gameWarning.minutes}
+        timesUpTemplate={timesUpTemplate}
       />
     </div>
   );

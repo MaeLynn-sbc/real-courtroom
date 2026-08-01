@@ -26,6 +26,7 @@ function displayData(endAt: string): DisplayData {
         startAt: "2026-07-27T23:45:00.000Z",
         endAt,
         announcementRequestedAt: null,
+        timesUpRequestedAt: null,
         next: null,
       },
     ],
@@ -46,6 +47,7 @@ describe("TvDisplayClient — open-play game warning visual cue", () => {
         refreshIntervalSeconds={10}
         gameWarningEnabled
         gameWarningMinutes={1}
+        timesUpTemplate="Reminder, {court}, your time is up!"
       />,
     );
 
@@ -67,6 +69,7 @@ describe("TvDisplayClient — open-play game warning visual cue", () => {
         refreshIntervalSeconds={10}
         gameWarningEnabled
         gameWarningMinutes={1}
+        timesUpTemplate="Reminder, {court}, your time is up!"
       />,
     );
 
@@ -87,6 +90,7 @@ describe("TvDisplayClient — open-play game warning visual cue", () => {
         refreshIntervalSeconds={10}
         gameWarningEnabled={false}
         gameWarningMinutes={1}
+        timesUpTemplate="Reminder, {court}, your time is up!"
       />,
     );
 

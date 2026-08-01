@@ -119,6 +119,51 @@ interface AnnouncementVoiceSettings {
 }
 const DEFAULT_ANNOUNCEMENT_VOICE: AnnouncementVoiceSettings = { voice: null };
 
+// Reported live: announcements were being drowned out by music playing
+// through the venue PA from the same laptop. utterance.rate was
+// hardcoded (0.95 — barely slower than normal speed, not much real
+// help) with no owner control at all. Now editable so staff can slow it
+// down further themselves, tonight, without a code deploy — 1.0 is
+// normal speed; slower is more intelligible over background noise, per
+// the same reasoning this app already applies to Web Speech elsewhere.
+// Default dropped to 0.8 (was 0.95) for exactly that reason.
+const DISPLAY_ANNOUNCEMENT_RATE_KEY = "display.announcementRate";
+interface AnnouncementRateSettings {
+  rate: number;
+}
+const DEFAULT_ANNOUNCEMENT_RATE: AnnouncementRateSettings = { rate: 0.8 };
+
+// Reported live, same PA-drowned-out-by-music incident: the fixed
+// "Attention: {names}, please proceed to {court}." wastes its first
+// word (no actual information) right when a distracted listener is
+// still tuning in, and only says the court number once. Now an
+// owner-editable template with two placeholders — {names} and {court}
+// — so staff can tune the actual wording without a code change, same
+// reasoning as announcementRate above. Default format leads with the
+// court number (a short, real "heads up" cue instead of a wasted
+// "Attention"), states names once clearly, then repeats the court
+// number at the end — the one piece of information a listener who
+// missed the start most needs to catch.
+const DISPLAY_ANNOUNCEMENT_TEMPLATE_KEY = "display.announcementTemplate";
+interface AnnouncementTemplateSettings {
+  template: string;
+}
+const DEFAULT_ANNOUNCEMENT_TEMPLATE: AnnouncementTemplateSettings = {
+  template: "{court}. {names}. Please proceed to {court}.",
+};
+
+// Manual "Time's up" staff call (twin of the assignment announcement
+// above, for calling players OFF the court) — owner-editable phrasing,
+// one placeholder: {court}. No {names} here — the ask was specifically
+// "Reminder, Court [number], your time is up!", not a per-player call.
+const DISPLAY_TIMES_UP_TEMPLATE_KEY = "display.timesUpTemplate";
+interface TimesUpTemplateSettings {
+  template: string;
+}
+const DEFAULT_TIMES_UP_TEMPLATE: TimesUpTemplateSettings = {
+  template: "Reminder, {court}, your time is up!",
+};
+
 // TV display "one minute remaining" warning for a running open-play
 // game — reported live: the assignment announcement is deliberately
 // manual (players take time to walk over, so that timing depends on a
@@ -161,7 +206,10 @@ const EQUIPMENT_HIDE_LOW_STOCK_ALERT_KEY = "equipment.hideLowStockAlert";
 
 function isUniqueConstraintViolation(error: unknown): boolean {
   return (
-    typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002"
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
   );
 }
 
@@ -249,7 +297,13 @@ export class SettingsService {
       },
     });
 
-    await this.writeSettingAuditLog("setting.updated", setting.id, setting.key, setting.value, actorUserId);
+    await this.writeSettingAuditLog(
+      "setting.updated",
+      setting.id,
+      setting.key,
+      setting.value,
+      actorUserId,
+    );
 
     return setting;
   }
@@ -268,7 +322,10 @@ export class SettingsService {
         },
       });
     } catch (error) {
-      logger.error({ err: error, action: "setting.deleted", userId: actorUserId }, "Failed to write audit log entry");
+      logger.error(
+        { err: error, action: "setting.deleted", userId: actorUserId },
+        "Failed to write audit log entry",
+      );
     }
   }
 
@@ -285,7 +342,9 @@ export class SettingsService {
   }
 
   async getPublicVisibility(): Promise<PublicVisibilityFlags> {
-    return this.getBooleanFlags(Object.values(PUBLIC_VISIBILITY_KEYS)) as Promise<PublicVisibilityFlags>;
+    return this.getBooleanFlags(
+      Object.values(PUBLIC_VISIBILITY_KEYS),
+    ) as Promise<PublicVisibilityFlags>;
   }
 
   async setPublicVisibility(key: PublicVisibilityKey, visible: boolean, actorUserId: string) {
@@ -322,7 +381,10 @@ export class SettingsService {
   }
 
   async getBookingHoldMinutes(): Promise<number> {
-    const stored = await this.getJsonValue<BookingHoldSettings>(BOOKING_HOLD_KEY, DEFAULT_BOOKING_HOLD);
+    const stored = await this.getJsonValue<BookingHoldSettings>(
+      BOOKING_HOLD_KEY,
+      DEFAULT_BOOKING_HOLD,
+    );
     return stored.holdMinutes;
   }
 
@@ -344,7 +406,9 @@ export class SettingsService {
   // (an owner explicitly toggling it, e.g. via
   // setOpenPlayOnlineRegistrationEnabled below) and always wins.
   async getOpenPlayOnlineRegistrationEnabled(): Promise<boolean> {
-    const row = await prisma.setting.findUnique({ where: { key: OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY } });
+    const row = await prisma.setting.findUnique({
+      where: { key: OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY },
+    });
     if (!row) {
       return true;
     }
@@ -377,7 +441,13 @@ export class SettingsService {
       create: { key, value, updatedById: actorUserId },
     });
 
-    await this.writeSettingAuditLog("setting.updated", setting.id, setting.key, setting.value, actorUserId);
+    await this.writeSettingAuditLog(
+      "setting.updated",
+      setting.id,
+      setting.key,
+      setting.value,
+      actorUserId,
+    );
 
     return setting;
   }
@@ -454,7 +524,10 @@ export class SettingsService {
     return {
       ...DEFAULT_COURT_HOURS,
       ...stored,
-      facilityCloseTimes: { ...DEFAULT_COURT_HOURS.facilityCloseTimes, ...stored.facilityCloseTimes },
+      facilityCloseTimes: {
+        ...DEFAULT_COURT_HOURS.facilityCloseTimes,
+        ...stored.facilityCloseTimes,
+      },
       courtCloseTimes,
     };
   }
@@ -472,7 +545,10 @@ export class SettingsService {
   // `amountCents` being undefined — not hypothetical, reproduced via a
   // real browser smoke test against the actual dev database.
   async getOpenPlaySettings(): Promise<OpenPlaySettings> {
-    const stored = await this.getJsonValue<Partial<OpenPlaySettings>>(CMS_KEYS.OPEN_PLAY_SETTINGS, {});
+    const stored = await this.getJsonValue<Partial<OpenPlaySettings>>(
+      CMS_KEYS.OPEN_PLAY_SETTINGS,
+      {},
+    );
     return { ...DEFAULT_OPEN_PLAY_SETTINGS, ...stored };
   }
 
@@ -502,7 +578,13 @@ export class SettingsService {
       const setting = await prisma.setting.create({
         data: { key: DISPLAY_SLUG_KEY, value: slug, updatedById: null },
       });
-      await this.writeSettingAuditLog("setting.updated", setting.id, setting.key, setting.value, null);
+      await this.writeSettingAuditLog(
+        "setting.updated",
+        setting.id,
+        setting.key,
+        setting.value,
+        null,
+      );
       return slug;
     } catch (error) {
       if (isUniqueConstraintViolation(error)) {
@@ -526,7 +608,13 @@ export class SettingsService {
       where: { key: DISPLAY_SLUG_KEY },
       data: { value: slug, updatedById: actorUserId },
     });
-    await this.writeSettingAuditLog("setting.updated", setting.id, setting.key, setting.value, actorUserId);
+    await this.writeSettingAuditLog(
+      "setting.updated",
+      setting.id,
+      setting.key,
+      setting.value,
+      actorUserId,
+    );
     return slug;
   }
 
@@ -578,6 +666,42 @@ export class SettingsService {
     return this.setJsonValue(DISPLAY_ANNOUNCEMENT_VOICE_KEY, { voice: value }, actorUserId);
   }
 
+  async getAnnouncementRate(): Promise<number> {
+    const stored = await this.getJsonValue<AnnouncementRateSettings>(
+      DISPLAY_ANNOUNCEMENT_RATE_KEY,
+      DEFAULT_ANNOUNCEMENT_RATE,
+    );
+    return stored.rate;
+  }
+
+  async setAnnouncementRate(value: number, actorUserId: string) {
+    return this.setJsonValue(DISPLAY_ANNOUNCEMENT_RATE_KEY, { rate: value }, actorUserId);
+  }
+
+  async getAnnouncementTemplate(): Promise<string> {
+    const stored = await this.getJsonValue<AnnouncementTemplateSettings>(
+      DISPLAY_ANNOUNCEMENT_TEMPLATE_KEY,
+      DEFAULT_ANNOUNCEMENT_TEMPLATE,
+    );
+    return stored.template;
+  }
+
+  async setAnnouncementTemplate(value: string, actorUserId: string) {
+    return this.setJsonValue(DISPLAY_ANNOUNCEMENT_TEMPLATE_KEY, { template: value }, actorUserId);
+  }
+
+  async getTimesUpTemplate(): Promise<string> {
+    const stored = await this.getJsonValue<TimesUpTemplateSettings>(
+      DISPLAY_TIMES_UP_TEMPLATE_KEY,
+      DEFAULT_TIMES_UP_TEMPLATE,
+    );
+    return stored.template;
+  }
+
+  async setTimesUpTemplate(value: string, actorUserId: string) {
+    return this.setJsonValue(DISPLAY_TIMES_UP_TEMPLATE_KEY, { template: value }, actorUserId);
+  }
+
   async getGameWarningSettings(): Promise<GameWarningSettings> {
     return this.getJsonValue<GameWarningSettings>(DISPLAY_GAME_WARNING_KEY, DEFAULT_GAME_WARNING);
   }
@@ -605,7 +729,13 @@ export class SettingsService {
       create: { key, value: value as object, updatedById: actorUserId },
     });
 
-    await this.writeSettingAuditLog("setting.updated", setting.id, setting.key, setting.value, actorUserId);
+    await this.writeSettingAuditLog(
+      "setting.updated",
+      setting.id,
+      setting.key,
+      setting.value,
+      actorUserId,
+    );
 
     return setting;
   }

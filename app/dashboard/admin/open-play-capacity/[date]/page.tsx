@@ -284,6 +284,9 @@ function serializeAssignment(
     announcementRequestedAt: assignment.announcementRequestedAt
       ? assignment.announcementRequestedAt.toISOString()
       : null,
+    timesUpRequestedAt: assignment.timesUpRequestedAt
+      ? assignment.timesUpRequestedAt.toISOString()
+      : null,
     // Manual timer/announce forgotten-assignment nudge: computed here,
     // at render time, not pushed to the client as raw proposedAt +
     // minutes — this page now re-renders on the tab wrapper's own

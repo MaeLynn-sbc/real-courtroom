@@ -51,6 +51,13 @@ export interface DisplayCourtActive {
   // staff decisions, so this can keep changing (re-announce) while op's
   // own startAt/endAt stay fixed.
   announcementRequestedAt: string | null;
+  // op only — always null for res (a booking has no "time's up" call,
+  // only open play's rotating games do). Null until the manual "Time's
+  // up" button has been pressed at least once; the TV watches this
+  // value the same way it watches announcementRequestedAt above, just
+  // for a different spoken phrase — see tv-display-client.tsx's
+  // scheduleTimesUpAnnouncement.
+  timesUpRequestedAt: string | null;
   // res: the booking after this one on the same court, if any today.
   // op: always null — the queue is one shared pool, not tied to a
   // specific court, so open play has no per-court "next" (BUILD-SPEC.md
@@ -109,7 +116,10 @@ type NameFormat = "initial" | "first";
 // set) — split()'d on whitespace alone that would render whole on
 // screen, so it gets its own branch rather than falling through to the
 // "first token + last initial" logic below.
-function shortDisplayName(fullName: string | null | undefined, format: NameFormat = "initial"): string {
+function shortDisplayName(
+  fullName: string | null | undefined,
+  format: NameFormat = "initial",
+): string {
   const trimmed = (fullName ?? "").trim();
   if (!trimmed) {
     return "Guest";
@@ -151,7 +161,11 @@ async function fetchRelevantBookings(courtIds: string[], now: Date, windowEnd: D
     where: {
       courtId: { in: courtIds },
       status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-      OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
+      OR: [
+        { status: { not: "AWAITING_PAYMENT" } },
+        { holdExpiresAt: null },
+        { holdExpiresAt: { gte: now } },
+      ],
       startAt: { lt: windowEnd },
       endAt: { gt: now },
     },
@@ -167,7 +181,10 @@ async function fetchRelevantBookings(courtIds: string[], now: Date, windowEnd: D
   });
 }
 
-function toDisplayNextBooking(booking: CourtBooking | undefined, format: NameFormat): DisplayNextBooking | null {
+function toDisplayNextBooking(
+  booking: CourtBooking | undefined,
+  format: NameFormat,
+): DisplayNextBooking | null {
   if (!booking) {
     return null;
   }
@@ -187,12 +204,18 @@ export class DisplayService {
     const courtHours = await settingsService.getCourtHours();
     const now = new Date();
     const businessDate = computeBusinessDate(now, courtHours.businessDateRolloverHour);
-    const { end: businessDateEnd } = getBusinessDateRange(businessDate, courtHours.businessDateRolloverHour);
+    const { end: businessDateEnd } = getBusinessDateRange(
+      businessDate,
+      courtHours.businessDateRolloverHour,
+    );
 
     const [rotationBoard, settings, allCourts] = await Promise.all([
       openPlayRotationService.getRotationBoardData(businessDate),
       settingsService.getOpenPlaySettings(),
-      prisma.court.findMany({ where: { deletedAt: null, status: "ACTIVE" }, orderBy: { name: "asc" } }),
+      prisma.court.findMany({
+        where: { deletedAt: null, status: "ACTIVE" },
+        orderBy: { name: "asc" },
+      }),
     ]);
 
     const activeCourtIds = allCourts.map((court) => court.id);
@@ -225,6 +248,7 @@ export class DisplayService {
           startAt: currentBooking.startAt.toISOString(),
           endAt: currentBooking.endAt.toISOString(),
           announcementRequestedAt: null,
+          timesUpRequestedAt: null,
           next: toDisplayNextBooking(nextBooking, nameFormat),
         };
       }
@@ -243,6 +267,7 @@ export class DisplayService {
           startAt: start.toISOString(),
           endAt: end.toISOString(),
           announcementRequestedAt: activeAssignment.announcementRequestedAt?.toISOString() ?? null,
+          timesUpRequestedAt: activeAssignment.timesUpRequestedAt?.toISOString() ?? null,
           next: null,
         };
       }
@@ -250,7 +275,8 @@ export class DisplayService {
       const proposedAssignment = boardByCourtId.get(court.id)?.proposed ?? null;
       if (proposedAssignment) {
         const nudgeAt = new Date(
-          proposedAssignment.proposedAt.getTime() + settings.forgottenAssignmentNudgeMinutes * 60_000,
+          proposedAssignment.proposedAt.getTime() +
+            settings.forgottenAssignmentNudgeMinutes * 60_000,
         );
         return {
           id: court.id,
@@ -261,7 +287,8 @@ export class DisplayService {
           })),
           proposedAt: proposedAssignment.proposedAt.toISOString(),
           nudgeAt: nudgeAt.toISOString(),
-          announcementRequestedAt: proposedAssignment.announcementRequestedAt?.toISOString() ?? null,
+          announcementRequestedAt:
+            proposedAssignment.announcementRequestedAt?.toISOString() ?? null,
           startAt: null,
           endAt: null,
           next: null,

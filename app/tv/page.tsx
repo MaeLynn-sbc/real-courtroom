@@ -22,15 +22,23 @@ export const dynamic = "force-dynamic";
 // available for anyone who still wants an unadvertised URL. Both serve
 // the identical live data — this isn't a second, separate display.
 export default async function TvShortcutPage() {
-  const [initialData, announcementRepeatCount, timeUpFlashDurationSeconds, announcementVoice, refreshIntervalSeconds, gameWarning] =
-    await Promise.all([
-      displayService.getDisplayData(),
-      settingsService.getAnnouncementRepeatCount(),
-      settingsService.getTimeUpFlashDurationSeconds(),
-      settingsService.getAnnouncementVoice(),
-      settingsService.getDisplayRefreshIntervalSeconds(),
-      settingsService.getGameWarningSettings(),
-    ]);
+  const [
+    initialData,
+    announcementRepeatCount,
+    timeUpFlashDurationSeconds,
+    announcementVoice,
+    refreshIntervalSeconds,
+    gameWarning,
+    timesUpTemplate,
+  ] = await Promise.all([
+    displayService.getDisplayData(),
+    settingsService.getAnnouncementRepeatCount(),
+    settingsService.getTimeUpFlashDurationSeconds(),
+    settingsService.getAnnouncementVoice(),
+    settingsService.getDisplayRefreshIntervalSeconds(),
+    settingsService.getGameWarningSettings(),
+    settingsService.getTimesUpTemplate(),
+  ]);
 
   return (
     <TvDisplayClient
@@ -41,6 +49,7 @@ export default async function TvShortcutPage() {
       refreshIntervalSeconds={refreshIntervalSeconds}
       gameWarningEnabled={gameWarning.enabled}
       gameWarningMinutes={gameWarning.minutes}
+      timesUpTemplate={timesUpTemplate}
     />
   );
 }

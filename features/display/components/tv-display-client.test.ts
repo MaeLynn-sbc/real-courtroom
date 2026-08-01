@@ -1,6 +1,7 @@
 import {
   formatAssignmentAnnouncement,
   formatGameWarningAnnouncement,
+  formatTimesUpAnnouncement,
   isGameWarningActive,
   isTimeUpFlashing,
   joinNamesForSpeech,
@@ -16,6 +17,7 @@ function court(names: string[], name = "Court 2"): DisplayCourtActive {
     startAt: "2026-07-28T00:00:00.000Z",
     endAt: "2026-07-28T01:00:00.000Z",
     announcementRequestedAt: null,
+    timesUpRequestedAt: null,
     next: null,
   };
 }
@@ -63,9 +65,31 @@ describe("formatAssignmentAnnouncement", () => {
     expect(formatAssignmentAnnouncement(court(["Albert D."], "Court 1"))).toBe(
       "Attention: Albert, please proceed to Court 1.",
     );
-    expect(formatAssignmentAnnouncement(court(["Bend J.", "Miguel M.", "Albert D.", "Harry C."], "Court 1"))).toBe(
-      "Attention: Bend, Miguel, Albert, and Harry, please proceed to Court 1.",
+    expect(
+      formatAssignmentAnnouncement(
+        court(["Bend J.", "Miguel M.", "Albert D.", "Harry C."], "Court 1"),
+      ),
+    ).toBe("Attention: Bend, Miguel, Albert, and Harry, please proceed to Court 1.");
+  });
+});
+
+describe("formatTimesUpAnnouncement", () => {
+  it("replaces {court} with the court's own name", () => {
+    expect(
+      formatTimesUpAnnouncement(court([], "Court 2"), "Reminder, {court}, your time is up!"),
+    ).toBe("Reminder, Court 2, your time is up!");
+  });
+
+  it("replaces every occurrence of {court}, not just the first", () => {
+    expect(formatTimesUpAnnouncement(court([], "Court 3"), "{court}! {court} time is up.")).toBe(
+      "Court 3! Court 3 time is up.",
     );
+  });
+
+  it("respects a fully owner-rewritten phrase with no other assumptions baked in", () => {
+    expect(
+      formatTimesUpAnnouncement(court([], "Court 1"), "Time's up on {court}, please wrap up."),
+    ).toBe("Time's up on Court 1, please wrap up.");
   });
 });
 
@@ -118,11 +142,17 @@ describe("isGameWarningActive", () => {
 
 describe("formatGameWarningAnnouncement", () => {
   it('reads "Court, one minute remaining." for the 1-minute default', () => {
-    expect(formatGameWarningAnnouncement({ name: "Court 2" }, 1)).toBe("Court 2, one minute remaining.");
+    expect(formatGameWarningAnnouncement({ name: "Court 2" }, 1)).toBe(
+      "Court 2, one minute remaining.",
+    );
   });
 
   it("reads a plain number of minutes for any other owner-configured warning time", () => {
-    expect(formatGameWarningAnnouncement({ name: "Court 3" }, 2)).toBe("Court 3, 2 minutes remaining.");
-    expect(formatGameWarningAnnouncement({ name: "Court 1" }, 5)).toBe("Court 1, 5 minutes remaining.");
+    expect(formatGameWarningAnnouncement({ name: "Court 3" }, 2)).toBe(
+      "Court 3, 2 minutes remaining.",
+    );
+    expect(formatGameWarningAnnouncement({ name: "Court 1" }, 5)).toBe(
+      "Court 1, 5 minutes remaining.",
+    );
   });
 });

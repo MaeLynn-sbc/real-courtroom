@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { RotationBoard, type RotationBoardProps } from "./rotation-board";
 import {
   announceAssignmentAction,
+  announceTimesUpAction,
   confirmAssignmentAction,
   moveQueueUnitAfterAction,
   swapPartyMemberAction,
@@ -10,6 +11,7 @@ import {
 
 jest.mock("@/actions/open-play-rotation.actions", () => ({
   announceAssignmentAction: jest.fn(),
+  announceTimesUpAction: jest.fn(),
   cancelAssignmentAction: jest.fn(),
   completeAssignmentAction: jest.fn(),
   confirmAssignmentAction: jest.fn(),
@@ -43,6 +45,7 @@ const mockedMoveAfter = moveQueueUnitAfterAction as jest.MockedFunction<
   typeof moveQueueUnitAfterAction
 >;
 const mockedSwap = swapPartyMemberAction as jest.MockedFunction<typeof swapPartyMemberAction>;
+const mockedTimesUp = announceTimesUpAction as jest.MockedFunction<typeof announceTimesUpAction>;
 
 async function clickAsync(element: Element) {
   await act(async () => {
@@ -92,6 +95,7 @@ describe("RotationBoard — manual announce/start timer", () => {
             startedAt: null,
             endAt: null,
             announcementRequestedAt: null,
+            timesUpRequestedAt: null,
             waitingToStart: false,
             participants: [{ registrationId: "r1", playerName: "Ana", skillLevel: "BEGINNER" }],
           },
@@ -119,6 +123,7 @@ describe("RotationBoard — manual announce/start timer", () => {
             startedAt: null,
             endAt: null,
             announcementRequestedAt: "2026-08-01T00:00:00.000Z",
+            timesUpRequestedAt: null,
             waitingToStart: false,
             participants: [{ registrationId: "r1", playerName: "Ana", skillLevel: "BEGINNER" }],
           },
@@ -144,6 +149,7 @@ describe("RotationBoard — manual announce/start timer", () => {
             startedAt: null,
             endAt: null,
             announcementRequestedAt: null,
+            timesUpRequestedAt: null,
             waitingToStart: true,
             participants: [{ registrationId: "r1", playerName: "Ana", skillLevel: "BEGINNER" }],
           },
@@ -166,6 +172,7 @@ describe("RotationBoard — manual announce/start timer", () => {
             startedAt: null,
             endAt: null,
             announcementRequestedAt: null,
+            timesUpRequestedAt: null,
             waitingToStart: false,
             participants: [{ registrationId: "r1", playerName: "Ana", skillLevel: "BEGINNER" }],
           },
@@ -190,6 +197,7 @@ describe("RotationBoard — manual announce/start timer", () => {
             startedAt: "2026-08-01T00:00:00.000Z",
             endAt: null,
             announcementRequestedAt: "2026-08-01T00:00:00.000Z",
+            timesUpRequestedAt: null,
             waitingToStart: false,
             participants: [{ registrationId: "r1", playerName: "Ana", skillLevel: "BEGINNER" }],
           },
@@ -200,6 +208,59 @@ describe("RotationBoard — manual announce/start timer", () => {
     await clickAsync(screen.getByRole("button", { name: /^announce$/i }));
 
     expect(mockedAnnounce).toHaveBeenCalledWith({ assignmentId: "assignment-2" });
+  });
+
+  it("offers a re-pressable Time's up button on an active game, separate from Announce/Complete/Cancel", async () => {
+    mockedTimesUp.mockResolvedValue({ error: null });
+
+    render(
+      <RotationBoard
+        {...baseProps({
+          active: {
+            id: "assignment-2",
+            source: "AUTO",
+            status: "ACTIVE",
+            skillSpread: 0,
+            startedAt: "2026-08-01T00:00:00.000Z",
+            endAt: null,
+            announcementRequestedAt: null,
+            timesUpRequestedAt: null,
+            waitingToStart: false,
+            participants: [{ registrationId: "r1", playerName: "Ana", skillLevel: "BEGINNER" }],
+          },
+        })}
+      />,
+    );
+
+    await clickAsync(screen.getByRole("button", { name: /^time's up$/i }));
+    expect(mockedTimesUp).toHaveBeenCalledWith({ assignmentId: "assignment-2" });
+
+    // Re-pressable — a second press fires again, same as Announce.
+    await clickAsync(screen.getByRole("button", { name: /^time's up$/i }));
+    expect(mockedTimesUp).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not offer Time's up on a proposed (not yet started) group", () => {
+    render(
+      <RotationBoard
+        {...baseProps({
+          proposed: {
+            id: "assignment-1",
+            source: "AUTO",
+            status: "PROPOSED",
+            skillSpread: 0,
+            startedAt: null,
+            endAt: null,
+            announcementRequestedAt: null,
+            timesUpRequestedAt: null,
+            waitingToStart: false,
+            participants: [{ registrationId: "r1", playerName: "Ana", skillLevel: "BEGINNER" }],
+          },
+        })}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /time's up/i })).not.toBeInTheDocument();
   });
 });
 

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import {
   announceAssignmentAction,
+  announceTimesUpAction,
   cancelAssignmentAction,
   completeAssignmentAction,
   confirmAssignmentAction,
@@ -60,6 +61,10 @@ interface BoardAssignment {
   // once. Re-pressable — a fresh value each time, which is also what the
   // TV/phone displays watch to decide when to (re-)speak.
   announcementRequestedAt: string | null;
+  // Manual "Time's up" call — same shape as announcementRequestedAt,
+  // for calling players off the court. Only ever set on an ACTIVE
+  // assignment (see the button's own guard below).
+  timesUpRequestedAt: string | null;
   // True once a PROPOSED assignment has sat unstarted past the owner's
   // forgottenAssignmentNudgeMinutes setting — computed server-side at
   // page render (see app/dashboard/admin/open-play-capacity/[date]/
@@ -418,48 +423,71 @@ export function RotationBoard({
                       </Badge>
                     );
                   })()}
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={isPending}
-                      onClick={() =>
-                        runAction(
-                          announceAssignmentAction({ assignmentId: court.active!.id }),
-                          "Announced.",
-                        )
-                      }
-                    >
-                      Announce
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={isPending}
-                      onClick={() =>
-                        runAction(
-                          completeAssignmentAction({ assignmentId: court.active!.id }),
-                          "Game complete.",
-                        )
-                      }
-                    >
-                      Complete game
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      disabled={isPending}
-                      onClick={() =>
-                        runAction(
-                          cancelAssignmentAction({ assignmentId: court.active!.id }),
-                          "Game cancelled.",
-                        )
-                      }
-                    >
-                      Cancel
-                    </Button>
+                  {/* Two rows, not one flex-wrap row — a 4th button
+                      (Time's up) made a single row feel crowded on this
+                      card's width. Top row: talk to the players
+                      (Announce calls them on, Time's up calls them off).
+                      Bottom row: resolve the game (Complete/Cancel). */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isPending}
+                        onClick={() =>
+                          runAction(
+                            announceAssignmentAction({ assignmentId: court.active!.id }),
+                            "Announced.",
+                          )
+                        }
+                      >
+                        Announce
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isPending}
+                        onClick={() =>
+                          runAction(
+                            announceTimesUpAction({ assignmentId: court.active!.id }),
+                            "Time's up announced.",
+                          )
+                        }
+                      >
+                        Time&apos;s up
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={isPending}
+                        onClick={() =>
+                          runAction(
+                            completeAssignmentAction({ assignmentId: court.active!.id }),
+                            "Game complete.",
+                          )
+                        }
+                      >
+                        Complete game
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={isPending}
+                        onClick={() =>
+                          runAction(
+                            cancelAssignmentAction({ assignmentId: court.active!.id }),
+                            "Game cancelled.",
+                          )
+                        }
+                      >
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
                 </>
               ) : court.proposed ? (

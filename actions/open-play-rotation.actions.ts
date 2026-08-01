@@ -158,6 +158,32 @@ export async function announceAssignmentAction(
   }
 }
 
+// "Time's up" — manual call to players off the court, same permission
+// and shape as announceAssignmentAction above.
+export async function announceTimesUpAction(
+  input: AssignmentIdInput,
+): Promise<OpenPlayRotationActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = assignmentIdInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await openPlayRotationService.announceTimesUp(parsed.data.assignmentId, authz.userId);
+    revalidateRotation();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "announceTimesUpAction", userId: authz.userId }),
+    };
+  }
+}
+
 export async function cancelAssignmentAction(
   input: AssignmentIdInput,
 ): Promise<OpenPlayRotationActionState> {

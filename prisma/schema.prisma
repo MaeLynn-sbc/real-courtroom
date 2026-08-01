@@ -1621,22 +1621,22 @@ enum GameAssignmentStatus {
 }
 
 model GameAssignment {
-  id              String               @id @default(cuid())
-  courtId         String
+  id                      String               @id @default(cuid())
+  courtId                 String
   // Nullable for the same reason as OpenPlayNightRegistration.sessionId —
   // weeknight rotation has no session to key off. `date` is what every
   // query groups by; sessionId is populated for Fri/Sat only.
-  sessionId       String?
-  date            DateTime
+  sessionId               String?
+  date                    DateTime
   // Max skill-level distance among this game's 4 participants at proposal
   // time (0 = all same level). Informational — not enforced, just shown to
   // staff and useful for later tuning of skillWindow.
-  skillSpread     Int
-  source          GameAssignmentSource
-  createdByUserId String?
-  proposedAt      DateTime             @default(now())
-  startedAt       DateTime?
-  endedAt         DateTime?
+  skillSpread             Int
+  source                  GameAssignmentSource
+  createdByUserId         String?
+  proposedAt              DateTime             @default(now())
+  startedAt               DateTime?
+  endedAt                 DateTime?
   // Stamped by the ANNOUNCE staff action (open-play-rotation.service.ts's
   // announceAssignment) — re-pressable, and deliberately independent of
   // startedAt/status: announcing (players walk over) and starting the
@@ -1645,9 +1645,20 @@ model GameAssignment {
   // this value changing, not the assignment's status, to decide when to
   // speak.
   announcementRequestedAt DateTime?
-  status          GameAssignmentStatus @default(PROPOSED)
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  // Manual "Time's up" call — same shape as announcementRequestedAt
+  // above, but for calling players OFF the court instead of onto it.
+  // Deliberately manual, not clock-driven: staff can see whether players
+  // noticed and already left, so an automatic call would fire whether or
+  // not it's actually needed. Available while ACTIVE only (never
+  // PROPOSED — there's no "time" to be up before a game has even
+  // started); re-pressable, same as ANNOUNCE. The one-minute warning
+  // stays separate and automatic (settings.service.ts's
+  // getGameWarningSettings) — that one is purely clock-driven with no
+  // human judgment involved, this one is the opposite.
+  timesUpRequestedAt      DateTime?
+  status                  GameAssignmentStatus @default(PROPOSED)
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
 
   court        Court                       @relation(fields: [courtId], references: [id])
   session      OpenPlayNightSession?       @relation(fields: [sessionId], references: [id])

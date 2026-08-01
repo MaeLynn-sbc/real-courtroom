@@ -557,6 +557,43 @@ export class OpenPlayRotationService {
     return updated;
   }
 
+  // "Time's up" — the twin of announceAssignment above, for calling
+  // players OFF the court instead of onto it. Deliberately manual, not
+  // clock-driven (same reasoning as the ANNOUNCE button itself): staff
+  // can see whether players noticed and cleared the court, so a call
+  // that fires automatically at zero would go off whether or not it's
+  // actually needed. ACTIVE only — PROPOSED has no running clock yet,
+  // so "time's up" is meaningless there (unlike ANNOUNCE, which is
+  // valid on both).
+  async announceTimesUp(
+    assignmentId: string,
+    actorUserId: string,
+  ): Promise<GameAssignmentWithParticipants> {
+    const assignment = await prisma.gameAssignment.findUniqueOrThrow({
+      where: { id: assignmentId },
+    });
+    if (assignment.status !== "ACTIVE") {
+      throw new Error(
+        `Can only call time's up on an active game (current status: ${assignment.status.toLowerCase()}).`,
+      );
+    }
+
+    const updated = await prisma.gameAssignment.update({
+      where: { id: assignmentId },
+      data: { timesUpRequestedAt: new Date() },
+      include: { participants: { include: { registration: true } } },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "game_assignment.times_up_announced",
+      entityType: "GameAssignment",
+      entityId: assignmentId,
+    });
+
+    return updated;
+  }
+
   // Handles both "reject a proposal" and "cancel a game in progress" — in
   // both cases nobody actually finished a game, so participants return to
   // WAITING with joinedQueueAt untouched (BUILD-SPEC.md doesn't specify a

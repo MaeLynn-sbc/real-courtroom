@@ -47,6 +47,10 @@ export interface SetGameWarningSettingsActionState {
   error: string | null;
 }
 
+export interface SetTimesUpTemplateActionState {
+  error: string | null;
+}
+
 // BUILD-SPEC.md §13: "Owner-only 'Regenerate URL' issues a new slug and
 // invalidates the old one — for when staff leave or the URL gets
 // shared." Staff can otherwise VIEW the setup page freely; only this
@@ -62,7 +66,9 @@ export async function regenerateDisplaySlugAction(): Promise<RegenerateDisplaySl
     revalidatePath("/dashboard/admin/tv-display");
     return { error: null, slug };
   } catch (error) {
-    return { error: toActionError(error, { action: "regenerateDisplaySlugAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "regenerateDisplaySlugAction", userId: authz.userId }),
+    };
   }
 }
 
@@ -73,7 +79,9 @@ export async function regenerateDisplaySlugAction(): Promise<RegenerateDisplaySl
 export async function setDisplayRefreshIntervalAction(
   value: number,
 ): Promise<SetDisplayRefreshIntervalActionState> {
-  const authz = await requireDisplayManage("You don't have permission to change the display refresh interval.");
+  const authz = await requireDisplayManage(
+    "You don't have permission to change the display refresh interval.",
+  );
   if (!authz.ok) {
     return { error: authz.error };
   }
@@ -87,7 +95,12 @@ export async function setDisplayRefreshIntervalAction(
     revalidatePath("/dashboard/admin/tv-display");
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "setDisplayRefreshIntervalAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, {
+        action: "setDisplayRefreshIntervalAction",
+        userId: authz.userId,
+      }),
+    };
   }
 }
 
@@ -95,8 +108,12 @@ export async function setDisplayRefreshIntervalAction(
 // repeat" (the setting's own stated purpose — go back to once without a
 // code change), and there's no legitimate reason to ever want more than
 // a handful of repeats of the same announcement.
-export async function setAnnouncementRepeatCountAction(value: number): Promise<SetAnnouncementRepeatCountActionState> {
-  const authz = await requireDisplayManage("You don't have permission to change the announcement repeat count.");
+export async function setAnnouncementRepeatCountAction(
+  value: number,
+): Promise<SetAnnouncementRepeatCountActionState> {
+  const authz = await requireDisplayManage(
+    "You don't have permission to change the announcement repeat count.",
+  );
   if (!authz.ok) {
     return { error: authz.error };
   }
@@ -110,7 +127,12 @@ export async function setAnnouncementRepeatCountAction(value: number): Promise<S
     revalidatePath("/dashboard/admin/tv-display");
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "setAnnouncementRepeatCountAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, {
+        action: "setAnnouncementRepeatCountAction",
+        userId: authz.userId,
+      }),
+    };
   }
 }
 
@@ -118,8 +140,12 @@ export async function setAnnouncementRepeatCountAction(value: number): Promise<S
 // actually be noticed (below 30s risks nobody looking at exactly the
 // right moment), short enough it can never functionally become "flash
 // all night."
-export async function setTimeUpFlashDurationAction(value: number): Promise<SetTimeUpFlashDurationActionState> {
-  const authz = await requireDisplayManage("You don't have permission to change the time's-up flash duration.");
+export async function setTimeUpFlashDurationAction(
+  value: number,
+): Promise<SetTimeUpFlashDurationActionState> {
+  const authz = await requireDisplayManage(
+    "You don't have permission to change the time's-up flash duration.",
+  );
   if (!authz.ok) {
     return { error: authz.error };
   }
@@ -133,7 +159,9 @@ export async function setTimeUpFlashDurationAction(value: number): Promise<SetTi
     revalidatePath("/dashboard/admin/tv-display");
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "setTimeUpFlashDurationAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "setTimeUpFlashDurationAction", userId: authz.userId }),
+    };
   }
 }
 
@@ -152,7 +180,9 @@ export async function setTimeUpFlashDurationAction(value: number): Promise<SetTi
 export async function setAnnouncementVoiceAction(
   value: { name: string; lang: string } | null,
 ): Promise<SetAnnouncementVoiceActionState> {
-  const authz = await requireDisplayManage("You don't have permission to change the announcement voice.");
+  const authz = await requireDisplayManage(
+    "You don't have permission to change the announcement voice.",
+  );
   if (!authz.ok) {
     return { error: authz.error };
   }
@@ -162,7 +192,9 @@ export async function setAnnouncementVoiceAction(
     revalidatePath("/dashboard/admin/tv-display");
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "setAnnouncementVoiceAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "setAnnouncementVoiceAction", userId: authz.userId }),
+    };
   }
 }
 
@@ -174,10 +206,13 @@ export async function setAnnouncementVoiceAction(
 // — below 1 isn't "a warning" anymore, and a target game is rarely
 // longer than 20-30 minutes, so 10 already comfortably covers "most of
 // the game," never a real product need to go further.
-export async function setGameWarningSettingsAction(
-  value: { enabled: boolean; minutes: number },
-): Promise<SetGameWarningSettingsActionState> {
-  const authz = await requireDisplayManage("You don't have permission to change the game warning settings.");
+export async function setGameWarningSettingsAction(value: {
+  enabled: boolean;
+  minutes: number;
+}): Promise<SetGameWarningSettingsActionState> {
+  const authz = await requireDisplayManage(
+    "You don't have permission to change the game warning settings.",
+  );
   if (!authz.ok) {
     return { error: authz.error };
   }
@@ -191,6 +226,39 @@ export async function setGameWarningSettingsAction(
     revalidatePath("/dashboard/admin/tv-display");
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "setGameWarningSettingsAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "setGameWarningSettingsAction", userId: authz.userId }),
+    };
+  }
+}
+
+// Manual "Time's up" call — owner-editable phrasing, one placeholder
+// ({court}). Same DISPLAY_MANAGE gate as every other TV display setting
+// on this page.
+export async function setTimesUpTemplateAction(
+  value: string,
+): Promise<SetTimesUpTemplateActionState> {
+  const authz = await requireDisplayManage(
+    "You don't have permission to change the time's-up announcement phrasing.",
+  );
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  if (!value.trim()) {
+    return { error: "Enter a phrase to speak." };
+  }
+  if (!value.includes("{court}")) {
+    return { error: "The phrase must include {court} so the announcement names the right court." };
+  }
+
+  try {
+    await settingsService.setTimesUpTemplate(value.trim(), authz.userId);
+    revalidatePath("/dashboard/admin/tv-display");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "setTimesUpTemplateAction", userId: authz.userId }),
+    };
   }
 }

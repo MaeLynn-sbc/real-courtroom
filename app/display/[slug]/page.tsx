@@ -31,15 +31,23 @@ export default async function DisplayPage({ params }: DisplayPageProps) {
     notFound();
   }
 
-  const [initialData, announcementRepeatCount, timeUpFlashDurationSeconds, announcementVoice, refreshIntervalSeconds, gameWarning] =
-    await Promise.all([
-      displayService.getDisplayData(),
-      settingsService.getAnnouncementRepeatCount(),
-      settingsService.getTimeUpFlashDurationSeconds(),
-      settingsService.getAnnouncementVoice(),
-      settingsService.getDisplayRefreshIntervalSeconds(),
-      settingsService.getGameWarningSettings(),
-    ]);
+  const [
+    initialData,
+    announcementRepeatCount,
+    timeUpFlashDurationSeconds,
+    announcementVoice,
+    refreshIntervalSeconds,
+    gameWarning,
+    timesUpTemplate,
+  ] = await Promise.all([
+    displayService.getDisplayData(),
+    settingsService.getAnnouncementRepeatCount(),
+    settingsService.getTimeUpFlashDurationSeconds(),
+    settingsService.getAnnouncementVoice(),
+    settingsService.getDisplayRefreshIntervalSeconds(),
+    settingsService.getGameWarningSettings(),
+    settingsService.getTimesUpTemplate(),
+  ]);
 
   return (
     <TvDisplayClient
@@ -50,6 +58,7 @@ export default async function DisplayPage({ params }: DisplayPageProps) {
       refreshIntervalSeconds={refreshIntervalSeconds}
       gameWarningEnabled={gameWarning.enabled}
       gameWarningMinutes={gameWarning.minutes}
+      timesUpTemplate={timesUpTemplate}
     />
   );
 }
