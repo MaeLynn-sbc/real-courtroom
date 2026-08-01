@@ -72,6 +72,24 @@ interface WalkInRegistrationFormProps {
   // an explicit title keeps them from reading as duplicates. Defaults to
   // the original title so every other call site is unaffected.
   title?: string;
+  // BUG (reported live, money-critical): the page above can now render
+  // TWO instances of this form at once (before the Fri/Sat cutoff — see
+  // `title`'s own comment). Every field id/htmlFor here was a hardcoded
+  // literal ("walkInName" etc.), so two instances on the same page
+  // produced duplicate DOM ids — invalid HTML, and `<label htmlFor>`
+  // click-to-focus resolves to the FIRST matching id in the document,
+  // not the one visually under that label. A staff member clicking into
+  // the SECOND form's fields could end up focused on the FIRST form's
+  // inputs instead, leaving the second form's own state empty — which
+  // fails this component's own client-side "Enter a name and phone
+  // number" check before the server action is ever called, so nothing
+  // is created: no registration, no Sale, no audit trail. That matches
+  // exactly what got reported: a submitted "unlimited session"
+  // registration that appeared nowhere at all, not even the roster.
+  // formId makes every id unique per instance; defaults to "walkIn" so
+  // every pre-existing single-form call site (weeknight, post-cutoff
+  // capacity-only) is byte-for-byte unaffected.
+  formId?: string;
 }
 
 export function WalkInRegistrationForm({
@@ -82,6 +100,7 @@ export function WalkInRegistrationForm({
   weeknightGameRateCents,
   friSatRegistrationFeeCents,
   title = "Register a Walk-in",
+  formId = "walkIn",
 }: WalkInRegistrationFormProps) {
   const router = useRouter();
   const [playerName, setPlayerName] = useState("");
@@ -227,9 +246,9 @@ export function WalkInRegistrationForm({
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="walkInName">Name</Label>
+            <Label htmlFor={`${formId}Name`}>Name</Label>
             <PlayerSearchCombobox
-              id="walkInName"
+              id={`${formId}Name`}
               players={comboboxPlayers}
               selectedPlayerId={matchedPlayerId ?? null}
               text={playerName}
@@ -238,21 +257,21 @@ export function WalkInRegistrationForm({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="walkInPhone">Phone</Label>
+            <Label htmlFor={`${formId}Phone`}>Phone</Label>
             <Input
-              id="walkInPhone"
+              id={`${formId}Phone`}
               type="tel"
               value={phone}
               onChange={(event) => setPhone(event.target.value)}
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="walkInSkill">Skill level</Label>
+            <Label htmlFor={`${formId}Skill`}>Skill level</Label>
             <Select
               value={skillLevel}
               onValueChange={(value) => setSkillLevel(value as OpenPlaySkillLevel)}
             >
-              <SelectTrigger id="walkInSkill" className="w-full">
+              <SelectTrigger id={`${formId}Skill`} className="w-full">
                 <SelectValue>{() => OPEN_PLAY_SKILL_LEVELS[skillLevel].label}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -274,7 +293,7 @@ export function WalkInRegistrationForm({
               onPaymentMethodIdChange={setPaymentMethodId}
               gcashReference={gcashReference}
               onGcashReferenceChange={setGcashReference}
-              idPrefix="walkInPaymentMethod"
+              idPrefix={`${formId}PaymentMethod`}
             />
           </div>
         ) : null}

@@ -171,12 +171,14 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
               {walkInRegularMode ? (
                 <>
                   <WalkInRegistrationForm
+                    formId="regularWalkIn"
                     title="Register a walk-in (playing now)"
                     target={{ date: dateParam }}
                     players={players}
                     weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
                   />
                   <WalkInRegistrationForm
+                    formId="unlimitedWalkIn"
                     title="Register for tonight's unlimited session"
                     target={{ sessionId: session.id }}
                     players={players}
