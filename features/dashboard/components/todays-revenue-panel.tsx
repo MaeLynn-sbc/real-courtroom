@@ -10,6 +10,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   TOURNAMENT_REGISTRATION: "Tournament registration",
   PRODUCT: "Product",
   OTHER: "Other",
+  // "Separate the regular and unli open play payments" — split out of the
+  // single SaleCategory.OPEN_PLAY total by sale.service.ts's getSalesSummary
+  // (see OpenPlaySummaryCategory's own comment there).
+  OPEN_PLAY_REGULAR: "Open Play (regular)",
+  OPEN_PLAY_UNLI: "Open Play (unli)",
 };
 
 // Sale-sourced — deliberately a different, narrower number than the
@@ -27,7 +32,9 @@ export function TodaysRevenuePanel({ summary }: { summary: SalesSummary }) {
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-muted-foreground text-xs">Total</p>
-            <p className="text-lg font-semibold tabular-nums">{formatCurrency(summary.totalAmountCents)}</p>
+            <p className="text-lg font-semibold tabular-nums">
+              {formatCurrency(summary.totalAmountCents)}
+            </p>
           </div>
           <div>
             <p className="text-muted-foreground text-xs">Transactions</p>
@@ -45,10 +52,21 @@ export function TodaysRevenuePanel({ summary }: { summary: SalesSummary }) {
                 {summary.byCategory.map((row) => (
                   <li
                     key={row.category}
-                    className="bg-muted/50 flex items-center justify-between gap-3 rounded-lg px-3 py-2"
+                    // bg-card + a fixed border, not bg-muted/50: this row
+                    // sits inside a Card, which is deliberately pinned
+                    // white/dark-text in BOTH themes (see card.tsx) — but
+                    // --muted is a genuinely different, darker gray in dark
+                    // mode, so bg-muted/50 composited over that fixed-white
+                    // Card produced a muddy, hard-to-read box (reported
+                    // live: "grayish, can barely see the text"). --border
+                    // is the same value in both themes, so a plain border
+                    // reads consistently either way.
+                    className="bg-card border-border/70 text-card-foreground flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
                   >
                     <span>{CATEGORY_LABELS[row.category] ?? row.category}</span>
-                    <span className="tabular-nums font-medium">{formatCurrency(row.amountCents)}</span>
+                    <span className="font-medium tabular-nums">
+                      {formatCurrency(row.amountCents)}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -59,10 +77,21 @@ export function TodaysRevenuePanel({ summary }: { summary: SalesSummary }) {
                 {summary.byPaymentMethod.map((row) => (
                   <li
                     key={row.paymentMethodId}
-                    className="bg-muted/50 flex items-center justify-between gap-3 rounded-lg px-3 py-2"
+                    // bg-card + a fixed border, not bg-muted/50: this row
+                    // sits inside a Card, which is deliberately pinned
+                    // white/dark-text in BOTH themes (see card.tsx) — but
+                    // --muted is a genuinely different, darker gray in dark
+                    // mode, so bg-muted/50 composited over that fixed-white
+                    // Card produced a muddy, hard-to-read box (reported
+                    // live: "grayish, can barely see the text"). --border
+                    // is the same value in both themes, so a plain border
+                    // reads consistently either way.
+                    className="bg-card border-border/70 text-card-foreground flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
                   >
                     <span>{row.label}</span>
-                    <span className="tabular-nums font-medium">{formatCurrency(row.amountCents)}</span>
+                    <span className="font-medium tabular-nums">
+                      {formatCurrency(row.amountCents)}
+                    </span>
                   </li>
                 ))}
               </ul>

@@ -48,8 +48,20 @@ export interface UpsertPaymentMethodInput {
   sortOrder?: number;
 }
 
+// Reported live: "separate the regular and unli open play payments" — one
+// lumped SaleCategory.OPEN_PLAY total was hiding two genuinely different
+// products (see schema.prisma's own comment above Sale.
+// openPlayNightRegistrationId): a flat Fri/Sat "unli" access fee
+// (Sale.openPlayNightRegistrationId, pay once, play all night) versus
+// per-game/per-tab "regular" billing (Sale.playerTabId — weeknight ₱35/game,
+// and any incidental Fri/Sat tab charges too, since those are pay-as-you-go
+// the same way). Split at the breakdown-row level, not in the schema —
+// SaleCategory itself stays a single enum value; these two synthetic labels
+// only exist in this summary's own output.
+export type OpenPlaySummaryCategory = "OPEN_PLAY_REGULAR" | "OPEN_PLAY_UNLI";
+
 export interface SalesSummaryCategoryBreakdown {
-  category: SaleCategory;
+  category: SaleCategory | OpenPlaySummaryCategory;
   amountCents: number;
   count: number;
 }
@@ -152,25 +164,45 @@ export class SaleService {
       status: "COMPLETED",
     };
 
-    const [totals, byCategory, byPaymentMethod, byEmployee, paymentMethods, employees] =
-      await Promise.all([
-        prisma.sale.aggregate({ where, _sum: { amountCents: true }, _count: true }),
-        prisma.sale.groupBy({ by: ["category"], where, _sum: { amountCents: true }, _count: true }),
-        prisma.sale.groupBy({
-          by: ["paymentMethodId"],
-          where,
-          _sum: { amountCents: true },
-          _count: true,
-        }),
-        prisma.sale.groupBy({
-          by: ["employeeId"],
-          where,
-          _sum: { amountCents: true },
-          _count: true,
-        }),
-        prisma.paymentMethod.findMany(),
-        prisma.employee.findMany(),
-      ]);
+    const [
+      totals,
+      byCategory,
+      byPaymentMethod,
+      byEmployee,
+      paymentMethods,
+      employees,
+      openPlayRegular,
+      openPlayUnli,
+    ] = await Promise.all([
+      prisma.sale.aggregate({ where, _sum: { amountCents: true }, _count: true }),
+      prisma.sale.groupBy({ by: ["category"], where, _sum: { amountCents: true }, _count: true }),
+      prisma.sale.groupBy({
+        by: ["paymentMethodId"],
+        where,
+        _sum: { amountCents: true },
+        _count: true,
+      }),
+      prisma.sale.groupBy({
+        by: ["employeeId"],
+        where,
+        _sum: { amountCents: true },
+        _count: true,
+      }),
+      prisma.paymentMethod.findMany(),
+      prisma.employee.findMany(),
+      // "Regular" (pay-per-game/tab) vs "Unli" (flat Fri/Sat access fee) —
+      // see OpenPlaySummaryCategory's own comment above.
+      prisma.sale.aggregate({
+        where: { ...where, category: "OPEN_PLAY", playerTabId: { not: null } },
+        _sum: { amountCents: true },
+        _count: true,
+      }),
+      prisma.sale.aggregate({
+        where: { ...where, category: "OPEN_PLAY", openPlayNightRegistrationId: { not: null } },
+        _sum: { amountCents: true },
+        _count: true,
+      }),
+    ]);
 
     const totalAmountCents = totals._sum.amountCents ?? 0;
     const transactionCount = totals._count;
@@ -184,11 +216,29 @@ export class SaleService {
       totalAmountCents,
       transactionCount,
       averageAmountCents,
-      byCategory: byCategory.map((row) => ({
-        category: row.category,
-        amountCents: row._sum.amountCents ?? 0,
-        count: row._count,
-      })),
+      byCategory: byCategory.flatMap((row): SalesSummaryCategoryBreakdown[] => {
+        if (row.category !== "OPEN_PLAY") {
+          return [
+            { category: row.category, amountCents: row._sum.amountCents ?? 0, count: row._count },
+          ];
+        }
+        const rows: SalesSummaryCategoryBreakdown[] = [];
+        if (openPlayRegular._count > 0) {
+          rows.push({
+            category: "OPEN_PLAY_REGULAR",
+            amountCents: openPlayRegular._sum.amountCents ?? 0,
+            count: openPlayRegular._count,
+          });
+        }
+        if (openPlayUnli._count > 0) {
+          rows.push({
+            category: "OPEN_PLAY_UNLI",
+            amountCents: openPlayUnli._sum.amountCents ?? 0,
+            count: openPlayUnli._count,
+          });
+        }
+        return rows;
+      }),
       byPaymentMethod: byPaymentMethod.map((row) => ({
         paymentMethodId: row.paymentMethodId,
         label: paymentMethodById.get(row.paymentMethodId)?.label ?? "Unknown",

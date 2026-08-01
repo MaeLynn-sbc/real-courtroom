@@ -158,13 +158,41 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
           }
           checkIn={
             <div className="flex flex-col gap-4">
-              <WalkInRegistrationForm
-                target={walkInRegularMode ? { date: dateParam } : { sessionId: session.id }}
-                players={players}
-                paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
-                weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
-                friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
-              />
+              {/* URGENT (reported live): before the cutoff, a customer at
+                  the desk wanting to prepay for TONIGHT's unlimited
+                  session had no form to use — only the regular
+                  (playing-now) form rendered. Both are real, different
+                  needs and both must be reachable before 6PM: someone
+                  playing right now (regular, per-game) and someone
+                  prepaying for tonight (unlimited, capacity night). After
+                  the cutoff, Open Play has taken the courts over, so only
+                  the unlimited form makes sense — matches
+                  getCourtBookingWindow's own Fri/Sat rule. */}
+              {walkInRegularMode ? (
+                <>
+                  <WalkInRegistrationForm
+                    title="Register a walk-in (playing now)"
+                    target={{ date: dateParam }}
+                    players={players}
+                    weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
+                  />
+                  <WalkInRegistrationForm
+                    title="Register for tonight's unlimited session"
+                    target={{ sessionId: session.id }}
+                    players={players}
+                    paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
+                    friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
+                  />
+                </>
+              ) : (
+                <WalkInRegistrationForm
+                  target={{ sessionId: session.id }}
+                  players={players}
+                  paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
+                  weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
+                  friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
+                />
+              )}
               <CheckInPanel
                 expected={serializeRegistrations(expected)}
                 checkedIn={serializeRegistrations(checkedIn)}

@@ -11,10 +11,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { deriveSettlementMethod, SettlementPaymentFields } from "@/components/shared/settlement-payment-fields";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  deriveSettlementMethod,
+  SettlementPaymentFields,
+} from "@/components/shared/settlement-payment-fields";
 import { PlayerSearchCombobox } from "@/features/players/components/player-search-combobox";
-import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
+import {
+  OPEN_PLAY_SKILL_LEVEL_ORDER,
+  OPEN_PLAY_SKILL_LEVELS,
+} from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
@@ -50,6 +62,16 @@ interface WalkInRegistrationFormProps {
   // them.
   weeknightGameRateCents?: number;
   friSatRegistrationFeeCents?: number;
+  // URGENT (reported live): before the Fri/Sat cutoff, the page now
+  // renders BOTH this form (regular, target={date}) and a second instance
+  // (unlimited, target={sessionId}) side by side — a customer wanting to
+  // prepay for tonight's session during the afternoon had no path to do
+  // that at all, since only one form used to render, chosen by the
+  // cutoff. Same generic "Register a Walk-in" title on both was fine when
+  // only one was ever visible at once; now that both can show together,
+  // an explicit title keeps them from reading as duplicates. Defaults to
+  // the original title so every other call site is unaffected.
+  title?: string;
 }
 
 export function WalkInRegistrationForm({
@@ -59,6 +81,7 @@ export function WalkInRegistrationForm({
   paymentMethods = [],
   weeknightGameRateCents,
   friSatRegistrationFeeCents,
+  title = "Register a Walk-in",
 }: WalkInRegistrationFormProps) {
   const router = useRouter();
   const [playerName, setPlayerName] = useState("");
@@ -75,7 +98,10 @@ export function WalkInRegistrationForm({
   // field) needs a `label` per option — reuse `name` rather than
   // changing the RegistrablePlayer contract every caller already
   // supplies.
-  const comboboxPlayers = useMemo(() => players.map((player) => ({ ...player, label: player.name })), [players]);
+  const comboboxPlayers = useMemo(
+    () => players.map((player) => ({ ...player, label: player.name })),
+    [players],
+  );
 
   function handleSelectPlayer(player: RegistrablePlayer): void {
     setPlayerName(player.name);
@@ -175,7 +201,7 @@ export function WalkInRegistrationForm({
     <Card className={cn(isCapacityNight && "border-warning/40")}>
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
-          Register a Walk-in
+          {title}
           {/* Reported live: Fri/Sat walk-ins before Open Play's own
               cutoff were being registered into the P150 unlimited
               capacity system by mistake — staff had no way to tell
@@ -213,18 +239,27 @@ export function WalkInRegistrationForm({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="walkInPhone">Phone</Label>
-            <Input id="walkInPhone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} />
+            <Input
+              id="walkInPhone"
+              type="tel"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+            />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="walkInSkill">Skill level</Label>
-            <Select value={skillLevel} onValueChange={(value) => setSkillLevel(value as OpenPlaySkillLevel)}>
+            <Select
+              value={skillLevel}
+              onValueChange={(value) => setSkillLevel(value as OpenPlaySkillLevel)}
+            >
               <SelectTrigger id="walkInSkill" className="w-full">
                 <SelectValue>{() => OPEN_PLAY_SKILL_LEVELS[skillLevel].label}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {OPEN_PLAY_SKILL_LEVEL_ORDER.map((level) => (
                   <SelectItem key={level} value={level}>
-                    {OPEN_PLAY_SKILL_LEVELS[level].label} — {OPEN_PLAY_SKILL_LEVELS[level].description}
+                    {OPEN_PLAY_SKILL_LEVELS[level].label} —{" "}
+                    {OPEN_PLAY_SKILL_LEVELS[level].description}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -248,7 +283,12 @@ export function WalkInRegistrationForm({
             {isPending ? "Working…" : "Walk-in (register & check in)"}
           </Button>
           {showRegisterOnly && "sessionId" in target ? (
-            <Button type="button" variant="outline" disabled={isPending} onClick={() => submit("register")}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isPending}
+              onClick={() => submit("register")}
+            >
               Register only (arriving later)
             </Button>
           ) : null}
