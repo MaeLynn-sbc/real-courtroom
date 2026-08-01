@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DateRangePicker } from "@/features/analytics/components/date-range-picker";
 import { formatCurrency } from "@/lib/utils";
 import { resolveDateRangeFromSearchParams } from "@/services/analytics/date-range";
+import { expenseService } from "@/services/expenses/expense.service";
 import { reportingService } from "@/services/reporting/reporting.service";
 
 export const metadata: Metadata = {
@@ -56,6 +57,11 @@ const REPORT_LINKS: { reportType: string; title: string; description: string }[]
     title: "Sales by payment method",
     description: "Sale transactions grouped by how they were paid.",
   },
+  {
+    reportType: "salesByProduct",
+    title: "Sales by product",
+    description: "Per-product breakdown (shirts, grips, etc.) for consignment accounting.",
+  },
 ];
 
 interface ReportsPageProps {
@@ -65,7 +71,11 @@ interface ReportsPageProps {
 export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const params = await searchParams;
   const range = resolveDateRangeFromSearchParams(params);
-  const revenue = await reportingService.getRevenueReport(range);
+  const [revenue, totalExpensesCents] = await Promise.all([
+    reportingService.getRevenueReport(range),
+    expenseService.getExpensesTotalForRange(range),
+  ]);
+  const netCents = revenue.totalAmountCents - totalExpensesCents;
 
   const queryString = new URLSearchParams(
     Object.entries(params).flatMap(([key, value]) =>
@@ -86,7 +96,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       </div>
 
       <Card>
-        <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+        <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
           <div className="flex flex-col gap-1">
             <span className="text-muted-foreground text-xs">Booking</span>
             <span className="font-semibold tabular-nums">
@@ -112,9 +122,23 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
             </span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-muted-foreground text-xs">Total billable</span>
+            <span className="text-muted-foreground text-xs">Total sales</span>
             <span className="text-lg font-semibold tabular-nums">
               {formatCurrency(revenue.totalAmountCents)}
+            </span>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-muted-foreground text-xs">Total expenses</span>
+            <span className="text-destructive text-lg font-semibold tabular-nums">
+              {formatCurrency(totalExpensesCents)}
+            </span>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-muted-foreground text-xs">Net</span>
+            <span
+              className={`text-lg font-semibold tabular-nums ${netCents < 0 ? "text-destructive" : "text-success"}`}
+            >
+              {formatCurrency(netCents)}
             </span>
           </div>
         </CardContent>

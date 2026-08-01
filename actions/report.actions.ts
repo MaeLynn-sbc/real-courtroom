@@ -1,6 +1,9 @@
 "use server";
 
-import { exportReportSchema, type ExportReportInput } from "@/features/reports/schemas/report.schema";
+import {
+  exportReportSchema,
+  type ExportReportInput,
+} from "@/features/reports/schemas/report.schema";
 import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -22,13 +25,19 @@ const EXPORT_RATE_LIMIT = 20;
 const EXPORT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
 function requireReportsManage() {
-  return requirePermission(PERMISSIONS.REPORTS_MANAGE, "You don't have permission to view reports.");
+  return requirePermission(
+    PERMISSIONS.REPORTS_MANAGE,
+    "You don't have permission to view reports.",
+  );
 }
 
 // A switch (rather than a keyed lookup over ReportType) so each branch's
 // row type and column set stay concretely paired — TypeScript can't carry
 // that pairing through a generic record indexed by a union key.
-async function buildReportCsv(reportType: ExportReportInput["reportType"], range: DateRange): Promise<string> {
+async function buildReportCsv(
+  reportType: ExportReportInput["reportType"],
+  range: DateRange,
+): Promise<string> {
   switch (reportType) {
     case "booking": {
       const { rows } = await reportingService.getBookingReport(range);
@@ -61,6 +70,10 @@ async function buildReportCsv(reportType: ExportReportInput["reportType"], range
     case "salesByPaymentMethod": {
       const rows = await reportingService.getSalesByPaymentMethodReport(range);
       return toCsv(rows, REPORT_CSV_COLUMNS.salesByPaymentMethod);
+    }
+    case "salesByProduct": {
+      const rows = await reportingService.getSalesByProductReport(range);
+      return toCsv(rows, REPORT_CSV_COLUMNS.salesByProduct);
     }
   }
 }

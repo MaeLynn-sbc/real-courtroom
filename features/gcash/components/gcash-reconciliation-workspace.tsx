@@ -14,9 +14,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatVariance } from "@/lib/utils";
 import type { gcashReconciliationService } from "@/services/gcash/gcash-reconciliation.service";
 
 const dateFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" });
@@ -27,7 +34,9 @@ function toDateValue(date: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-type TodayBalance = NonNullable<Awaited<ReturnType<typeof gcashReconciliationService.getOrCreateBalanceForDate>>>;
+type TodayBalance = NonNullable<
+  Awaited<ReturnType<typeof gcashReconciliationService.getOrCreateBalanceForDate>>
+>;
 type RecentBalances = Awaited<ReturnType<typeof gcashReconciliationService.listRecentBalances>>;
 
 interface GcashReconciliationWorkspaceProps {
@@ -71,8 +80,9 @@ function SeedBalanceForm() {
       </CardHeader>
       <CardContent>
         <p className="text-muted-foreground mb-4 text-sm">
-          No prior day exists yet — enter today&apos;s actual GCash balance (check the GCash app) to start
-          tracking. Every day after this carries forward automatically; you won&apos;t need to do this again.
+          No prior day exists yet — enter today&apos;s actual GCash balance (check the GCash app) to
+          start tracking. Every day after this carries forward automatically; you won&apos;t need to
+          do this again.
         </p>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
@@ -105,7 +115,9 @@ function OverrideStartingBalanceForm({ balance }: { balance: TodayBalance }) {
   const [open, setOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [newStartingCash, setNewStartingCash] = useState(String(balance.startingBalanceCents / 100));
+  const [newStartingCash, setNewStartingCash] = useState(
+    String(balance.startingBalanceCents / 100),
+  );
   const [reason, setReason] = useState("");
 
   function handleSubmit(event: React.FormEvent) {
@@ -140,17 +152,27 @@ function OverrideStartingBalanceForm({ balance }: { balance: TodayBalance }) {
 
   if (!open) {
     return (
-      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)} className="self-start">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(true)}
+        className="self-start"
+      >
         Correct starting balance…
       </Button>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-lg border border-dashed p-3">
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-3 rounded-lg border border-dashed p-3"
+    >
       <p className="text-muted-foreground text-xs">
-        Only if the real GCash app shows a different balance than what carried forward (e.g. an external
-        transaction). Requires a reason — logged to the audit trail with the old and new value.
+        Only if the real GCash app shows a different balance than what carried forward (e.g. an
+        external transaction). Requires a reason — logged to the audit trail with the old and new
+        value.
       </p>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="newStartingCash">Corrected starting balance</Label>
@@ -165,7 +187,11 @@ function OverrideStartingBalanceForm({ balance }: { balance: TodayBalance }) {
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="overrideReason">Reason (required)</Label>
-        <Textarea id="overrideReason" value={reason} onChange={(event) => setReason(event.target.value)} />
+        <Textarea
+          id="overrideReason"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+        />
       </div>
       {serverError ? (
         <p className="text-destructive text-sm" role="alert">
@@ -176,7 +202,13 @@ function OverrideStartingBalanceForm({ balance }: { balance: TodayBalance }) {
         <Button type="submit" size="sm" disabled={isPending}>
           {isPending ? "Saving…" : "Save correction"}
         </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={isPending}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setOpen(false)}
+          disabled={isPending}
+        >
           Cancel
         </Button>
       </div>
@@ -184,7 +216,13 @@ function OverrideStartingBalanceForm({ balance }: { balance: TodayBalance }) {
   );
 }
 
-function ConfirmBalanceCard({ balance, expectedEndingBalanceCents }: { balance: TodayBalance; expectedEndingBalanceCents: number }) {
+function ConfirmBalanceCard({
+  balance,
+  expectedEndingBalanceCents,
+}: {
+  balance: TodayBalance;
+  expectedEndingBalanceCents: number;
+}) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -204,7 +242,9 @@ function ConfirmBalanceCard({ balance, expectedEndingBalanceCents }: { balance: 
       return;
     }
     if (hasVariance && !notes.trim()) {
-      setServerError("Confirmed balance doesn't match the expected amount — enter a note explaining the difference.");
+      setServerError(
+        "Confirmed balance doesn't match the expected amount — enter a note explaining the difference.",
+      );
       return;
     }
 
@@ -242,7 +282,9 @@ function ConfirmBalanceCard({ balance, expectedEndingBalanceCents }: { balance: 
         {/* Live — shown BEFORE the confirmed count, same reasoning as
             shift cash reconciliation's "Expected cash." */}
         <div className="bg-muted/40 flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
-          <span className="text-muted-foreground">Expected balance (starting + today&apos;s GCash sales)</span>
+          <span className="text-muted-foreground">
+            Expected balance (starting + today&apos;s GCash sales)
+          </span>
           <span className="font-semibold">{formatCurrency(expectedEndingBalanceCents)}</span>
         </div>
 
@@ -262,18 +304,30 @@ function ConfirmBalanceCard({ balance, expectedEndingBalanceCents }: { balance: 
           {confirmedCash.trim() ? (
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Variance</span>
-              <span className={hasVariance ? "text-destructive font-semibold" : "text-success font-semibold"}>
-                {varianceCents > 0 ? "+" : ""}
-                {formatCurrency(varianceCents)}
+              <span
+                className={
+                  hasVariance ? "text-destructive font-semibold" : "text-success font-semibold"
+                }
+              >
+                {formatVariance(varianceCents)}
               </span>
             </div>
           ) : null}
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="gcashNotes">
-              Notes {hasVariance ? <span className="text-destructive">(required — there&apos;s a variance)</span> : "(optional)"}
+              Notes{" "}
+              {hasVariance ? (
+                <span className="text-destructive">(required — there&apos;s a variance)</span>
+              ) : (
+                "(optional)"
+              )}
             </Label>
-            <Textarea id="gcashNotes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+            <Textarea
+              id="gcashNotes"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+            />
           </div>
 
           {serverError ? (
@@ -305,16 +359,24 @@ function AlreadyConfirmedCard({ balance }: { balance: TodayBalance }) {
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Confirmed ending balance</span>
           <span className="font-medium">
-            {balance.confirmedEndingBalanceCents != null ? formatCurrency(balance.confirmedEndingBalanceCents) : "—"}
+            {balance.confirmedEndingBalanceCents != null
+              ? formatCurrency(balance.confirmedEndingBalanceCents)
+              : "—"}
           </span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Variance</span>
-          <span className={balance.varianceCents ? "text-destructive font-medium" : "text-success font-medium"}>
-            {balance.varianceCents ? `${balance.varianceCents > 0 ? "+" : ""}${formatCurrency(balance.varianceCents)}` : "₱0.00"}
+          <span
+            className={
+              balance.varianceCents ? "text-destructive font-medium" : "text-success font-medium"
+            }
+          >
+            {formatVariance(balance.varianceCents ?? 0)}
           </span>
         </div>
-        {balance.notes ? <p className="text-muted-foreground mt-1">Notes: {balance.notes}</p> : null}
+        {balance.notes ? (
+          <p className="text-muted-foreground mt-1">Notes: {balance.notes}</p>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -333,7 +395,12 @@ export function GcashReconciliationWorkspace({
       ) : todayBalance.status === "CONFIRMED" ? (
         <AlreadyConfirmedCard balance={todayBalance} />
       ) : (
-        <ConfirmBalanceCard balance={todayBalance} expectedEndingBalanceCents={expectedEndingBalanceCents ?? todayBalance.startingBalanceCents} />
+        <ConfirmBalanceCard
+          balance={todayBalance}
+          expectedEndingBalanceCents={
+            expectedEndingBalanceCents ?? todayBalance.startingBalanceCents
+          }
+        />
       )}
 
       <Card>
@@ -358,7 +425,9 @@ export function GcashReconciliationWorkspace({
               <TableBody>
                 {recentBalances.map((balance) => (
                   <TableRow key={balance.id}>
-                    <TableCell className="font-medium">{dateFormatter.format(balance.date)}</TableCell>
+                    <TableCell className="font-medium">
+                      {dateFormatter.format(balance.date)}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={balance.status === "OPEN" ? "status" : "outline"}>
                         {balance.status === "OPEN" ? "Open" : "Confirmed"}
@@ -366,17 +435,22 @@ export function GcashReconciliationWorkspace({
                     </TableCell>
                     <TableCell>{formatCurrency(balance.startingBalanceCents)}</TableCell>
                     <TableCell>
-                      {balance.confirmedEndingBalanceCents != null ? formatCurrency(balance.confirmedEndingBalanceCents) : "—"}
+                      {balance.confirmedEndingBalanceCents != null
+                        ? formatCurrency(balance.confirmedEndingBalanceCents)
+                        : "—"}
                     </TableCell>
                     <TableCell>
                       {balance.varianceCents == null ? (
                         "—"
-                      ) : balance.varianceCents === 0 ? (
-                        <span className="text-success">₱0.00</span>
                       ) : (
-                        <span className="text-destructive font-medium">
-                          {balance.varianceCents > 0 ? "+" : ""}
-                          {formatCurrency(balance.varianceCents)}
+                        <span
+                          className={
+                            balance.varianceCents === 0
+                              ? "text-success"
+                              : "text-destructive font-medium"
+                          }
+                        >
+                          {formatVariance(balance.varianceCents)}
                         </span>
                       )}
                     </TableCell>

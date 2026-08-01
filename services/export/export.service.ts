@@ -6,6 +6,7 @@ import type {
   MembershipReportRow,
   SalesByCategoryRow,
   SalesByPaymentMethodRow,
+  SalesByProductRow,
   TournamentReportRow,
 } from "@/services/reporting/reporting.service";
 
@@ -93,7 +94,10 @@ export const REPORT_CSV_COLUMNS = {
     { header: "Rented At", value: (r: EquipmentRentalReportRow) => r.rentedAt },
     { header: "Due At", value: (r: EquipmentRentalReportRow) => r.dueAt },
     { header: "Returned At", value: (r: EquipmentRentalReportRow) => r.returnedAt },
-    { header: "Billable Amount (cents)", value: (r: EquipmentRentalReportRow) => r.billableAmountCents },
+    {
+      header: "Billable Amount (cents)",
+      value: (r: EquipmentRentalReportRow) => r.billableAmountCents,
+    },
   ] satisfies CsvColumn<EquipmentRentalReportRow>[],
   lockerRental: [
     { header: "Rental Reference", value: (r: LockerRentalReportRow) => r.rentalReference },
@@ -115,6 +119,12 @@ export const REPORT_CSV_COLUMNS = {
     { header: "Transactions", value: (r: SalesByPaymentMethodRow) => r.transactionCount },
     { header: "Amount (cents)", value: (r: SalesByPaymentMethodRow) => r.amountCents },
   ] satisfies CsvColumn<SalesByPaymentMethodRow>[],
+  salesByProduct: [
+    { header: "Product", value: (r: SalesByProductRow) => r.productName },
+    { header: "Qty Sold", value: (r: SalesByProductRow) => r.quantitySold },
+    { header: "Transactions", value: (r: SalesByProductRow) => r.transactionCount },
+    { header: "Amount (cents)", value: (r: SalesByProductRow) => r.amountCents },
+  ] satisfies CsvColumn<SalesByProductRow>[],
 } as const;
 
 export type ReportType = keyof typeof REPORT_CSV_COLUMNS;

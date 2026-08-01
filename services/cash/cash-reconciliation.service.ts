@@ -132,11 +132,17 @@ export class CashReconciliationService {
       return null;
     }
 
+    // Only what stayed in the drawer carries forward — the bulk of each
+    // day's cash gets pulled for the bank/safe at close (withdrawnCents),
+    // never the full confirmed count. See the schema field's own comment.
+    const carriedForwardCents =
+      mostRecentConfirmed.confirmedEndingBalanceCents - mostRecentConfirmed.withdrawnCents;
+
     try {
       return await prisma.cashDailyBalance.create({
         data: {
           date: targetDate,
-          startingBalanceCents: mostRecentConfirmed.confirmedEndingBalanceCents,
+          startingBalanceCents: carriedForwardCents,
         },
       });
     } catch (error) {
@@ -166,6 +172,7 @@ export class CashReconciliationService {
   async confirmBalance(
     date: Date,
     confirmedEndingBalanceCents: number,
+    withdrawnCents: number,
     notes: string | undefined,
     employeeId: string,
     actorUserId: string,
@@ -177,6 +184,9 @@ export class CashReconciliationService {
     }
     if (existing.status !== "OPEN") {
       throw new CashBalanceAlreadyConfirmedError();
+    }
+    if (withdrawnCents < 0 || withdrawnCents > confirmedEndingBalanceCents) {
+      throw new Error("Cash withdrawn can't be negative or more than the confirmed drawer count.");
     }
 
     const expectedEndingBalanceCents = await this.getExpectedEndingBalance(existing);
@@ -194,6 +204,7 @@ export class CashReconciliationService {
         status: "CONFIRMED",
         expectedEndingBalanceCents,
         confirmedEndingBalanceCents,
+        withdrawnCents,
         varianceCents,
         notes,
         confirmedByEmployeeId: employeeId,

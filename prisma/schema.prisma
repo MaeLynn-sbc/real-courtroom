@@ -572,6 +572,14 @@ model CashDailyBalance {
   startingBalanceCents        Int
   expectedEndingBalanceCents  Int?
   confirmedEndingBalanceCents Int?
+  // Cash physically pulled from the drawer at close (bank deposit/safe) —
+  // set once, at confirm. Only confirmedEndingBalanceCents minus this
+  // amount stays in the drawer, and it's THAT leftover that carries
+  // forward as tomorrow's startingBalanceCents, not the full confirmed
+  // count (see getOrCreateBalanceForDate) — the business pulls the bulk
+  // of each day's cash out rather than leaving it sitting in the drawer
+  // overnight.
+  withdrawnCents              Int                    @default(0)
   varianceCents               Int?
   notes                       String?
   status                      CashDailyBalanceStatus @default(OPEN)

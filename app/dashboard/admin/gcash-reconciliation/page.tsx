@@ -7,7 +7,7 @@ import { cashReconciliationService } from "@/services/cash/cash-reconciliation.s
 import { gcashReconciliationService } from "@/services/gcash/gcash-reconciliation.service";
 
 export const metadata: Metadata = {
-  title: "Cash & GCash Reconciliation",
+  title: "Accounts Reconciliation",
 };
 
 // Same reason as every other admin/ops page in this app — a confirmed
@@ -46,7 +46,7 @@ export default async function ReconciliationPage() {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Cash &amp; GCash Reconciliation</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Accounts Reconciliation</h1>
         <p className="text-muted-foreground text-sm">
           One shared running balance per payment method, confirmed once a day — not per shift.
           Tomorrow&apos;s starting balance carries forward automatically once today is confirmed.

@@ -34,6 +34,7 @@ import {
   type MembershipReportRow,
   type SalesByCategoryRow,
   type SalesByPaymentMethodRow,
+  type SalesByProductRow,
   type TournamentReportRow,
 } from "@/services/reporting/reporting.service";
 
@@ -47,6 +48,7 @@ const REPORT_TITLES: Record<string, string> = {
   lockerRental: "Locker rental report",
   salesByCategory: "Sales by category",
   salesByPaymentMethod: "Sales by payment method",
+  salesByProduct: "Sales by product",
 };
 
 interface ReportPageProps {
@@ -82,7 +84,9 @@ export default async function ReportPage({ params, searchParams }: ReportPagePro
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{REPORT_TITLES[parsedType.data]}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {REPORT_TITLES[parsedType.data]}
+          </h1>
           <p className="text-muted-foreground text-sm">
             {range.from.toLocaleDateString()} – {range.to.toLocaleDateString()}
           </p>
@@ -107,7 +111,10 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
         { header: "Court", render: (r) => r.courtName },
         { header: "Player", render: (r) => r.playerName ?? "—" },
         { header: "Type", render: (r) => r.type },
-        { header: "Status", render: (r) => <BookingStatusBadge status={r.status as BookingStatus} /> },
+        {
+          header: "Status",
+          render: (r) => <BookingStatusBadge status={r.status as BookingStatus} />,
+        },
         { header: "Start", render: (r) => dateFormatter.format(r.startAt) },
         { header: "Amount", render: (r) => formatCurrency(r.totalAmountCents) },
       ];
@@ -126,7 +133,10 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
       const rows = await reportingService.getTournamentReport(range);
       const columns: ReportTableColumn<TournamentReportRow>[] = [
         { header: "Tournament", render: (r) => r.name },
-        { header: "Status", render: (r) => <TournamentStatusBadge status={r.status as TournamentStatus} /> },
+        {
+          header: "Status",
+          render: (r) => <TournamentStatusBadge status={r.status as TournamentStatus} />,
+        },
         { header: "Start", render: (r) => dateFormatter.format(r.startDate) },
         { header: "Registrations", render: (r) => r.registrationsCount },
         { header: "Confirmed", render: (r) => r.confirmedRegistrationsCount },
@@ -141,7 +151,10 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
         { header: "Reference", render: (r) => r.membershipReference },
         { header: "Player", render: (r) => r.playerName },
         { header: "Plan", render: (r) => r.planName },
-        { header: "Status", render: (r) => <MembershipStatusBadge status={r.status as MembershipStatus} /> },
+        {
+          header: "Status",
+          render: (r) => <MembershipStatusBadge status={r.status as MembershipStatus} />,
+        },
         { header: "Start", render: (r) => dateFormatter.format(r.startDate) },
         { header: "End", render: (r) => dateFormatter.format(r.endDate) },
       ];
@@ -153,7 +166,10 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
         { header: "Reference", render: (r) => r.rentalReference },
         { header: "Equipment", render: (r) => r.equipmentName },
         { header: "Player", render: (r) => r.playerName },
-        { header: "Status", render: (r) => <EquipmentRentalStatusBadge status={r.status as RentalStatus} /> },
+        {
+          header: "Status",
+          render: (r) => <EquipmentRentalStatusBadge status={r.status as RentalStatus} />,
+        },
         { header: "Rented at", render: (r) => dateFormatter.format(r.rentedAt) },
         { header: "Amount", render: (r) => formatCurrency(r.billableAmountCents) },
       ];
@@ -166,7 +182,10 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
         { header: "Locker", render: (r) => r.lockerCode },
         { header: "Player", render: (r) => r.playerName },
         { header: "Type", render: (r) => r.type },
-        { header: "Status", render: (r) => <LockerRentalStatusBadge status={r.status as LockerRentalStatus} /> },
+        {
+          header: "Status",
+          render: (r) => <LockerRentalStatusBadge status={r.status as LockerRentalStatus} />,
+        },
         { header: "Start", render: (r) => dateFormatter.format(r.startAt) },
         { header: "Amount", render: (r) => formatCurrency(r.amountCents) },
       ];
@@ -183,7 +202,8 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
           // visibly distinguishable here, not blended in with modelled
           // revenue — a month with many of these is itself a signal
           // something isn't being captured properly.
-          render: (r) => (r.category === "OTHER" ? <Badge variant="warning">Manual entry</Badge> : r.category),
+          render: (r) =>
+            r.category === "OTHER" ? <Badge variant="warning">Manual entry</Badge> : r.category,
         },
         { header: "Transactions", render: (r) => r.transactionCount },
         { header: "Amount", render: (r) => formatCurrency(r.amountCents) },
@@ -198,6 +218,16 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
         { header: "Amount", render: (r) => formatCurrency(r.amountCents) },
       ];
       return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.paymentMethodLabel} />;
+    }
+    case "salesByProduct": {
+      const rows = await reportingService.getSalesByProductReport(range);
+      const columns: ReportTableColumn<SalesByProductRow>[] = [
+        { header: "Product", render: (r) => r.productName },
+        { header: "Qty sold", render: (r) => r.quantitySold },
+        { header: "Transactions", render: (r) => r.transactionCount },
+        { header: "Amount", render: (r) => formatCurrency(r.amountCents) },
+      ];
+      return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.productName} />;
     }
   }
 }

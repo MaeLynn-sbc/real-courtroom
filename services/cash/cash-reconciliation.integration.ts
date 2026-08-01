@@ -18,7 +18,8 @@
  *      note, then succeeds, with the correct variance persisted.
  *   5. Carry-forward: confirming today auto-creates tomorrow's record
  *      with startingBalanceCents equal to today's confirmed ending
- *      balance — never re-entered manually.
+ *      balance MINUS whatever was withdrawn for the bank/safe — only
+ *      the drawer leftover carries forward, never re-entered manually.
  *   6. overrideStartingBalance requires a reason, writes an audit-log
  *      entry with the old and new value, and is refused once the day
  *      is already CONFIRMED.
@@ -162,6 +163,7 @@ async function main(): Promise<void> {
       await cashReconciliationService.confirmBalance(
         today,
         mismatchedCents,
+        0,
         undefined,
         employee.id,
         owner.id,
@@ -183,10 +185,14 @@ async function main(): Promise<void> {
       "PASS: a mismatched confirmation with no note is rejected — proven failing-first — and the day stays open.",
     );
 
-    // Same attempt, now with a note — succeeds.
+    // Same attempt, now with a note — succeeds. Withdraws a known chunk
+    // for the bank/safe so scenario 5 below can prove only the leftover
+    // carries forward.
+    const withdrawnCents = 100000; // ₱1,000 pulled for the bank
     const confirmedToday = await cashReconciliationService.confirmBalance(
       today,
       mismatchedCents,
+      withdrawnCents,
       "Counted over — will investigate.",
       employee.id,
       owner.id,
@@ -203,8 +209,12 @@ async function main(): Promise<void> {
       confirmedToday.confirmedEndingBalanceCents === mismatchedCents,
       "expected confirmedEndingBalanceCents to match what was submitted",
     );
+    assert(
+      confirmedToday.withdrawnCents === withdrawnCents,
+      `expected withdrawnCents ${withdrawnCents} to be persisted, got ${confirmedToday.withdrawnCents}`,
+    );
     console.log(
-      "PASS: confirming with a note succeeds — variance computed and persisted correctly.",
+      "PASS: confirming with a note succeeds — variance and withdrawn amount computed and persisted correctly.",
     );
 
     // ============== 5. Carry-forward to tomorrow ==============
@@ -213,12 +223,13 @@ async function main(): Promise<void> {
       tomorrowBalance !== null,
       "expected tomorrow's record to auto-create now that today is CONFIRMED",
     );
+    const expectedCarriedForward = confirmedToday.confirmedEndingBalanceCents! - withdrawnCents;
     assert(
-      tomorrowBalance!.startingBalanceCents === confirmedToday.confirmedEndingBalanceCents,
-      `expected tomorrow's starting balance to carry forward from today's confirmed ending (${confirmedToday.confirmedEndingBalanceCents}), got ${tomorrowBalance!.startingBalanceCents}`,
+      tomorrowBalance!.startingBalanceCents === expectedCarriedForward,
+      `expected tomorrow's starting balance to be the drawer leftover (confirmed ending ${confirmedToday.confirmedEndingBalanceCents} minus withdrawn ${withdrawnCents} = ${expectedCarriedForward}), got ${tomorrowBalance!.startingBalanceCents}`,
     );
     console.log(
-      "PASS: tomorrow's starting balance carries forward automatically from today's confirmed ending balance — never re-entered manually.",
+      "PASS: tomorrow's starting balance carries forward as only the drawer leftover (confirmed ending minus withdrawn) — never the full confirmed count, never re-entered manually.",
     );
 
     // Tomorrow can have no real Cash sales yet (nothing can be dated in
@@ -288,6 +299,7 @@ async function main(): Promise<void> {
     await cashReconciliationService.confirmBalance(
       tomorrow,
       tomorrowExpected + 30000,
+      0,
       "expected shift after override",
       employee.id,
       owner.id,

@@ -89,6 +89,7 @@ export async function confirmCashBalanceAction(
     await cashReconciliationService.confirmBalance(
       new Date(`${parsed.data.date}T00:00:00`),
       parsed.data.confirmedEndingBalanceCents,
+      parsed.data.withdrawnCents,
       parsed.data.notes,
       authz.employeeId,
       authz.userId,

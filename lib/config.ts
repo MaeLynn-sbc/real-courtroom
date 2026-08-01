@@ -57,15 +57,23 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
         title: "Verify Open Play Payments",
         href: "/dashboard/admin/open-play-capacity/verify-payments",
       },
+      { title: "Shop", href: "/dashboard/products" },
       // Previously reachable only by typing the URL directly or via a
       // booking's own "add a coach" step — no nav entry at all. Route
       // protection (lib/rbac.ts: BOOKINGS_MANAGE) is unchanged by this;
       // see dashboard-sidebar.tsx's own note on why this list isn't
       // itself permission-filtered.
       { title: "Coaching", href: "/dashboard/coaching" },
+      // Moved from Administration per staff request (2026-08-01):
+      // reconciling cash/GCash and logging expenses are nightly closing
+      // tasks, not setup screens — same "reception touches this every
+      // day" reasoning as the rest of Operations. Title shortened from
+      // "Cash & GCash Reconciliation"; href/page unchanged.
+      { title: "Accounts Reconciliation", href: "/dashboard/admin/gcash-reconciliation" },
+      { title: "Expenses", href: "/dashboard/admin/expenses" },
+      { title: "Reports", href: "/dashboard/reports" },
       { title: "Equipment", href: "/dashboard/equipment" },
       { title: "Lockers", href: "/dashboard/lockers" },
-      { title: "Shop", href: "/dashboard/products" },
     ],
   },
   {
@@ -83,15 +91,12 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Employees", href: "/dashboard/admin/employees" },
       { title: "Roles", href: "/dashboard/admin/roles" },
       { title: "Payment Methods", href: "/dashboard/admin/payment-methods" },
-      { title: "Expenses", href: "/dashboard/admin/expenses" },
       { title: "Shop Catalog", href: "/dashboard/admin/products" },
       { title: "Website", href: "/dashboard/admin/website" },
       { title: "TV Display", href: "/dashboard/admin/tv-display" },
       { title: "Audit Logs", href: "/dashboard/admin/audit-logs" },
       { title: "Settings", href: "/dashboard/admin/settings" },
-      { title: "Reports", href: "/dashboard/reports" },
       { title: "Sales", href: "/dashboard/sales" },
-      { title: "Cash & GCash Reconciliation", href: "/dashboard/admin/gcash-reconciliation" },
       { title: "Analytics", href: "/dashboard/analytics" },
       { title: "Announcements", href: "/dashboard/announcements" },
       { title: "Diagnostics", href: "/dashboard/admin/diagnostics" },

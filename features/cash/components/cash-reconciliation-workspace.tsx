@@ -23,7 +23,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { formatCurrency } from "@/lib/utils";
+import { CashDenominationInput } from "@/features/cash/components/cash-denomination-input";
+import { formatCurrency, formatVariance } from "@/lib/utils";
 import type { cashReconciliationService } from "@/services/cash/cash-reconciliation.service";
 
 const dateFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" });
@@ -87,13 +88,10 @@ function SeedBalanceForm() {
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="startingCash">Current cash on hand</Label>
-            <Input
+            <CashDenominationInput
               id="startingCash"
-              type="number"
-              step="0.01"
-              min="0"
               value={startingCash}
-              onChange={(event) => setStartingCash(event.target.value)}
+              onChange={setStartingCash}
             />
           </div>
           {serverError ? (
@@ -175,13 +173,10 @@ function OverrideStartingBalanceForm({ balance }: { balance: TodayBalance }) {
       </p>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="newStartingCash">Corrected starting balance</Label>
-        <Input
+        <CashDenominationInput
           id="newStartingCash"
-          type="number"
-          step="0.01"
-          min="0"
           value={newStartingCash}
-          onChange={(event) => setNewStartingCash(event.target.value)}
+          onChange={setNewStartingCash}
         />
       </div>
       <div className="flex flex-col gap-1.5">
@@ -226,11 +221,14 @@ function ConfirmBalanceCard({
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [confirmedCash, setConfirmedCash] = useState("");
+  const [withdrawnCash, setWithdrawnCash] = useState("0");
   const [notes, setNotes] = useState("");
 
   const confirmedCashCents = Math.round((Number(confirmedCash) || 0) * 100);
+  const withdrawnCashCents = Math.round((Number(withdrawnCash) || 0) * 100);
   const varianceCents = confirmedCash.trim() ? confirmedCashCents - expectedEndingBalanceCents : 0;
   const hasVariance = confirmedCash.trim() !== "" && varianceCents !== 0;
+  const carriedForwardCents = confirmedCashCents - withdrawnCashCents;
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -238,6 +236,10 @@ function ConfirmBalanceCard({
 
     if (!confirmedCash.trim()) {
       setServerError("Enter the confirmed cash balance.");
+      return;
+    }
+    if (withdrawnCashCents < 0 || withdrawnCashCents > confirmedCashCents) {
+      setServerError("Cash withdrawn can't be negative or more than the confirmed drawer count.");
       return;
     }
     if (hasVariance && !notes.trim()) {
@@ -251,6 +253,7 @@ function ConfirmBalanceCard({
       const result = await confirmCashBalanceAction({
         date: toDateValue(balance.date),
         confirmedEndingBalanceCents: confirmedCashCents,
+        withdrawnCents: withdrawnCashCents,
         notes: notes || undefined,
       });
       if (result.error) {
@@ -290,13 +293,10 @@ function ConfirmBalanceCard({
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 border-t pt-4">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="confirmedCash">Confirmed balance (count the drawer/safe)</Label>
-            <Input
+            <CashDenominationInput
               id="confirmedCash"
-              type="number"
-              step="0.01"
-              min="0"
               value={confirmedCash}
-              onChange={(event) => setConfirmedCash(event.target.value)}
+              onChange={setConfirmedCash}
             />
           </div>
 
@@ -308,9 +308,31 @@ function ConfirmBalanceCard({
                   hasVariance ? "text-destructive font-semibold" : "text-success font-semibold"
                 }
               >
-                {varianceCents > 0 ? "+" : ""}
-                {formatCurrency(varianceCents)}
+                {formatVariance(varianceCents)}
               </span>
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="withdrawnCash">Cash withdrawn for bank/safe (optional)</Label>
+            <Input
+              id="withdrawnCash"
+              type="number"
+              step="0.01"
+              min="0"
+              value={withdrawnCash}
+              onChange={(event) => setWithdrawnCash(event.target.value)}
+            />
+            <p className="text-muted-foreground text-xs">
+              Whatever stays in the drawer becomes tomorrow&apos;s starting balance — not the full
+              confirmed count.
+            </p>
+          </div>
+
+          {confirmedCash.trim() ? (
+            <div className="bg-muted/40 flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
+              <span className="text-muted-foreground">Carries forward to tomorrow</span>
+              <span className="font-semibold">{formatCurrency(carriedForwardCents)}</span>
             </div>
           ) : null}
 
@@ -371,9 +393,19 @@ function AlreadyConfirmedCard({ balance }: { balance: TodayBalance }) {
               balance.varianceCents ? "text-destructive font-medium" : "text-success font-medium"
             }
           >
-            {balance.varianceCents
-              ? `${balance.varianceCents > 0 ? "+" : ""}${formatCurrency(balance.varianceCents)}`
-              : "₱0.00"}
+            {formatVariance(balance.varianceCents ?? 0)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Withdrawn for bank/safe</span>
+          <span className="font-medium">{formatCurrency(balance.withdrawnCents)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Carried forward to next day</span>
+          <span className="font-medium">
+            {balance.confirmedEndingBalanceCents != null
+              ? formatCurrency(balance.confirmedEndingBalanceCents - balance.withdrawnCents)
+              : "—"}
           </span>
         </div>
         {balance.notes ? (
@@ -420,6 +452,7 @@ export function CashReconciliationWorkspace({
                   <TableHead>Status</TableHead>
                   <TableHead>Starting</TableHead>
                   <TableHead>Confirmed ending</TableHead>
+                  <TableHead>Withdrawn</TableHead>
                   <TableHead>Variance</TableHead>
                   <TableHead>Confirmed by</TableHead>
                 </TableRow>
@@ -442,14 +475,22 @@ export function CashReconciliationWorkspace({
                         : "—"}
                     </TableCell>
                     <TableCell>
+                      {balance.status === "CONFIRMED"
+                        ? formatCurrency(balance.withdrawnCents)
+                        : "—"}
+                    </TableCell>
+                    <TableCell>
                       {balance.varianceCents == null ? (
                         "—"
-                      ) : balance.varianceCents === 0 ? (
-                        <span className="text-success">₱0.00</span>
                       ) : (
-                        <span className="text-destructive font-medium">
-                          {balance.varianceCents > 0 ? "+" : ""}
-                          {formatCurrency(balance.varianceCents)}
+                        <span
+                          className={
+                            balance.varianceCents === 0
+                              ? "text-success"
+                              : "text-destructive font-medium"
+                          }
+                        >
+                          {formatVariance(balance.varianceCents)}
                         </span>
                       )}
                     </TableCell>

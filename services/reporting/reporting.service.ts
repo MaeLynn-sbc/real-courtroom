@@ -130,6 +130,24 @@ export interface SalesByPaymentMethodRow {
   amountCents: number;
 }
 
+export interface SalesByProductRow {
+  productName: string;
+  transactionCount: number;
+  quantitySold: number;
+  amountCents: number;
+}
+
+// productService.sellProduct is the only place a PRODUCT-category Sale
+// is ever created, and it always writes description as either the bare
+// product name (qty 1) or "{name} x{quantity}" — no separate quantity
+// column exists on Sale, so this is the one reliable way to recover the
+// historical unit count (amountCents / product.priceCents would be wrong
+// once a product's price ever changes).
+function parseProductQuantity(description: string | null): number {
+  const match = description?.match(/ x(\d+)$/);
+  return match ? Number(match[1]) : 1;
+}
+
 // --- Revenue-ready operational report -----------------------------------------
 // "Billable amount," not "collected revenue" — Payment/Invoice exist in the
 // schema but are never written to by any service (payment integration is
@@ -399,6 +417,50 @@ export class ReportingService {
         amountCents: row._sum.amountCents ?? 0,
       }))
       .sort((a, b) => b.amountCents - a.amountCents);
+  }
+
+  // Consignment accounting (2026-08-02 request): shirts/grips/etc. are
+  // sold on consignment, so the owner needs per-product totals — not
+  // just the lumped "Shop products" figure — to know what's owed back
+  // to each supplier for a given day or range. Fetches raw rows rather
+  // than groupBy since the historical quantity can only be recovered by
+  // parsing each row's own description (see parseProductQuantity).
+  async getSalesByProductReport(range: DateRange): Promise<SalesByProductRow[]> {
+    const sales = await prisma.sale.findMany({
+      where: {
+        category: "PRODUCT",
+        status: "COMPLETED",
+        createdAt: { gte: range.from, lte: range.to },
+        productId: { not: null },
+      },
+      select: {
+        productId: true,
+        description: true,
+        amountCents: true,
+        product: { select: { name: true } },
+      },
+    });
+
+    const byProduct = new Map<string, SalesByProductRow>();
+    for (const sale of sales) {
+      const key = sale.productId!;
+      const quantity = parseProductQuantity(sale.description);
+      const existing = byProduct.get(key);
+      if (existing) {
+        existing.transactionCount += 1;
+        existing.quantitySold += quantity;
+        existing.amountCents += sale.amountCents;
+      } else {
+        byProduct.set(key, {
+          productName: sale.product?.name ?? "Unknown product",
+          transactionCount: 1,
+          quantitySold: quantity,
+          amountCents: sale.amountCents,
+        });
+      }
+    }
+
+    return [...byProduct.values()].sort((a, b) => b.amountCents - a.amountCents);
   }
 
   // Phase 10: accepts an already-fetched booking report so a caller that's

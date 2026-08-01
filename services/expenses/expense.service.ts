@@ -2,6 +2,7 @@ import type { Expense, Prisma } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
+import type { DateRange } from "@/services/analytics/date-range";
 import { formatExpenseNumber } from "@/services/expenses/expense-number";
 import { getUploadService } from "@/services/upload/upload-service.factory";
 
@@ -99,7 +100,9 @@ export class ExpenseService {
       return expense;
     } catch (error) {
       if (upload) {
-        await getUploadService().delete(upload.key).catch(() => undefined);
+        await getUploadService()
+          .delete(upload.key)
+          .catch(() => undefined);
       }
       throw error;
     }
@@ -115,6 +118,17 @@ export class ExpenseService {
       orderBy: { date: "desc" },
       take: limit,
     });
+  }
+
+  // For the Reports page's summary card — total money out for the range,
+  // by Expense.date (the business date it applies to), same field
+  // listRecentExpenses sorts by, not createdAt.
+  async getExpensesTotalForRange(range: DateRange): Promise<number> {
+    const result = await prisma.expense.aggregate({
+      where: { date: { gte: range.from, lte: range.to } },
+      _sum: { amountCents: true },
+    });
+    return result._sum.amountCents ?? 0;
   }
 
   private async writeAuditLog(entry: AuditLogEntry): Promise<void> {
