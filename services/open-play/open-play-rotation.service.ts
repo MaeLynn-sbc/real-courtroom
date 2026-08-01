@@ -671,6 +671,65 @@ export class OpenPlayRotationService {
     return this.loadStagedGroupWithMembers(created.id);
   }
 
+  // "Add a player to an existing group" (reported live: "the only options
+  // are × to remove, or Remove group to tear the whole thing down" — a
+  // busy-desk group short a fourth, or a swap, shouldn't require
+  // rebuilding from scratch). Swap itself is deliberately NOT a separate
+  // mechanism: × (unstageQueueEntry, above/below) already returns a
+  // player to Waiting at their untouched position, so "swap" is just ×
+  // then this, back to back — reusing two already-proven, independently
+  // race-safe operations instead of a third bespoke one. Serializable +
+  // retry for the same reason every other staging write needs it: two
+  // staff adding DIFFERENT players to a 3-member group at the same
+  // moment must not both succeed and produce a 5th, over the cap.
+  async addPlayerToStagedGroup(
+    stagedGroupId: string,
+    registrationId: string,
+    actorUserId: string,
+  ): Promise<StagedGroupWithMembers> {
+    await runSerializableWithRetry(async (tx) => {
+      const group = await tx.stagedGroup.findUnique({
+        where: { id: stagedGroupId },
+        include: { queueEntries: true },
+      });
+      if (!group) {
+        throw new Error(
+          "That group no longer exists — someone else may have already assigned or removed it.",
+        );
+      }
+      if (group.queueEntries.length >= 4) {
+        throw new Error("That group is already full — 4 players max.");
+      }
+
+      const entry = await tx.queueEntry.findFirst({
+        where: { date: group.date, registrationId },
+      });
+      if (!entry) {
+        throw new Error("That player isn't in today's queue.");
+      }
+      if (entry.status !== "WAITING") {
+        throw new Error(
+          `${entry.playerName} isn't waiting (status: ${entry.status.toLowerCase()}).`,
+        );
+      }
+      if (entry.stagedGroupId) {
+        throw new Error(`${entry.playerName} is already staged in another group.`);
+      }
+
+      await tx.queueEntry.update({ where: { id: entry.id }, data: { stagedGroupId } });
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "staged_group.player_added",
+      entityType: "StagedGroup",
+      entityId: stagedGroupId,
+      newValues: { registrationId },
+    });
+
+    return this.loadStagedGroupWithMembers(stagedGroupId);
+  }
+
   // The × control on a staged chip — un-stages exactly one player.
   // Deliberately does NOT touch joinedQueueAt: staging was never a
   // reorder, just an orthogonal flag (see QueueEntry.stagedGroupId's

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import {
+  addPlayerToStagedGroupInputSchema,
   assignmentIdInputSchema,
   assignStagedGroupToCourtInputSchema,
   manualAssignmentInputSchema,
@@ -13,6 +14,7 @@ import {
   stagedGroupIdInputSchema,
   stageManualGroupInputSchema,
   swapPartyMemberInputSchema,
+  type AddPlayerToStagedGroupInput,
   type AssignmentIdInput,
   type AssignStagedGroupToCourtInput,
   type ManualAssignmentInput,
@@ -208,6 +210,37 @@ export async function stageManualGroupAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "stageManualGroupAction", userId: authz.userId }),
+    };
+  }
+}
+
+// "Add a player to an existing group" — blocked at 4 server-side. Swap is
+// deliberately just this + unstageQueueEntryAction (×) back to back, not
+// a separate action — see the service method's own comment.
+export async function addPlayerToStagedGroupAction(
+  input: AddPlayerToStagedGroupInput,
+): Promise<OpenPlayRotationActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = addPlayerToStagedGroupInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await openPlayRotationService.addPlayerToStagedGroup(
+      parsed.data.stagedGroupId,
+      parsed.data.registrationId,
+      authz.userId,
+    );
+    revalidateRotation();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "addPlayerToStagedGroupAction", userId: authz.userId }),
     };
   }
 }

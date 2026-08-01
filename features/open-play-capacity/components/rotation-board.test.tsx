@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { RotationBoard, type RotationBoardProps } from "./rotation-board";
 import {
+  addPlayerToStagedGroupAction,
   announceAssignmentAction,
   announceTimesUpAction,
   assignPendingGroupToCourtAction,
@@ -15,6 +16,7 @@ import {
 } from "@/actions/open-play-rotation.actions";
 
 jest.mock("@/actions/open-play-rotation.actions", () => ({
+  addPlayerToStagedGroupAction: jest.fn(),
   announceAssignmentAction: jest.fn(),
   announceTimesUpAction: jest.fn(),
   assignPendingGroupToCourtAction: jest.fn(),
@@ -62,6 +64,9 @@ const mockedStageManualGroup = stageManualGroupAction as jest.MockedFunction<
 const mockedUnstageGroup = unstageGroupAction as jest.MockedFunction<typeof unstageGroupAction>;
 const mockedUnstageQueueEntry = unstageQueueEntryAction as jest.MockedFunction<
   typeof unstageQueueEntryAction
+>;
+const mockedAddPlayer = addPlayerToStagedGroupAction as jest.MockedFunction<
+  typeof addPlayerToStagedGroupAction
 >;
 
 async function clickAsync(element: Element) {
@@ -790,6 +795,116 @@ describe("RotationBoard — staging slots", () => {
     await clickAsync(within(group).getByRole("button", { name: /remove group/i }));
 
     expect(mockedUnstageGroup).toHaveBeenCalledWith({ stagedGroupId: "staged-1" });
+  });
+
+  // "Add a player to an existing group... blocked at 4." Swap is
+  // deliberately just x (proven above) then this, back to back.
+  it("offers Add from waiting on a group with fewer than 4 members, and sends the picked registrationId", async () => {
+    mockedAddPlayer.mockResolvedValue({ error: null });
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={[
+          {
+            partyId: null,
+            members: [
+              {
+                queueEntryId: "qe-c",
+                registrationId: "r-carla",
+                playerName: "Carla",
+                skillLevel: "BEGINNER",
+              },
+            ],
+            waitMinutes: 1,
+            pastMaxWait: false,
+          },
+        ]}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        stagedGroups={[
+          {
+            id: "staged-1",
+            slot: "NEXT_UP",
+            source: "MANUAL",
+            members: [
+              {
+                queueEntryId: "qe-1",
+                registrationId: "r-alice",
+                playerName: "Alice",
+                skillLevel: "BEGINNER",
+              },
+              {
+                queueEntryId: "qe-2",
+                registrationId: "r-ben",
+                playerName: "Ben",
+                skillLevel: "BEGINNER",
+              },
+            ],
+          },
+        ]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    const addSelect = within(group)
+      .getAllByRole("combobox")
+      .find((el) =>
+        Array.from(el.querySelectorAll("option")).some(
+          (o) => o.textContent === "Add from waiting…",
+        ),
+      )!;
+    fireEvent.change(addSelect, { target: { value: "r-carla" } });
+    await clickAsync(within(group).getByRole("button", { name: /^add$/i }));
+
+    expect(mockedAddPlayer).toHaveBeenCalledWith({
+      stagedGroupId: "staged-1",
+      registrationId: "r-carla",
+    });
+  });
+
+  it("does not offer Add from waiting on a full (4-member) group", () => {
+    render(
+      <RotationBoard
+        date="2026-08-01"
+        waiting={[
+          {
+            partyId: null,
+            members: [
+              {
+                queueEntryId: "qe-e",
+                registrationId: "r-eve",
+                playerName: "Eve",
+                skillLevel: "BEGINNER",
+              },
+            ],
+            waitMinutes: 1,
+            pastMaxWait: false,
+          },
+        ]}
+        resting={[]}
+        maxWaitMinutes={20}
+        unfillableQueueReason={null}
+        stagedGroups={[
+          {
+            id: "staged-1",
+            slot: "NEXT_UP",
+            source: "MANUAL",
+            members: ["Alice", "Ben", "Carla", "Dex"].map((name, i) => ({
+              queueEntryId: `qe-${i}`,
+              registrationId: `r-${name.toLowerCase()}`,
+              playerName: name,
+              skillLevel: "BEGINNER",
+            })),
+          },
+        ]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+      />,
+    );
+
+    const group = nextUpGroup();
+    expect(within(group).queryByRole("button", { name: /^add$/i })).not.toBeInTheDocument();
   });
 });
 

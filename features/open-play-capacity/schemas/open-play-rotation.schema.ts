@@ -108,3 +108,13 @@ export const stagedGroupIdInputSchema = z.object({
 });
 
 export type StagedGroupIdInput = z.infer<typeof stagedGroupIdInputSchema>;
+
+// "Add a player to an existing group" — blocked at 4 server-side; swap is
+// deliberately just × (unstageQueueEntryInputSchema, reusing
+// queueEntryIdInputSchema) followed by this, not a separate mechanism.
+export const addPlayerToStagedGroupInputSchema = z.object({
+  stagedGroupId: z.string().min(1),
+  registrationId: z.string().min(1),
+});
+
+export type AddPlayerToStagedGroupInput = z.infer<typeof addPlayerToStagedGroupInputSchema>;

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import {
+  addPlayerToStagedGroupAction,
   announceAssignmentAction,
   announceTimesUpAction,
   assignPendingGroupToCourtAction,
@@ -167,6 +168,7 @@ function NextUpSection({
   date,
   stagedGroups,
   courts,
+  flatWaitingMembers,
   runAction,
   isPending,
   totalWaiting,
@@ -174,6 +176,13 @@ function NextUpSection({
   date: string;
   stagedGroups: BoardStagedGroup[];
   courts: BoardCourt[];
+  // "Add a player to an existing group" / swap (× then add, back to
+  // back — see addPlayerToStagedGroupAction's own comment for why this
+  // isn't a separate swap mechanism). Already the exact set the server
+  // would accept (fetchWaitingUnits excludes staged players), so no
+  // client-side re-filtering needed — same "trust the shared query"
+  // reasoning as everywhere else staged players are excluded.
+  flatWaitingMembers: BoardMember[];
   runAction: (promise: Promise<OpenPlayRotationActionState>, successMessage: string) => void;
   isPending: boolean;
   totalWaiting: number;
@@ -193,7 +202,24 @@ function NextUpSection({
     AFTER_THAT: "4",
     THEN: "4",
   });
+  const [addPlayerPicks, setAddPlayerPicks] = useState<Record<StagedGroupSlot, string>>({
+    NEXT_UP: "",
+    AFTER_THAT: "",
+    THEN: "",
+  });
   const vacantCourts = courts.filter((court) => !court.active && !court.proposed);
+
+  function addPlayer(slot: StagedGroupSlot, stagedGroupId: string) {
+    const registrationId = addPlayerPicks[slot];
+    if (!registrationId) return;
+    runAction(
+      addPlayerToStagedGroupAction({ stagedGroupId, registrationId }).then((r) => {
+        if (!r.error) setAddPlayerPicks((prev) => ({ ...prev, [slot]: "" }));
+        return r;
+      }),
+      "Player added.",
+    );
+  }
 
   function assignGroup(slot: StagedGroupSlot, stagedGroupId: string) {
     const courtId = assignCourtPicks[slot];
@@ -319,6 +345,34 @@ function NextUpSection({
                 </div>
               ))}
             </div>
+            {group.members.length < 4 && flatWaitingMembers.length > 0 ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <select
+                  className="border-input rounded-md border px-2 py-1 text-xs"
+                  value={addPlayerPicks[slot]}
+                  onChange={(event) =>
+                    setAddPlayerPicks((prev) => ({ ...prev, [slot]: event.target.value }))
+                  }
+                  disabled={isPending}
+                >
+                  <option value="">Add from waiting…</option>
+                  {flatWaitingMembers.map((member) => (
+                    <option key={member.registrationId} value={member.registrationId}>
+                      {displayPlayerName(member.playerName)}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isPending || !addPlayerPicks[slot]}
+                  onClick={() => addPlayer(slot, group.id)}
+                >
+                  Add
+                </Button>
+              </div>
+            ) : null}
             {vacantCourts.length === 0 ? (
               <p className="text-muted-foreground mt-2 text-xs">
                 All courts are busy — nothing to assign to right now.
@@ -743,6 +797,7 @@ export function RotationBoard({
         date={date}
         stagedGroups={stagedGroups}
         courts={courts}
+        flatWaitingMembers={flatWaitingMembers}
         runAction={runAction}
         isPending={isPending}
         totalWaiting={totalWaiting}

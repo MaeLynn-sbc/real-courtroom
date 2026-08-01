@@ -389,6 +389,91 @@ async function main(): Promise<void> {
       "PASS: markResting un-stages a staged player (and dissolves the group if that drops it below 2).",
     );
 
+    // ============== 11. Add a player to an existing group; blocked at 4; swap is x-then-add ==============
+    const addIds = [
+      await checkedInRegistration("AddTarget A", owner.id),
+      await checkedInRegistration("AddTarget B", owner.id),
+      await checkedInRegistration("AddTarget C", owner.id),
+    ];
+    allRegistrationIds.push(...addIds);
+    const addGroup = await openPlayRotationService.stageManualGroup(
+      TEST_DATE,
+      "THEN",
+      addIds,
+      owner.id,
+    );
+
+    const newcomerId = await checkedInRegistration("Newcomer", owner.id);
+    allRegistrationIds.push(newcomerId);
+    const grownGroup = await openPlayRotationService.addPlayerToStagedGroup(
+      addGroup.id,
+      newcomerId,
+      owner.id,
+    );
+    assert(
+      grownGroup.members.length === 4,
+      `expected 4 members after adding, got ${grownGroup.members.length}`,
+    );
+    assert(
+      grownGroup.members.some((m) => m.registrationId === newcomerId),
+      "expected the newcomer to actually be in the group",
+    );
+    const newcomerEntry = await prisma.queueEntry.findUniqueOrThrow({
+      where: { registrationId: newcomerId },
+    });
+    assert(
+      newcomerEntry.stagedGroupId === addGroup.id,
+      "expected the newcomer's QueueEntry to point at the group",
+    );
+    console.log("PASS: Add a player brings a group from 3 to 4.");
+
+    let rejectedFull = false;
+    const fifthId = await checkedInRegistration("Fifth Wheel", owner.id);
+    allRegistrationIds.push(fifthId);
+    try {
+      await openPlayRotationService.addPlayerToStagedGroup(addGroup.id, fifthId, owner.id);
+    } catch (error) {
+      rejectedFull = error instanceof Error && error.message.includes("full");
+    }
+    assert(rejectedFull, "expected adding a 5th player to a full group to be rejected");
+    const fifthEntry = await prisma.queueEntry.findUniqueOrThrow({
+      where: { registrationId: fifthId },
+    });
+    assert(
+      fifthEntry.stagedGroupId === null,
+      "expected the rejected 5th player to remain un-staged, not partially added",
+    );
+    console.log(
+      "PASS: adding a player to an already-full (4-member) group is rejected, blocked at 4.",
+    );
+
+    // Swap: x the newcomer back out, then add the "fifth wheel" instead —
+    // deliberately the same two already-proven operations, not a third
+    // bespoke mechanism.
+    const newcomerQueueEntryId = await queueEntryIdFor(newcomerId);
+    await openPlayRotationService.unstageQueueEntry(newcomerQueueEntryId, owner.id);
+    const swappedGroup = await openPlayRotationService.addPlayerToStagedGroup(
+      addGroup.id,
+      fifthId,
+      owner.id,
+    );
+    const swappedIds = swappedGroup.members.map((m) => m.registrationId).sort();
+    const expectedSwappedIds = [...addIds, fifthId].sort();
+    assert(
+      swappedIds.join(",") === expectedSwappedIds.join(","),
+      `expected swap (x newcomer, add fifth wheel) to leave exactly [${expectedSwappedIds.join(",")}], got [${swappedIds.join(",")}]`,
+    );
+    const newcomerAfterSwap = await prisma.queueEntry.findUniqueOrThrow({
+      where: { registrationId: newcomerId },
+    });
+    assert(
+      newcomerAfterSwap.stagedGroupId === null,
+      "expected the swapped-out newcomer to be back in Waiting, not staged anywhere",
+    );
+    console.log(
+      "PASS: swap (x then Add) leaves the group with exactly the intended replacement, and returns the swapped-out player to Waiting.",
+    );
+
     console.log("\nPASS: staging pipeline proven against real rows.");
   } finally {
     await cleanUp(allRegistrationIds);
