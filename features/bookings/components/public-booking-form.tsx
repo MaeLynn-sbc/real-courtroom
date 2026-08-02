@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -25,7 +26,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PublicCoachAddOn, type PublicCoachAddOnConfirmed } from "@/features/coaching/components/public-coach-add-on";
+import {
+  PublicCoachAddOn,
+  type PublicCoachAddOnConfirmed,
+} from "@/features/coaching/components/public-coach-add-on";
 import { ContactFallbackLinks } from "@/features/bookings/components/contact-fallback-links";
 import { PublicPaymentProofUpload } from "@/features/bookings/components/public-payment-proof-upload";
 import { useLiveNow } from "@/hooks/use-live-now";
@@ -167,7 +171,11 @@ interface BookingConfirmation {
   holdExpiresAt?: Date;
 }
 
-const holdTimeFormatter = new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit", hour12: true });
+const holdTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
 
 function toLocalDateValue(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -234,7 +242,9 @@ export function PublicBookingForm({
   // re-opening the same coach's schedule after closing it doesn't
   // re-fetch. openScheduleCoachId is which panel (if any) is expanded.
   const [openScheduleCoachId, setOpenScheduleCoachId] = useState<string | null>(null);
-  const [coachSchedules, setCoachSchedules] = useState<Record<string, { startAt: Date; endAt: Date }[]>>({});
+  const [coachSchedules, setCoachSchedules] = useState<
+    Record<string, { startAt: Date; endAt: Date }[]>
+  >({});
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(false);
   // Reported live: customers clicked "Book Now" and walked away without
   // ever sending GCash payment or uploading proof — dead AWAITING_PAYMENT
@@ -262,7 +272,8 @@ export function PublicBookingForm({
     Number(initialDurationResolved),
     Date.now(),
   );
-  const validInitialTime = initialTime && initialTimeOptions.includes(initialTime) ? initialTime : undefined;
+  const validInitialTime =
+    initialTime && initialTimeOptions.includes(initialTime) ? initialTime : undefined;
 
   const { control, register, handleSubmit, setValue } = useForm<PublicBookingFormValues>({
     defaultValues: {
@@ -341,7 +352,12 @@ export function PublicBookingForm({
         return;
       }
       setIsLoadingAvailability(false);
-      setOccupiedWindows(result.windows.map((window) => ({ startAt: new Date(window.startAt), endAt: new Date(window.endAt) })));
+      setOccupiedWindows(
+        result.windows.map((window) => ({
+          startAt: new Date(window.startAt),
+          endAt: new Date(window.endAt),
+        })),
+      );
     });
     return () => {
       cancelled = true;
@@ -362,7 +378,10 @@ export function PublicBookingForm({
     if (Number.isNaN(startAt.getTime())) {
       return null;
     }
-    return { startAt, endAt: new Date(startAt.getTime() + Number(watchedDurationMinutes) * 60 * 1000) };
+    return {
+      startAt,
+      endAt: new Date(startAt.getTime() + Number(watchedDurationMinutes) * 60 * 1000),
+    };
   }
 
   const availableTimeOptions = businessHoursTimeOptions.filter((time) => {
@@ -370,7 +389,9 @@ export function PublicBookingForm({
     if (!slot) {
       return false;
     }
-    return !occupiedWindows.some((window) => hasTimeOverlap(slot.startAt, slot.endAt, window.startAt, window.endAt));
+    return !occupiedWindows.some((window) =>
+      hasTimeOverlap(slot.startAt, slot.endAt, window.startAt, window.endAt),
+    );
   });
 
   useEffect(() => {
@@ -431,7 +452,10 @@ export function PublicBookingForm({
     setIsLoadingSchedule(false);
     setCoachSchedules((prev) => ({
       ...prev,
-      [coachId]: result.windows.map((window) => ({ startAt: new Date(window.startAt), endAt: new Date(window.endAt) })),
+      [coachId]: result.windows.map((window) => ({
+        startAt: new Date(window.startAt),
+        endAt: new Date(window.endAt),
+      })),
     }));
   }
 
@@ -439,9 +463,12 @@ export function PublicBookingForm({
   const previewCoachGroupSizeOptions = selectedPreviewCoach
     ? selectedPreviewCoach.rates.map((rate) => rate.groupSize).sort((a, b) => a - b)
     : [];
-  const selectedPreviewRate = selectedPreviewCoach?.rates.find((rate) => rate.groupSize === Number(previewGroupSize));
+  const selectedPreviewRate = selectedPreviewCoach?.rates.find(
+    (rate) => rate.groupSize === Number(previewGroupSize),
+  );
   const previewCoachFeeCents = selectedPreviewRate?.priceCents ?? 0;
-  const previewTotalCents = previewCourtTotalCents != null ? previewCourtTotalCents + previewCoachFeeCents : null;
+  const previewTotalCents =
+    previewCourtTotalCents != null ? previewCourtTotalCents + previewCoachFeeCents : null;
 
   // Pre-fills the "amount sent" field with the live total, same resync-
   // until-hand-edited guard PublicPaymentProofUpload already uses for
@@ -463,7 +490,9 @@ export function PublicBookingForm({
       toast.error(message);
       return;
     }
-    const bookingAmountCents = requiresPrepayment ? Math.round(Number(bookingSubmittedAmount) * 100) : 0;
+    const bookingAmountCents = requiresPrepayment
+      ? Math.round(Number(bookingSubmittedAmount) * 100)
+      : 0;
     if (requiresPrepayment && (!Number.isFinite(bookingAmountCents) || bookingAmountCents <= 0)) {
       setServerError("Enter the amount you sent.");
       return;
@@ -505,7 +534,9 @@ export function PublicBookingForm({
           groupSize: Number(previewGroupSize),
         });
         if (addResult.error) {
-          toast.error(`Your slot is booked, but we couldn't add the coach automatically: ${addResult.error} Add them below.`);
+          toast.error(
+            `Your slot is booked, but we couldn't add the coach automatically: ${addResult.error} Add them below.`,
+          );
         } else {
           setCoachSession({
             coachName: previewCoaches.find((coach) => coach.id === previewCoachId)?.name ?? "Coach",
@@ -513,7 +544,9 @@ export function PublicBookingForm({
           });
         }
       } else if (previewCoachId && previewGroupSize) {
-        toast.error("Your slot is booked, but the coach you picked is no longer available for this time. Add one below if you'd like.");
+        toast.error(
+          "Your slot is booked, but the coach you picked is no longer available for this time. Add one below if you'd like.",
+        );
       }
 
       // Same one-click chaining as the coach add-on above: the
@@ -535,13 +568,17 @@ export function PublicBookingForm({
             },
           });
           if (proofResult.error) {
-            toast.error(`Your slot is booked, but the screenshot upload failed: ${proofResult.error} Please try again below.`);
+            toast.error(
+              `Your slot is booked, but the screenshot upload failed: ${proofResult.error} Please try again below.`,
+            );
           } else {
             setAutoSubmittedProofFileName(bookingScreenshot.name);
             setHasSubmittedProof(true);
           }
         } catch {
-          toast.error("Your slot is booked, but the screenshot upload failed. Please try again below.");
+          toast.error(
+            "Your slot is booked, but the screenshot upload failed. Please try again below.",
+          );
         }
       }
 
@@ -597,21 +634,29 @@ export function PublicBookingForm({
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Duration</span>
-              <span className="font-medium">{formatDurationLabel(confirmation.durationMinutes)}</span>
+              <span className="font-medium">
+                {formatDurationLabel(confirmation.durationMinutes)}
+              </span>
             </div>
             {coachSession ? (
               <>
                 <div className="flex justify-between border-t pt-3">
                   <span className="text-muted-foreground">Court hire</span>
-                  <span className="font-medium tabular-nums">{formatCurrency(confirmation.totalAmountCents)}</span>
+                  <span className="font-medium tabular-nums">
+                    {formatCurrency(confirmation.totalAmountCents)}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Coaching ({coachSession.coachName})</span>
-                  <span className="font-medium tabular-nums">{formatCurrency(coachSession.priceCents)}</span>
+                  <span className="font-medium tabular-nums">
+                    {formatCurrency(coachSession.priceCents)}
+                  </span>
                 </div>
                 <div className="flex justify-between border-t pt-2 text-base">
                   <span className="font-medium">Total</span>
-                  <span className="font-semibold tabular-nums">{formatCurrency(totalDueCents)}</span>
+                  <span className="font-semibold tabular-nums">
+                    {formatCurrency(totalDueCents)}
+                  </span>
                 </div>
               </>
             ) : (
@@ -654,7 +699,9 @@ export function PublicBookingForm({
     return (
       <div className="mx-auto flex max-w-md flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-semibold">Pay {formatCurrency(totalDueCents)} to confirm your slot</h2>
+          <h2 className="text-lg font-semibold">
+            Pay {formatCurrency(totalDueCents)} to confirm your slot
+          </h2>
           {/* text-warning, not text-warning-foreground — that token is
               designed for dark text ON a light bg-warning box (see
               public-payment-proof-upload.tsx's own such box). This line
@@ -673,7 +720,8 @@ export function PublicBookingForm({
 
         <div className="flex flex-col gap-1 text-sm">
           <p>
-            <span className="text-muted-foreground">Reference:</span> {confirmation.bookingReference}
+            <span className="text-muted-foreground">Reference:</span>{" "}
+            {confirmation.bookingReference}
           </p>
           <p>
             <span className="text-muted-foreground">Name:</span> {confirmation.guestName}
@@ -688,7 +736,8 @@ export function PublicBookingForm({
             <span className="text-muted-foreground">Time:</span> {confirmation.time}
           </p>
           <p>
-            <span className="text-muted-foreground">Duration:</span> {formatDurationLabel(confirmation.durationMinutes)}
+            <span className="text-muted-foreground">Duration:</span>{" "}
+            {formatDurationLabel(confirmation.durationMinutes)}
           </p>
           {coachSession ? (
             <>
@@ -707,7 +756,9 @@ export function PublicBookingForm({
           </p>
         </div>
 
-        <p className="text-muted-foreground text-xs">Save your reference and phone number to look this up later.</p>
+        <p className="text-muted-foreground text-xs">
+          Save your reference and phone number to look this up later.
+        </p>
 
         <PublicPaymentProofUpload
           bookingId={confirmation.bookingId}
@@ -767,7 +818,9 @@ export function PublicBookingForm({
             <Select value={field.value} onValueChange={field.onChange}>
               <SelectTrigger id="courtId" className="w-full">
                 <SelectValue placeholder="Select a court">
-                  {(value: string) => courts.find((court) => court.id === value)?.name ?? "Select a court"}
+                  {(value: string) =>
+                    courts.find((court) => court.id === value)?.name ?? "Select a court"
+                  }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -799,7 +852,11 @@ export function PublicBookingForm({
                 disabled={isLoadingAvailability || availableTimeOptions.length === 0}
               >
                 <SelectTrigger id="time" className="w-full">
-                  <SelectValue placeholder={isLoadingAvailability ? "Checking availability…" : "No times available"}>
+                  <SelectValue
+                    placeholder={
+                      isLoadingAvailability ? "Checking availability…" : "No times available"
+                    }
+                  >
                     {(value: string) => (value ? formatTimeLabel(value) : "No times available")}
                   </SelectValue>
                 </SelectTrigger>
@@ -850,7 +907,22 @@ export function PublicBookingForm({
         {isLoadingCoaches ? (
           <p className="text-muted-foreground text-xs">Checking coach availability…</p>
         ) : previewCoaches.length === 0 ? (
-          <p className="text-muted-foreground text-xs">No coach available at this slot.</p>
+          <div className="flex flex-col gap-1.5">
+            <p className="text-muted-foreground text-xs">No coach available at this slot.</p>
+            {/* Opens in a new tab so an in-progress booking form (court,
+                date, time already picked) never gets discarded by
+                navigating away to check schedules. Links to the existing
+                per-coach public availability page — a read-only table per
+                coach, not a name-picker dropdown. */}
+            <Link
+              href="/coaches/availability"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buttonVariants({ variant: "outline", size: "sm", className: "w-fit" })}
+            >
+              Coach&apos;s availability
+            </Link>
+          </div>
         ) : (
           <div className="flex flex-col gap-2">
             {/* Reported live: a dropdown to click open just to see who's
@@ -875,7 +947,9 @@ export function PublicBookingForm({
                     }}
                     className={cn(
                       "rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
-                      isSelected ? "border-success bg-success/10 text-success" : "border-input hover:bg-muted/40",
+                      isSelected
+                        ? "border-success bg-success/10 text-success"
+                        : "border-input hover:bg-muted/40",
                     )}
                   >
                     {coach.name}
@@ -893,7 +967,8 @@ export function PublicBookingForm({
                   className="text-muted-foreground hover:text-foreground w-fit px-0"
                   onClick={() => toggleCoachSchedule(coach.id)}
                 >
-                  {openScheduleCoachId === coach.id ? "Hide" : "See"} {coach.name}&apos;s availability
+                  {openScheduleCoachId === coach.id ? "Hide" : "See"} {coach.name}&apos;s
+                  availability
                 </Button>
                 {openScheduleCoachId === coach.id ? (
                   <div className="bg-muted/40 flex flex-col gap-1 rounded-lg border p-2 text-xs">
@@ -904,9 +979,21 @@ export function PublicBookingForm({
                     ) : (
                       coachSchedules[coach.id]!.map((window, index) => (
                         <span key={index}>
-                          {window.startAt.toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric" })},{" "}
-                          {window.startAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}–
-                          {window.endAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}
+                          {window.startAt.toLocaleDateString("en-PH", {
+                            weekday: "short",
+                            month: "short",
+                            day: "numeric",
+                          })}
+                          ,{" "}
+                          {window.startAt.toLocaleTimeString("en-PH", {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                          –
+                          {window.endAt.toLocaleTimeString("en-PH", {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
                         </span>
                       ))
                     )}
@@ -917,11 +1004,20 @@ export function PublicBookingForm({
 
             {previewCoachId ? (
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="previewGroupSize">Group size (select to add {selectedPreviewCoach?.name ?? "a coach"})</Label>
-                <Select value={previewGroupSize} onValueChange={(value) => setPreviewGroupSize(value ?? "")}>
+                <Label htmlFor="previewGroupSize">
+                  Group size (select to add {selectedPreviewCoach?.name ?? "a coach"})
+                </Label>
+                <Select
+                  value={previewGroupSize}
+                  onValueChange={(value) => setPreviewGroupSize(value ?? "")}
+                >
                   <SelectTrigger id="previewGroupSize" className="w-full">
                     <SelectValue placeholder="Select group size">
-                      {(value: string) => (value ? `${value} ${Number(value) === 1 ? "person" : "people"}` : "Select group size")}
+                      {(value: string) =>
+                        value
+                          ? `${value} ${Number(value) === 1 ? "person" : "people"}`
+                          : "Select group size"
+                      }
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -935,7 +1031,9 @@ export function PublicBookingForm({
                 {selectedPreviewRate ? (
                   <p className="text-sm">
                     <span className="text-muted-foreground">Coach rate: </span>
-                    <span className="font-medium">{formatCurrency(selectedPreviewRate.priceCents)}</span>
+                    <span className="font-medium">
+                      {formatCurrency(selectedPreviewRate.priceCents)}
+                    </span>
                   </p>
                 ) : null}
               </div>
@@ -957,7 +1055,9 @@ export function PublicBookingForm({
           {previewCoachFeeCents > 0 ? (
             <div className="flex justify-between">
               <span className="text-muted-foreground">Coach rate</span>
-              <span className="font-medium tabular-nums">{formatCurrency(previewCoachFeeCents)}</span>
+              <span className="font-medium tabular-nums">
+                {formatCurrency(previewCoachFeeCents)}
+              </span>
             </div>
           ) : null}
           <div className="flex justify-between border-t pt-2 text-base">
@@ -974,8 +1074,8 @@ export function PublicBookingForm({
           <div>
             <p className="text-sm font-medium">Pay via GCash to confirm your slot</p>
             <p className="text-muted-foreground text-xs">
-              Send the total above to the account below, then attach your payment screenshot — your slot
-              isn&apos;t held until both this form and the screenshot are submitted together.
+              Send the total above to the account below, then attach your payment screenshot — your
+              slot isn&apos;t held until both this form and the screenshot are submitted together.
             </p>
           </div>
 
@@ -1026,7 +1126,10 @@ export function PublicBookingForm({
             <div className="flex items-center gap-3">
               <label
                 htmlFor="bookingScreenshot"
-                className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}
+                className={cn(
+                  buttonVariants({ variant: "secondary", size: "sm" }),
+                  "cursor-pointer",
+                )}
               >
                 Choose file
               </label>
@@ -1054,7 +1157,12 @@ export function PublicBookingForm({
       <Button
         type="submit"
         size="lg"
-        disabled={isPending || courts.length === 0 || isLoadingAvailability || availableTimeOptions.length === 0}
+        disabled={
+          isPending ||
+          courts.length === 0 ||
+          isLoadingAvailability ||
+          availableTimeOptions.length === 0
+        }
       >
         {isPending ? "Booking…" : "Book Now"}
       </Button>
