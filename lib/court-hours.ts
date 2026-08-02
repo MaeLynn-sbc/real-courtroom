@@ -70,7 +70,9 @@ export function getCourtBookingWindow(
   const courtCutoffMinutes = parseCourtCutoffMinutes(courtCutoffTime);
 
   const closeMinutes =
-    courtCutoffMinutes === null ? facilityCloseMinutes : Math.min(courtCutoffMinutes, facilityCloseMinutes);
+    courtCutoffMinutes === null
+      ? facilityCloseMinutes
+      : Math.min(courtCutoffMinutes, facilityCloseMinutes);
 
   return {
     openMinutes: parseTimeToMinutes(settings.facilityOpenTime),
@@ -92,7 +94,11 @@ export function getCourtBookingWindow(
 // courtCutoffTime's "no cutoff at all" sentinel — disabling the early
 // Fri/Sat court-booking cutoff must not also silently disable Fri/Sat
 // unlimited capacity mode for the whole night.
-export function isBeforeFridaySaturdayOpenPlayCutoff(settings: CourtHoursSettings, date: Date, now: Date): boolean {
+export function isBeforeFridaySaturdayOpenPlayCutoff(
+  settings: CourtHoursSettings,
+  date: Date,
+  now: Date,
+): boolean {
   if (!isFridayOrSaturday(date)) {
     return true;
   }
@@ -130,15 +136,33 @@ export function isWithinCourtBookingWindow(
   return startMinutes >= window.openMinutes && endMinutes <= window.closeMinutes;
 }
 
-export type CourtSlotState = "unavailable" | "openPlay" | "past" | "booked" | "available";
+// "bookedCoach" is a variant of "booked" (owner request, 2026-08-02),
+// not an independent state — same overlap rule, same non-interactive
+// behavior, only the cell's own colour/label distinguish it from a
+// plain booking. See classifyCourtSlot below.
+export type CourtSlotState =
+  "unavailable" | "openPlay" | "past" | "booked" | "bookedCoach" | "available";
 
 export interface CourtSlotRange {
   startAt: Date;
   endAt: Date;
+  // Optional: maintenanceRanges pass no coach concept at all and don't
+  // set this. Only bookedRanges' hasCoach is ever read.
+  hasCoach?: boolean;
 }
 
 function rangesOverlap(slotStart: Date, slotEnd: Date, ranges: CourtSlotRange[]): boolean {
   return ranges.some((range) => slotStart < range.endAt && slotEnd > range.startAt);
+}
+
+function overlappingRangeHasCoach(
+  slotStart: Date,
+  slotEnd: Date,
+  ranges: CourtSlotRange[],
+): boolean {
+  return ranges.some(
+    (range) => slotStart < range.endAt && slotEnd > range.startAt && range.hasCoach,
+  );
 }
 
 // Single shared definition of "past" for an hourly slot — used by the
@@ -182,7 +206,7 @@ export function classifyCourtSlot(params: {
     return "openPlay";
   }
   if (rangesOverlap(slotStart, slotEnd, bookedRanges)) {
-    return "booked";
+    return overlappingRangeHasCoach(slotStart, slotEnd, bookedRanges) ? "bookedCoach" : "booked";
   }
   if (isHourInThePast(slotStart, now)) {
     return "past";

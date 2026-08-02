@@ -83,7 +83,7 @@ export interface PublicCourtDaySchedule {
   courtId: string;
   courtName: string;
   status: CourtStatus;
-  bookedRanges: { startAt: Date; endAt: Date }[];
+  bookedRanges: { startAt: Date; endAt: Date; hasCoach: boolean }[];
   maintenanceRanges: { startAt: Date; endAt: Date }[];
 }
 
@@ -1011,7 +1011,19 @@ export class BookingService {
           startAt: { lt: endOfDay },
           endAt: { gt: startOfDay },
         },
-        select: { courtId: true, startAt: true, endAt: true },
+        // Owner request (2026-08-02): the public grid flags a coached
+        // booking with its own colour. coachSession rides along in this
+        // SAME query (a JOIN, not a second round trip) — the grid was
+        // rebuilt for performance and this must not regress it back to
+        // an N+1. status, not just presence: removeCoachSession sets
+        // CANCELLED rather than deleting the row, so a booking whose
+        // coach was later removed must not still read as coached.
+        select: {
+          courtId: true,
+          startAt: true,
+          endAt: true,
+          coachSession: { select: { status: true } },
+        },
       }),
       prisma.courtMaintenance.findMany({
         where: {
@@ -1030,7 +1042,11 @@ export class BookingService {
       status: court.status,
       bookedRanges: bookings
         .filter((booking) => booking.courtId === court.id)
-        .map(({ startAt, endAt }) => ({ startAt, endAt })),
+        .map(({ startAt, endAt, coachSession }) => ({
+          startAt,
+          endAt,
+          hasCoach: coachSession != null && coachSession.status !== "CANCELLED",
+        })),
       maintenanceRanges: maintenanceWindows
         .filter((window) => window.courtId === court.id)
         .map(({ startAt, endAt }) => ({ startAt, endAt })),

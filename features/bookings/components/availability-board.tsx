@@ -12,7 +12,7 @@ export interface BoardCourt {
 }
 
 export interface BoardCell {
-  state: "unavailable" | "openPlay" | "past" | "booked" | "available";
+  state: "unavailable" | "openPlay" | "past" | "booked" | "bookedCoach" | "available";
 }
 
 interface AvailabilityBoardProps {
@@ -39,8 +39,8 @@ function toTimeValue(hour: number): string {
 }
 
 // One slot renders as a miniature court: navy fill, a bottom-edge stripe
-// mirrors docs/design-reference.html's .slot styling. Four states read
-// as four genuinely distinct color families, not shades of one hue:
+// mirrors docs/design-reference.html's .slot styling. Five states read
+// as five genuinely distinct color families, not shades of one hue:
 //   - available (open, tap to hold): solid white fill, dark gray text
 //     (owner request, 2026-08-02 — was bone/navy-900), label in caps —
 //     comfortably clears WCAG AA's 4.5:1 for normal text.
@@ -50,14 +50,25 @@ function toTimeValue(hour: number): string {
 //     navy-900 text. Was a ~15%-opacity tint that read as too faint/
 //     transparent to the owner live; solid fill fixes that — 8.57:1
 //     contrast.
+//   - booked, with a coach (owner request, 2026-08-02): a VARIANT of
+//     booked, not an independent state — same weight (light fill, dark
+//     navy-900 text), rose-300 instead of sky-400, so it reads as "a
+//     kind of Booked" rather than a whole different category the way
+//     open play's solid dark fill does. Rose over plum (the other
+//     option considered): plum sits nearer sky-blue on the color wheel
+//     and separates poorly at grid density in daylight on a phone.
+//     Colour is never the only signal — see the "Coach" sub-label in
+//     the render below and this cell's aria-label — a colourblind user
+//     or a washed-out phone screen must still be able to tell the two
+//     apart.
 //   - open play (walk-in, not booked through this grid): solid
 //     emerald-700, white text — deliberately a DIFFERENT green from
 //     the brand --green used by the Held/selected state and the
 //     Available stripe accent below, so an open-play cell is never
 //     mistaken for a currently-held one. 5.48:1 contrast.
 //   - past / unavailable (maintenance): neutral/muted, deliberately not
-//     part of the four-color system — not bookable states competing
-//     for attention, just dimmed out.
+//     part of the color system — not bookable states competing for
+//     attention, just dimmed out.
 function cellClasses(state: BoardCell["state"], isSelected: boolean): string {
   if (isSelected) {
     return "bg-green text-navy-900 border-green font-bold after:bg-navy-900/30";
@@ -71,6 +82,8 @@ function cellClasses(state: BoardCell["state"], isSelected: boolean): string {
       return "bg-navy-700/25 border-transparent text-slate/40 cursor-not-allowed after:bg-slate after:opacity-10";
     case "booked":
       return "bg-sky-400 border-sky-500 text-navy-900 font-bold cursor-not-allowed after:bg-sky-600 after:opacity-70";
+    case "bookedCoach":
+      return "bg-rose-300 border-rose-400 text-navy-900 font-bold cursor-not-allowed after:bg-rose-500 after:opacity-70";
     default:
       // unavailable (maintenance)
       return "bg-navy-700/40 border-transparent text-slate/50 cursor-not-allowed after:bg-slate after:opacity-20";
@@ -94,6 +107,7 @@ function cellLabel(state: BoardCell["state"], isSelected: boolean): string {
       return "Past";
     case "unavailable":
       return "Unavailable";
+    case "bookedCoach":
     default:
       return "Booked";
   }
@@ -261,17 +275,31 @@ export function AvailabilityBoard({
                     const label = cellLabel(cell.state, isSelected);
 
                     if (cell.state !== "available" && !isSelected) {
+                      const isBookedCoach = cell.state === "bookedCoach";
                       return (
                         <td key={court.id} className="p-1.5">
                           <div
                             className={cn(
-                              "font-jetbrains relative flex min-h-[46px] items-center justify-center overflow-hidden rounded-lg border text-[13px] font-medium",
+                              "font-jetbrains relative flex min-h-[46px] flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border text-[13px] font-medium",
                               "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:content-['']",
                               cellClasses(cell.state, false),
                             )}
-                            aria-label={`Court ${court.name}, ${hourLabel(hour)}, ${label.toLowerCase()}`}
+                            aria-label={`Court ${court.name}, ${hourLabel(hour)}, ${
+                              isBookedCoach ? "booked, coach expected" : label.toLowerCase()
+                            }`}
                           >
                             {label}
+                            {/* Colour is never the only signal (a colourblind
+                                visitor, or the grid washed out in daylight on a
+                                phone, must still be able to tell this apart from
+                                a plain Booked cell) — a small text badge, not an
+                                icon, matching every other state in this grid
+                                being text-only. */}
+                            {isBookedCoach ? (
+                              <span className="text-[9px] font-bold tracking-[0.08em] uppercase opacity-80">
+                                Coach
+                              </span>
+                            ) : null}
                           </div>
                         </td>
                       );
@@ -331,6 +359,10 @@ export function AvailabilityBoard({
         <span className="flex items-center gap-1.5">
           <i className="inline-block size-3.5 rounded bg-sky-400" aria-hidden="true" />
           Already booked
+        </span>
+        <span className="flex items-center gap-1.5">
+          <i className="inline-block size-3.5 rounded bg-rose-300" aria-hidden="true" />
+          Booked with a coach
         </span>
         <span className="flex items-center gap-1.5">
           <i className="inline-block size-3.5 rounded bg-emerald-700" aria-hidden="true" />

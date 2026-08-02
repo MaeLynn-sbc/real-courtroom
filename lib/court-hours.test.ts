@@ -149,9 +149,37 @@ describe("classifyCourtSlot", () => {
       classifyCourtSlot({
         ...slot(8),
         now,
-        maintenanceRanges: [{ startAt: new Date(2026, 6, 20, 8, 0), endAt: new Date(2026, 6, 20, 9, 0) }],
+        maintenanceRanges: [
+          { startAt: new Date(2026, 6, 20, 8, 0), endAt: new Date(2026, 6, 20, 9, 0) },
+        ],
       }),
     ).toBe("unavailable");
+  });
+
+  // Owner request (2026-08-02): a booking with a coach gets its own
+  // cell state. hasCoach is optional on CourtSlotRange precisely so the
+  // fixture above (no hasCoach at all) keeps reading as plain "booked" —
+  // proven by every earlier test in this describe block still passing.
+  it("reads BOOKED_COACH for a booking whose range has hasCoach: true", () => {
+    const now = new Date(2026, 6, 20, 9, 40).getTime();
+    expect(
+      classifyCourtSlot({
+        ...slot(8),
+        now,
+        bookedRanges: [{ ...booking, hasCoach: true }],
+      }),
+    ).toBe("bookedCoach");
+  });
+
+  it("reads plain BOOKED when hasCoach is explicitly false", () => {
+    const now = new Date(2026, 6, 20, 9, 40).getTime();
+    expect(
+      classifyCourtSlot({
+        ...slot(8),
+        now,
+        bookedRanges: [{ ...booking, hasCoach: false }],
+      }),
+    ).toBe("booked");
   });
 });
 
@@ -178,8 +206,13 @@ describe("isBeforeFridaySaturdayOpenPlayCutoff", () => {
   });
 
   it('treats a "00:00" cutoff as end-of-day, not as "no cutoff at all" — unlike a court\'s own cutoff sentinel', () => {
-    const midnightCutoffSettings: CourtHoursSettings = { ...SETTINGS, fridaySaturdayCloseTime: "00:00" };
+    const midnightCutoffSettings: CourtHoursSettings = {
+      ...SETTINGS,
+      fridaySaturdayCloseTime: "00:00",
+    };
     const lateEvening = new Date(2026, 6, 24, 23, 30);
-    expect(isBeforeFridaySaturdayOpenPlayCutoff(midnightCutoffSettings, FRIDAY, lateEvening)).toBe(true);
+    expect(isBeforeFridaySaturdayOpenPlayCutoff(midnightCutoffSettings, FRIDAY, lateEvening)).toBe(
+      true,
+    );
   });
 });
