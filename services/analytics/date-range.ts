@@ -41,6 +41,12 @@ export function resolveDateRange(
   return { from, to };
 }
 
+function endOfLocalDay(date: Date): Date {
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return end;
+}
+
 const PRESET_VALUES: DateRangePreset[] = ["TODAY", "7_DAYS", "30_DAYS", "90_DAYS", "CUSTOM"];
 
 function isDateRangePreset(value: string): value is DateRangePreset {
@@ -60,9 +66,26 @@ export function resolveDateRangeFromSearchParams(
 
   const fromParam = searchParams.from;
   const toParam = searchParams.to;
+  // Reported live: a "custom range" of From=To=Aug 1 returned almost no
+  // data for a day with real ₱8,000+ in sales. Root cause: `new
+  // Date("2026-08-01")` (a bare date-only string, straight from an
+  // <input type="date">) is parsed as UTC midnight by spec, REGARDLESS
+  // of the process's own timezone — unlike `new Date(y, m, d)` or a
+  // "T00:00:00"-suffixed string, both of which parse as local (this
+  // process runs TZ=Asia/Manila, UTC+8). UTC midnight Aug 1 is 8:00 AM
+  // Manila Aug 1, so `to` cut off virtually the entire business day, and
+  // `from`/`to` being equal made the window a near-zero-width instant
+  // rather than the whole day. Appending "T00:00:00" forces local-time
+  // parsing (same idiom already used in app/availability/page.tsx and
+  // the cash/gcash reconciliation actions); `to` is then pushed to the
+  // end of that same local day so a single selected day is fully
+  // inclusive instead of only its first instant.
   const custom =
     typeof fromParam === "string" && typeof toParam === "string"
-      ? { from: new Date(fromParam), to: new Date(toParam) }
+      ? {
+          from: new Date(`${fromParam}T00:00:00`),
+          to: endOfLocalDay(new Date(`${toParam}T00:00:00`)),
+        }
       : undefined;
 
   return resolveDateRange(preset, custom);

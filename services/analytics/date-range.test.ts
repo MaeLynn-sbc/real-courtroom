@@ -1,4 +1,7 @@
-import { resolveDateRange, resolveDateRangeFromSearchParams } from "@/services/analytics/date-range";
+import {
+  resolveDateRange,
+  resolveDateRangeFromSearchParams,
+} from "@/services/analytics/date-range";
 
 describe("resolveDateRange", () => {
   const now = new Date(2026, 6, 20, 15, 30); // Jul 20, 2026, 3:30pm
@@ -57,14 +60,29 @@ describe("resolveDateRangeFromSearchParams", () => {
     expect(result.to.getTime() - result.from.getTime()).toBeCloseTo(30 * 24 * 60 * 60 * 1000, -3);
   });
 
-  it("uses from/to when preset is CUSTOM and both are present", () => {
+  it("uses from/to when preset is CUSTOM and both are present, parsed as local time", () => {
+    // Reported live: new Date("2026-01-01") parses as UTC midnight,
+    // which in a UTC+8 process is 8am local — cutting off virtually the
+    // whole business day for a same-day range. from/to must resolve to
+    // LOCAL midnight/end-of-day instead.
     const result = resolveDateRangeFromSearchParams({
       preset: "CUSTOM",
       from: "2026-01-01",
       to: "2026-01-31",
     });
-    expect(result.from).toEqual(new Date("2026-01-01"));
-    expect(result.to).toEqual(new Date("2026-01-31"));
+    expect(result.from).toEqual(new Date(2026, 0, 1, 0, 0, 0, 0));
+    expect(result.to).toEqual(new Date(2026, 0, 31, 23, 59, 59, 999));
+  });
+
+  it("a single-day custom range covers that entire day, not a zero-width instant", () => {
+    const result = resolveDateRangeFromSearchParams({
+      preset: "CUSTOM",
+      from: "2026-08-01",
+      to: "2026-08-01",
+    });
+    expect(result.from).toEqual(new Date(2026, 7, 1, 0, 0, 0, 0));
+    expect(result.to).toEqual(new Date(2026, 7, 1, 23, 59, 59, 999));
+    expect(result.to.getTime() - result.from.getTime()).toBeCloseTo(24 * 60 * 60 * 1000, -3);
   });
 
   it("ignores an array-valued search param", () => {
