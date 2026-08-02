@@ -164,6 +164,11 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     description:
       "Register open-play walk-ins and settle bookings without first starting a shift. A real open shift is still used whenever one exists.",
   },
+  [PERMISSIONS.PAYROLL_MANAGE]: {
+    label: "Manage Payroll",
+    description:
+      "View and edit attendance records, schedule assignments, and shift templates. Owner-only by default.",
+  },
 };
 
 const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
@@ -201,6 +206,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.DISPLAY_MANAGE,
     PERMISSIONS.SALES_RECORD_MANUAL,
     PERMISSIONS.SALES_CREATE_WITHOUT_SHIFT,
+    PERMISSIONS.PAYROLL_MANAGE,
   ],
   [SYSTEM_ROLES.MANAGER]: [
     PERMISSIONS.DASHBOARD_ACCESS,

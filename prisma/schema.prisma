@@ -129,6 +129,8 @@ model User {
   membershipHistoryChanges          MembershipHistory[]
   equipmentMaintenanceLogsPerformed EquipmentMaintenanceLog[]
   lockerMaintenanceLogsPerformed    LockerMaintenanceLog[]
+  // Payroll Batch 1 — who corrected an attendance record's clock times.
+  attendanceRecordsCorrected        AttendanceRecord[]
 
   @@index([deletedAt])
 }
@@ -372,6 +374,10 @@ model Employee {
   // Expenses tracking Gate 1 — see Expense, below GcashDailyBalance's spot
   // in the file (or Sale, whichever lands nearest at merge time).
   recordedExpenses                          Expense[]
+  // Payroll Batch 1 — see ScheduleAssignment/AttendanceRecord, below
+  // Shift's own spot in the file.
+  scheduleAssignments                       ScheduleAssignment[]
+  attendanceRecords                         AttendanceRecord[]
 
   @@index([deletedAt])
 }
@@ -412,14 +418,124 @@ model Shift {
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt
 
-  employee Employee @relation(fields: [employeeId], references: [id])
-  sales    Sale[]
+  employee          Employee           @relation(fields: [employeeId], references: [id])
+  sales             Sale[]
+  // Payroll Batch 1: set only once a later batch wires "till open/close
+  // seeds an AttendanceRecord" — see AttendanceRecord.shiftId's own
+  // comment. Always empty for now.
+  attendanceRecords AttendanceRecord[]
 
   // Only one OPEN shift per employee is enforced at the service layer;
   // this index supports that lookup. Multiple CLOSED shifts per employee
   // per day are fine — nothing prevents clocking in more than once a day.
   @@index([employeeId, status])
   @@index([startedAt])
+}
+
+// Payroll Batch 1 (2026-08-02). Supersedes the never-deployed
+// ScheduledShift/TimeLogEntry pair (see commit 5b1599c) — same overall
+// shape, corrected: employeeId not userId (matching every other staff-
+// linked model in this file, Shift included), and this time actually
+// wired to a real service, action, and UI before landing.
+//
+// ShiftTemplate: owner-defined named presets ("Opening"/"Closing").
+// startTime/endTime are bare "HH:MM" time-of-day strings, not DateTimes
+// — a template describes a repeatable daily window, not a specific
+// date, same reasoning CoachAvailabilityWindow's own date-scoped rows
+// (below) apply to "materialize per-date, don't build a recurrence-rule
+// engine." Combined with a real workDate on ScheduleAssignment to
+// produce actual scheduledStart/scheduledEnd instants.
+model ShiftTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  startTime String
+  endTime   String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scheduleAssignments ScheduleAssignment[]
+}
+
+// One row per employee per work day — @@unique enforces that directly
+// (stronger than ScheduledShift's old "delete-then-recreate" service-
+// layer-only invariant). templateId is nullable: a day can be assigned
+// from a named template or hand-typed custom hours; isOverride flags
+// the latter case (or a template day whose times were hand-adjusted)
+// for the Timesheet UI's "this day deviates from the default" treatment
+// — meaningless without templateId existing, which is exactly why it
+// didn't exist on the old, template-less ScheduledShift.
+model ScheduleAssignment {
+  id             String   @id @default(cuid())
+  employeeId     String
+  workDate       DateTime
+  templateId     String?
+  scheduledStart DateTime
+  scheduledEnd   DateTime
+  isOverride     Boolean  @default(false)
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  employee Employee       @relation(fields: [employeeId], references: [id])
+  template ShiftTemplate? @relation(fields: [templateId], references: [id])
+
+  @@unique([employeeId, workDate])
+  @@index([workDate])
+}
+
+enum AttendanceSource {
+  MANUAL
+  LIVE
+}
+
+// Payroll's own presence record — deliberately separate from Shift
+// (till-custody audit record: "the till was open X to Y") rather than
+// overloading it, so correcting a payroll clock time can never rewrite
+// a cash-custody fact. shiftId is the seam for a later batch to wire
+// "closing a till seeds/links the day's AttendanceRecord" (source
+// becomes LIVE then) — nullable so a MANUAL entry (an absence, or a day
+// worked with no till ever opened) has a home with nothing to link to.
+// rawClockIn/rawClockOut are captured once, at creation, from whatever
+// clockIn/clockOut held at that moment, and never touched again — same
+// "the original survives independently of AuditLog" intent TimeLogEntry's
+// original* fields had, just always populated instead of only-after-
+// first-correction. Every field name here matches TimeLogEntry's own
+// established convention (correctedByUserId/correctedAt/correctionReason),
+// not Part 2's original editedBy/editedAt/editReason draft.
+//
+// Deliberately NOT included yet (later batches only, once the thing
+// that would ever set them actually exists): autoClosed (needs live-
+// seeding's own "shift closed with no matching clock-out" detection),
+// status/locking (needs PayPeriod), otApproved/appliedRates/
+// hoursWorked/nightDiffHours/otHours/lateMinutes/undertimeMinutes
+// (needs the rate/computation engine). Adding them now with nothing to
+// ever write them would be exactly the kind of unwired dead field this
+// batch's own predecessor got removed for.
+model AttendanceRecord {
+  id          String           @id @default(cuid())
+  employeeId  String
+  workDate    DateTime
+  shiftId     String?
+  clockIn     DateTime
+  clockOut    DateTime?
+  rawClockIn  DateTime
+  rawClockOut DateTime?
+  source      AttendanceSource @default(MANUAL)
+
+  correctedByUserId String?
+  correctedAt       DateTime?
+  correctionReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  shift       Shift?   @relation(fields: [shiftId], references: [id])
+  correctedBy User?    @relation(fields: [correctedByUserId], references: [id])
+
+  @@unique([employeeId, workDate])
+  @@index([workDate])
 }
 
 // GCash reconciliation Gate 1. Deliberately date-scoped, NOT shift-

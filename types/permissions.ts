@@ -113,6 +113,13 @@ export const PERMISSIONS = {
   // MANAGER via the Roles screen too if a coach who isn't the Owner
   // needs the same.
   SALES_CREATE_WITHOUT_SHIFT: "sales:create_without_shift",
+  // Payroll Batch 1 (2026-08-02): gates every payroll route/action —
+  // attendance records, schedule assignments, shift templates. Owner-
+  // only by default (see prisma/seed.ts's OWNER array) — nav hiding
+  // alone is not the enforcement (dashboard-sidebar.tsx's own comment),
+  // middleware.ts's canAccessRoute + requirePermission on every action
+  // are.
+  PAYROLL_MANAGE: "payroll:manage",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

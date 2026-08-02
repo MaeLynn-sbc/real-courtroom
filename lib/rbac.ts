@@ -37,14 +37,23 @@ const PROTECTED_ROUTES: RouteRule[] = [
   // specific sub-routes that override it, same longest-prefix-match
   // pattern as /dashboard/admin/employees above.
   { prefix: "/dashboard/coaching", permission: PERMISSIONS.BOOKINGS_MANAGE },
-  { prefix: "/dashboard/coaching/availability", permission: PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY },
+  {
+    prefix: "/dashboard/coaching/availability",
+    permission: PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY,
+  },
   { prefix: "/dashboard/coaching/rates", permission: PERMISSIONS.COACHING_MANAGE_RATES },
+  // Payroll Batch 1: owner-only via PAYROLL_MANAGE (see prisma/seed.ts's
+  // OWNER grant), not the /dashboard/admin parent's broader SYSTEM_ADMIN.
+  { prefix: "/dashboard/payroll", permission: PERMISSIONS.PAYROLL_MANAGE },
   // GCash reconciliation Gate 1 follow-up: overrides the /dashboard/admin
   // parent's SYSTEM_ADMIN default (same longest-prefix-match override
   // pattern as /dashboard/admin/employees and /dashboard/admin/roles
   // above) — the screen itself is now gated on the narrower, owner-
   // assignable permission, not just the action calls beneath it.
-  { prefix: "/dashboard/admin/gcash-reconciliation", permission: PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION },
+  {
+    prefix: "/dashboard/admin/gcash-reconciliation",
+    permission: PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION,
+  },
   // Expenses tracking Gate 1: overrides the /dashboard/admin parent's
   // SYSTEM_ADMIN default (same longest-prefix-match override pattern as
   // /dashboard/admin/employees and /dashboard/admin/roles above) — the
@@ -95,7 +104,10 @@ export const CHANGE_PASSWORD_PATH = "/dashboard/change-password";
 // canAccessRoute) because it's a different kind of decision: permission-
 // independent, and applies even to paths canAccessRoute would otherwise
 // mark "allowed" (e.g. the /dashboard root itself).
-export function requiresPasswordChangeRedirect(pathname: string, mustChangePassword: boolean): boolean {
+export function requiresPasswordChangeRedirect(
+  pathname: string,
+  mustChangePassword: boolean,
+): boolean {
   return mustChangePassword && !pathname.startsWith(CHANGE_PASSWORD_PATH);
 }
 

@@ -42,13 +42,32 @@ describe("canAccessRoute", () => {
     );
   });
 
+  // Payroll Batch 1 access control: "Owner-only enforced server-side on
+  // every payroll route. Nav hiding alone is insufficient." A non-owner
+  // session (DASHBOARD_ACCESS only, no PAYROLL_MANAGE) must be forbidden
+  // server-side here, not just hidden from the sidebar.
+  it("forbids a non-owner session from the payroll route, even with general dashboard access", () => {
+    expect(canAccessRoute("/dashboard/payroll", true, [PERMISSIONS.DASHBOARD_ACCESS])).toBe(
+      "forbidden",
+    );
+  });
+
+  it("allows a session with PAYROLL_MANAGE onto the payroll route", () => {
+    expect(
+      canAccessRoute("/dashboard/payroll", true, [
+        PERMISSIONS.DASHBOARD_ACCESS,
+        PERMISSIONS.PAYROLL_MANAGE,
+      ]),
+    ).toBe("allowed");
+  });
+
   it("gates the entire bookings section, not just a sub-route, unlike courts", () => {
     expect(canAccessRoute("/dashboard/bookings", true, [PERMISSIONS.DASHBOARD_ACCESS])).toBe(
       "forbidden",
     );
-    expect(
-      canAccessRoute("/dashboard/bookings/abc123", true, [PERMISSIONS.DASHBOARD_ACCESS]),
-    ).toBe("forbidden");
+    expect(canAccessRoute("/dashboard/bookings/abc123", true, [PERMISSIONS.DASHBOARD_ACCESS])).toBe(
+      "forbidden",
+    );
     expect(
       canAccessRoute("/dashboard/bookings", true, [
         PERMISSIONS.DASHBOARD_ACCESS,

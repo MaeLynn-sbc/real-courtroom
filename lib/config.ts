@@ -90,6 +90,7 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       { title: "Courts", href: "/dashboard/courts" },
       { title: "Employees", href: "/dashboard/admin/employees" },
       { title: "Roles", href: "/dashboard/admin/roles" },
+      { title: "Payroll", href: "/dashboard/payroll" },
       { title: "Payment Methods", href: "/dashboard/admin/payment-methods" },
       { title: "Shop Catalog", href: "/dashboard/admin/products" },
       { title: "Website", href: "/dashboard/admin/website" },
