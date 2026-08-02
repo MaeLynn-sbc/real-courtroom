@@ -129,9 +129,6 @@ model User {
   membershipHistoryChanges          MembershipHistory[]
   equipmentMaintenanceLogsPerformed EquipmentMaintenanceLog[]
   lockerMaintenanceLogsPerformed    LockerMaintenanceLog[]
-  // Staff Schedule + Attendance — who corrected a clock entry, distinct
-  // from timeLogEntries above (whose entry it is).
-  timeLogEntriesCorrected           TimeLogEntry[]
 
   @@index([deletedAt])
 }
@@ -375,10 +372,6 @@ model Employee {
   // Expenses tracking Gate 1 — see Expense, below GcashDailyBalance's spot
   // in the file (or Sale, whichever lands nearest at merge time).
   recordedExpenses                          Expense[]
-  // Staff Schedule + Attendance — see ScheduledShift/TimeLogEntry, below
-  // Shift's own spot in the file.
-  scheduledShifts                           ScheduledShift[]
-  timeLogEntries                            TimeLogEntry[]
 
   @@index([deletedAt])
 }
@@ -427,83 +420,6 @@ model Shift {
   // per day are fine — nothing prevents clocking in more than once a day.
   @@index([employeeId, status])
   @@index([startedAt])
-}
-
-// Staff Schedule + Attendance. Deliberately separate from Shift above —
-// Shift is till/cash custody (openingCashCents, denomination counts,
-// variance), this pair is presence/hours for payroll coordination. A
-// staff member can be scheduled or clocked in without ever touching a
-// cash drawer (cleaning, setup), so conflating the two would force
-// every attendance event to carry irrelevant money fields and risk the
-// already-tested "one Shift = one custody period" invariant.
-//
-// ScheduledShift stores concrete per-date rows (owner assigns a real
-// date + start/end), not a recurring-weekday rule — same shape and
-// same reasoning as CoachAvailabilityWindow (below), which already
-// proved out "materialize per-date rows, offer a Copy-last-week
-// action" as this app's actual answer to "recurring" schedules,
-// rather than building real recurrence-rule storage nothing else here
-// has. Deliberately its own model, not a reuse of
-// CoachAvailabilityWindow itself — that model's coachId is tied into
-// coach-session public-booking-eligibility checks elsewhere; reusing
-// it here would conflate "bookable by the public" with "expected to
-// work."
-model ScheduledShift {
-  id         String   @id @default(cuid())
-  employeeId String
-  startAt    DateTime
-  endAt      DateTime
-  notes      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  employee Employee @relation(fields: [employeeId], references: [id])
-
-  @@index([employeeId, startAt])
-}
-
-// Attendance clock in/out. clockOutAt null means still clocked in, or
-// forgotten — shown plainly as incomplete, never auto-closed and never
-// used to compute hours (an assumed clock-out time would be a fabricated
-// number in a payroll record). Coordination + an hours record for
-// payroll, not enforcement — no lateness/overtime flags or computed
-// penalties anywhere in this model or the service built on it.
-//
-// Correction fields follow the GCash-reconciliation-override pattern's
-// INTENT (required reason, old value retained) but not its exact
-// mechanics: GcashDailyBalance.overrideStartingBalance updates the
-// value in place and relies entirely on AuditLog for the old/new/reason
-// trail, nothing on the row itself. Here the original clocked value is
-// kept directly on the row (originalClockInAt/originalClockOutAt)
-// alongside the correction reason, specifically so a corrected entry
-// still shows both values together for a later CCTV check without
-// needing a separate Audit Logs lookup — an audit log entry is written
-// too, for consistency with every other mutation in this app, but it's
-// not the only place the original value survives.
-model TimeLogEntry {
-  id         String    @id @default(cuid())
-  employeeId String
-  clockInAt  DateTime
-  clockOutAt DateTime?
-
-  originalClockInAt  DateTime?
-  originalClockOutAt DateTime?
-  correctionReason   String?
-  correctedByUserId  String?
-  correctedAt        DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  employee    Employee @relation(fields: [employeeId], references: [id])
-  correctedBy User?    @relation(fields: [correctedByUserId], references: [id])
-
-  // Only one incomplete (clockOutAt null) entry per employee is
-  // enforced at the service layer — same split as Shift's own "only
-  // one OPEN shift" rule (index supports the lookup, the invariant
-  // itself lives in the service).
-  @@index([employeeId, clockInAt])
-  @@index([employeeId, clockOutAt])
 }
 
 // GCash reconciliation Gate 1. Deliberately date-scoped, NOT shift-
