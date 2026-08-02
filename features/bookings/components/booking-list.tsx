@@ -106,28 +106,24 @@ function PaymentCell({ booking }: { booking: BookingRow }) {
   const state = getBookingPaymentState(booking, new Date());
   const proof = booking.paymentProofs[0];
 
-  const badge = (
-    <Badge variant={state.variant} className={proof ? "cursor-pointer" : undefined}>
-      {state.label}
-    </Badge>
-  );
+  const badge = <Badge variant={state.variant}>{state.label}</Badge>;
 
   return (
     <div className="flex flex-col gap-0.5">
-      {/* Requirement 3: a proof-linked row opens the screenshot straight
-          from the list, no need to open the booking first — same detail
-          page the booking-detail badge already points at, which already
-          renders fine for any status (see getProofById's own comment). */}
+      {badge}
+      {/* Reported live: the badge alone being clickable (a bare
+          cursor-pointer, no visible label) wasn't discoverable — an
+          explicit "View proof of payment" link, same treatment as the
+          settle-at-venue "View receipt" link below, for every online
+          booking that actually has a submitted GCash screenshot. */}
       {proof ? (
         <Link
           href={`/dashboard/bookings/verify-payments/${proof.id}`}
-          className="inline-flex w-fit"
+          className="text-primary w-fit text-xs underline underline-offset-2"
         >
-          {badge}
+          View proof of payment
         </Link>
-      ) : (
-        badge
-      )}
+      ) : null}
       {state.when ? (
         <span
           title={dateTimeFormatter.format(state.when)}
