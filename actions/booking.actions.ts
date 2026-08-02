@@ -217,6 +217,13 @@ export async function settleBookingAction(input: SettleBookingInput): Promise<Bo
         paymentMethodId: parsed.data.paymentMethodId,
       },
       authz.userId,
+      parsed.data.receipt
+        ? {
+            fileName: parsed.data.receipt.fileName,
+            contentType: parsed.data.receipt.contentType,
+            data: Buffer.from(parsed.data.receipt.dataBase64, "base64"),
+          }
+        : undefined,
     );
     revalidatePath("/dashboard/bookings");
     revalidatePath(`/dashboard/bookings/${parsed.data.bookingId}`);

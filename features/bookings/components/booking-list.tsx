@@ -19,6 +19,27 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   timeStyle: "short",
   hour12: true,
 });
+const timeOnlyFormatter = new Intl.DateTimeFormat("en-PH", { timeStyle: "short", hour12: true });
+
+function isSameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+// Reported live: a same-day booking (the overwhelming majority — nothing
+// crosses midnight in practice) showed the full date twice, e.g. "Aug 2,
+// 2026, 8:00 AM – Aug 2, 2026, 9:00 AM." One date is enough when both
+// ends land on the same calendar day; the rare overnight booking still
+// shows both dates so it isn't misread as same-day.
+function formatBookingTimeRange(startAt: Date, endAt: Date): string {
+  if (isSameLocalDay(startAt, endAt)) {
+    return `${dateTimeFormatter.format(startAt)} – ${timeOnlyFormatter.format(endAt)}`;
+  }
+  return `${dateTimeFormatter.format(startAt)} – ${dateTimeFormatter.format(endAt)}`;
+}
 
 type Bookings = Awaited<ReturnType<typeof bookingService.listBookings>>;
 type BookingRow = Bookings[number];
@@ -115,6 +136,20 @@ function PaymentCell({ booking }: { booking: BookingRow }) {
           {formatRelativeTime(state.when)}
         </span>
       ) : null}
+      {/* Settle-at-venue receipt (Cash/GCash collected in person) — a
+          separate attachment from paymentProofs above, which is only the
+          online GCash-prepayment screenshot flow. Served through the
+          same permission-gated route as that proof, never a public path. */}
+      {booking.receiptStorageKey ? (
+        <a
+          href={`/api/booking-receipt/${booking.receiptStorageKey}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary w-fit text-xs underline underline-offset-2"
+        >
+          View receipt
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -147,10 +182,7 @@ export function BookingList({ bookings }: BookingListProps) {
             </TableCell>
             <TableCell>{booking.court.name}</TableCell>
             <TableCell>{booking.player?.user.name ?? booking.guestName ?? "—"}</TableCell>
-            <TableCell>
-              {dateTimeFormatter.format(booking.startAt)} –{" "}
-              {dateTimeFormatter.format(booking.endAt)}
-            </TableCell>
+            <TableCell>{formatBookingTimeRange(booking.startAt, booking.endAt)}</TableCell>
             <TableCell>
               <span
                 title={dateTimeFormatter.format(booking.createdAt)}

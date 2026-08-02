@@ -729,36 +729,36 @@ enum BookingSource {
 // Database freeze) is the human-friendly, stable identifier shown in UI/
 // receipts/communication ("BK-YYYYMMDD-NNNN") — id stays the internal PK.
 model Booking {
-  id               String               @id @default(cuid())
-  bookingReference String               @unique
-  courtId          String
-  bookedById       String
-  playerId         String?
-  parentBookingId  String?
-  type             BookingType
-  status           BookingStatus        @default(PENDING)
+  id                String               @id @default(cuid())
+  bookingReference  String               @unique
+  courtId           String
+  bookedById        String
+  playerId          String?
+  parentBookingId   String?
+  type              BookingType
+  status            BookingStatus        @default(PENDING)
   // @default(UNKNOWN) exists solely so the migration can add this as a
   // real NOT NULL column against existing rows — every application-level
   // write path sets it explicitly (createBooking) or resolves it
   // deliberately (the one-time backfill script), never relies on this
   // default going forward.
-  source           BookingSource        @default(UNKNOWN)
-  startAt          DateTime
-  endAt            DateTime
-  recurrenceRule   String?
-  guestName        String?
-  guestPhone       String?
-  guestEmail       String?
-  totalAmountCents Int?
-  qrCodeToken      String?              @unique
-  notes            String?
-  cancelledAt      DateTime?
+  source            BookingSource        @default(UNKNOWN)
+  startAt           DateTime
+  endAt             DateTime
+  recurrenceRule    String?
+  guestName         String?
+  guestPhone        String?
+  guestEmail        String?
+  totalAmountCents  Int?
+  qrCodeToken       String?              @unique
+  notes             String?
+  cancelledAt       DateTime?
   // v1.2 Phase 2: set when a staff/owner booking falls outside the
   // court's effective operating window (BUILD-SPEC.md §0 "Facility close
   // is a PUBLIC limit, not a data limit") — staff can always book past
   // hours, this just flags it for reporting. Always false for WEBSITE
   // bookings, since those are blocked outright instead of flagged.
-  isAfterHours     Boolean              @default(false)
+  isAfterHours      Boolean              @default(false)
   // Phase 8 plumbing. Set only for the public GCash hold (status =
   // AWAITING_PAYMENT): now + 30 minutes at checkout start. Explicitly
   // set back to NULL the moment payment proof is submitted (status ->
@@ -771,7 +771,7 @@ model Booking {
   // any query, but the status scope is the actual source of truth.
   // Always NULL for STAFF bookings and any booking created before this
   // switch existed.
-  holdExpiresAt    DateTime?
+  holdExpiresAt     DateTime?
   // Settle-bill (pay-at-venue gap fix): a staff/pay-at-venue booking is
   // created with NO Sale and no assumed payment method — the customer's
   // actual method isn't known until they actually pay, which may be well
@@ -784,12 +784,19 @@ model Booking {
   // Always NULL for a WEBSITE booking, which pays through its own
   // separate GCash-hold-and-verify flow (BookingPaymentProof), not this
   // path.
-  settledAt        DateTime?
-  settledByUserId  String?
-  settledVia       TabSettlementMethod?
-  gcashReference   String?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  settledAt         DateTime?
+  settledByUserId   String?
+  settledVia        TabSettlementMethod?
+  gcashReference    String?
+  // Optional photo of the physical receipt/GCash confirmation, captured
+  // at settle time — same private-upload mechanism as BookingPaymentProof
+  // and Expense.receiptStorageKey, served only through the permission-
+  // gated /api/booking-receipt/[key] route, never a public static path.
+  // Null for any booking settled before this field existed, and always
+  // for a WEBSITE booking (its proof is BookingPaymentProof, not this).
+  receiptStorageKey String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
   court           Court                 @relation(fields: [courtId], references: [id])
   bookedBy        User                  @relation("BookingBookedBy", fields: [bookedById], references: [id])

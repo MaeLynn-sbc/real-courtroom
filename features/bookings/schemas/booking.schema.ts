@@ -47,6 +47,15 @@ export const settleBookingSchema = z
     method: z.enum(["CASH", "GCASH"]),
     gcashReference: z.string().max(200).optional(),
     paymentMethodId: z.string().min(1, "Select a payment method."),
+    // Optional photo of the physical receipt/GCash confirmation — same
+    // base64-over-the-action shape as submitBookingPaymentProof.
+    receipt: z
+      .object({
+        fileName: z.string().min(1),
+        contentType: z.string().min(1),
+        dataBase64: z.string().min(1),
+      })
+      .optional(),
   })
   .refine((data) => data.method !== "GCASH" || Boolean(data.gcashReference?.trim()), {
     message: "A GCash reference number is required.",

@@ -21,6 +21,7 @@ import { PAY_AT_VENUE_PAYMENT_METHOD_KEY } from "@/lib/system-identities";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { saleService } from "@/services/sales/sale.service";
 import { settingsService } from "@/services/settings/settings.service";
+import { getUploadService } from "@/services/upload/upload-service.factory";
 
 // v1.1 Sub-phase 2: every booking is created by a signed-in Employee with a
 // currently open Shift — createBookingAction resolves both before calling
@@ -687,6 +688,7 @@ export class BookingService {
     gcashReference: string | null,
     saleContext: { employeeId: string; shiftId: string; paymentMethodId: string },
     actorUserId: string,
+    receipt?: { fileName: string; contentType: string; data: Buffer },
   ): Promise<Booking> {
     if (method === "GCASH" && !gcashReference?.trim()) {
       throw new Error("A GCash reference number is required.");
@@ -731,48 +733,70 @@ export class BookingService {
       throw new BookingAlreadySettledError();
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const claim = await tx.booking.updateMany({
-        where: { id: bookingId, settledAt: null },
-        data: {
-          settledAt: new Date(),
-          settledByUserId: actorUserId,
-          settledVia: method,
-          gcashReference: method === "GCASH" ? gcashReference : null,
-        },
+    // Same upload-first pattern as expenseService.createExpense — the
+    // file lands in storage before the DB write, so its key exists to
+    // reference, and gets deleted if the transaction never lands, so a
+    // failed settlement never leaves an orphaned file.
+    const upload = receipt
+      ? await getUploadService().uploadPrivate({
+          fileName: receipt.fileName,
+          contentType: receipt.contentType,
+          data: receipt.data,
+        })
+      : null;
+
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        const claim = await tx.booking.updateMany({
+          where: { id: bookingId, settledAt: null },
+          data: {
+            settledAt: new Date(),
+            settledByUserId: actorUserId,
+            settledVia: method,
+            gcashReference: method === "GCASH" ? gcashReference : null,
+            receiptStorageKey: upload?.key,
+          },
+        });
+        if (claim.count === 0) {
+          throw new BookingAlreadySettledError();
+        }
+
+        const updated = await tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
+
+        const sale = await saleService.createSale(
+          {
+            category: "BOOKING",
+            amountCents: updated.totalAmountCents ?? 0,
+            paymentMethodId: saleContext.paymentMethodId,
+            employeeId: saleContext.employeeId,
+            shiftId: saleContext.shiftId,
+            playerId: updated.playerId ?? undefined,
+            bookingId: updated.id,
+          },
+          tx,
+        );
+
+        return { booking: updated, sale };
       });
-      if (claim.count === 0) {
-        throw new BookingAlreadySettledError();
+
+      await this.writeAuditLog({
+        actorUserId,
+        action: "booking.settled",
+        entityType: "Booking",
+        entityId: bookingId,
+        newValues: { method, amountCents: result.sale.amountCents },
+      });
+      await saleService.logSaleCreated(result.sale, actorUserId);
+
+      return result.booking;
+    } catch (error) {
+      if (upload) {
+        await getUploadService()
+          .delete(upload.key)
+          .catch(() => undefined);
       }
-
-      const updated = await tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
-
-      const sale = await saleService.createSale(
-        {
-          category: "BOOKING",
-          amountCents: updated.totalAmountCents ?? 0,
-          paymentMethodId: saleContext.paymentMethodId,
-          employeeId: saleContext.employeeId,
-          shiftId: saleContext.shiftId,
-          playerId: updated.playerId ?? undefined,
-          bookingId: updated.id,
-        },
-        tx,
-      );
-
-      return { booking: updated, sale };
-    });
-
-    await this.writeAuditLog({
-      actorUserId,
-      action: "booking.settled",
-      entityType: "Booking",
-      entityId: bookingId,
-      newValues: { method, amountCents: result.sale.amountCents },
-    });
-    await saleService.logSaleCreated(result.sale, actorUserId);
-
-    return result.booking;
+      throw error;
+    }
   }
 
   // Phase 8 Gate 2 (BUILD-SPEC.md §8 "Slot holding"). Deliberately a

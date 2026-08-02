@@ -28,15 +28,25 @@
  *      method that means "not yet paid." Proven failing-first: this
  *      assertion fails against the pre-fix code (the settle succeeds
  *      and creates a Sale), then passes once the guard is added.
+ *   8. Requested live (2026-08-02): an optional receipt/proof-of-
+ *      payment photo attached at settle time — persisted as
+ *      Booking.receiptStorageKey and retrievable through the same
+ *      upload service, so staff can check or recheck what was
+ *      collected.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
 import "dotenv/config";
 
 import { prisma } from "../../lib/prisma";
-import { bookingService, BookingAlreadySettledError, type CreateBookingSaleContext } from "./booking.service";
+import {
+  bookingService,
+  BookingAlreadySettledError,
+  type CreateBookingSaleContext,
+} from "./booking.service";
 import { shiftService } from "../shift/shift.service";
 import { PAY_AT_VENUE_PAYMENT_METHOD_KEY } from "../../lib/system-identities";
+import { getUploadService } from "../upload/upload-service.factory";
 
 const TEST_DATE = new Date(2031, 3, 8); // Tuesday, distinct from booking-source.integration.ts's own fixture date
 
@@ -47,8 +57,20 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function slot(hour: number): { startAt: Date; endAt: Date } {
-  const startAt = new Date(TEST_DATE.getFullYear(), TEST_DATE.getMonth(), TEST_DATE.getDate(), hour, 0);
-  const endAt = new Date(TEST_DATE.getFullYear(), TEST_DATE.getMonth(), TEST_DATE.getDate(), hour + 1, 0);
+  const startAt = new Date(
+    TEST_DATE.getFullYear(),
+    TEST_DATE.getMonth(),
+    TEST_DATE.getDate(),
+    hour,
+    0,
+  );
+  const endAt = new Date(
+    TEST_DATE.getFullYear(),
+    TEST_DATE.getMonth(),
+    TEST_DATE.getDate(),
+    hour + 1,
+    0,
+  );
   return { startAt, endAt };
 }
 
@@ -77,7 +99,12 @@ async function main(): Promise<void> {
   // assertion — reusing whatever shift happened to already be open
   // would contaminate getExpectedCashForShift with unrelated sales.
   const shift = await prisma.shift.create({
-    data: { shiftNumber: `SHIFT-SETTLEBILL-${Date.now()}`, employeeId: employee.id, status: "OPEN", openingCashCents: 0 },
+    data: {
+      shiftNumber: `SHIFT-SETTLEBILL-${Date.now()}`,
+      employeeId: employee.id,
+      status: "OPEN",
+      openingCashCents: 0,
+    },
   });
   const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
   const gcashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "GCASH" } });
@@ -86,17 +113,34 @@ async function main(): Promise<void> {
     // ============== 1. Staff-created booking has NO Sale ==============
     const cashSlot = slot(9);
     const cashBooking = await bookingService.createBooking(
-      { courtId: court.id, type: "HOURLY", startAt: cashSlot.startAt, endAt: cashSlot.endAt, guestName: "Settle Bill Cash Guest" },
+      {
+        courtId: court.id,
+        type: "HOURLY",
+        startAt: cashSlot.startAt,
+        endAt: cashSlot.endAt,
+        guestName: "Settle Bill Cash Guest",
+      },
       owner.id,
       { employeeId: employee.id, shiftId: shift.id },
     );
-    const freshlyCreated = await prisma.booking.findUniqueOrThrow({ where: { id: cashBooking.id }, include: { sale: true } });
-    assert(freshlyCreated.sale === null, "expected a staff-created booking to have NO Sale immediately — that's the actual gap being fixed");
+    const freshlyCreated = await prisma.booking.findUniqueOrThrow({
+      where: { id: cashBooking.id },
+      include: { sale: true },
+    });
+    assert(
+      freshlyCreated.sale === null,
+      "expected a staff-created booking to have NO Sale immediately — that's the actual gap being fixed",
+    );
     assert(freshlyCreated.settledAt === null, "expected a freshly-created booking to be unsettled");
-    console.log("PASS: a staff-created booking has no Sale and is unsettled immediately after creation.");
+    console.log(
+      "PASS: a staff-created booking has no Sale and is unsettled immediately after creation.",
+    );
 
     const expectedBeforeSettle = await shiftService.getExpectedCashForShift(shift);
-    assert(expectedBeforeSettle === shift.openingCashCents, "expected cash before settling should just be the opening float — nothing counted yet");
+    assert(
+      expectedBeforeSettle === shift.openingCashCents,
+      "expected cash before settling should just be the opening float — nothing counted yet",
+    );
 
     // ============== 2. settleBooking (CASH) ==============
     const settledCash = await bookingService.settleBooking(
@@ -107,12 +151,18 @@ async function main(): Promise<void> {
       owner.id,
     );
     assert(settledCash.settledAt !== null, "expected settledAt to be set after settling");
-    assert(settledCash.settledByUserId === owner.id, "expected settledByUserId to be the settling user");
+    assert(
+      settledCash.settledByUserId === owner.id,
+      "expected settledByUserId to be the settling user",
+    );
     assert(settledCash.settledVia === "CASH", "expected settledVia to be CASH");
 
     const cashSale = await prisma.sale.findUnique({ where: { bookingId: cashBooking.id } });
     assert(cashSale !== null, "expected settleBooking to create a real Sale row");
-    assert(cashSale!.amountCents === cashBooking.totalAmountCents, "expected the Sale amount to match the booking's total");
+    assert(
+      cashSale!.amountCents === cashBooking.totalAmountCents,
+      "expected the Sale amount to match the booking's total",
+    );
     console.log("PASS: settleBooking(CASH) creates the Sale and marks the booking settled.");
 
     const expectedAfterSettle = await shiftService.getExpectedCashForShift(shift);
@@ -120,12 +170,20 @@ async function main(): Promise<void> {
       expectedAfterSettle === expectedBeforeSettle + (cashBooking.totalAmountCents ?? 0),
       `expected cash after settling should include the booking's amount — got ${expectedAfterSettle}, expected ${expectedBeforeSettle + (cashBooking.totalAmountCents ?? 0)}`,
     );
-    console.log("PASS: the settled amount is correctly picked up by shift cash reconciliation, at settle time, no changes needed there.");
+    console.log(
+      "PASS: the settled amount is correctly picked up by shift cash reconciliation, at settle time, no changes needed there.",
+    );
 
     // ============== 3. GCASH with no reference is rejected ==============
     const gcashSlot = slot(11);
     const gcashBooking = await bookingService.createBooking(
-      { courtId: court.id, type: "HOURLY", startAt: gcashSlot.startAt, endAt: gcashSlot.endAt, guestName: "Settle Bill GCash Guest" },
+      {
+        courtId: court.id,
+        type: "HOURLY",
+        startAt: gcashSlot.startAt,
+        endAt: gcashSlot.endAt,
+        guestName: "Settle Bill GCash Guest",
+      },
       owner.id,
       { employeeId: employee.id, shiftId: shift.id },
     );
@@ -153,8 +211,13 @@ async function main(): Promise<void> {
       owner.id,
     );
     assert(settledGcash.settledVia === "GCASH", "expected settledVia to be GCASH");
-    assert(settledGcash.gcashReference === "GCASH-REF-12345", "expected the GCash reference to be persisted on the booking");
-    console.log("PASS: settleBooking(GCASH) with a reference succeeds and persists the reference on the booking.");
+    assert(
+      settledGcash.gcashReference === "GCASH-REF-12345",
+      "expected the GCash reference to be persisted on the booking",
+    );
+    console.log(
+      "PASS: settleBooking(GCASH) with a reference succeeds and persists the reference on the booking.",
+    );
 
     // ============== 5. Settling an already-settled booking is rejected ==============
     // Found live, proven-failing-first: my first version of this
@@ -178,12 +241,23 @@ async function main(): Promise<void> {
         owner.id,
       );
     } catch (error) {
-      rejectedDoubleSettle = error instanceof Error && error.message === "This booking is already paid.";
+      rejectedDoubleSettle =
+        error instanceof Error && error.message === "This booking is already paid.";
     }
-    assert(rejectedDoubleSettle, "expected settling an already-settled booking to be rejected as already paid");
-    const saleCountForCashBooking = await prisma.sale.count({ where: { bookingId: cashBooking.id } });
-    assert(saleCountForCashBooking === 1, "expected exactly one Sale for the cash booking — no duplicate from the rejected re-settle");
-    console.log("PASS: settling an already-settled booking is rejected — exactly one Sale exists, no double-billing.");
+    assert(
+      rejectedDoubleSettle,
+      "expected settling an already-settled booking to be rejected as already paid",
+    );
+    const saleCountForCashBooking = await prisma.sale.count({
+      where: { bookingId: cashBooking.id },
+    });
+    assert(
+      saleCountForCashBooking === 1,
+      "expected exactly one Sale for the cash booking — no duplicate from the rejected re-settle",
+    );
+    console.log(
+      "PASS: settling an already-settled booking is rejected — exactly one Sale exists, no double-billing.",
+    );
 
     // ============== 5b. Genuine concurrent double-settle ==============
     // Two simultaneous settleBooking calls against the SAME fresh
@@ -193,7 +267,13 @@ async function main(): Promise<void> {
     // inside the transaction, not the earlier precheck.
     const raceSlot = slot(16);
     const raceBooking = await bookingService.createBooking(
-      { courtId: court.id, type: "HOURLY", startAt: raceSlot.startAt, endAt: raceSlot.endAt, guestName: "Settle Race Guest" },
+      {
+        courtId: court.id,
+        type: "HOURLY",
+        startAt: raceSlot.startAt,
+        endAt: raceSlot.endAt,
+        guestName: "Settle Race Guest",
+      },
       owner.id,
       { employeeId: employee.id, shiftId: shift.id },
     );
@@ -215,27 +295,57 @@ async function main(): Promise<void> {
     ]);
     const fulfilled = raceResults.filter((r) => r.status === "fulfilled");
     const rejected = raceResults.filter((r) => r.status === "rejected");
-    assert(fulfilled.length === 1, `expected exactly one concurrent settleBooking call to succeed, got ${fulfilled.length}`);
-    assert(rejected.length === 1, `expected exactly one concurrent settleBooking call to be rejected, got ${rejected.length}`);
+    assert(
+      fulfilled.length === 1,
+      `expected exactly one concurrent settleBooking call to succeed, got ${fulfilled.length}`,
+    );
+    assert(
+      rejected.length === 1,
+      `expected exactly one concurrent settleBooking call to be rejected, got ${rejected.length}`,
+    );
     const rejectionReason = (rejected[0] as PromiseRejectedResult).reason;
     assert(
       rejectionReason instanceof BookingAlreadySettledError,
       `expected the losing concurrent call to throw BookingAlreadySettledError, got ${rejectionReason}`,
     );
     const raceSaleCount = await prisma.sale.count({ where: { bookingId: raceBooking.id } });
-    assert(raceSaleCount === 1, "expected exactly one Sale even under a genuine concurrent double-settle race");
-    console.log("PASS: two concurrent settleBooking calls against the same booking resolve to exactly one success — no double-billing under a real race.");
+    assert(
+      raceSaleCount === 1,
+      "expected exactly one Sale even under a genuine concurrent double-settle race",
+    );
+    console.log(
+      "PASS: two concurrent settleBooking calls against the same booking resolve to exactly one success — no double-billing under a real race.",
+    );
 
     // ============== 6. Regression: WEBSITE pay-at-venue path unchanged ==============
     const websiteSlot = slot(14);
     const websiteBooking = await bookingService.createBooking(
-      { courtId: court.id, type: "HOURLY", startAt: websiteSlot.startAt, endAt: websiteSlot.endAt, guestName: "Website Guest" },
+      {
+        courtId: court.id,
+        type: "HOURLY",
+        startAt: websiteSlot.startAt,
+        endAt: websiteSlot.endAt,
+        guestName: "Website Guest",
+      },
       owner.id,
-      { employeeId: employee.id, shiftId: shift.id, paymentMethodId: cashMethod.id, source: "WEBSITE" } as CreateBookingSaleContext,
+      {
+        employeeId: employee.id,
+        shiftId: shift.id,
+        paymentMethodId: cashMethod.id,
+        source: "WEBSITE",
+      } as CreateBookingSaleContext,
     );
-    const websiteWithSale = await prisma.booking.findUniqueOrThrow({ where: { id: websiteBooking.id }, include: { sale: true } });
-    assert(websiteWithSale.sale !== null, "expected the WEBSITE pay-at-venue-by-default path to still get an immediate Sale, unchanged");
-    console.log("PASS: the WEBSITE pay-at-venue-by-default path is unchanged — still gets an immediate Sale.");
+    const websiteWithSale = await prisma.booking.findUniqueOrThrow({
+      where: { id: websiteBooking.id },
+      include: { sale: true },
+    });
+    assert(
+      websiteWithSale.sale !== null,
+      "expected the WEBSITE pay-at-venue-by-default path to still get an immediate Sale, unchanged",
+    );
+    console.log(
+      "PASS: the WEBSITE pay-at-venue-by-default path is unchanged — still gets an immediate Sale.",
+    );
 
     let rejectedAlreadyPaid = false;
     try {
@@ -247,10 +357,16 @@ async function main(): Promise<void> {
         owner.id,
       );
     } catch (error) {
-      rejectedAlreadyPaid = error instanceof Error && error.message === "This booking is already paid.";
+      rejectedAlreadyPaid =
+        error instanceof Error && error.message === "This booking is already paid.";
     }
-    assert(rejectedAlreadyPaid, "expected settleBooking to refuse a booking that already has a Sale from creation time");
-    console.log("PASS: settleBooking correctly refuses a booking that's already paid via the WEBSITE creation-time path.");
+    assert(
+      rejectedAlreadyPaid,
+      "expected settleBooking to refuse a booking that already has a Sale from creation time",
+    );
+    console.log(
+      "PASS: settleBooking correctly refuses a booking that's already paid via the WEBSITE creation-time path.",
+    );
 
     // ============== 7. "Pay at Venue" is not a valid SETTLE method ==============
     const payAtVenueMethod = await prisma.paymentMethod.findUniqueOrThrow({
@@ -258,7 +374,13 @@ async function main(): Promise<void> {
     });
     const trapSlot = slot(18);
     const trapBooking = await bookingService.createBooking(
-      { courtId: court.id, type: "HOURLY", startAt: trapSlot.startAt, endAt: trapSlot.endAt, guestName: "Pay At Venue Trap Guest" },
+      {
+        courtId: court.id,
+        type: "HOURLY",
+        startAt: trapSlot.startAt,
+        endAt: trapSlot.endAt,
+        guestName: "Pay At Venue Trap Guest",
+      },
       owner.id,
       { employeeId: employee.id, shiftId: shift.id },
     );
@@ -274,16 +396,71 @@ async function main(): Promise<void> {
     } catch (error) {
       rejectedPayAtVenue = error instanceof Error && error.message.includes("Pay at Venue");
     }
-    assert(rejectedPayAtVenue, "expected settleBooking to reject an attempt to settle using the Pay-at-Venue payment method");
+    assert(
+      rejectedPayAtVenue,
+      "expected settleBooking to reject an attempt to settle using the Pay-at-Venue payment method",
+    );
     const trapSaleCount = await prisma.sale.count({ where: { bookingId: trapBooking.id } });
-    assert(trapSaleCount === 0, "expected NO Sale to exist after a rejected Pay-at-Venue settle attempt");
-    const trapBookingAfter = await prisma.booking.findUniqueOrThrow({ where: { id: trapBooking.id } });
-    assert(trapBookingAfter.settledAt === null, "expected the booking to remain unsettled after the rejected attempt");
-    console.log("PASS: settleBooking rejects Pay-at-Venue as a settlement method — no Sale created, booking stays unsettled.");
+    assert(
+      trapSaleCount === 0,
+      "expected NO Sale to exist after a rejected Pay-at-Venue settle attempt",
+    );
+    const trapBookingAfter = await prisma.booking.findUniqueOrThrow({
+      where: { id: trapBooking.id },
+    });
+    assert(
+      trapBookingAfter.settledAt === null,
+      "expected the booking to remain unsettled after the rejected attempt",
+    );
+    console.log(
+      "PASS: settleBooking rejects Pay-at-Venue as a settlement method — no Sale created, booking stays unsettled.",
+    );
+
+    // ============== 8. Optional receipt attached at settle time ==============
+    const receiptSlot = slot(20);
+    const receiptBooking = await bookingService.createBooking(
+      {
+        courtId: court.id,
+        type: "HOURLY",
+        startAt: receiptSlot.startAt,
+        endAt: receiptSlot.endAt,
+        guestName: "Receipt Guest",
+      },
+      owner.id,
+      { employeeId: employee.id, shiftId: shift.id },
+    );
+    const settledWithReceipt = await bookingService.settleBooking(
+      receiptBooking.id,
+      "CASH",
+      null,
+      { employeeId: employee.id, shiftId: shift.id, paymentMethodId: cashMethod.id },
+      owner.id,
+      {
+        fileName: "receipt.jpg",
+        contentType: "image/jpeg",
+        data: Buffer.from("fake-receipt-bytes"),
+      },
+    );
+    assert(
+      typeof settledWithReceipt.receiptStorageKey === "string" &&
+        settledWithReceipt.receiptStorageKey.length > 0,
+      "expected receiptStorageKey to be persisted on the booking after settling with a receipt",
+    );
+    const storedReceipt = await getUploadService().get(settledWithReceipt.receiptStorageKey!);
+    assert(
+      storedReceipt?.toString() === "fake-receipt-bytes",
+      "expected the uploaded receipt bytes to be retrievable via the same storage key",
+    );
+    console.log(
+      "PASS: an optional receipt attached at settle time is uploaded and its key persisted on the booking.",
+    );
+    await getUploadService().delete(settledWithReceipt.receiptStorageKey!);
 
     await cleanUp(court.id);
     await prisma.shift.delete({ where: { id: shift.id } });
-    console.log("\nPASS: settle-bill proven against real rows — booking payment is now recorded when it actually happens.");
+    console.log(
+      "\nPASS: settle-bill proven against real rows — booking payment is now recorded when it actually happens.",
+    );
   } catch (error) {
     await cleanUp(court.id);
     await prisma.shift.delete({ where: { id: shift.id } }).catch(() => {});

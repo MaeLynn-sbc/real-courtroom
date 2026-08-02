@@ -11,7 +11,9 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }),
 }));
 
-const mockedSettleBookingAction = settleBookingAction as jest.MockedFunction<typeof settleBookingAction>;
+const mockedSettleBookingAction = settleBookingAction as jest.MockedFunction<
+  typeof settleBookingAction
+>;
 
 const paymentMethods = [
   { id: "pm-cash", key: "CASH" as const, label: "Cash" },
@@ -42,14 +44,26 @@ describe("SettleBookingForm — single payment control, derived method", () => {
   });
 
   it("renders exactly one payment-method control, defaulting to the first option", () => {
-    render(<SettleBookingForm bookingId="booking-1" amountCents={75000} paymentMethods={paymentMethods} />);
+    render(
+      <SettleBookingForm
+        bookingId="booking-1"
+        amountCents={75000}
+        paymentMethods={paymentMethods}
+      />,
+    );
     expect(screen.getAllByRole("combobox")).toHaveLength(1);
     expect(screen.getByText("Cash")).toBeInTheDocument();
   });
 
   it("submits with method derived from the selected Cash row, no separate 'Paid via' field", async () => {
     mockedSettleBookingAction.mockResolvedValue({ error: null });
-    render(<SettleBookingForm bookingId="booking-1" amountCents={75000} paymentMethods={paymentMethods} />);
+    render(
+      <SettleBookingForm
+        bookingId="booking-1"
+        amountCents={75000}
+        paymentMethods={paymentMethods}
+      />,
+    );
 
     await clickAsync(screen.getByRole("button", { name: /confirm/i }));
 
@@ -58,12 +72,19 @@ describe("SettleBookingForm — single payment control, derived method", () => {
       method: "CASH",
       gcashReference: undefined,
       paymentMethodId: "pm-cash",
+      receipt: undefined,
     });
   });
 
   it("switching to GCash reveals the reference field and derives method GCASH", async () => {
     mockedSettleBookingAction.mockResolvedValue({ error: null });
-    render(<SettleBookingForm bookingId="booking-1" amountCents={75000} paymentMethods={paymentMethods} />);
+    render(
+      <SettleBookingForm
+        bookingId="booking-1"
+        amountCents={75000}
+        paymentMethods={paymentMethods}
+      />,
+    );
 
     expect(screen.queryByLabelText(/gcash reference/i)).not.toBeInTheDocument();
 
@@ -84,6 +105,7 @@ describe("SettleBookingForm — single payment control, derived method", () => {
       method: "GCASH",
       gcashReference: "REF123",
       paymentMethodId: "pm-gcash",
+      receipt: undefined,
     });
   });
 });
