@@ -1,6 +1,10 @@
 import Link from "next/link";
 
-import { AvailabilityBoard, type BoardCell, type BoardCourt } from "@/features/bookings/components/availability-board";
+import {
+  AvailabilityBoard,
+  type BoardCell,
+  type BoardCourt,
+} from "@/features/bookings/components/availability-board";
 import { classifyCourtSlot, getCourtBookingWindow } from "@/lib/court-hours";
 import { cn } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
@@ -38,7 +42,13 @@ function addDays(date: Date, days: number): Date {
 // function's own comment). Extracted rather than just reordered so the
 // precedence has a real, unit-tested home instead of being an easy-to-
 // re-break inline if/else chain.
-export async function CourtAvailabilityGrid({ date }: { date: Date }) {
+export async function CourtAvailabilityGrid({
+  date,
+  basePath = "/",
+}: {
+  date: Date;
+  basePath?: string;
+}) {
   const [courts, schedule, courtHours, scheduleQrCode] = await Promise.all([
     courtService.listCourts(),
     bookingService.getPublicDaySchedule(date),
@@ -101,8 +111,8 @@ export async function CourtAvailabilityGrid({ date }: { date: Date }) {
           </h2>
         </div>
         <p className="text-slate max-w-[46ch] text-sm">
-          Tap any open slot to hold it. Courts run {dateHeadingFormatter.format(date)}. Once a court switches to
-          open play you don&apos;t book it — just walk in.
+          Tap any open slot to hold it. Courts run {dateHeadingFormatter.format(date)}. Once a court
+          switches to open play you don&apos;t book it — just walk in.
         </p>
       </div>
 
@@ -116,15 +126,22 @@ export async function CourtAvailabilityGrid({ date }: { date: Date }) {
         <div className="border-line bg-navy-800 flex flex-col items-center gap-4 self-start rounded-2xl border p-5 text-center lg:sticky lg:top-24">
           <Link
             href="/book"
-            className="bg-green text-navy-900 inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-bold uppercase tracking-[0.04em] transition-transform hover:-translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+            className="bg-green text-navy-900 focus-visible:outline-green inline-flex w-full items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-bold tracking-[0.04em] uppercase transition-transform hover:-translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2"
           >
             Book Now
           </Link>
           <div className="bg-bone rounded-xl p-2">
             {/* eslint-disable-next-line @next/next/no-img-element -- data: URL, not an optimizable remote image */}
-            <img src={scheduleQrCode} alt="QR code linking to this live schedule" width={140} height={140} />
+            <img
+              src={scheduleQrCode}
+              alt="QR code linking to this live schedule"
+              width={140}
+              height={140}
+            />
           </div>
-          <p className="text-slate text-[11px] leading-snug">Scan to open this live schedule on your phone.</p>
+          <p className="text-slate text-[11px] leading-snug">
+            Scan to open this live schedule on your phone.
+          </p>
         </div>
 
         {/* RIGHT: date picker + grid */}
@@ -132,7 +149,7 @@ export async function CourtAvailabilityGrid({ date }: { date: Date }) {
           <div
             role="group"
             aria-label="Choose a date"
-            className="flex gap-2 overflow-x-auto pb-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="flex [scrollbar-width:none] gap-2 overflow-x-auto pb-1.5 [&::-webkit-scrollbar]:hidden"
           >
             {dayOptions.map((day, index) => {
               const value = toLocalDateValue(day);
@@ -140,7 +157,7 @@ export async function CourtAvailabilityGrid({ date }: { date: Date }) {
               return (
                 <Link
                   key={value}
-                  href={`/?date=${value}`}
+                  href={`${basePath}?date=${value}`}
                   aria-pressed={isActive}
                   className={cn(
                     "border-line bg-navy-800 hover:border-green/60 flex min-w-[70px] shrink-0 flex-col items-center gap-0.5 rounded-xl border px-3.5 py-2.5 text-center transition-colors",
