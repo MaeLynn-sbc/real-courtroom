@@ -149,29 +149,32 @@ function parseProductQuantity(description: string | null): number {
 }
 
 // --- Revenue-ready operational report -----------------------------------------
-// "Billable amount," not "collected revenue" — Payment/Invoice exist in the
-// schema but are never written to by any service (payment integration is
-// out of scope every phase), so these sums come from each module's own
-// amount fields instead. See ARCHITECTURE.md's Phase 9 addendum.
+// Reported live (2026-08-02): Booking previously used its own module-
+// native totalAmountCents ("billable," counting CONFIRMED-but-unpaid
+// bookings too), while Product/Coaching/Open play were already Sale-
+// sourced ("collected") — an inconsistent mix that didn't reconcile
+// against the actual cash/GCash on hand. All four are now Sale-sourced,
+// same COMPLETED-in-range predicate as getSalesByCategoryReport, so
+// totalAmountCents genuinely means "money that came in," matching
+// cashAmountCents + gcashAmountCents (+ any other payment method) below.
+// An unpaid or still-pending booking correctly contributes ₱0 here —
+// see the separate Booking report (getBookingReport) for billable/
+// pending amounts, which is a different, legitimate question.
 //
-// Reported live: tournament fees / membership / equipment+lockers were
-// never actually run as businesses here — every one of those cards
-// always read ₱0.00 — while shop products, coaching, and open play (the
-// modules actually in use) were entirely absent from this total. Swapped
-// the unused three for those. Booking stays module-native
-// (bookingReport.totalAmountCents); product/coaching/open play are
-// Sale-sourced (same COMPLETED-in-range predicate as
-// getSalesByCategoryReport) since none of the three has its own
-// domain-native "amount" field to sum the way Booking/Tournament/
-// Membership/Equipment/Locker do — the Sale row IS the amount. Coaching
-// will read ₱0.00 until Phase 8 wires payment through it (see
-// SaleCategory.COACHING's own schema comment) — that's accurate, not a
-// bug, so it's shown rather than hidden.
+// Open play is split regular (weeknight, uncapped) vs unli (Fri/Sat
+// capacity night) — same sessionId-null-vs-not fork PlayerTab and
+// OpenPlayNightRegistration already use elsewhere in this codebase, per
+// owner request; needs its own query since a plain groupBy can't
+// express that join.
 export interface RevenueReportResult {
   bookingAmountCents: number;
   productAmountCents: number;
   coachingAmountCents: number;
+  regularOpenPlayAmountCents: number;
+  unliOpenPlayAmountCents: number;
   openPlayAmountCents: number;
+  cashAmountCents: number;
+  gcashAmountCents: number;
   totalAmountCents: number;
 }
 
@@ -468,44 +471,102 @@ export class ReportingService {
   // own anyway) doesn't pay for a duplicate query. Callers that just want
   // a self-contained revenue report (e.g. the /dashboard/reports page)
   // can still call this with only `range`.
-  async getRevenueReport(
+  // OPEN_PLAY sales are linked one of two ways (see Sale.openPlayNightRegistrationId's
+  // own schema comment): the Fri/Sat walk-in registration fee
+  // (openPlayNightRegistrationId) or the queue/rotation tab settlement
+  // (playerTabId), which covers both regular and unli nights. Both
+  // PlayerTab and OpenPlayNightRegistration carry the same nullable
+  // sessionId fork — null means regular (weeknight, uncapped), set
+  // means unli (Fri/Sat, capacity-gated) — so tracing either link back
+  // to its sessionId is enough to classify every OPEN_PLAY sale.
+  private async getOpenPlaySplit(
     range: DateRange,
-    precomputed?: { bookingReport?: BookingReportResult },
-  ): Promise<RevenueReportResult> {
-    const [bookingReport, saleCategoryTotals] = await Promise.all([
-      precomputed?.bookingReport ?? this.getBookingReport(range),
-      // Same COMPLETED-in-range predicate as getSalesByCategoryReport
-      // above — one groupBy covers all three, rather than a separate
-      // query (and a separate chance to drift) per category.
-      prisma.sale.groupBy({
-        by: ["category"],
-        where: {
-          category: { in: ["PRODUCT", "COACHING", "OPEN_PLAY"] },
-          status: "COMPLETED",
-          createdAt: { gte: range.from, lte: range.to },
-        },
-        _sum: { amountCents: true },
-      }),
-    ]);
+  ): Promise<{ regularCents: number; unliCents: number }> {
+    const sales = await prisma.sale.findMany({
+      where: {
+        category: "OPEN_PLAY",
+        status: "COMPLETED",
+        createdAt: { gte: range.from, lte: range.to },
+      },
+      select: {
+        amountCents: true,
+        playerTab: { select: { sessionId: true } },
+        openPlayNightRegistration: { select: { sessionId: true } },
+      },
+    });
+
+    let regularCents = 0;
+    let unliCents = 0;
+    for (const sale of sales) {
+      const sessionId =
+        sale.playerTab?.sessionId ?? sale.openPlayNightRegistration?.sessionId ?? null;
+      if (sessionId) {
+        unliCents += sale.amountCents;
+      } else {
+        regularCents += sale.amountCents;
+      }
+    }
+    return { regularCents, unliCents };
+  }
+
+  async getRevenueReport(range: DateRange): Promise<RevenueReportResult> {
+    const [saleCategoryTotals, openPlaySplit, paymentMethodTotals, paymentMethods] =
+      await Promise.all([
+        // Same COMPLETED-in-range predicate as getSalesByCategoryReport
+        // above — one groupBy covers three of the four, rather than a
+        // separate query (and a separate chance to drift) per category.
+        // OPEN_PLAY is excluded here — it needs the dedicated split query
+        // below instead of a flat groupBy sum.
+        prisma.sale.groupBy({
+          by: ["category"],
+          where: {
+            category: { in: ["BOOKING", "PRODUCT", "COACHING"] },
+            status: "COMPLETED",
+            createdAt: { gte: range.from, lte: range.to },
+          },
+          _sum: { amountCents: true },
+        }),
+        this.getOpenPlaySplit(range),
+        // Cash/GCash actually collected, across every category — same
+        // predicate as getSalesByPaymentMethodReport, requested alongside
+        // the category breakdown so the totals reconcile against the
+        // physical drawer and the GCash balance directly.
+        prisma.sale.groupBy({
+          by: ["paymentMethodId"],
+          where: { status: "COMPLETED", createdAt: { gte: range.from, lte: range.to } },
+          _sum: { amountCents: true },
+        }),
+        prisma.paymentMethod.findMany({ where: { key: { in: ["CASH", "GCASH"] } } }),
+      ]);
 
     const amountByCategory = new Map(
       saleCategoryTotals.map((row) => [row.category, row._sum.amountCents ?? 0]),
     );
+    const bookingAmountCents = amountByCategory.get("BOOKING") ?? 0;
     const productAmountCents = amountByCategory.get("PRODUCT") ?? 0;
     const coachingAmountCents = amountByCategory.get("COACHING") ?? 0;
-    const openPlayAmountCents = amountByCategory.get("OPEN_PLAY") ?? 0;
+    const openPlayAmountCents = openPlaySplit.regularCents + openPlaySplit.unliCents;
+
+    const amountByPaymentMethodId = new Map(
+      paymentMethodTotals.map((row) => [row.paymentMethodId, row._sum.amountCents ?? 0]),
+    );
+    const cashMethodId = paymentMethods.find((method) => method.key === "CASH")?.id;
+    const gcashMethodId = paymentMethods.find((method) => method.key === "GCASH")?.id;
+    const cashAmountCents = cashMethodId ? (amountByPaymentMethodId.get(cashMethodId) ?? 0) : 0;
+    const gcashAmountCents = gcashMethodId ? (amountByPaymentMethodId.get(gcashMethodId) ?? 0) : 0;
 
     const totalAmountCents =
-      bookingReport.totalAmountCents +
-      productAmountCents +
-      coachingAmountCents +
-      openPlayAmountCents;
+      bookingAmountCents + productAmountCents + coachingAmountCents + openPlayAmountCents;
 
     return {
-      bookingAmountCents: bookingReport.totalAmountCents,
+      bookingAmountCents,
       productAmountCents,
       coachingAmountCents,
+      regularOpenPlayAmountCents: openPlaySplit.regularCents,
+      unliOpenPlayAmountCents: openPlaySplit.unliCents,
       openPlayAmountCents,
+      cashAmountCents,
+      gcashAmountCents,
       totalAmountCents,
     };
   }

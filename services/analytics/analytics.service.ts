@@ -228,12 +228,10 @@ export class AnalyticsService {
   }
 
   async getDashboardKpis(range: DateRange): Promise<DashboardKpis> {
-    // Fetched once, up front, and threaded into getRevenueReport below
-    // instead of letting it re-fetch the same booking rows — see
-    // reporting.service.ts's getRevenueReport comment. tournamentReport
-    // is still fetched here for tournamentsInRange below; getRevenueReport
-    // no longer needs it (tournament fees dropped off the revenue total —
-    // see that function's own comment).
+    // bookingReport is still fetched here for totalBookings/
+    // tournamentsInRange below — getRevenueReport is now fully
+    // Sale-sourced (see its own comment) and no longer takes or needs a
+    // precomputed booking report.
     const [bookingReport, tournamentReport] = await Promise.all([
       reportingService.getBookingReport(range),
       reportingService.getTournamentReport(range),
@@ -247,7 +245,7 @@ export class AnalyticsService {
       equipmentSummary,
       lockerUtilization,
     ] = await Promise.all([
-      reportingService.getRevenueReport(range, { bookingReport }),
+      reportingService.getRevenueReport(range),
       prisma.membership.count({ where: { status: "ACTIVE" } }),
       this.getMembershipGrowth(range),
       this.getOpenPlayParticipation(range),

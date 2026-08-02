@@ -96,7 +96,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       </div>
 
       <Card>
-        <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
+        <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-6">
           <div className="flex flex-col gap-1">
             <span className="text-muted-foreground text-xs">Booking</span>
             <span className="font-semibold tabular-nums">
@@ -116,9 +116,15 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
             </span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-muted-foreground text-xs">Open play</span>
+            <span className="text-muted-foreground text-xs">Regular open play</span>
             <span className="font-semibold tabular-nums">
-              {formatCurrency(revenue.openPlayAmountCents)}
+              {formatCurrency(revenue.regularOpenPlayAmountCents)}
+            </span>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-muted-foreground text-xs">Unli play</span>
+            <span className="font-semibold tabular-nums">
+              {formatCurrency(revenue.unliOpenPlayAmountCents)}
             </span>
           </div>
           <div className="flex flex-col gap-1">
@@ -127,13 +133,25 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
               {formatCurrency(revenue.totalAmountCents)}
             </span>
           </div>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 border-t pt-3">
+            <span className="text-muted-foreground text-xs">Cash collected</span>
+            <span className="font-semibold tabular-nums">
+              {formatCurrency(revenue.cashAmountCents)}
+            </span>
+          </div>
+          <div className="flex flex-col gap-1 border-t pt-3">
+            <span className="text-muted-foreground text-xs">GCash collected</span>
+            <span className="font-semibold tabular-nums">
+              {formatCurrency(revenue.gcashAmountCents)}
+            </span>
+          </div>
+          <div className="flex flex-col gap-1 border-t pt-3 sm:col-span-2">
             <span className="text-muted-foreground text-xs">Total expenses</span>
             <span className="text-destructive text-lg font-semibold tabular-nums">
               {formatCurrency(totalExpensesCents)}
             </span>
           </div>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 border-t pt-3 sm:col-span-2">
             <span className="text-muted-foreground text-xs">Net</span>
             <span
               className={`text-lg font-semibold tabular-nums ${netCents < 0 ? "text-destructive" : "text-success"}`}
