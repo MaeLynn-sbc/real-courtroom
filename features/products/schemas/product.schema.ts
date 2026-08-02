@@ -31,3 +31,22 @@ export const sellProductSchema = z.object({
 });
 
 export type SellProductInput = z.infer<typeof sellProductSchema>;
+
+// For an occasional consignment item that doesn't warrant a permanent
+// catalog entry (Product) — the attendant types the name and price
+// instead of picking from the grid. No productId, no stock decrement:
+// there's no Product row to decrement. Same SaleCategory.OTHER shape
+// already used by recordManualSaleAction (actions/shift.actions.ts) —
+// "no linked source row" is exactly what OTHER exists for — but scoped
+// to the Shop page's own EQUIPMENT_MANAGE permission (any attendant who
+// can sell a catalog item can sell a consignment one), not the
+// stricter, owner/manager-only SALES_RECORD_MANUAL.
+export const sellCustomItemSchema = z.object({
+  description: z.string().min(1, "Enter what you're selling.").max(200),
+  unitPriceCents: z.coerce.number().int().positive("Enter a price."),
+  quantity: z.coerce.number().int().positive().default(1),
+  paymentMethodId: z.string().min(1, "Select a payment method."),
+  playerId: z.string().min(1).optional(),
+});
+
+export type SellCustomItemInput = z.infer<typeof sellCustomItemSchema>;
