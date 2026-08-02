@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/table";
 import { BookingSourceBadge } from "@/features/bookings/components/booking-source-badge";
 import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
-import { formatRelativeTime } from "@/lib/utils";
+import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 import type { bookingService } from "@/services/booking/booking.service";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
@@ -111,6 +111,15 @@ function PaymentCell({ booking }: { booking: BookingRow }) {
   return (
     <div className="flex flex-col gap-0.5">
       {badge}
+      {/* Reported live: the amount wasn't visible anywhere on this row —
+          totalAmountCents is what's owed for an unpaid booking and
+          exactly what gets charged at settlement (settleBooking mirrors
+          it onto the Sale 1:1, no partial payments/discounts happen at
+          that step), so it's accurate whether or not this row is paid
+          yet. */}
+      <span className="text-muted-foreground text-xs tabular-nums">
+        {formatCurrency(booking.totalAmountCents ?? 0)}
+      </span>
       {/* Reported live: the badge alone being clickable (a bare
           cursor-pointer, no visible label) wasn't discoverable — an
           explicit "View proof of payment" link, same treatment as the
