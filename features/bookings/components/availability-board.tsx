@@ -41,8 +41,8 @@ function toTimeValue(hour: number): string {
 // One slot renders as a miniature court: navy fill, a bottom-edge stripe
 // mirrors docs/design-reference.html's .slot styling. Four states read
 // as four genuinely distinct color families, not shades of one hue:
-//   - available (open, tap to hold): solid --bone fill, dark navy-900
-//     text, label in caps — 16.24:1 contrast (navy-900 on bone),
+//   - available (open, tap to hold): solid white fill, dark gray text
+//     (owner request, 2026-08-02 — was bone/navy-900), label in caps —
 //     comfortably clears WCAG AA's 4.5:1 for normal text.
 //   - booked: solid sky-400 (Tailwind, not a custom brand token — same
 //     precedent as the dashboard's RecordCard ramps using stock
@@ -64,7 +64,7 @@ function cellClasses(state: BoardCell["state"], isSelected: boolean): string {
   }
   switch (state) {
     case "available":
-      return "bg-bone text-navy-900 border-bone font-bold uppercase tracking-[0.04em] hover:-translate-y-px after:bg-green after:opacity-70 cursor-pointer";
+      return "bg-white text-gray-600 border-white font-bold uppercase tracking-[0.04em] hover:-translate-y-px after:bg-green after:opacity-70 cursor-pointer";
     case "openPlay":
       return "bg-emerald-700 border-emerald-500 text-white text-[12px] font-bold tracking-[0.1em] uppercase after:bg-emerald-300 after:opacity-70 cursor-default";
     case "past":
@@ -99,7 +99,13 @@ function cellLabel(state: BoardCell["state"], isSelected: boolean): string {
   }
 }
 
-export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }: AvailabilityBoardProps) {
+export function AvailabilityBoard({
+  courts,
+  hours,
+  cells,
+  dateValue,
+  dateLabel,
+}: AvailabilityBoardProps) {
   const router = useRouter();
   const [selection, setSelection] = useState<Selection | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -168,10 +174,14 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
     }
     const durationMinutes = selectedHours.length * 60;
     const time = toTimeValue(selectedHours[0]);
-    router.push(`/book?courtId=${selection.courtId}&date=${dateValue}&time=${time}&durationMinutes=${durationMinutes}`);
+    router.push(
+      `/book?courtId=${selection.courtId}&date=${dateValue}&time=${time}&durationMinutes=${durationMinutes}`,
+    );
   }
 
-  const selectedCourt = selection ? courts.find((court) => court.id === selection.courtId) : undefined;
+  const selectedCourt = selection
+    ? courts.find((court) => court.id === selection.courtId)
+    : undefined;
   const total = selectedCourt ? (selectedCourt.priceCents ?? 0) * selectedHours.length : 0;
   const isTrayUp = selectedHours.length > 0;
 
@@ -193,7 +203,7 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
           role="region"
           aria-label="Court availability grid — scroll horizontally to see every court"
           tabIndex={hasOverflow ? 0 : -1}
-          className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-green"
+          className="focus-visible:outline-green overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px]"
         >
           <table className="w-full min-w-[560px] border-collapse">
             <thead>
@@ -246,7 +256,8 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
                   </td>
                   {courts.map((court) => {
                     const cell = cells[`${hour}:${court.id}`];
-                    const isSelected = selection?.courtId === court.id && selection.hours.includes(hour);
+                    const isSelected =
+                      selection?.courtId === court.id && selection.hours.includes(hour);
                     const label = cellLabel(cell.state, isSelected);
 
                     if (cell.state !== "available" && !isSelected) {
@@ -273,12 +284,14 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
                           onClick={() => handleCellClick(court.id, hour)}
                           aria-pressed={isSelected}
                           aria-label={`Court ${court.name}, ${hourLabel(hour)}, ${
-                            isSelected ? "held, tap to release" : `available, ${formatCurrency(court.priceCents ?? 0)}`
+                            isSelected
+                              ? "held, tap to release"
+                              : `available, ${formatCurrency(court.priceCents ?? 0)}`
                           }`}
                           className={cn(
                             "font-jetbrains relative flex min-h-[46px] w-full items-center justify-center overflow-hidden rounded-lg border text-[13px] font-medium transition-all",
                             "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:content-['']",
-                            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green",
+                            "focus-visible:outline-green focus-visible:outline-2 focus-visible:outline-offset-2",
                             cellClasses(cell.state, isSelected),
                           )}
                         >
@@ -312,15 +325,15 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
 
       <div className="font-jetbrains text-slate flex flex-wrap gap-5 text-[11px]">
         <span className="flex items-center gap-1.5">
-          <i className="bg-bone inline-block size-3.5 rounded" aria-hidden="true" />
+          <i className="inline-block size-3.5 rounded bg-white" aria-hidden="true" />
           Open — tap to hold
         </span>
         <span className="flex items-center gap-1.5">
-          <i className="bg-sky-400 inline-block size-3.5 rounded" aria-hidden="true" />
+          <i className="inline-block size-3.5 rounded bg-sky-400" aria-hidden="true" />
           Already booked
         </span>
         <span className="flex items-center gap-1.5">
-          <i className="bg-emerald-700 inline-block size-3.5 rounded" aria-hidden="true" />
+          <i className="inline-block size-3.5 rounded bg-emerald-700" aria-hidden="true" />
           Open play — walk in
         </span>
       </div>
@@ -335,7 +348,8 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
       >
         <div className="min-w-[180px] flex-1">
           <b className="font-display text-bone block text-xl font-extrabold tracking-[0.02em]">
-            {selectedHours.length} {selectedHours.length === 1 ? "hour" : "hours"} held · {formatCurrency(total)}
+            {selectedHours.length} {selectedHours.length === 1 ? "hour" : "hours"} held ·{" "}
+            {formatCurrency(total)}
           </b>
           <span className="font-jetbrains text-slate mt-0.5 block text-[11px]">
             {selectedHours.length > 0 ? `${dateLabel} · from ${hourLabel(selectedHours[0])}` : ""}
@@ -351,7 +365,7 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue, dateLabel }
         <button
           type="button"
           onClick={handleReserve}
-          className="bg-green text-navy-900 rounded-full px-5 py-2.5 text-sm font-bold transition-transform hover:-translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+          className="bg-green text-navy-900 focus-visible:outline-green rounded-full px-5 py-2.5 text-sm font-bold transition-transform hover:-translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2"
         >
           Reserve
         </button>

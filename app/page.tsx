@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
+import { CourtAvailabilityGrid } from "@/features/bookings/components/court-availability-grid";
 import { getCourtBookingWindow, getFacilityCloseMinutes } from "@/lib/court-hours";
 import { EQUIPMENT_KEYS } from "@/lib/equipment-keys";
 import { computeRemainingSeats } from "@/lib/open-play-seats";
@@ -304,6 +305,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 >
                   Who&apos;s playing now
                 </Link>
+                <Link
+                  href="/availability"
+                  className={`${PILL_BUTTON} border-line text-bone hover:border-green border font-semibold`}
+                >
+                  See court availability
+                </Link>
               </div>
 
               {/* Find Us — lives in the hero, in the space the stats
@@ -390,26 +397,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </section>
 
       {/* ============================ THE DOCKET ============================ */}
-      {/* Moved to its own page (per owner request, 2026-08-02) — this was
-          rendering the full multi-court hourly grid inline, pushing
-          everything below it down the page. A teaser + button keeps the
-          home page short while /availability stays the live schedule. */}
       <section id="docket" className="border-line border-t px-6 py-[clamp(40px,5vw,64px)]">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-6">
-          <div>
-            <span className="font-jetbrains text-green text-[11px] font-bold tracking-[0.22em] uppercase">
-              The docket
-            </span>
-            <h2 className="font-display text-bone mt-1 text-[clamp(30px,4.4vw,44px)] leading-[0.94] font-extrabold tracking-[-0.01em] uppercase">
-              See what&apos;s open right now
-            </h2>
-          </div>
-          <Link
-            href="/availability"
-            className="bg-green text-navy-900 focus-visible:outline-green inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-bold tracking-[0.04em] uppercase transition-transform hover:-translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2"
-          >
-            See court availability
-          </Link>
+        <div className="mx-auto max-w-6xl">
+          <CourtAvailabilityGrid date={date} />
         </div>
       </section>
 
