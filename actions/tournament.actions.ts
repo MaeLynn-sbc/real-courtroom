@@ -22,8 +22,6 @@ import {
 } from "@/features/tournaments/schemas/tournament.schema";
 import { requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
-import { MODULE_KEYS } from "@/lib/module-flags";
-import { settingsService } from "@/services/settings/settings.service";
 import { matchService } from "@/services/tournaments/match.service";
 import { tournamentService } from "@/services/tournaments/tournament.service";
 import { PERMISSIONS } from "@/types/permissions";
@@ -201,11 +199,6 @@ export async function registerTeamAction(
   );
   if (!authz.ok) {
     return { error: authz.error };
-  }
-
-  const enabledModules = await settingsService.getEnabledModules();
-  if (!enabledModules[MODULE_KEYS.TOURNAMENT_REGISTRATION]) {
-    return { error: "Tournament registration is currently unavailable." };
   }
 
   const parsed = registerTeamSchema.safeParse(input);

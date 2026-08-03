@@ -7,11 +7,9 @@ import { MaxTeamsField } from "@/features/tournaments/components/max-teams-field
 import { RegistrationForm } from "@/features/tournaments/components/registration-form";
 import { RegistrationList } from "@/features/tournaments/components/registration-list";
 import { StandingsTable } from "@/features/tournaments/components/standings-table";
-import { MODULE_KEYS } from "@/lib/module-flags";
 import { courtService } from "@/services/court/court.service";
 import { playerService } from "@/services/player/player.service";
 import { saleService } from "@/services/sales/sale.service";
-import { settingsService } from "@/services/settings/settings.service";
 import { matchService } from "@/services/tournaments/match.service";
 import { standingsService } from "@/services/tournaments/standings.service";
 import { tournamentService } from "@/services/tournaments/tournament.service";
@@ -41,15 +39,13 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
     notFound();
   }
 
-  const [matches, standings, players, courts, paymentMethods, enabledModules] = await Promise.all([
+  const [matches, standings, players, courts, paymentMethods] = await Promise.all([
     matchService.listMatchesByCategory(categoryId),
     standingsService.getStandings(categoryId),
     playerService.listPlayers(),
     courtService.listCourts(),
     saleService.listPaymentMethods(),
-    settingsService.getEnabledModules(),
   ]);
-  const tournamentRegistrationEnabled = enabledModules[MODULE_KEYS.TOURNAMENT_REGISTRATION];
 
   const playerOptions = players.map((player) => ({
     id: player.id,
@@ -108,18 +104,12 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
         </div>
         <div className="flex flex-col gap-3">
           <h2 className="text-lg font-medium">Register a team</h2>
-          {tournamentRegistrationEnabled ? (
-            <RegistrationForm
-              tournamentId={tournamentId}
-              categoryId={categoryId}
-              players={playerOptions}
-              paymentMethods={paymentMethodOptions}
-            />
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              Tournament registration is currently unavailable.
-            </p>
-          )}
+          <RegistrationForm
+            tournamentId={tournamentId}
+            categoryId={categoryId}
+            players={playerOptions}
+            paymentMethods={paymentMethodOptions}
+          />
         </div>
       </section>
 
