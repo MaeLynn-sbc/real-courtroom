@@ -1,7 +1,11 @@
 import { getFacilityCloseMinutes } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
-import type { OpenPlayCapacityDefault, OpenPlayNightSession, Prisma } from "@/lib/generated/prisma/client";
+import type {
+  OpenPlayCapacityDefault,
+  OpenPlayNightSession,
+  Prisma,
+} from "@/lib/generated/prisma/client";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
 import { playerTabService } from "@/services/open-play/player-tab.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -56,7 +60,12 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
 // locker-rental.service.ts, match.service.ts, equipment-rental.service.ts,
 // and open-play-checkin.service.ts's own copy.
 function isUniqueConstraintViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002";
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
 }
 
 export interface UpcomingOpenPlayNight {
@@ -78,6 +87,11 @@ export interface UpcomingOpenPlayNight {
   // picture of how this differs from the feature-wide switch and the
   // day-of-week default.
   onlineRegistrationBlocked: boolean;
+  // Per-date closed-message override — null for any date with no session
+  // row yet, or one that's never had a message set. Resolve against the
+  // global default via resolveOpenPlayClosedMessage
+  // (lib/open-play-closed-message.ts), never render this raw.
+  closedMessage: string | null;
 }
 
 export class OpenPlayCapacityService {
@@ -138,7 +152,9 @@ export class OpenPlayCapacityService {
       action: "open_play_capacity_default.online_registration_toggled",
       entityType: "OpenPlayCapacityDefault",
       entityId: updated.id,
-      oldValues: existing ? { onlineRegistrationEnabled: existing.onlineRegistrationEnabled } : null,
+      oldValues: existing
+        ? { onlineRegistrationEnabled: existing.onlineRegistrationEnabled }
+        : null,
       newValues: { dayOfWeek, onlineRegistrationEnabled: enabled },
     });
 
@@ -175,6 +191,46 @@ export class OpenPlayCapacityService {
     return updated;
   }
 
+  // Per-date closed-message override, independent of the block toggle
+  // above on purpose — an owner can write the message ahead of a night
+  // being blocked, or leave a message parked without ever flipping the
+  // switch. Same "get-or-create, then a scoped update touching only
+  // this one column" shape as setOnlineRegistrationBlockedForDate —
+  // NOT an upsert, so the two setters can never race each other into
+  // wiping the other's column: getOrCreateSessionForDate always returns
+  // the SAME existing row once one exists (see its own comment), and
+  // this update's `data` only ever names closedMessage.
+  // A blank/whitespace-only message is stored as null (falls back to
+  // the global default), not as an empty string — resolveOpenPlayClosedMessage
+  // does the same trim defensively at read time, but storing null here
+  // means "cleared" is also what an owner sees if they inspect the row
+  // directly, not an empty-but-truthy string.
+  async setClosedMessageForDate(
+    date: Date,
+    message: string,
+    actorUserId: string,
+  ): Promise<OpenPlayNightSession> {
+    const session = await this.getOrCreateSessionForDate(date);
+    const trimmed = message.trim();
+    const nextMessage = trimmed.length > 0 ? trimmed : null;
+
+    const updated = await prisma.openPlayNightSession.update({
+      where: { id: session.id },
+      data: { closedMessage: nextMessage },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_session.closed_message_updated",
+      entityType: "OpenPlayNightSession",
+      entityId: session.id,
+      oldValues: { closedMessage: session.closedMessage },
+      newValues: { closedMessage: nextMessage },
+    });
+
+    return updated;
+  }
+
   // "One per date. Created on demand from the weekday default" — nothing
   // pre-populates future Friday/Saturday rows; this is the sole entry
   // point that materializes one, called either by an owner setting a
@@ -200,7 +256,9 @@ export class OpenPlayCapacityService {
       // Seed data is expected to always have Fri/Sat rows — a missing one
       // is a real configuration bug, not something to silently guess a
       // fallback capacity for.
-      throw new Error(`No OpenPlayCapacityDefault configured for day ${dayOfWeek} — check prisma/seed.ts.`);
+      throw new Error(
+        `No OpenPlayCapacityDefault configured for day ${dayOfWeek} — check prisma/seed.ts.`,
+      );
     }
 
     const startAt = atMinutesOfDay(date, parseTimeToMinutes(courtHours.fridaySaturdayCloseTime));
@@ -238,7 +296,11 @@ export class OpenPlayCapacityService {
   // lowering capacity below the confirmed-registration count for this
   // session ("fail loudly... tell the owner how many are registered") —
   // there's nothing to count yet, so that guard isn't implemented here.
-  async setSessionCapacityOverride(date: Date, capacity: number, actorUserId: string): Promise<OpenPlayNightSession> {
+  async setSessionCapacityOverride(
+    date: Date,
+    capacity: number,
+    actorUserId: string,
+  ): Promise<OpenPlayNightSession> {
     const session = await this.getOrCreateSessionForDate(date);
 
     // Open-play online self-registration, Gate 2 (BUILD-SPEC.md §6): "a
@@ -328,7 +390,9 @@ export class OpenPlayCapacityService {
   // race is resolved by whichever actually wins at the database, not by
   // a stale read in application code.
   async closeSession(sessionId: string, actorUserId: string): Promise<OpenPlayNightSession> {
-    const session = await prisma.openPlayNightSession.findUniqueOrThrow({ where: { id: sessionId } });
+    const session = await prisma.openPlayNightSession.findUniqueOrThrow({
+      where: { id: sessionId },
+    });
     if (session.status !== "OPEN") {
       throw new Error(`Session is already ${session.status.toLowerCase()}.`);
     }
@@ -354,7 +418,9 @@ export class OpenPlayCapacityService {
       // Distinguish the two reasons this can fail, for a useful error —
       // both reads happen AFTER the atomic attempt, so they can't
       // themselves race with what already happened.
-      const current = await prisma.openPlayNightSession.findUniqueOrThrow({ where: { id: sessionId } });
+      const current = await prisma.openPlayNightSession.findUniqueOrThrow({
+        where: { id: sessionId },
+      });
       if (current.status !== "OPEN") {
         throw new Error(`Session is already ${current.status.toLowerCase()}.`);
       }
@@ -363,7 +429,9 @@ export class OpenPlayCapacityService {
       throw new Error(`Cannot close — ${unsettled.length} open tab(s) with a balance: ${names}.`);
     }
 
-    const updated = await prisma.openPlayNightSession.findUniqueOrThrow({ where: { id: sessionId } });
+    const updated = await prisma.openPlayNightSession.findUniqueOrThrow({
+      where: { id: sessionId },
+    });
 
     await this.writeAuditLog({
       actorUserId,
@@ -407,35 +475,40 @@ export class OpenPlayCapacityService {
     // queries entirely rather than issue an `IN ()` against nothing.
     const sessionIds = sessions.map((session) => session.id);
     const now = new Date();
-    const [registeredGroups, waitlistedGroups] = sessionIds.length > 0
-      ? await Promise.all([
-          // Same "occupied" predicate as countOccupiedSeats
-          // (open-play-registration.service.ts) — CONFIRMED/
-          // PENDING_VERIFICATION always count, an AWAITING_PAYMENT hold
-          // only while its holdExpiresAt hasn't passed, walk-in-waitlist
-          // rows (waitlistPos not null) excluded.
-          prisma.openPlayNightRegistration.groupBy({
-            by: ["sessionId"],
-            where: {
-              sessionId: { in: sessionIds },
-              waitlistPos: null,
-              OR: [
-                { status: "CONFIRMED" },
-                { status: "PENDING_VERIFICATION" },
-                { status: "AWAITING_PAYMENT", holdExpiresAt: { gte: now } },
-              ],
-            },
-            _count: { _all: true },
-          }),
-          prisma.openPlayWaitlistEntry.groupBy({
-            by: ["sessionId"],
-            where: { sessionId: { in: sessionIds }, status: "WAITING" },
-            _count: { _all: true },
-          }),
-        ])
-      : [[], []];
-    const registeredBySession = new Map(registeredGroups.map((row) => [row.sessionId, row._count._all]));
-    const waitlistedBySession = new Map(waitlistedGroups.map((row) => [row.sessionId, row._count._all]));
+    const [registeredGroups, waitlistedGroups] =
+      sessionIds.length > 0
+        ? await Promise.all([
+            // Same "occupied" predicate as countOccupiedSeats
+            // (open-play-registration.service.ts) — CONFIRMED/
+            // PENDING_VERIFICATION always count, an AWAITING_PAYMENT hold
+            // only while its holdExpiresAt hasn't passed, walk-in-waitlist
+            // rows (waitlistPos not null) excluded.
+            prisma.openPlayNightRegistration.groupBy({
+              by: ["sessionId"],
+              where: {
+                sessionId: { in: sessionIds },
+                waitlistPos: null,
+                OR: [
+                  { status: "CONFIRMED" },
+                  { status: "PENDING_VERIFICATION" },
+                  { status: "AWAITING_PAYMENT", holdExpiresAt: { gte: now } },
+                ],
+              },
+              _count: { _all: true },
+            }),
+            prisma.openPlayWaitlistEntry.groupBy({
+              by: ["sessionId"],
+              where: { sessionId: { in: sessionIds }, status: "WAITING" },
+              _count: { _all: true },
+            }),
+          ])
+        : [[], []];
+    const registeredBySession = new Map(
+      registeredGroups.map((row) => [row.sessionId, row._count._all]),
+    );
+    const waitlistedBySession = new Map(
+      waitlistedGroups.map((row) => [row.sessionId, row._count._all]),
+    );
 
     return dates.map((date) => {
       const dayOfWeek = date.getDay() as OpenPlayDayOfWeek;
@@ -446,9 +519,10 @@ export class OpenPlayCapacityService {
         capacity: session?.capacity ?? defaultsByDay.get(dayOfWeek) ?? 0,
         isOverride: Boolean(session),
         status: session?.status ?? null,
-        registeredCount: session ? registeredBySession.get(session.id) ?? 0 : 0,
-        waitlistedCount: session ? waitlistedBySession.get(session.id) ?? 0 : 0,
+        registeredCount: session ? (registeredBySession.get(session.id) ?? 0) : 0,
+        waitlistedCount: session ? (waitlistedBySession.get(session.id) ?? 0) : 0,
         onlineRegistrationBlocked: session?.onlineRegistrationBlocked ?? false,
+        closedMessage: session?.closedMessage ?? null,
       };
     });
   }
@@ -466,7 +540,10 @@ export class OpenPlayCapacityService {
         },
       });
     } catch (error) {
-      logger.error({ err: error, action: entry.action, userId: entry.actorUserId }, "Failed to write audit log entry");
+      logger.error(
+        { err: error, action: entry.action, userId: entry.actorUserId },
+        "Failed to write audit log entry",
+      );
     }
   }
 }

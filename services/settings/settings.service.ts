@@ -275,6 +275,7 @@ const DEFAULT_OPEN_PLAY_SETTINGS: OpenPlaySettings = {
   // Manual timer/announce: 3 minutes, per the user's own "default maybe
   // 3 minutes" ask.
   forgottenAssignmentNudgeMinutes: 3,
+  closedRegistrationMessage: "Unlimited open play isn't open for online registration yet.",
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never

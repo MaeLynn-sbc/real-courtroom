@@ -157,6 +157,12 @@ export const openPlaySettingsSchema = z.object({
   // GameAssignment.proposedAt (no scheduler exists in this app, and this
   // doesn't need one) — see display.service.ts.
   forgottenAssignmentNudgeMinutes: z.number().int().positive(),
+  // Global fallback for the closed-registration message shown on every
+  // public open-play surface when a Fri/Sat night is blocked
+  // (onlineRegistrationBlocked) and has no per-date override
+  // (OpenPlayNightSession.closedMessage). Resolved by
+  // resolveOpenPlayClosedMessage (lib/open-play-closed-message.ts).
+  closedRegistrationMessage: z.string().max(200),
 });
 
 export type OpenPlaySettings = z.infer<typeof openPlaySettingsSchema>;

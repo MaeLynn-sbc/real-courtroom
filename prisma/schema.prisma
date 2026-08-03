@@ -1343,6 +1343,16 @@ model OpenPlayNightSession {
   // Walk-in/staff registration is untouched by this; it only gates
   // createPublicOpenPlayRegistration.
   onlineRegistrationBlocked Boolean             @default(false)
+  // Per-date closed-registration message, shown on every public surface
+  // in place of the global default (settingsService's OpenPlaySettings.
+  // closedRegistrationMessage) when this date is blocked. Null (not "")
+  // means "use the global default" — the resolver trims and treats a
+  // whitespace-only value the same as null, so there's no way to end up
+  // showing a blank message block. Independent of onlineRegistrationBlocked
+  // on purpose: an owner can write the message ahead of time and flip the
+  // block switch on later, or leave a message parked for a date that was
+  // never actually blocked.
+  closedMessage             String?             @db.VarChar(200)
   createdAt                 DateTime            @default(now())
   updatedAt                 DateTime            @updatedAt
 

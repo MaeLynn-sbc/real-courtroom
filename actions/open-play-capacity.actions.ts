@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 
 import {
   capacityDefaultInputSchema,
+  closedMessageForDateInputSchema,
   onlineRegistrationBlockedForDateInputSchema,
   onlineRegistrationEnabledInputSchema,
   sessionCapacityOverrideInputSchema,
   type CapacityDefaultInput,
+  type ClosedMessageForDateInput,
   type OnlineRegistrationBlockedForDateInput,
   type OnlineRegistrationEnabledInput,
   type SessionCapacityOverrideInput,
@@ -31,7 +33,9 @@ function revalidateOpenPlayCapacity(): void {
   revalidatePath("/dashboard/admin/open-play-capacity");
 }
 
-export async function setCapacityDefaultAction(input: CapacityDefaultInput): Promise<OpenPlayCapacityActionState> {
+export async function setCapacityDefaultAction(
+  input: CapacityDefaultInput,
+): Promise<OpenPlayCapacityActionState> {
   const authz = await requireOpenPlayCapacityAdmin();
   if (!authz.ok) {
     return { error: authz.error };
@@ -43,11 +47,17 @@ export async function setCapacityDefaultAction(input: CapacityDefaultInput): Pro
   }
 
   try {
-    await openPlayCapacityService.setCapacityDefault(parsed.data.dayOfWeek, parsed.data.capacity, authz.userId);
+    await openPlayCapacityService.setCapacityDefault(
+      parsed.data.dayOfWeek,
+      parsed.data.capacity,
+      authz.userId,
+    );
     revalidateOpenPlayCapacity();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "setCapacityDefaultAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "setCapacityDefaultAction", userId: authz.userId }),
+    };
   }
 }
 
@@ -73,7 +83,12 @@ export async function setOnlineRegistrationEnabledAction(
     revalidateOpenPlayCapacity();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "setOnlineRegistrationEnabledAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, {
+        action: "setOnlineRegistrationEnabledAction",
+        userId: authz.userId,
+      }),
+    };
   }
 }
 
@@ -96,12 +111,57 @@ export async function setOnlineRegistrationBlockedForDateAction(
   }
 
   try {
-    await openPlayCapacityService.setOnlineRegistrationBlockedForDate(date, parsed.data.blocked, authz.userId);
+    await openPlayCapacityService.setOnlineRegistrationBlockedForDate(
+      date,
+      parsed.data.blocked,
+      authz.userId,
+    );
     revalidateOpenPlayCapacity();
     revalidatePath("/open-play/register");
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "setOnlineRegistrationBlockedForDateAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, {
+        action: "setOnlineRegistrationBlockedForDateAction",
+        userId: authz.userId,
+      }),
+    };
+  }
+}
+
+// Editable independent of the block toggle above, on purpose — an owner
+// can write the message ahead of flipping the switch, or after. Not
+// gated on `blocked` in this action or in the component that calls it.
+export async function setClosedMessageForDateAction(
+  input: ClosedMessageForDateInput,
+): Promise<OpenPlayCapacityActionState> {
+  const authz = await requireOpenPlayCapacityAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = closedMessageForDateInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const date = new Date(`${parsed.data.date}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return { error: "Enter a valid date." };
+  }
+
+  try {
+    await openPlayCapacityService.setClosedMessageForDate(date, parsed.data.message, authz.userId);
+    revalidateOpenPlayCapacity();
+    revalidatePath("/open-play/register");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, {
+        action: "setClosedMessageForDateAction",
+        userId: authz.userId,
+      }),
+    };
   }
 }
 
@@ -124,10 +184,19 @@ export async function setSessionCapacityOverrideAction(
   }
 
   try {
-    await openPlayCapacityService.setSessionCapacityOverride(date, parsed.data.capacity, authz.userId);
+    await openPlayCapacityService.setSessionCapacityOverride(
+      date,
+      parsed.data.capacity,
+      authz.userId,
+    );
     revalidateOpenPlayCapacity();
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "setSessionCapacityOverrideAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, {
+        action: "setSessionCapacityOverrideAction",
+        userId: authz.userId,
+      }),
+    };
   }
 }

@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { CourtAvailabilityGrid } from "@/features/bookings/components/court-availability-grid";
 import { getCourtBookingWindow, getFacilityCloseMinutes } from "@/lib/court-hours";
 import { EQUIPMENT_KEYS } from "@/lib/equipment-keys";
+import { resolveOpenPlayClosedMessage } from "@/lib/open-play-closed-message";
 import { computeRemainingSeats } from "@/lib/open-play-seats";
 import { formatCurrency } from "@/lib/utils";
 import { equipmentService } from "@/services/equipment/equipment.service";
@@ -107,7 +108,7 @@ const getCachedOpenPlayHomepageData = unstable_cache(
 
 type OpenPlayCardState =
   | { kind: "not-open" }
-  | { kind: "blocked" }
+  | { kind: "blocked"; message: string }
   | { kind: "not-yet-open"; opensAt: Date }
   | { kind: "full" }
   | { kind: "open"; remaining: number };
@@ -133,12 +134,16 @@ function computeOpenPlayCardState(
   dayEnabled: boolean,
   featureEnabled: boolean,
   leadTimeDays: number,
+  closedRegistrationMessage: string,
 ): OpenPlayCardState {
   if (!featureEnabled || !dayEnabled || !night) {
     return { kind: "not-open" };
   }
   if (night.onlineRegistrationBlocked) {
-    return { kind: "blocked" };
+    return {
+      kind: "blocked",
+      message: resolveOpenPlayClosedMessage(night.closedMessage, closedRegistrationMessage),
+    };
   }
 
   const todayMidnight = new Date();
@@ -223,12 +228,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     fridayDayEnabled,
     openPlayFeatureEnabled,
     openPlaySettings.onlineRegistrationLeadTimeDays,
+    openPlaySettings.closedRegistrationMessage,
   );
   const saturdayCardState = computeOpenPlayCardState(
     saturdayNight,
     saturdayDayEnabled,
     openPlayFeatureEnabled,
     openPlaySettings.onlineRegistrationLeadTimeDays,
+    openPlaySettings.closedRegistrationMessage,
   );
   const openPlayOpensAtFormatter = new Intl.DateTimeFormat("en-PH", {
     month: "long",
@@ -242,7 +249,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       case "not-yet-open":
         return `Online registration opens ${openPlayOpensAtFormatter.format(state.opensAt)}.`;
       case "blocked":
-        return "Online registration is closed for this date — contact us directly.";
+        return state.message;
       case "not-open":
         return "Register at the front desk, or ask about online registration.";
       case "open":
@@ -417,7 +424,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             and rotate in. Everyone&apos;s welcome — all levels, first-timers included.
           </p>
 
-          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="mt-8 grid grid-cols-1 items-start gap-4 sm:grid-cols-3">
             <div className="border-line bg-navy-800 hover:border-green/45 rounded-2xl border p-6 transition-colors">
               <span className="font-jetbrains text-coral text-[10px] tracking-[0.18em] uppercase">
                 Sunday – Thursday

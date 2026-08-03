@@ -1,11 +1,12 @@
 import type { PublicOpenPlayRegistrationInput } from "@/features/open-play-capacity/schemas/public-open-play-registration.schema";
+import { resolveOpenPlayClosedMessage } from "@/lib/open-play-closed-message";
 import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
 import { settingsService } from "@/services/settings/settings.service";
 
 export type CreatePublicOpenPlayRegistrationResult =
   | { status: "disabled" }
-  | { status: "date-blocked" }
+  | { status: "date-blocked"; message: string }
   | { status: "not-yet-open"; opensAt: Date }
   | { status: "registered"; registrationId: string; holdExpiresAt: Date | null }
   | { status: "waitlisted"; waitlistEntryId: string };
@@ -47,14 +48,25 @@ export async function createPublicOpenPlayRegistration(
   }
 
   const date = new Date(`${input.date}T00:00:00`);
+  // Fetched once, up front — needed for closedRegistrationMessage below
+  // if the date-blocked branch is hit, and for onlineRegistrationLeadTimeDays
+  // further down either way. One read, not two.
+  const openPlaySettings = await settingsService.getOpenPlaySettings();
   const session = await openPlayCapacityService.getOrCreateSessionForDate(date);
 
   if (session.onlineRegistrationBlocked) {
-    return { status: "date-blocked" };
+    return {
+      status: "date-blocked",
+      message: resolveOpenPlayClosedMessage(
+        session.closedMessage,
+        openPlaySettings.closedRegistrationMessage,
+      ),
+    };
   }
 
   const defaults = await openPlayCapacityService.getCapacityDefaults();
-  const dayEnabled = defaults.find((row) => row.dayOfWeek === date.getDay())?.onlineRegistrationEnabled ?? false;
+  const dayEnabled =
+    defaults.find((row) => row.dayOfWeek === date.getDay())?.onlineRegistrationEnabled ?? false;
   if (!dayEnabled) {
     return { status: "disabled" };
   }
@@ -66,10 +78,12 @@ export async function createPublicOpenPlayRegistration(
   // would open registration at a different hour every day. Owner-
   // editable via openPlaySettingsSchema.onlineRegistrationLeadTimeDays,
   // not hardcoded.
-  const { onlineRegistrationLeadTimeDays } = await settingsService.getOpenPlaySettings();
+  const { onlineRegistrationLeadTimeDays } = openPlaySettings;
   const todayMidnight = new Date();
   todayMidnight.setHours(0, 0, 0, 0);
-  const daysUntilSession = Math.round((date.getTime() - todayMidnight.getTime()) / (24 * 60 * 60 * 1000));
+  const daysUntilSession = Math.round(
+    (date.getTime() - todayMidnight.getTime()) / (24 * 60 * 60 * 1000),
+  );
   if (daysUntilSession > onlineRegistrationLeadTimeDays) {
     const opensAt = new Date(date.getTime() - onlineRegistrationLeadTimeDays * 24 * 60 * 60 * 1000);
     return { status: "not-yet-open", opensAt };

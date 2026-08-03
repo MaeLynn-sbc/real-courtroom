@@ -2,7 +2,10 @@ import { z } from "zod";
 
 // BUILD-SPEC.md §4 "Accept any positive integer. Do not cap input at 40 —
 // values like 42 must be allowed." No .max() on either schema below.
-const positiveCapacitySchema = z.number().int().positive("Capacity must be a positive whole number.");
+const positiveCapacitySchema = z
+  .number()
+  .int()
+  .positive("Capacity must be a positive whole number.");
 
 export const capacityDefaultInputSchema = z.object({
   dayOfWeek: z.union([z.literal(5), z.literal(6)]),
@@ -36,4 +39,18 @@ export const onlineRegistrationBlockedForDateInputSchema = z.object({
   blocked: z.boolean(),
 });
 
-export type OnlineRegistrationBlockedForDateInput = z.infer<typeof onlineRegistrationBlockedForDateInputSchema>;
+export type OnlineRegistrationBlockedForDateInput = z.infer<
+  typeof onlineRegistrationBlockedForDateInputSchema
+>;
+
+// Per-date closed-registration message override — independent of the
+// block toggle above (see OpenPlayCapacityService.setClosedMessageForDate's
+// own comment). No .min() — an empty string is a valid, meaningful input
+// here: it's how a per-date message gets cleared back to the global
+// default, not an invalid one.
+export const closedMessageForDateInputSchema = z.object({
+  date: z.string().min(1, "Choose a date."),
+  message: z.string().max(200, "Keep it under 200 characters."),
+});
+
+export type ClosedMessageForDateInput = z.infer<typeof closedMessageForDateInputSchema>;

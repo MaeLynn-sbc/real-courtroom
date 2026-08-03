@@ -4,6 +4,7 @@ import Link from "next/link";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { PublicOpenPlayRegistrationForm } from "@/features/open-play-capacity/components/public-open-play-registration-form";
+import { resolveOpenPlayClosedMessage } from "@/lib/open-play-closed-message";
 import { computeRemainingSeats } from "@/lib/open-play-seats";
 import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -105,7 +106,7 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
     const lockedNight = eligibleNights.find((night) => night.date === requestedDate);
 
     if (!lockedNight) {
-      const isBlockedDate = blockedNights.some(
+      const blockedNight = blockedNights.find(
         (night) => toLocalDateValue(night.date) === requestedDate,
       );
       return (
@@ -116,8 +117,11 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
               Register for Open Play
             </h1>
             <p className="text-muted-foreground">
-              {isBlockedDate
-                ? "Online registration is closed for that date — contact us directly."
+              {blockedNight
+                ? resolveOpenPlayClosedMessage(
+                    blockedNight.closedMessage,
+                    openPlaySettings.closedRegistrationMessage,
+                  )
                 : "That date isn't open for online registration right now."}
             </p>
             <Link
@@ -172,11 +176,17 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
         </div>
 
         {blockedNights.length > 0 ? (
-          <p className="border-warning/40 bg-warning/10 rounded-lg border px-3 py-2 text-sm">
-            Online registration is closed for{" "}
-            {blockedNights.map((night) => labelFormatter.format(night.date)).join(", ")} — contact
-            us directly for {blockedNights.length === 1 ? "that date" : "those dates"}.
-          </p>
+          <div className="border-warning/40 bg-warning/10 flex flex-col gap-1 rounded-lg border px-3 py-2 text-sm">
+            {blockedNights.map((night) => (
+              <p key={toLocalDateValue(night.date)}>
+                <span className="font-medium">{labelFormatter.format(night.date)}</span> —{" "}
+                {resolveOpenPlayClosedMessage(
+                  night.closedMessage,
+                  openPlaySettings.closedRegistrationMessage,
+                )}
+              </p>
+            ))}
+          </div>
         ) : null}
 
         {eligibleNights.length === 0 ? (

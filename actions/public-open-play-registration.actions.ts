@@ -54,13 +54,16 @@ export async function createPublicOpenPlayRegistrationAction(
 
     if (result.status === "date-blocked") {
       return {
-        error: "Online registration is closed for this date — contact us directly.",
+        error: result.message,
         status: "date-blocked",
       };
     }
 
     if (result.status === "not-yet-open") {
-      const opensAtLabel = result.opensAt.toLocaleDateString("en-PH", { month: "long", day: "numeric" });
+      const opensAtLabel = result.opensAt.toLocaleDateString("en-PH", {
+        month: "long",
+        day: "numeric",
+      });
       return {
         error: `Online registration for this date opens on ${opensAtLabel}. Please check back then.`,
         status: "not-yet-open",

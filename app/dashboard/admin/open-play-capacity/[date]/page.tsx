@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { buttonVariants } from "@/components/ui/button";
 import { CheckInPanel } from "@/features/open-play-capacity/components/checkin-panel";
+import { ClosedMessageField } from "@/features/open-play-capacity/components/closed-message-field";
 import { CloseSessionButton } from "@/features/open-play-capacity/components/close-session-button";
 import { OnlineRegistrationBlockToggle } from "@/features/open-play-capacity/components/online-registration-block-toggle";
 import { OpenPlaySessionTabs } from "@/features/open-play-capacity/components/open-play-session-tabs";
@@ -136,11 +137,12 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
               {occupiedCount} / {session.capacity} seats · {waitlistedCount} waiting ·{" "}
               {session.status}
             </p>
-            <div className="mt-2">
+            <div className="mt-2 flex flex-col gap-3">
               <OnlineRegistrationBlockToggle
                 date={dateParam}
                 blocked={session.onlineRegistrationBlocked}
               />
+              <ClosedMessageField date={dateParam} message={session.closedMessage} />
             </div>
           </div>
           {session.status === "OPEN" ? (

@@ -12,6 +12,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+
+const CLOSED_MESSAGE_MAX_LENGTH = 200;
 
 export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
   const router = useRouter();
@@ -113,8 +116,8 @@ export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="weeknightGameRateCents">Regular game rate (₱, per game)</Label>
             <p className="text-muted-foreground text-xs">
-              Snapshotted onto each regular open play player&apos;s tab as they check in —
-              changing this never rewrites an already-open tab.
+              Snapshotted onto each regular open play player&apos;s tab as they check in — changing
+              this never rewrites an already-open tab.
             </p>
             <Input
               id="weeknightGameRateCents"
@@ -217,6 +220,30 @@ export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
                 }))
               }
             />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="closedRegistrationMessage">
+              Closed-registration message (global default)
+            </Label>
+            <p className="text-muted-foreground text-xs">
+              Shown on the home page, the register page, and the QR deep link whenever a Fri/Sat
+              night is blocked and has no per-date message of its own (set on that night&apos;s own
+              page under Open Play Capacity).
+            </p>
+            <Textarea
+              id="closedRegistrationMessage"
+              rows={2}
+              maxLength={CLOSED_MESSAGE_MAX_LENGTH}
+              className="max-w-md"
+              value={settings.closedRegistrationMessage}
+              onChange={(event) =>
+                setSettings((s) => ({ ...s, closedRegistrationMessage: event.target.value }))
+              }
+            />
+            <span className="text-muted-foreground text-[11px]">
+              {settings.closedRegistrationMessage.length}/{CLOSED_MESSAGE_MAX_LENGTH}
+            </span>
           </div>
 
           <div className="flex items-center gap-2">
