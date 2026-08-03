@@ -357,6 +357,7 @@ model Employee {
   shifts                                    Shift[]
   sales                                     Sale[]
   writtenOffTabs                            PlayerTab[]
+  writtenOffBookingTabs                     BookingTab[]
   // Phase 8 plumbing — see BookingPaymentProof/BookingRefund, below Sale.
   resolvedBookingPaymentProofs              BookingPaymentProof[]
   issuedBookingRefunds                      BookingRefund[]
@@ -853,10 +854,106 @@ model Booking {
   // lifecycle (AWAITING_PAYMENT hold included; see coach-session.service.ts's
   // merge-time note on why creating a session doesn't require CONFIRMED).
   coachSession    CoachSession?
+  // Add-ons (paddle rentals, shop items) for a court booking — see
+  // BookingTab's own comment for the full shape and why it's a new
+  // sibling model rather than a PlayerTab retrofit.
+  bookingTab      BookingTab?
 
   @@index([courtId, startAt, endAt])
   @@index([status])
   @@index([playerId])
+}
+
+// Add-ons for a court booking (paddle rentals, shop items) — same
+// running-tab shape as open play's PlayerTab (append-only line items,
+// settle once for the total), but keyed to a Booking instead of an
+// OpenPlayNightRegistration. A NEW sibling model, not a PlayerTab
+// retrofit: PlayerTab.registrationId is required+unique, and every
+// PlayerTab consumer (buildView's game-count query, computeGameRateCents,
+// getOrCreateTab itself) assumes a registration exists — making that
+// nullable to also accept a booking would ripple through code no
+// open-play behavior asked to change. Deliberately independent of the
+// booking's own court-fee Sale (Sale.bookingId) — a booking may already
+// be GCash-prepaid for court time while add-ons are bought later at the
+// desk, usually cash; settling this tab never touches or reopens that
+// Sale. See Sale.bookingTabId's own comment for how settlement avoids
+// repeating the exact revenue-misattribution bug open play's own
+// PlayerTab settlement has (one lump Sale per settle, category OPEN_PLAY,
+// so a PRODUCT-type add-on never shows up on the Shop Products report).
+model BookingTab {
+  id                 String               @id @default(cuid())
+  bookingId          String               @unique
+  status             PlayerTabStatus      @default(OPEN)
+  settledAt          DateTime?
+  settledByUserId    String?
+  settledVia         TabSettlementMethod?
+  // Required when settledVia = GCASH — same conditionally-required-at-
+  // the-service-layer shape as PlayerTab.gcashReference.
+  gcashReference     String?
+  writeOffReason     String?
+  // Required at the service layer for every write-off (§9's "no
+  // anonymous write-offs," same rule PlayerTab already follows) —
+  // nullable here only because Prisma can't make a column conditionally
+  // required based on another column's value.
+  writeOffEmployeeId String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  booking          Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  writeOffEmployee Employee?            @relation(fields: [writeOffEmployeeId], references: [id])
+  lineItems        BookingTabLineItem[]
+  // No single `sale Sale?` back-relation here, unlike PlayerTab — a
+  // BookingTab can produce SEVERAL Sales at settlement (one per distinct
+  // product), see Sale.bookingTabId.
+  sales            Sale[]
+
+  @@index([status])
+}
+
+enum BookingTabLineItemType {
+  PRODUCT
+  // "Never edit or delete an existing line item" — voiding a charge is a
+  // new, offsetting row of this type, not a mutation of the original.
+  // Same shape as TabLineItem's own ADJUSTMENT — no GAME or RENTAL here:
+  // a court booking has no games, and PlayerTab's own RENTAL type has no
+  // UI caller anywhere in this codebase today (checked directly — not a
+  // real precedent to replicate), so it's left out rather than built
+  // unused.
+  ADJUSTMENT
+}
+
+model BookingTabLineItem {
+  id             String                  @id @default(cuid())
+  tabId          String
+  type           BookingTabLineItemType
+  description    String
+  qtyOrGames     Int
+  unitPriceCents Int
+  amountCents    Int
+  // Captured from day one — unlike open play's pre-existing TabLineItem,
+  // which lacks this column entirely and is exactly why a PRODUCT-type
+  // open-play add-on can't be traced back to a real Product row for the
+  // Shop Products report. Set for type=PRODUCT; null for type=ADJUSTMENT
+  // (a void has no product of its own — see voidsLineItemId below).
+  productId       String?
+  // Required for ADJUSTMENT (a void always carries a reason); null for
+  // PRODUCT, which is self-explanatory.
+  reason          String?
+  createdByUserId String?
+  createdAt       DateTime                @default(now())
+
+  // Set only on a void (type=ADJUSTMENT) — points back to the line item
+  // it offsets. The original row is never touched, so "never edit or
+  // delete" stays literally true, same as TabLineItem.
+  voidsLineItemId String?
+  voidsLineItem   BookingTabLineItem?  @relation("BookingTabLineItemVoids", fields: [voidsLineItemId], references: [id])
+  voidedByItems   BookingTabLineItem[] @relation("BookingTabLineItemVoids")
+
+  tab     BookingTab @relation(fields: [tabId], references: [id], onDelete: Cascade)
+  product Product?   @relation(fields: [productId], references: [id])
+
+  @@index([tabId])
+  @@index([productId])
 }
 
 model BookingHistory {
@@ -2555,6 +2652,18 @@ model Sale {
   // ever gets one, e.g. equipment rental) settles with its OWN,
   // separate Sale via playerTabId, same as today.
   openPlayNightRegistrationId String? @unique
+  // NOT unique — deliberately the same shape as productId above, and for
+  // the identical reason. A BookingTab settlement (services/booking/
+  // booking-tab.service.ts) creates ONE Sale PER DISTINCT PRODUCT rather
+  // than one lump Sale for the whole tab, specifically so add-on revenue
+  // lands on the correct category (PRODUCT, with productId set) instead
+  // of being invisible to the Shop Products report the way open play's
+  // PlayerTab settlement (one Sale, category OPEN_PLAY, no productId)
+  // already is — see BookingTab's own schema comment. A `@unique` here
+  // would make it impossible to ever settle a tab with two different
+  // add-ons on it, the same failure productId's own unique constraint
+  // hit before migration 29.
+  bookingTabId                String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2572,6 +2681,7 @@ model Sale {
   product                   Product?                   @relation(fields: [productId], references: [id])
   playerTab                 PlayerTab?                 @relation(fields: [playerTabId], references: [id])
   openPlayNightRegistration OpenPlayNightRegistration? @relation(fields: [openPlayNightRegistrationId], references: [id])
+  bookingTab                BookingTab?                @relation(fields: [bookingTabId], references: [id])
 
   @@index([category])
   @@index([createdAt])
@@ -2579,6 +2689,7 @@ model Sale {
   @@index([shiftId])
   @@index([playerId])
   @@index([productId])
+  @@index([bookingTabId])
 }
 
 // --- Phase 8 plumbing: GCash prepayment for public court bookings ---------
@@ -2808,7 +2919,8 @@ model Product {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  sales Sale[]
+  sales               Sale[]
+  bookingTabLineItems BookingTabLineItem[]
 
   @@index([sortOrder])
 }

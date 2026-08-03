@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
+import { BookingAddOnsPanel } from "@/features/bookings/components/booking-add-ons-panel";
 import { BookingHistoryList } from "@/features/bookings/components/booking-history-list";
 import { BookingQrCode } from "@/features/bookings/components/booking-qr-code";
 import { BookingSourceBadge } from "@/features/bookings/components/booking-source-badge";
@@ -16,9 +17,11 @@ import { CoachSessionPanel } from "@/features/coaching/components/coach-session-
 import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
+import { bookingTabService } from "@/services/booking/booking-tab.service";
 import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { courtService } from "@/services/court/court.service";
+import { productService } from "@/services/products/product.service";
 import { saleService } from "@/services/sales/sale.service";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
@@ -48,12 +51,22 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
   const guestOrPlayerName =
     booking.player?.user.name ?? booking.player?.user.email ?? booking.guestName;
 
-  const [coachSession, allCoaches, availableCoaches, paymentMethods, courts] = await Promise.all([
+  const [
+    coachSession,
+    allCoaches,
+    availableCoaches,
+    paymentMethods,
+    courts,
+    addOnsTab,
+    activeProducts,
+  ] = await Promise.all([
     coachSessionService.getByBookingId(booking.id),
     coachAvailabilityService.listCoaches(),
     coachAvailabilityService.listAvailableCoaches(booking.startAt, booking.endAt),
     saleService.listPaymentMethods(),
     courtService.listCourts(),
+    bookingTabService.getTabViewByBooking(booking.id),
+    productService.listActiveProducts(),
   ]);
   const availableCoachIds = new Set(availableCoaches.map((coach) => coach.id));
   // Cash/GCash only — Pay at Venue (a booking-creation-time concept,
@@ -263,6 +276,34 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
           existingSession={coachSession}
           allCoaches={allCoaches}
           availableCoachIds={availableCoachIds}
+        />
+      </section>
+
+      <section>
+        <BookingAddOnsPanel
+          bookingId={booking.id}
+          tab={
+            addOnsTab
+              ? { status: addOnsTab.tab.status, settledVia: addOnsTab.tab.settledVia }
+              : null
+          }
+          lineItems={
+            addOnsTab?.lineItems.map((item) => ({
+              id: item.id,
+              description: item.description,
+              qtyOrGames: item.qtyOrGames,
+              amountCents: item.amountCents,
+              type: item.type,
+              voided: item.voided,
+            })) ?? []
+          }
+          totalCents={addOnsTab?.totalCents ?? 0}
+          products={activeProducts.map((product) => ({
+            id: product.id,
+            name: product.name,
+            priceCents: product.priceCents,
+          }))}
+          paymentMethods={paymentMethodOptions}
         />
       </section>
 

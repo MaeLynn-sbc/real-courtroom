@@ -38,6 +38,7 @@ export interface CreateSaleInput {
   productId?: string;
   playerTabId?: string;
   openPlayNightRegistrationId?: string;
+  bookingTabId?: string;
   description?: string;
   notes?: string;
 }
@@ -130,6 +131,7 @@ export class SaleService {
         productId: input.productId,
         playerTabId: input.playerTabId,
         openPlayNightRegistrationId: input.openPlayNightRegistrationId,
+        bookingTabId: input.bookingTabId,
         description: input.description,
         notes: input.notes,
       },
