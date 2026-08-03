@@ -66,6 +66,13 @@ export const registerTeamSchema = z.object({
   player1Id: z.string().min(1, "Select a player."),
   player2Id: z.string().optional(),
   paymentMethodId: z.string().min(1, "Select a payment method."),
+  receipt: z
+    .object({
+      fileName: z.string().min(1),
+      contentType: z.string().min(1),
+      dataBase64: z.string().min(1),
+    })
+    .optional(),
 });
 
 export type RegisterTeamInput = z.infer<typeof registerTeamSchema>;

@@ -47,10 +47,27 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
     saleService.listPaymentMethods(),
   ]);
 
-  const playerOptions = players.map((player) => ({
-    id: player.id,
-    label: player.user.name ?? player.user.email ?? "Unknown player",
-  }));
+  // A player already on an active team in this category can't be
+  // registered again — they're already someone's partner (or already
+  // registered solo). Hidden from both the Player and Partner dropdowns
+  // rather than left selectable and rejected on submit; registerTeam
+  // enforces the same rule server-side (a second tab, a stale page).
+  const registeredPlayerIds = new Set<string>();
+  for (const registration of category.registrations) {
+    if (registration.status === "WITHDRAWN" || registration.status === "DISQUALIFIED") {
+      continue;
+    }
+    registeredPlayerIds.add(registration.team.player1Id);
+    if (registration.team.player2Id) {
+      registeredPlayerIds.add(registration.team.player2Id);
+    }
+  }
+  const playerOptions = players
+    .filter((player) => !registeredPlayerIds.has(player.id))
+    .map((player) => ({
+      id: player.id,
+      label: player.user.name ?? player.user.email ?? "Unknown player",
+    }));
 
   const paymentMethodOptions = paymentMethods.map((method) => ({
     id: method.id,

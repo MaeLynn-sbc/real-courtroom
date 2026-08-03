@@ -2134,6 +2134,10 @@ model TournamentRegistration {
   registeredAt         DateTime                     @default(now())
   createdAt            DateTime                     @default(now())
   updatedAt            DateTime                     @updatedAt
+  // Optional — same private-upload mechanism already used for
+  // Expense.receiptStorageKey (services/upload/), not a second upload
+  // path. Null when staff didn't attach one at registration time.
+  receiptStorageKey    String?
 
   tournamentCategory TournamentCategory @relation(fields: [tournamentCategoryId], references: [id], onDelete: Cascade)
   team               Team               @relation(fields: [teamId], references: [id])

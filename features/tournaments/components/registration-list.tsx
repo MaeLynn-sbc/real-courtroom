@@ -73,6 +73,7 @@ export function RegistrationList({ tournamentId, categoryId, registrations }: Re
         <TableRow>
           <TableHead>Team</TableHead>
           <TableHead>Status</TableHead>
+          <TableHead>Receipt</TableHead>
           <TableHead>Actions</TableHead>
         </TableRow>
       </TableHeader>
@@ -84,6 +85,20 @@ export function RegistrationList({ tournamentId, categoryId, registrations }: Re
               <Badge variant={STATUS_VARIANTS[registration.status]}>
                 {STATUS_LABELS[registration.status]}
               </Badge>
+            </TableCell>
+            <TableCell>
+              {registration.receiptStorageKey ? (
+                <a
+                  href={`/api/tournament-registration-receipt/${encodeURIComponent(registration.receiptStorageKey)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary text-sm underline underline-offset-2"
+                >
+                  View
+                </a>
+              ) : (
+                <span className="text-muted-foreground text-sm">—</span>
+              )}
             </TableCell>
             <TableCell>
               {registration.status === "CONFIRMED" || registration.status === "WAITLISTED" ? (

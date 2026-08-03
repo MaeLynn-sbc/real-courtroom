@@ -207,11 +207,23 @@ export async function registerTeamAction(
   }
 
   try {
-    await tournamentService.registerTeam(categoryId, parsed.data, authz.userId, {
-      employeeId: authz.employeeId,
-      shiftId: authz.shiftId,
-      paymentMethodId: parsed.data.paymentMethodId,
-    });
+    await tournamentService.registerTeam(
+      categoryId,
+      parsed.data,
+      authz.userId,
+      {
+        employeeId: authz.employeeId,
+        shiftId: authz.shiftId,
+        paymentMethodId: parsed.data.paymentMethodId,
+      },
+      parsed.data.receipt
+        ? {
+            fileName: parsed.data.receipt.fileName,
+            contentType: parsed.data.receipt.contentType,
+            data: Buffer.from(parsed.data.receipt.dataBase64, "base64"),
+          }
+        : undefined,
+    );
     revalidateCategory(tournamentId, categoryId);
     return { error: null };
   } catch (error) {
