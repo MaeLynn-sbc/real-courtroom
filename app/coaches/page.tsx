@@ -38,6 +38,14 @@ export default async function CoachesPage() {
           <p className="text-muted-foreground mt-2 text-lg">
             Private and group lessons with our coaches — book a court, then add one.
           </p>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <Link href="/book" className={buttonVariants({ size: "lg" })}>
+              Book a court
+            </Link>
+            <Link href="/coaches/availability" className={buttonVariants({ variant: "outline", size: "lg" })}>
+              See coach availability
+            </Link>
+          </div>
         </div>
 
         <section className="rounded-xl border p-4">
@@ -102,15 +110,6 @@ export default async function CoachesPage() {
             ))}
           </div>
         )}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <Link href="/book" className={buttonVariants({ size: "lg" })}>
-            Book a court
-          </Link>
-          <Link href="/coaches/availability" className={buttonVariants({ variant: "outline", size: "lg" })}>
-            See coach availability
-          </Link>
-        </div>
       </main>
       <SiteFooter />
     </div>
