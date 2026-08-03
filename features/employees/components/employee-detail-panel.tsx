@@ -10,9 +10,10 @@ import {
   setEmployeeActiveAction,
   setEmployeeCoachAction,
   updateEmployeeAction,
+  uploadEmployeePhotoAction,
 } from "@/actions/employee.actions";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TempPasswordReveal } from "@/features/employees/components/temp-password-reveal";
 import { updateEmployeeSchema } from "@/features/employees/schemas/employee.schema";
 import type { AuditLog } from "@/lib/generated/prisma/client";
+import { cn } from "@/lib/utils";
 import { formatAuditLogLabel } from "@/services/notifications/notification-reference";
 import type { employeeService } from "@/services/employee/employee.service";
 
@@ -60,8 +62,30 @@ function ProfileSection({ employee }: { employee: Employee }) {
     bio: employee.bio ?? "",
   });
 
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
   function setField<K extends keyof typeof values>(key: K, value: string) {
     setValues((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handlePhotoFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    setIsUploadingPhoto(true);
+    const formData = new FormData();
+    formData.set("file", file);
+    const result = await uploadEmployeePhotoAction(employee.id, formData);
+    setIsUploadingPhoto(false);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setField("photoUrl", result.photoUrl ?? "");
+    toast.success("Photo uploaded.");
+    router.refresh();
   }
 
   function onSubmit(event: React.FormEvent) {
@@ -135,6 +159,29 @@ function ProfileSection({ employee }: { employee: Employee }) {
           id="photoUrl"
           value={values.photoUrl}
           onChange={(event) => setField("photoUrl", event.target.value)}
+        />
+        <div className="flex items-center gap-3">
+          <label
+            htmlFor="employeePhotoUpload"
+            className={cn(
+              buttonVariants({ variant: "secondary", size: "sm" }),
+              "cursor-pointer",
+              isUploadingPhoto && "pointer-events-none opacity-60",
+            )}
+          >
+            {isUploadingPhoto ? "Uploading…" : "Upload a photo"}
+          </label>
+          <span className="text-muted-foreground text-sm">
+            Have a file instead of a URL? Upload it here — the URL above fills in automatically.
+          </span>
+        </div>
+        <input
+          id="employeePhotoUpload"
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          disabled={isUploadingPhoto}
+          onChange={handlePhotoFileChange}
         />
       </div>
       <div className="flex flex-col gap-1.5">

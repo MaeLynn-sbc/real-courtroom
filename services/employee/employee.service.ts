@@ -151,6 +151,35 @@ export class EmployeeService {
     return employee;
   }
 
+  // Reported live: photoUrl on the profile form is a plain text field
+  // expecting an already-hosted URL — staff with just a local file had
+  // nowhere to go. This backs a real "Upload photo" file picker
+  // (actions/employee.actions.ts's uploadEmployeePhotoAction) that
+  // uploads then writes photoUrl in one step, same one-field-only shape
+  // as updateCategoryMaxTeams — not routed through the full
+  // updateEmployee (which would require re-sending every other profile
+  // field just to change a photo).
+  async setPhotoUrl(employeeId: string, photoUrl: string, actorUserId: string) {
+    const existing = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
+
+    const employee = await prisma.employee.update({
+      where: { id: employeeId },
+      data: { photoUrl },
+      include: employeeWithUser,
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "employee.photo_updated",
+      entityType: "Employee",
+      entityId: employee.id,
+      oldValues: { photoUrl: existing.photoUrl },
+      newValues: { photoUrl: employee.photoUrl },
+    });
+
+    return employee;
+  }
+
   // Same system-generated-only rule as createEmployee — an admin reset
   // never lets the admin pick the new password, and it forces the same
   // mustChangePassword flow the employee went through at creation.

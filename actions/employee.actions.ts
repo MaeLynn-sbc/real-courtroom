@@ -17,6 +17,7 @@ import {
 import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { employeeService } from "@/services/employee/employee.service";
+import { getUploadService } from "@/services/upload/upload-service.factory";
 import { PERMISSIONS } from "@/types/permissions";
 
 export interface EmployeeActionState {
@@ -81,6 +82,51 @@ export async function updateEmployeeAction(
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "updateEmployeeAction", userId: authz.userId }) };
+  }
+}
+
+// Same limits/allowed types as uploadGalleryImageAction
+// (actions/cms.actions.ts) — a portrait doesn't need a higher ceiling
+// than a gallery photo.
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+const ALLOWED_PHOTO_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+export interface UploadEmployeePhotoActionState extends EmployeeActionState {
+  photoUrl?: string;
+}
+
+export async function uploadEmployeePhotoAction(
+  employeeId: string,
+  formData: FormData,
+): Promise<UploadEmployeePhotoActionState> {
+  const authz = await requireUsersManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "Choose a photo to upload." };
+  }
+  if (!ALLOWED_PHOTO_TYPES.has(file.type)) {
+    return { error: "Only PNG, JPEG, WebP, or GIF images are allowed." };
+  }
+  if (file.size > MAX_PHOTO_BYTES) {
+    return { error: "Photo must be 5MB or smaller." };
+  }
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const result = await getUploadService().upload({
+      fileName: file.name,
+      contentType: file.type,
+      data: buffer,
+    });
+    await employeeService.setPhotoUrl(employeeId, result.url, authz.userId);
+    revalidatePath("/dashboard/admin/employees");
+    return { error: null, photoUrl: result.url };
+  } catch (error) {
+    return { error: toActionError(error, { action: "uploadEmployeePhotoAction", userId: authz.userId }) };
   }
 }
 
