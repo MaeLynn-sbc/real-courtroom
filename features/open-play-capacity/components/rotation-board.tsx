@@ -79,6 +79,11 @@ interface BoardCourt {
   name: string;
   active: BoardAssignment | null;
   proposed: BoardAssignment | null;
+  // Reported live: staff could still Propose/Quick-queue open-play
+  // players onto a court that's actually reserved for a real court
+  // booking right now — see RotationBoardCourt.booked's own comment in
+  // open-play-rotation.service.ts.
+  booked: boolean;
 }
 
 interface BoardRestingPlayer {
@@ -223,7 +228,7 @@ function NextUpSection({
     AFTER_THAT: [],
     THEN: [],
   });
-  const vacantCourts = courts.filter((court) => !court.active && !court.proposed);
+  const vacantCourts = courts.filter((court) => !court.active && !court.proposed && !court.booked);
 
   function toggleHandPick(slot: StagedGroupSlot, registrationId: string) {
     setHandPicks((prev) => ({
@@ -535,9 +540,10 @@ export function RotationBoard({
   // own vacant-courts-only dropdown — a slot already holding a group
   // isn't a valid destination here (stageManualGroup's own occupied-slot
   // guard would just reject it).
-  const [manualDestination, setManualDestination] = useState<string>(
-    courts[0] ? `court:${courts[0].id}` : "",
-  );
+  const [manualDestination, setManualDestination] = useState<string>(() => {
+    const firstAvailableCourt = courts.find((court) => !court.booked);
+    return firstAvailableCourt ? `court:${firstAvailableCourt.id}` : "";
+  });
   // Queue reorder: which unit each OTHER unit is currently set to move
   // after, keyed by the mover's own unitKey — a plain <select>, kept
   // alongside drag-and-drop (below) as the precise/keyboard-friendly
@@ -610,6 +616,8 @@ export function RotationBoard({
                   <Badge>On court</Badge>
                 ) : court.proposed ? (
                   <Badge variant="outline">Proposed</Badge>
+                ) : court.booked ? (
+                  <Badge variant="outline">Booked</Badge>
                 ) : null}
               </CardTitle>
             </CardHeader>
@@ -777,6 +785,10 @@ export function RotationBoard({
                     </Button>
                   </div>
                 </>
+              ) : court.booked ? (
+                <p className="text-muted-foreground text-sm">
+                  Booked — reserved for a court booking right now, not open play.
+                </p>
               ) : (
                 <>
                   <p className="text-muted-foreground text-sm">Idle.</p>
@@ -840,11 +852,13 @@ export function RotationBoard({
                   {stagedSlotLabel(slot)}
                 </option>
               ))}
-              {courts.map((court) => (
-                <option key={court.id} value={`court:${court.id}`}>
-                  {court.name}
-                </option>
-              ))}
+              {courts
+                .filter((court) => !court.booked)
+                .map((court) => (
+                  <option key={court.id} value={`court:${court.id}`}>
+                    {court.name}
+                  </option>
+                ))}
             </select>
             <span className="text-muted-foreground text-xs">{manualPicks.length}/4 picked</span>
             <Button

@@ -82,6 +82,17 @@ export interface RotationBoardCourt {
   court: Court;
   active: GameAssignmentWithParticipants | null;
   proposed: GameAssignmentWithParticipants | null;
+  // Reported live: staff could still Propose/Quick-queue open-play
+  // players onto a court that's actually reserved for a real court
+  // booking right now — "Idle" only ever meant "no open-play game on
+  // it," it never checked the separate booking system at all. True
+  // when a real Booking or CourtMaintenance window overlaps this exact
+  // instant — same occupancy semantics as booking.service.ts's
+  // listOccupiedWindows (notIn CANCELLED/NO_SHOW/REJECTED, an
+  // AWAITING_PAYMENT hold blocks regardless of holdExpiresAt),
+  // duplicated rather than shared per this file's own existing
+  // precedent for that exact query.
+  booked: boolean;
 }
 
 export interface RotationBoardUnit {
@@ -1426,7 +1437,8 @@ export class OpenPlayRotationService {
   // BUILD-SPEC.md §7 "Staff view — Live queue in order, wait times counting
   // up... Per court: who's on, elapsed time, next proposed foursome."
   async getRotationBoardData(date: Date): Promise<RotationBoardData> {
-    const [courts, assignments, units, restingEntries, settings, stagedGroupRows] =
+    const nowInstant = new Date();
+    const [courts, assignments, units, restingEntries, settings, stagedGroupRows, currentBookings, currentMaintenance] =
       await Promise.all([
         prisma.court.findMany({ where: { deletedAt: null }, orderBy: { name: "asc" } }),
         prisma.gameAssignment.findMany({
@@ -1443,7 +1455,31 @@ export class OpenPlayRotationService {
           where: { date },
           include: { queueEntries: true },
         }),
+        // See RotationBoardCourt.booked's own comment — a currently
+        // occupying Booking, checked at this exact instant, not a whole
+        // day range like listOccupiedWindows (this board only ever cares
+        // about right now).
+        prisma.booking.findMany({
+          where: {
+            status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+            startAt: { lte: nowInstant },
+            endAt: { gt: nowInstant },
+          },
+          select: { courtId: true },
+        }),
+        prisma.courtMaintenance.findMany({
+          where: {
+            status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+            startAt: { lte: nowInstant },
+            endAt: { gt: nowInstant },
+          },
+          select: { courtId: true },
+        }),
       ]);
+    const bookedCourtIds = new Set([
+      ...currentBookings.map((b) => b.courtId),
+      ...currentMaintenance.map((m) => m.courtId),
+    ]);
 
     const stagedGroups: StagedGroupWithMembers[] = stagedGroupRows.map(
       ({ queueEntries, ...group }) => ({
@@ -1462,6 +1498,7 @@ export class OpenPlayRotationService {
       court,
       active: assignments.find((a) => a.courtId === court.id && a.status === "ACTIVE") ?? null,
       proposed: assignments.find((a) => a.courtId === court.id && a.status === "PROPOSED") ?? null,
+      booked: bookedCourtIds.has(court.id),
     }));
 
     const waiting: RotationBoardUnit[] = units
@@ -1483,7 +1520,7 @@ export class OpenPlayRotationService {
       skillLevel: entry.skillLevel,
     }));
 
-    const hasIdleCourt = boardCourts.some((c) => !c.active && !c.proposed);
+    const hasIdleCourt = boardCourts.some((c) => !c.active && !c.proposed && !c.booked);
     const totalWaiting = units.reduce((sum, unit) => sum + unit.members.length, 0);
     let unfillableQueueReason: string | null = null;
     if (hasIdleCourt && totalWaiting >= 4) {
@@ -1552,6 +1589,38 @@ export class OpenPlayRotationService {
     },
     actorUserId: string | null,
   ): Promise<GameAssignmentWithParticipants> {
+    // Reported live: a court reserved for a real booking right now could
+    // still be handed an open-play foursome — the UI-only fix (hiding
+    // Propose/Quick-queue when RotationBoardCourt.booked, see that
+    // field's own comment) doesn't stop a stale page or the staging
+    // pipeline's own assignPendingGroupToCourt (which also funnels
+    // through here). Checked here, the one shared choke point every
+    // assignment-creation path already goes through — same "single
+    // choke point" precedent as booking.service.ts's
+    // checkAvailabilityWithClient.
+    const nowInstant = new Date();
+    const [currentBooking, currentMaintenance] = await Promise.all([
+      tx.booking.findFirst({
+        where: {
+          courtId: input.courtId,
+          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+          startAt: { lte: nowInstant },
+          endAt: { gt: nowInstant },
+        },
+      }),
+      tx.courtMaintenance.findFirst({
+        where: {
+          courtId: input.courtId,
+          status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+          startAt: { lte: nowInstant },
+          endAt: { gt: nowInstant },
+        },
+      }),
+    ]);
+    if (currentBooking || currentMaintenance) {
+      throw new Error("This court is currently booked — not available for open play right now.");
+    }
+
     const assignment = await tx.gameAssignment.create({
       data: {
         courtId: input.courtId,

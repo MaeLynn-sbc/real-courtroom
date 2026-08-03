@@ -89,6 +89,7 @@ function baseProps(overrides: Partial<RotationBoardProps["courts"][number]>): Ro
         name: "Court 1",
         active: null,
         proposed: null,
+        booked: false,
         ...overrides,
       },
     ],
@@ -353,7 +354,7 @@ describe("RotationBoard — queue reorder (Move after)", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={[]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
   }
@@ -447,7 +448,7 @@ describe("RotationBoard — build a group by hand (2-4 players)", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={[]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
   }
@@ -559,13 +560,14 @@ describe("RotationBoard — assign a staged group to court", () => {
         unfillableQueueReason={null}
         stagedGroups={stagedNextUp}
         courts={[
-          { id: "court-1", name: "Court 1", active: null, proposed: null },
-          { id: "court-2", name: "Court 2", active: occupiedAssignment, proposed: null },
+          { id: "court-1", name: "Court 1", active: null, proposed: null, booked: false },
+          { id: "court-2", name: "Court 2", active: occupiedAssignment, proposed: null, booked: false },
           {
             id: "court-3",
             name: "Court 3",
             active: null,
             proposed: { ...occupiedAssignment, id: "assignment-proposed", status: "PROPOSED" },
+            booked: false,
           },
         ]}
       />,
@@ -591,7 +593,7 @@ describe("RotationBoard — assign a staged group to court", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={stagedNextUp}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -616,7 +618,7 @@ describe("RotationBoard — assign a staged group to court", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={stagedNextUp}
-        courts={[{ id: "court-1", name: "Court 1", active: occupiedAssignment, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: occupiedAssignment, proposed: null, booked: false }]}
       />,
     );
 
@@ -667,7 +669,7 @@ describe("RotationBoard — staging slots", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={[]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -685,7 +687,7 @@ describe("RotationBoard — staging slots", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={[]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -703,7 +705,7 @@ describe("RotationBoard — staging slots", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={[]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -747,7 +749,7 @@ describe("RotationBoard — staging slots", () => {
             ],
           },
         ]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -787,7 +789,7 @@ describe("RotationBoard — staging slots", () => {
             ],
           },
         ]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -843,7 +845,7 @@ describe("RotationBoard — staging slots", () => {
             ],
           },
         ]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -899,7 +901,7 @@ describe("RotationBoard — staging slots", () => {
             })),
           },
         ]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -932,7 +934,7 @@ describe("RotationBoard — staging slots", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={[]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -973,7 +975,7 @@ describe("RotationBoard — staging slots", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={[]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -1039,7 +1041,7 @@ describe("RotationBoard — build a group by hand, slot destination", () => {
             ],
           },
         ]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -1066,7 +1068,7 @@ describe("RotationBoard — build a group by hand, slot destination", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={[]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -1121,7 +1123,7 @@ describe("RotationBoard — trailing-dot name display fix", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={[]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 
@@ -1152,7 +1154,7 @@ describe("RotationBoard — trailing-dot name display fix", () => {
         maxWaitMinutes={20}
         unfillableQueueReason={null}
         stagedGroups={[]}
-        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null }]}
+        courts={[{ id: "court-1", name: "Court 1", active: null, proposed: null, booked: false }]}
       />,
     );
 

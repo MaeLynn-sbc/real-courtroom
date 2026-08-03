@@ -345,6 +345,7 @@ function serializeBoard(dateParam: string, board: RotationBoardData, targetGameM
       proposed: c.proposed
         ? serializeAssignment(c.proposed, board.forgottenAssignmentNudgeMinutes, targetGameMinutes)
         : null,
+      booked: c.booked,
     })),
     waiting: board.waiting,
     resting: board.resting,
