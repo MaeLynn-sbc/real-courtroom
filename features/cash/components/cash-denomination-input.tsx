@@ -27,11 +27,13 @@ interface CashDenominationInputProps {
 }
 
 // Cash-only (GCash is digital, no physical notes to count). Swaps between
-// a plain amount field (the original behavior, kept as the default and
-// as an escape hatch) and a bills/coins count that sums into the same
-// controlled value — the parent form never knows which mode produced it.
+// a bills/coins count (the default — staff count a physical drawer by
+// denomination anyway, so this skips the extra "Count by bills & coins…"
+// click every time) and a plain amount field (kept as an escape hatch for
+// a quick round-number entry) that sums into the same controlled value —
+// the parent form never knows which mode produced it.
 export function CashDenominationInput({ id, value, onChange }: CashDenominationInputProps) {
-  const [mode, setMode] = useState<"amount" | "denominations">("amount");
+  const [mode, setMode] = useState<"amount" | "denominations">("denominations");
   const [counts, setCounts] = useState<Record<number, string>>({});
 
   function updateCount(denom: number, count: string) {
