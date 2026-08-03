@@ -170,20 +170,18 @@ type CourtBooking = Awaited<ReturnType<typeof fetchRelevantBookings>>[number];
 
 // Same "what counts as an active, slot-occupying booking" where-clause
 // as booking.service.ts's private checkAvailabilityWithClient (notIn
-// CANCELLED/NO_SHOW/REJECTED, expired AWAITING_PAYMENT holds excluded)
-// — duplicated, not imported, since that method is private to
+// CANCELLED/NO_SHOW/REJECTED — an AWAITING_PAYMENT hold blocks
+// regardless of holdExpiresAt, see that method's own comment) —
+// duplicated, not imported, since that method is private to
 // BookingService and this is a read-only display concern, not a
-// booking-mutation one.
+// booking-mutation one. Kept in sync deliberately: this is exactly the
+// kind of place that would otherwise show a court as "next available"
+// for a slot the real booking engine still treats as occupied.
 async function fetchRelevantBookings(courtIds: string[], now: Date, windowEnd: Date) {
   return prisma.booking.findMany({
     where: {
       courtId: { in: courtIds },
       status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-      OR: [
-        { status: { not: "AWAITING_PAYMENT" } },
-        { holdExpiresAt: null },
-        { holdExpiresAt: { gte: now } },
-      ],
       startAt: { lt: windowEnd },
       endAt: { gt: now },
     },

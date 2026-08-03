@@ -146,29 +146,41 @@ interface ListBookingsFilters {
   // an additional way to look (e.g. "what came in most recently"), not
   // a replacement.
   sortBy?: "startAt" | "createdAt";
+  // Cross-date view of every AWAITING_PAYMENT booking whose holdExpiresAt
+  // has passed — the set that now blocks its court indefinitely (see
+  // checkAvailabilityWithClient's 2026-08-03 comment) until a staff
+  // member cancels it. Short-circuits every other filter below: staff
+  // need to find these regardless of which day they were created on, not
+  // scoped to "today" the way the rest of this page's filters are.
+  staleHoldsOnly?: boolean;
 }
 
 export class BookingService {
   async listBookings(filters?: ListBookingsFilters) {
     const where: Prisma.BookingWhereInput = {};
 
-    if (filters?.courtId) {
-      where.courtId = filters.courtId;
-    }
-    if (filters?.status) {
-      where.status = filters.status;
-    }
-    if (filters?.date) {
-      // "Today's bookings" is a business-date filter, not a calendar-day
-      // one (BUILD-SPEC.md §0) — a booking at 12:30AM still belongs to the
-      // previous night's date on this list, matching daily totals/
-      // reconciliation once those exist.
-      const { businessDateRolloverHour } = await settingsService.getCourtHours();
-      const { start, end } = getBusinessDateRange(filters.date, businessDateRolloverHour);
-      where.startAt = { gte: start, lt: end };
-    }
-    if (filters?.source) {
-      where.source = filters.source;
+    if (filters?.staleHoldsOnly) {
+      where.status = "AWAITING_PAYMENT";
+      where.holdExpiresAt = { lt: new Date() };
+    } else {
+      if (filters?.courtId) {
+        where.courtId = filters.courtId;
+      }
+      if (filters?.status) {
+        where.status = filters.status;
+      }
+      if (filters?.date) {
+        // "Today's bookings" is a business-date filter, not a calendar-day
+        // one (BUILD-SPEC.md §0) — a booking at 12:30AM still belongs to the
+        // previous night's date on this list, matching daily totals/
+        // reconciliation once those exist.
+        const { businessDateRolloverHour } = await settingsService.getCourtHours();
+        const { start, end } = getBusinessDateRange(filters.date, businessDateRolloverHour);
+        where.startAt = { gte: start, lt: end };
+      }
+      if (filters?.source) {
+        where.source = filters.source;
+      }
     }
 
     return prisma.booking.findMany({
@@ -199,6 +211,18 @@ export class BookingService {
       // this is a backstop against an unfiltered call on a large table,
       // not real pagination (no UI page controls exist for this list).
       take: 200,
+    });
+  }
+
+  // Dashboard-wide badge — same "Gate 3" precedent as
+  // BookingPaymentProofService.countPendingProofs, computed once per
+  // layout render (app/dashboard/layout.tsx). A lighter, count-only
+  // query than listBookings({ staleHoldsOnly: true }) for the same
+  // reason that one exists: most page loads only need the number, not
+  // the full row set.
+  async countStaleHolds(): Promise<number> {
+    return prisma.booking.count({
+      where: { status: "AWAITING_PAYMENT", holdExpiresAt: { lt: new Date() } },
     });
   }
 
@@ -261,25 +285,20 @@ export class BookingService {
   // truth; two staff on different devices can still race between this
   // read and either one's eventual write. Same "what counts as occupying
   // this court" rules as checkAvailabilityWithClient (notIn CANCELLED/
-  // NO_SHOW/REJECTED; an expired AWAITING_PAYMENT hold treated as if it
-  // doesn't exist, a live one still blocks) — duplicated, not shared,
-  // same precedent as display.service.ts's fetchRelevantBookings and
-  // coach-session.service.ts's activeSessions query. One day-bounded
-  // fetch, not one query per candidate hour — duration only matters for
-  // the caller's own per-slot overlap check against these windows, not
-  // for this query, so a duration change never needs a new round trip.
+  // NO_SHOW/REJECTED — an AWAITING_PAYMENT hold blocks regardless of
+  // holdExpiresAt, see that method's own comment for why) — duplicated,
+  // not shared, same precedent as display.service.ts's
+  // fetchRelevantBookings and coach-session.service.ts's activeSessions
+  // query. One day-bounded fetch, not one query per candidate hour —
+  // duration only matters for the caller's own per-slot overlap check
+  // against these windows, not for this query, so a duration change
+  // never needs a new round trip.
   async listOccupiedWindows(courtId: string, dayStart: Date, dayEnd: Date) {
-    const now = new Date();
     const [bookings, maintenanceWindows] = await Promise.all([
       prisma.booking.findMany({
         where: {
           courtId,
           status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-          OR: [
-            { status: { not: "AWAITING_PAYMENT" } },
-            { holdExpiresAt: null },
-            { holdExpiresAt: { gte: now } },
-          ],
           startAt: { lt: dayEnd },
           endAt: { gt: dayStart },
         },
@@ -347,18 +366,29 @@ export class BookingService {
       };
     }
 
-    // Phase 8 Gate 2 (§15 "Held slots expire — orphaned holds must not
-    // block a court forever"): an AWAITING_PAYMENT hold whose
-    // holdExpiresAt has passed does NOT count as active — same effect as
-    // if it were already CANCELLED, without needing a cron job to
-    // actually flip it. Lazy exclusion is sufficient for correctness on
-    // its own (nothing else needs to run for the slot to free up); an
-    // opportunistic sweep to CANCELLED for a clean audit trail is a
-    // separate, non-load-bearing concern, not implemented here. Inert for
-    // every booking created before this Gate: `status: { not:
-    // "AWAITING_PAYMENT" }` is true for all of them, since nothing before
-    // this phase can ever produce that status.
-    const now = new Date();
+    // Reversed 2026-08-03 (real incident: a customer's court silently
+    // stopped being blocked the moment her 15-minute hold timed out,
+    // hours before any staff member ever looked at the booking — by the
+    // time staff cancelled the stale hold the next morning, it had
+    // already been effectively released, which is what "my booking got
+    // cancelled overnight" actually meant from her side). Previously (§15
+    // "Held slots expire — orphaned holds must not block a court
+    // forever"), an AWAITING_PAYMENT hold whose holdExpiresAt had passed
+    // stopped counting as active, on the theory that an unpaid hold
+    // shouldn't block a court forever. Owner decision: it's the opposite
+    // — a slot a customer started booking must stay reserved for HER
+    // until a STAFF MEMBER explicitly decides otherwise (cancel, or the
+    // customer's late proof gets rejected — see
+    // booking-payment-proof.service.ts's submitBookingPaymentProof,
+    // which no longer rejects a late submission for the same reason).
+    // holdExpiresAt is kept on the row (still shown to the customer as
+    // "held until X," still capped at the booking's own start —
+    // createBookingHold/createBooking) but no longer read here at all.
+    // The operational tradeoff, deliberately accepted: an abandoned,
+    // never-paid booking now occupies its court/time indefinitely until
+    // staff notice and cancel it — surfaced via
+    // BookingService.listStaleHolds/countStaleHolds and the dashboard
+    // banner, so "notice" doesn't mean stumbling onto it by accident.
     const activeBookings = await client.booking.findMany({
       where: {
         courtId,
@@ -372,11 +402,6 @@ export class BookingService {
         // status yet — left as future work to decide alongside it, not
         // assumed here.
         status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-        OR: [
-          { status: { not: "AWAITING_PAYMENT" } },
-          { holdExpiresAt: null },
-          { holdExpiresAt: { gte: now } },
-        ],
         ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
       },
       select: { id: true, startAt: true, endAt: true },
@@ -990,24 +1015,16 @@ export class BookingService {
 
     // Same exclusion checkAvailabilityWithClient already applies to the
     // real availability check — this query feeds the PUBLIC-FACING
-    // display (the homepage grid, /availability) and previously didn't
-    // share it, so a slot could show "Booked" for up to the full hold
-    // window after its hold had actually expired (lazily excluded
-    // everywhere else, but nothing recomputes THIS query on its own).
-    // No sweep added — still lazy, evaluated fresh on every call, same
-    // as the real check.
-    const now = new Date();
-
+    // display (the homepage grid, /availability). An AWAITING_PAYMENT
+    // hold blocks regardless of holdExpiresAt now (see that method's own
+    // comment) — nothing extra needed here to stay in sync, since this
+    // was already just mirroring its status filter, not applying a
+    // second, independent one.
     const [bookings, maintenanceWindows] = await Promise.all([
       prisma.booking.findMany({
         where: {
           courtId: { in: courtIds },
           status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-          OR: [
-            { status: { not: "AWAITING_PAYMENT" } },
-            { holdExpiresAt: null },
-            { holdExpiresAt: { gte: now } },
-          ],
           startAt: { lt: endOfDay },
           endAt: { gt: startOfDay },
         },

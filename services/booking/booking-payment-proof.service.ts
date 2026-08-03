@@ -47,14 +47,20 @@ function isUniqueConstraintViolation(error: unknown): boolean {
   );
 }
 
+// "hold_expired" removed 2026-08-03: an AWAITING_PAYMENT booking no
+// longer stops blocking its court when holdExpiresAt passes (see
+// checkAvailabilityWithClient's comment), so a customer submitting
+// proof "late" is submitting for a slot that's still genuinely hers —
+// there's no reason left to reject it. The WHERE clause below no longer
+// checks holdExpiresAt. The constructor's reason param is unused in the
+// message now (both remaining cases read the same) but kept for
+// call-site documentation — throw new BookingNotAwaitingPaymentError
+// ("not_found") still says something a bare no-arg throw wouldn't.
 export class BookingNotAwaitingPaymentError extends Error {
-  constructor(reason: "not_found" | "wrong_status" | "hold_expired") {
-    super(
-      reason === "hold_expired"
-        ? "This booking's hold has expired — please start a new booking."
-        : "This booking isn't waiting for payment.",
-    );
+  constructor(reason: "not_found" | "wrong_status") {
+    super("This booking isn't waiting for payment.");
     this.name = "BookingNotAwaitingPaymentError";
+    void reason;
   }
 }
 
@@ -153,15 +159,18 @@ export class BookingPaymentProofService {
     try {
       const { proof, bookedById, guestPhone, bookingReference } = await prisma.$transaction(
         async (tx) => {
-          const now = new Date();
           // Atomic conditional UPDATE (§15 pattern 2) — the WHERE clause IS
-          // the check: only a booking that is STILL AWAITING_PAYMENT with an
-          // UNEXPIRED hold can be moved. A concurrent second submission for
-          // the same booking (double-tap) affects 0 rows here and is
-          // rejected below, instead of racing to create two PENDING proof
-          // rows for one booking.
+          // the check: only a booking that is STILL AWAITING_PAYMENT can be
+          // moved. No holdExpiresAt check here (removed 2026-08-03, see
+          // BookingNotAwaitingPaymentError's own comment) — a booking stays
+          // AWAITING_PAYMENT and blocks its court indefinitely regardless of
+          // how long ago the hold's display timer ran out, so a "late"
+          // submission is still submitting for a slot that's genuinely
+          // hers. A concurrent second submission for the same booking
+          // (double-tap) affects 0 rows here and is rejected below, instead
+          // of racing to create two PENDING proof rows for one booking.
           const updateResult = await tx.booking.updateMany({
-            where: { id: input.bookingId, status: "AWAITING_PAYMENT", holdExpiresAt: { gte: now } },
+            where: { id: input.bookingId, status: "AWAITING_PAYMENT" },
             data: { status: "PENDING_VERIFICATION", holdExpiresAt: null },
           });
 
@@ -169,9 +178,6 @@ export class BookingPaymentProofService {
             const booking = await tx.booking.findUnique({ where: { id: input.bookingId } });
             if (!booking) {
               throw new BookingNotAwaitingPaymentError("not_found");
-            }
-            if (booking.status === "AWAITING_PAYMENT") {
-              throw new BookingNotAwaitingPaymentError("hold_expired");
             }
             throw new BookingNotAwaitingPaymentError("wrong_status");
           }

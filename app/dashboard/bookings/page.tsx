@@ -83,6 +83,12 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
         </div>
         <div className="flex gap-2">
           <Link
+            href="/dashboard/bookings/stale-holds"
+            className={buttonVariants({ variant: "outline" })}
+          >
+            Stale holds
+          </Link>
+          <Link
             href="/dashboard/bookings/check-in"
             className={buttonVariants({ variant: "outline" })}
           >

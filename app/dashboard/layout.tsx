@@ -1,9 +1,11 @@
 import { auth } from "@/auth";
 import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
+import { StaleHoldsBanner } from "@/features/dashboard/components/stale-holds-banner";
 import { VerificationBanner } from "@/features/dashboard/components/verification-banner";
 import { hasPermission } from "@/lib/rbac";
 import { bookingPaymentProofService } from "@/services/booking/booking-payment-proof.service";
+import { bookingService } from "@/services/booking/booking.service";
 import { openPlayRegistrationPaymentProofService } from "@/services/open-play/open-play-registration-payment-proof.service";
 import { shiftService } from "@/services/shift/shift.service";
 import { PERMISSIONS } from "@/types/permissions";
@@ -44,9 +46,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const session = await auth();
   const canViewOnDuty = hasPermission(session?.user.permissions ?? [], PERMISSIONS.SYSTEM_ADMIN);
 
-  const [pendingVerificationCount, pendingOpenPlayVerificationCount, onDutyShifts] = await Promise.all([
+  const [
+    pendingVerificationCount,
+    pendingOpenPlayVerificationCount,
+    staleHoldsCount,
+    onDutyShifts,
+  ] = await Promise.all([
     bookingPaymentProofService.countPendingProofs(),
     openPlayRegistrationPaymentProofService.countPendingProofs(),
+    bookingService.countStaleHolds(),
     canViewOnDuty ? shiftService.listOpenShiftsWithEmployee() : Promise.resolve(null),
   ]);
 
@@ -61,6 +69,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <DashboardSidebar />
         <main className="flex-1 p-4 md:p-6">
           <VerificationBanner initialCount={pendingVerificationCount} />
+          <StaleHoldsBanner initialCount={staleHoldsCount} />
           {children}
         </main>
       </div>
