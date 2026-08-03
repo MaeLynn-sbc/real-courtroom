@@ -5,6 +5,7 @@ import Link from "next/link";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { CourtAvailabilityGrid } from "@/features/bookings/components/court-availability-grid";
+import { CoachingTeaser } from "@/features/coaching/components/coaching-teaser";
 import { getCourtBookingWindow, getFacilityCloseMinutes } from "@/lib/court-hours";
 import { EQUIPMENT_KEYS } from "@/lib/equipment-keys";
 import { resolveOpenPlayClosedMessage } from "@/lib/open-play-closed-message";
@@ -478,6 +479,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
         </div>
       </section>
+
+      <CoachingTeaser />
 
       {/* ============================ RULES ============================ */}
       <section className="border-line border-t px-6 py-[clamp(56px,7vw,90px)]">
