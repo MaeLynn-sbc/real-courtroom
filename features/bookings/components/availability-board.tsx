@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 export interface BoardCourt {
   id: string;
@@ -20,12 +20,6 @@ interface AvailabilityBoardProps {
   hours: number[];
   cells: Record<string, BoardCell>;
   dateValue: string;
-  dateLabel: string;
-}
-
-interface Selection {
-  courtId: string;
-  hours: number[];
 }
 
 function hourLabel(hour: number): string {
@@ -41,7 +35,7 @@ function toTimeValue(hour: number): string {
 // One slot renders as a miniature court: navy fill, a bottom-edge stripe
 // mirrors docs/design-reference.html's .slot styling. Five states read
 // as five genuinely distinct color families, not shades of one hue:
-//   - available (open, tap to hold): solid white fill, dark gray text
+//   - available (open, tap to book): solid white fill, dark gray text
 //     (owner request, 2026-08-02 — was bone/navy-900), label in caps —
 //     comfortably clears WCAG AA's 4.5:1 for normal text.
 //   - booked: solid sky-400 (Tailwind, not a custom brand token — same
@@ -63,16 +57,13 @@ function toTimeValue(hour: number): string {
 //     apart.
 //   - open play (walk-in, not booked through this grid): solid
 //     emerald-700, white text — deliberately a DIFFERENT green from
-//     the brand --green used by the Held/selected state and the
-//     Available stripe accent below, so an open-play cell is never
-//     mistaken for a currently-held one. 5.48:1 contrast.
+//     the brand --green used by the Available stripe accent below, so
+//     an open-play cell is never mistaken for a bookable one.
+//     5.48:1 contrast.
 //   - past / unavailable (maintenance): neutral/muted, deliberately not
 //     part of the color system — not bookable states competing for
 //     attention, just dimmed out.
-function cellClasses(state: BoardCell["state"], isSelected: boolean): string {
-  if (isSelected) {
-    return "bg-green text-navy-900 border-green font-bold after:bg-navy-900/30";
-  }
+function cellClasses(state: BoardCell["state"]): string {
   switch (state) {
     case "available":
       return "bg-white text-gray-600 border-white font-bold uppercase tracking-[0.04em] hover:-translate-y-px after:bg-green after:opacity-70 cursor-pointer";
@@ -90,10 +81,7 @@ function cellClasses(state: BoardCell["state"], isSelected: boolean): string {
   }
 }
 
-function cellLabel(state: BoardCell["state"], isSelected: boolean): string {
-  if (isSelected) {
-    return "Held";
-  }
+function cellLabel(state: BoardCell["state"]): string {
   switch (state) {
     case "available":
       return "Available";
@@ -113,15 +101,8 @@ function cellLabel(state: BoardCell["state"], isSelected: boolean): string {
   }
 }
 
-export function AvailabilityBoard({
-  courts,
-  hours,
-  cells,
-  dateValue,
-  dateLabel,
-}: AvailabilityBoardProps) {
+export function AvailabilityBoard({ courts, hours, cells, dateValue }: AvailabilityBoardProps) {
   const router = useRouter();
-  const [selection, setSelection] = useState<Selection | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Found live on a phone: the grid's real width (560px min) overflows
@@ -155,49 +136,16 @@ export function AvailabilityBoard({
     };
   }, []);
 
-  const selectedHours = useMemo(
-    () => (selection ? [...selection.hours].sort((a, b) => a - b) : []),
-    [selection],
-  );
-
+  // One click, straight to /book with a 1-hour slot pre-filled — no
+  // intermediate "hold this slot, now confirm" step. Duration is still
+  // freely editable once the customer lands on the booking form (which
+  // already supports a durationMinutes query param), so nothing about
+  // multi-hour bookings is lost, just the extra tap.
   function handleCellClick(courtId: string, hour: number) {
-    setSelection((current) => {
-      if (!current || current.courtId !== courtId) {
-        return { courtId, hours: [hour] };
-      }
-      if (current.hours.includes(hour)) {
-        const remaining = current.hours.filter((h) => h !== hour);
-        return remaining.length > 0 ? { courtId, hours: remaining } : null;
-      }
-      const merged = [...current.hours, hour].sort((a, b) => a - b);
-      const isContiguous = merged.every((h, index) => index === 0 || h === merged[index - 1] + 1);
-      if (merged.length <= 2 && isContiguous) {
-        return { courtId, hours: merged };
-      }
-      return { courtId, hours: [hour] };
-    });
-  }
-
-  function handleClear() {
-    setSelection(null);
-  }
-
-  function handleReserve() {
-    if (!selection || selectedHours.length === 0) {
-      return;
-    }
-    const durationMinutes = selectedHours.length * 60;
-    const time = toTimeValue(selectedHours[0]);
     router.push(
-      `/book?courtId=${selection.courtId}&date=${dateValue}&time=${time}&durationMinutes=${durationMinutes}`,
+      `/book?courtId=${courtId}&date=${dateValue}&time=${toTimeValue(hour)}&durationMinutes=60`,
     );
   }
-
-  const selectedCourt = selection
-    ? courts.find((court) => court.id === selection.courtId)
-    : undefined;
-  const total = selectedCourt ? (selectedCourt.priceCents ?? 0) * selectedHours.length : 0;
-  const isTrayUp = selectedHours.length > 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -270,11 +218,9 @@ export function AvailabilityBoard({
                   </td>
                   {courts.map((court) => {
                     const cell = cells[`${hour}:${court.id}`];
-                    const isSelected =
-                      selection?.courtId === court.id && selection.hours.includes(hour);
-                    const label = cellLabel(cell.state, isSelected);
+                    const label = cellLabel(cell.state);
 
-                    if (cell.state !== "available" && !isSelected) {
+                    if (cell.state !== "available") {
                       const isBookedCoach = cell.state === "bookedCoach";
                       return (
                         <td key={court.id} className="p-1.5">
@@ -282,7 +228,7 @@ export function AvailabilityBoard({
                             className={cn(
                               "font-jetbrains relative flex min-h-[46px] flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border text-[13px] font-medium",
                               "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:content-['']",
-                              cellClasses(cell.state, false),
+                              cellClasses(cell.state),
                             )}
                             aria-label={`Court ${court.name}, ${hourLabel(hour)}, ${
                               isBookedCoach ? "booked, coach expected" : label.toLowerCase()
@@ -310,17 +256,12 @@ export function AvailabilityBoard({
                         <button
                           type="button"
                           onClick={() => handleCellClick(court.id, hour)}
-                          aria-pressed={isSelected}
-                          aria-label={`Court ${court.name}, ${hourLabel(hour)}, ${
-                            isSelected
-                              ? "held, tap to release"
-                              : `available, ${formatCurrency(court.priceCents ?? 0)}`
-                          }`}
+                          aria-label={`Court ${court.name}, ${hourLabel(hour)}, available — tap to book`}
                           className={cn(
                             "font-jetbrains relative flex min-h-[46px] w-full items-center justify-center overflow-hidden rounded-lg border text-[13px] font-medium transition-all",
                             "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:content-['']",
                             "focus-visible:outline-green focus-visible:outline-2 focus-visible:outline-offset-2",
-                            cellClasses(cell.state, isSelected),
+                            cellClasses(cell.state),
                           )}
                         >
                           {label}
@@ -354,7 +295,7 @@ export function AvailabilityBoard({
       <div className="font-jetbrains text-slate flex flex-wrap gap-5 text-[11px]">
         <span className="flex items-center gap-1.5">
           <i className="inline-block size-3.5 rounded bg-white" aria-hidden="true" />
-          Open — tap to hold
+          Open — tap to book
         </span>
         <span className="flex items-center gap-1.5">
           <i className="inline-block size-3.5 rounded bg-sky-400" aria-hidden="true" />
@@ -368,39 +309,6 @@ export function AvailabilityBoard({
           <i className="inline-block size-3.5 rounded bg-emerald-700" aria-hidden="true" />
           Open play — walk in
         </span>
-      </div>
-
-      <div
-        role="status"
-        aria-live="polite"
-        className={cn(
-          "bg-navy-700 border-green/45 fixed bottom-5 left-1/2 z-50 flex w-[min(620px,calc(100%-32px))] -translate-x-1/2 flex-wrap items-center gap-4 rounded-2xl border px-4 py-3.5 shadow-[0_20px_50px_rgba(0,0,0,.55)] transition-transform duration-300",
-          isTrayUp ? "translate-y-0" : "translate-y-[140%]",
-        )}
-      >
-        <div className="min-w-[180px] flex-1">
-          <b className="font-display text-bone block text-xl font-extrabold tracking-[0.02em]">
-            {selectedHours.length} {selectedHours.length === 1 ? "hour" : "hours"} held ·{" "}
-            {formatCurrency(total)}
-          </b>
-          <span className="font-jetbrains text-slate mt-0.5 block text-[11px]">
-            {selectedHours.length > 0 ? `${dateLabel} · from ${hourLabel(selectedHours[0])}` : ""}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={handleClear}
-          className="font-jetbrains text-slate hover:text-bone text-[11px] underline"
-        >
-          Clear
-        </button>
-        <button
-          type="button"
-          onClick={handleReserve}
-          className="bg-green text-navy-900 focus-visible:outline-green rounded-full px-5 py-2.5 text-sm font-bold transition-transform hover:-translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2"
-        >
-          Reserve
-        </button>
       </div>
     </div>
   );

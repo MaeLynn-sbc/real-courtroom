@@ -111,7 +111,7 @@ export async function CourtAvailabilityGrid({
           </h2>
         </div>
         <p className="text-slate max-w-[46ch] text-sm">
-          Tap any open slot to hold it. Courts run {dateHeadingFormatter.format(date)}. Once a court
+          Tap any open slot to book it. Courts run {dateHeadingFormatter.format(date)}. Once a court
           switches to open play you don&apos;t book it — just walk in.
         </p>
       </div>
@@ -185,22 +185,11 @@ export async function CourtAvailabilityGrid({
             })}
           </div>
 
-          {/* key={dateValue}: forces a full remount on every date change
-              so AvailabilityBoard's local `selection` state can never
-              survive into a different date's grid. Without this,
-              switching dates via the picker above (a client-side nav, not
-              a full page reload) left a stale "held" hour/court from the
-              OLD date rendering as selected on the NEW one — regardless
-              of that slot's actual state there — since React preserves a
-              same-position component instance's state across a soft
-              navigation by default. */}
           <AvailabilityBoard
-            key={dateValue}
             courts={boardCourts}
             hours={hours}
             cells={cells}
             dateValue={dateValue}
-            dateLabel={dateHeadingFormatter.format(date)}
           />
         </div>
       </div>
