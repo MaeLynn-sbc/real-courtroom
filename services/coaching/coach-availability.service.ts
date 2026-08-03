@@ -154,12 +154,14 @@ export class CoachAvailabilityService {
   // session already occupying the slot was returned here, then rejected
   // by createCoachSession when actually attached. Same overlap rule as
   // that guard (notIn CANCELLED/NO_SHOW on the session, notIn
-  // CANCELLED/NO_SHOW/REJECTED on its booking, an expired
-  // AWAITING_PAYMENT hold treated as if it doesn't exist) — duplicated,
-  // not shared, same precedent as every other copy of this exact
-  // where-clause in this codebase.
+  // CANCELLED/NO_SHOW/REJECTED on its booking) — duplicated, not shared,
+  // same precedent as every other copy of this exact where-clause in
+  // this codebase. Missed 2026-08-03 alongside listPublicAvailability
+  // above: no longer excludes a stale AWAITING_PAYMENT hold — one still
+  // occupies its court (and its attached coach) indefinitely until staff
+  // explicitly cancel it, see checkAvailabilityWithClient's own comment
+  // in booking.service.ts.
   async listAvailableCoaches(slotStart: Date, slotEnd: Date) {
-    const now = new Date();
     return prisma.employee.findMany({
       where: {
         isCoach: true,
@@ -173,7 +175,6 @@ export class CoachAvailabilityService {
             status: { notIn: ["CANCELLED", "NO_SHOW"] },
             booking: {
               status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-              OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
               startAt: { lt: slotEnd },
               endAt: { gt: slotStart },
             },
@@ -227,13 +228,23 @@ export class CoachAvailabilityService {
         continue;
       }
 
+      // Missed 2026-08-03: this was a 5th, undetected copy of the same
+      // "expired AWAITING_PAYMENT hold doesn't count as active" exclusion
+      // reversed everywhere else that day (checkAvailabilityWithClient,
+      // listOccupiedWindows, getPublicDaySchedule, display.service.ts's
+      // fetchRelevantBookings — see checkAvailabilityWithClient's own
+      // comment for the real incident that drove it). A stale hold still
+      // occupies its court indefinitely until staff explicitly cancel it,
+      // so a coach attached to one is still genuinely unavailable — this
+      // was letting the public book straight over a coach who was, in
+      // fact, still held by a real booking, exactly the class of bug that
+      // reversal fixed everywhere else.
       const bookedSessions = await prisma.coachSession.findMany({
         where: {
           coachId: coach.id,
           status: { notIn: ["CANCELLED", "NO_SHOW"] },
           booking: {
             status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-            OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
             startAt: { lt: rangeEnd },
             endAt: { gt: now },
           },

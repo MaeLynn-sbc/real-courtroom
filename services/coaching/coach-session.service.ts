@@ -199,15 +199,19 @@ export class CoachSessionService {
       // is the exact collision this check exists for.
       //
       // Merge-time fix (Coaching x Phase 8): the parent booking filter
-      // mirrors booking.service.ts's checkAvailabilityWithClient exactly
-      // — REJECTED is excluded (a GCash proof that never cleared; the
-      // court slot released, so the coach's shouldn't stay blocked
-      // either), and an AWAITING_PAYMENT hold past its holdExpiresAt is
-      // treated as if it doesn't exist, same "lazy exclusion is
-      // sufficient, no active sweep needed" reasoning as the court-side
-      // check. Without this, a coach session attached to a booking that
-      // was never paid for (rejected, or simply abandoned mid-hold) would
-      // falsely block that coach's calendar forever.
+      // mirrors booking.service.ts's checkAvailabilityWithClient — REJECTED
+      // is excluded (a GCash proof that never cleared; the court slot
+      // released, so the coach's shouldn't stay blocked either). Missed
+      // 2026-08-03 alongside two other copies in coach-availability.service.ts:
+      // this used to ALSO exclude an AWAITING_PAYMENT hold past its
+      // holdExpiresAt, on the theory that an unpaid hold shouldn't block
+      // forever — reversed everywhere else that day (see
+      // checkAvailabilityWithClient's own comment for the real incident
+      // that drove it) but not here, so a coach could still be double-
+      // booked onto a court a stale, unresolved hold was still genuinely
+      // occupying. A stale hold now blocks its coach the same way it
+      // blocks its court — only an explicit staff cancellation releases
+      // either.
       const now = new Date();
       const activeSessions = await tx.coachSession.findMany({
         where: {
@@ -215,7 +219,6 @@ export class CoachSessionService {
           status: { notIn: ["CANCELLED", "NO_SHOW"] },
           booking: {
             status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-            OR: [{ status: { not: "AWAITING_PAYMENT" } }, { holdExpiresAt: null }, { holdExpiresAt: { gte: now } }],
           },
         },
         include: { booking: { select: { startAt: true, endAt: true } } },
