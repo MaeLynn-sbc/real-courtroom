@@ -8,7 +8,6 @@ import { RegistrationForm } from "@/features/tournaments/components/registration
 import { RegistrationList } from "@/features/tournaments/components/registration-list";
 import { StandingsTable } from "@/features/tournaments/components/standings-table";
 import { courtService } from "@/services/court/court.service";
-import { playerService } from "@/services/player/player.service";
 import { saleService } from "@/services/sales/sale.service";
 import { matchService } from "@/services/tournaments/match.service";
 import { standingsService } from "@/services/tournaments/standings.service";
@@ -39,35 +38,12 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
     notFound();
   }
 
-  const [matches, standings, players, courts, paymentMethods] = await Promise.all([
+  const [matches, standings, courts, paymentMethods] = await Promise.all([
     matchService.listMatchesByCategory(categoryId),
     standingsService.getStandings(categoryId),
-    playerService.listPlayers(),
     courtService.listCourts(),
     saleService.listPaymentMethods(),
   ]);
-
-  // A player already on an active team in this category can't be
-  // registered again — they're already someone's partner (or already
-  // registered solo). Hidden from both the Player and Partner dropdowns
-  // rather than left selectable and rejected on submit; registerTeam
-  // enforces the same rule server-side (a second tab, a stale page).
-  const registeredPlayerIds = new Set<string>();
-  for (const registration of category.registrations) {
-    if (registration.status === "WITHDRAWN" || registration.status === "DISQUALIFIED") {
-      continue;
-    }
-    registeredPlayerIds.add(registration.team.player1Id);
-    if (registration.team.player2Id) {
-      registeredPlayerIds.add(registration.team.player2Id);
-    }
-  }
-  const playerOptions = players
-    .filter((player) => !registeredPlayerIds.has(player.id))
-    .map((player) => ({
-      id: player.id,
-      label: player.user.name ?? player.user.email ?? "Unknown player",
-    }));
 
   const paymentMethodOptions = paymentMethods.map((method) => ({
     id: method.id,
@@ -124,7 +100,6 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
           <RegistrationForm
             tournamentId={tournamentId}
             categoryId={categoryId}
-            players={playerOptions}
             paymentMethods={paymentMethodOptions}
           />
         </div>

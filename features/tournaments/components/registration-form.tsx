@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { registerTeamAction } from "@/actions/tournament.actions";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -17,8 +18,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { registerTeamSchema } from "@/features/tournaments/schemas/tournament.schema";
 import { cn } from "@/lib/utils";
-
-const NO_PARTNER_VALUE = "__none__";
 
 // Same FileReader -> strip "data:...;base64," prefix pattern as
 // expense-entry-form.tsx / record-gcash-payment-form.tsx /
@@ -37,61 +36,48 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-interface RegistrationFormPlayer {
-  id: string;
-  label: string;
-}
-
 interface RegistrationFormPaymentMethod {
   id: string;
   label: string;
 }
 
 interface RegistrationFormValues {
-  player1Id: string;
-  player2Id: string;
+  player1Name: string;
+  player2Name: string;
   paymentMethodId: string;
 }
 
 interface RegistrationFormProps {
   tournamentId: string;
   categoryId: string;
-  players: RegistrationFormPlayer[];
   paymentMethods: RegistrationFormPaymentMethod[];
 }
 
-export function RegistrationForm({
-  tournamentId,
-  categoryId,
-  players,
-  paymentMethods,
-}: RegistrationFormProps) {
+// No dropdown (owner, 2026-08-03): tournament entrants are frequently
+// walk-ins with no existing Player record, so staff type both names
+// directly — registerTeam creates a minimal Player for each name on the
+// spot. Always 2 slots since most categories are doubles; player 2 is
+// left blank for a singles match.
+export function RegistrationForm({ tournamentId, categoryId, paymentMethods }: RegistrationFormProps) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<File | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const {
-    handleSubmit,
-    control,
-    reset,
-    watch,
-  } = useForm<RegistrationFormValues>({
+  const { handleSubmit, control, register, reset } = useForm<RegistrationFormValues>({
     defaultValues: {
-      player1Id: players[0]?.id ?? "",
-      player2Id: NO_PARTNER_VALUE,
+      player1Name: "",
+      player2Name: "",
       paymentMethodId: paymentMethods[0]?.id ?? "",
     },
   });
-
-  const player1Id = watch("player1Id");
 
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
 
     const parsed = registerTeamSchema.safeParse({
-      player1Id: values.player1Id,
-      player2Id: values.player2Id === NO_PARTNER_VALUE ? undefined : values.player2Id,
+      player1Name: values.player1Name.trim(),
+      player2Name: values.player2Name.trim() || undefined,
       paymentMethodId: values.paymentMethodId,
     });
 
@@ -117,11 +103,7 @@ export function RegistrationForm({
         return;
       }
       toast.success("Team registered.");
-      reset({
-        player1Id: values.player1Id,
-        player2Id: NO_PARTNER_VALUE,
-        paymentMethodId: values.paymentMethodId,
-      });
+      reset({ player1Name: "", player2Name: "", paymentMethodId: values.paymentMethodId });
       setReceipt(null);
       router.refresh();
     });
@@ -130,58 +112,13 @@ export function RegistrationForm({
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="player1Id">Player</Label>
-        <Controller
-          control={control}
-          name="player1Id"
-          render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger id="player1Id" className="w-full">
-                <SelectValue placeholder="Select a player">
-                  {(value: string) => players.find((player) => player.id === value)?.label ?? "Select a player"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {players.map((player) => (
-                  <SelectItem key={player.id} value={player.id}>
-                    {player.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        />
+        <Label htmlFor="player1Name">Player 1 name</Label>
+        <Input id="player1Name" {...register("player1Name")} />
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="player2Id">Partner (doubles only)</Label>
-        <Controller
-          control={control}
-          name="player2Id"
-          render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger id="player2Id" className="w-full">
-                <SelectValue placeholder="No partner — singles">
-                  {(value: string) =>
-                    value === NO_PARTNER_VALUE
-                      ? "No partner — singles"
-                      : (players.find((player) => player.id === value)?.label ?? "No partner — singles")
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_PARTNER_VALUE}>No partner — singles</SelectItem>
-                {players
-                  .filter((player) => player.id !== player1Id)
-                  .map((player) => (
-                    <SelectItem key={player.id} value={player.id}>
-                      {player.label}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          )}
-        />
+        <Label htmlFor="player2Name">Player 2 name (doubles — leave blank for singles)</Label>
+        <Input id="player2Name" {...register("player2Name")} />
       </div>
 
       <div className="flex flex-col gap-1.5">

@@ -20,7 +20,6 @@
 import "dotenv/config";
 
 import { prisma } from "../../lib/prisma";
-import { playerService } from "../player/player.service";
 import { tournamentService } from "./tournament.service";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -29,27 +28,35 @@ function assert(condition: unknown, message: string): asserts condition {
   }
 }
 
-async function cleanUp(tournamentId: string, playerIds: string[]): Promise<void> {
+// registerTeam now creates its own walk-in Player+User rows from typed
+// names (no dropdown — see registration-form.tsx's own comment), so
+// there's no pre-created playerIds list to pass in anymore — this
+// collects whichever Players ended up on the category's teams and
+// removes those too.
+async function cleanUp(tournamentId: string): Promise<void> {
   const category = await prisma.tournamentCategory.findFirst({ where: { tournamentId } });
   if (category) {
     const registrations = await prisma.tournamentRegistration.findMany({
       where: { tournamentCategoryId: category.id },
-      select: { id: true, teamId: true },
+      select: { id: true, teamId: true, team: { select: { player1Id: true, player2Id: true } } },
     });
     const registrationIds = registrations.map((r) => r.id);
     const teamIds = registrations.map((r) => r.teamId);
+    const playerIds = registrations.flatMap((r) =>
+      r.team.player2Id ? [r.team.player1Id, r.team.player2Id] : [r.team.player1Id],
+    );
     await prisma.sale.deleteMany({ where: { tournamentRegistrationId: { in: registrationIds } } });
     await prisma.tournamentRegistration.deleteMany({ where: { id: { in: registrationIds } } });
     await prisma.team.deleteMany({ where: { id: { in: teamIds } } });
+    const players = await prisma.player.findMany({
+      where: { id: { in: playerIds } },
+      select: { userId: true },
+    });
+    await prisma.player.deleteMany({ where: { id: { in: playerIds } } });
+    await prisma.user.deleteMany({ where: { id: { in: players.map((p) => p.userId) } } });
   }
   await prisma.tournamentCategory.deleteMany({ where: { tournamentId } });
   await prisma.tournament.deleteMany({ where: { id: tournamentId } });
-  const players = await prisma.player.findMany({
-    where: { id: { in: playerIds } },
-    select: { userId: true },
-  });
-  await prisma.player.deleteMany({ where: { id: { in: playerIds } } });
-  await prisma.user.deleteMany({ where: { id: { in: players.map((p) => p.userId) } } });
 }
 
 async function main(): Promise<void> {
@@ -68,19 +75,7 @@ async function main(): Promise<void> {
     });
   }
   const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
-
-  const playerIds: string[] = [];
-  async function makePlayer(label: string): Promise<string> {
-    const player = await playerService.createPlayer(
-      {
-        name: `MaxTeams Test ${label}`,
-        email: `maxteams-${label.toLowerCase()}-${Date.now()}@example.test`,
-      },
-      owner.id,
-    );
-    playerIds.push(player.id);
-    return player.id;
-  }
+  const suffix = Date.now();
 
   const tournament = await tournamentService.createTournament(
     {
@@ -115,10 +110,9 @@ async function main(): Promise<void> {
     });
     assert(afterSet.maxTeams === 1, `expected maxTeams to be set to 1, got ${afterSet.maxTeams}`);
 
-    const playerA = await makePlayer("A");
     const regA = await tournamentService.registerTeam(
       category.id,
-      { player1Id: playerA, paymentMethodId: cashMethod.id },
+      { player1Name: `MaxTeams Test A ${suffix}`, paymentMethodId: cashMethod.id },
       owner.id,
       { employeeId: ownerEmployee.id, shiftId: shift.id, paymentMethodId: cashMethod.id },
     );
@@ -127,10 +121,9 @@ async function main(): Promise<void> {
       `expected the first team to be CONFIRMED under a limit of 1, got ${regA.status}`,
     );
 
-    const playerB = await makePlayer("B");
     const regB = await tournamentService.registerTeam(
       category.id,
-      { player1Id: playerB, paymentMethodId: cashMethod.id },
+      { player1Name: `MaxTeams Test B ${suffix}`, paymentMethodId: cashMethod.id },
       owner.id,
       { employeeId: ownerEmployee.id, shiftId: shift.id, paymentMethodId: cashMethod.id },
     );
@@ -156,10 +149,9 @@ async function main(): Promise<void> {
     );
 
     // ...but the NEXT new registration sees the raised limit.
-    const playerC = await makePlayer("C");
     const regC = await tournamentService.registerTeam(
       category.id,
-      { player1Id: playerC, paymentMethodId: cashMethod.id },
+      { player1Name: `MaxTeams Test C ${suffix}`, paymentMethodId: cashMethod.id },
       owner.id,
       { employeeId: ownerEmployee.id, shiftId: shift.id, paymentMethodId: cashMethod.id },
     );
@@ -195,9 +187,9 @@ async function main(): Promise<void> {
     );
     console.log("PASS: every maxTeams change is audit-logged.");
 
-    await cleanUp(tournament.id, playerIds);
+    await cleanUp(tournament.id);
   } catch (error) {
-    await cleanUp(tournament.id, playerIds);
+    await cleanUp(tournament.id);
     throw error;
   }
 

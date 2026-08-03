@@ -61,10 +61,13 @@ export type UpdateCategoryMaxTeamsInput = z.infer<typeof updateCategoryMaxTeamsS
 
 // Team size is intentionally unenforced against the category (see
 // ARCHITECTURE.md's Phase 6 addendum) — 1 or 2 players is always valid,
-// staff uses the category name as the convention.
+// staff uses the category name as the convention. Typed names, not a
+// Player picker (owner, 2026-08-03) — tournament entrants are
+// frequently walk-ins with no existing Player record; registerTeam
+// creates a minimal one on the spot for each name.
 export const registerTeamSchema = z.object({
-  player1Id: z.string().min(1, "Select a player."),
-  player2Id: z.string().optional(),
+  player1Name: z.string().min(1, "Enter player 1's name.").max(200),
+  player2Name: z.string().max(200).optional(),
   paymentMethodId: z.string().min(1, "Select a payment method."),
   receipt: z
     .object({

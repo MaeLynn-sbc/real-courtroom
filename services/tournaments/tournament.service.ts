@@ -19,6 +19,7 @@ import {
 } from "@/services/tournaments/bracket-generator";
 import { canTransitionTournamentStatus } from "@/services/tournaments/tournament-status";
 import { getUploadService } from "@/services/upload/upload-service.factory";
+import { SYSTEM_ROLES } from "@/types/roles";
 
 // v1.1 Sub-phase 2: every registration is created by a signed-in Employee
 // with a currently open Shift, and pays through one of the configured
@@ -34,13 +35,6 @@ export interface RegisterTeamReceiptInput {
   contentType: string;
   data: Buffer;
 }
-
-// A registration still holding a real slot — the same set the category
-// page's own player dropdowns are filtered by (see registration-form's
-// caller), so a player already on an active team here can never be
-// offered a second team, and registerTeam rejects it server-side too if
-// one somehow slips through (a second tab, a stale page).
-const ACTIVE_REGISTRATION_STATUSES = ["PENDING", "CONFIRMED", "WAITLISTED"] as const;
 
 function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
   if (value === undefined) {
@@ -277,6 +271,9 @@ export class TournamentService {
     const category = await prisma.tournamentCategory.findUniqueOrThrow({
       where: { id: categoryId },
     });
+    const memberRole = await prisma.role.findUniqueOrThrow({
+      where: { name: SYSTEM_ROLES.MEMBER },
+    });
 
     // Same upload-then-write-then-cleanup-on-failure shape as
     // ExpenseService.createExpense — the file lands in storage first (so
@@ -292,23 +289,28 @@ export class TournamentService {
 
     try {
       const { registration, sale } = await prisma.$transaction(async (tx) => {
-        const activeRegistrations = await tx.tournamentRegistration.findMany({
-          where: { tournamentCategoryId: categoryId, status: { in: [...ACTIVE_REGISTRATION_STATUSES] } },
-          include: { team: { select: { player1Id: true, player2Id: true } } },
-        });
-        const registeredPlayerIds = new Set<string>();
-        for (const existing of activeRegistrations) {
-          registeredPlayerIds.add(existing.team.player1Id);
-          if (existing.team.player2Id) {
-            registeredPlayerIds.add(existing.team.player2Id);
-          }
-        }
-        if (registeredPlayerIds.has(input.player1Id) || (input.player2Id && registeredPlayerIds.has(input.player2Id))) {
-          throw new Error("A selected player is already registered in this category.");
+        // "No dropdown — manually type both names" (owner, 2026-08-03):
+        // tournament entrants are frequently walk-ins with no existing
+        // Player record, so instead of picking from the Player list,
+        // staff type each name directly and a real minimal Player (+
+        // its underlying User) is created here on the spot — no email,
+        // same as playerService.createPlayer's User.create shape, just
+        // inlined in this transaction rather than opening a second one.
+        // Deliberately always creates fresh rows rather than matching an
+        // existing name (name collisions/typos make that unreliable) —
+        // the accepted tradeoff is that a repeat walk-in gets a new
+        // Player row each tournament, same as a paper sign-up sheet
+        // would never dedupe them either.
+        async function createWalkInPlayer(name: string) {
+          const user = await tx.user.create({ data: { name, roleId: memberRole.id } });
+          return tx.player.create({ data: { userId: user.id } });
         }
 
+        const player1 = await createWalkInPlayer(input.player1Name);
+        const player2 = input.player2Name ? await createWalkInPlayer(input.player2Name) : null;
+
         const team = await tx.team.create({
-          data: { player1Id: input.player1Id, player2Id: input.player2Id },
+          data: { player1Id: player1.id, player2Id: player2?.id },
         });
 
         const confirmedCount = await tx.tournamentRegistration.count({
@@ -334,7 +336,7 @@ export class TournamentService {
             paymentMethodId: saleContext.paymentMethodId,
             employeeId: saleContext.employeeId,
             shiftId: saleContext.shiftId,
-            playerId: input.player1Id,
+            playerId: player1.id,
             tournamentRegistrationId: createdRegistration.id,
           },
           tx,
