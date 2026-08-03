@@ -233,7 +233,7 @@ export class BookingPaymentProofService {
       // a separate concern from whether the court itself is held.
       await sendBookingProofSms(
         guestPhone,
-        `The Courtroom: Got your payment screenshot for booking ${bookingReference} — your court is reserved. We'll text you once payment is confirmed.`,
+        `The Courtroom: Got your payment screenshot for booking ${bookingReference} — your court is reserved. We'll text you once payment is confirmed. Check your booking anytime: thecourtroomkalibo.com/lookup`,
       );
 
       return proof;
@@ -380,7 +380,7 @@ export class BookingPaymentProofService {
       await saleService.logSaleCreated(result.sale, context.actorUserId);
       await sendBookingProofSms(
         result.booking.guestPhone,
-        `The Courtroom: Your booking ${result.booking.bookingReference} is CONFIRMED! See you on the court.`,
+        `The Courtroom: Your booking ${result.booking.bookingReference} is CONFIRMED! See you on the court. Check your booking anytime: thecourtroomkalibo.com/lookup`,
       );
     }
 
@@ -479,7 +479,7 @@ export class BookingPaymentProofService {
       // exist.
       await sendBookingProofSms(
         result.booking.guestPhone,
-        `The Courtroom: We couldn't verify your GCash payment for booking ${result.booking.bookingReference} — ${reason}. This booking has been cancelled; please make a new booking if you'd still like to play, or contact us for help.`,
+        `The Courtroom: We couldn't verify your GCash payment for booking ${result.booking.bookingReference} — ${reason}. This booking has been cancelled; please make a new booking if you'd still like to play, or contact us for help. Check your booking anytime: thecourtroomkalibo.com/lookup`,
       );
     }
 
