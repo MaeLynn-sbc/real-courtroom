@@ -5,6 +5,7 @@ import Link from "next/link";
 import { EmptyState } from "@/components/shared/empty-state";
 import { buttonVariants } from "@/components/ui/button";
 import { BookingList } from "@/features/bookings/components/booking-list";
+import { BookingsFilterForm } from "@/features/bookings/components/bookings-filter-form";
 import type { BookingSource, BookingStatus } from "@/lib/generated/prisma/enums";
 import { cn } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
@@ -169,80 +170,22 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
         ))}
       </div>
 
-      <form method="get" className="flex flex-wrap items-end gap-3">
-        <input type="hidden" name="tab" value={tab} />
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="date" className="text-sm font-medium">
-            Date
-          </label>
-          <input
-            id="date"
-            name="date"
-            type="date"
-            defaultValue={dateValue}
-            className="border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm"
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="status" className="text-sm font-medium">
-            Status
-          </label>
-          <select
-            id="status"
-            name="status"
-            defaultValue={statusValue ?? ""}
-            className="border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm"
-          >
-            <option value="">All</option>
-            {tabStatuses.map((status) => (
-              <option key={status} value={status}>
-                {STATUS_LABELS[status]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="source" className="text-sm font-medium">
-            Source
-          </label>
-          <select
-            id="source"
-            name="source"
-            defaultValue={sourceValue ?? ""}
-            className="border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm"
-          >
-            <option value="">All</option>
-            {SOURCE_FILTER_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="sort" className="text-sm font-medium">
-            Sort by
-          </label>
-          <select
-            id="sort"
-            name="sort"
-            defaultValue={sortValue}
-            className="border-input h-8 rounded-lg border bg-transparent px-2.5 text-sm"
-          >
-            {SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button
-          type="submit"
-          className="border-input hover:bg-muted h-8 rounded-lg border px-3 text-sm font-medium"
-        >
-          Filter
-        </button>
-      </form>
+      <BookingsFilterForm
+        tab={tab}
+        dateValue={dateValue}
+        statusValue={statusValue ?? ""}
+        sourceValue={sourceValue ?? ""}
+        sortValue={sortValue}
+        statusOptions={tabStatuses.map((status) => ({
+          value: status,
+          label: STATUS_LABELS[status],
+        }))}
+        sourceOptions={SOURCE_FILTER_OPTIONS.map((option) => ({
+          value: option.value,
+          label: option.label,
+        }))}
+        sortOptions={SORT_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+      />
 
       {bookings.length === 0 ? (
         <EmptyState
