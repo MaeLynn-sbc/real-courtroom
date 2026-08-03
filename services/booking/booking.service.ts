@@ -138,7 +138,17 @@ interface AuditLogEntry {
 
 interface ListBookingsFilters {
   courtId?: string;
+  // Exact single status — the finer filter within a tab (the Bookings
+  // page's Status dropdown). Wins over statusIn below when both are
+  // somehow present.
   status?: BookingStatus;
+  // Reported live: cancelled bookings sitting mixed in with a day's
+  // active ones on the main list read as clutter, not history. The
+  // Bookings page groups every status into three tabs (Active/
+  // Completed/Closed) and passes that tab's whole group here so the
+  // default view (no status picked) still only shows that tab's
+  // statuses, not every status ever.
+  statusIn?: BookingStatus[];
   date?: Date;
   source?: BookingSource;
   // Default stays startAt — the daily schedule view staff use is built
@@ -168,6 +178,8 @@ export class BookingService {
       }
       if (filters?.status) {
         where.status = filters.status;
+      } else if (filters?.statusIn) {
+        where.status = { in: filters.statusIn };
       }
       if (filters?.date) {
         // "Today's bookings" is a business-date filter, not a calendar-day
