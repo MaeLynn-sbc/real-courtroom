@@ -10,10 +10,10 @@ type TabKey = "rotation" | "checkIn" | "tabs" | "roster";
 
 const TAB_ORDER: { key: TabKey; label: string }[] = [
   { key: "rotation", label: "Rotation" },
-  { key: "checkIn", label: "Check in" },
   { key: "tabs", label: "Player tabs" },
-  // Least-used view, per the ask — kept last.
   { key: "roster", label: "Roster" },
+  // Owner (2026-08-03): moved to the bottom, after Player tabs.
+  { key: "checkIn", label: "Check in" },
 ];
 
 interface OpenPlaySessionTabsProps {
