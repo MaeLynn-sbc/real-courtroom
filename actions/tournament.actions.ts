@@ -9,6 +9,7 @@ import {
   recordScoreSchema,
   registerTeamSchema,
   scheduleMatchSchema,
+  updateCategoryMaxTeamsSchema,
   updateTournamentStatusSchema,
   type CreateCategoryInput,
   type CreateTournamentInput,
@@ -16,6 +17,7 @@ import {
   type RecordScoreInput,
   type RegisterTeamInput,
   type ScheduleMatchInput,
+  type UpdateCategoryMaxTeamsInput,
   type UpdateTournamentStatusInput,
 } from "@/features/tournaments/schemas/tournament.schema";
 import { requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
@@ -73,7 +75,9 @@ export async function createTournamentAction(
     revalidatePath("/dashboard/tournaments");
     return { error: null, tournamentId: tournament.id };
   } catch (error) {
-    return { error: toActionError(error, { action: "createTournamentAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "createTournamentAction", userId: authz.userId }),
+    };
   }
 }
 
@@ -96,7 +100,9 @@ export async function updateTournamentAction(
     revalidateTournament(tournamentId);
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "updateTournamentAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "updateTournamentAction", userId: authz.userId }),
+    };
   }
 }
 
@@ -140,11 +146,47 @@ export async function createCategoryAction(
   }
 
   try {
-    const category = await tournamentService.createCategory(tournamentId, parsed.data, authz.userId);
+    const category = await tournamentService.createCategory(
+      tournamentId,
+      parsed.data,
+      authz.userId,
+    );
     revalidateTournament(tournamentId);
     return { error: null, categoryId: category.id };
   } catch (error) {
-    return { error: toActionError(error, { action: "createCategoryAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "createCategoryAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function updateCategoryMaxTeamsAction(
+  tournamentId: string,
+  categoryId: string,
+  input: UpdateCategoryMaxTeamsInput,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = updateCategoryMaxTeamsSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid max teams value." };
+  }
+
+  try {
+    await tournamentService.updateCategoryMaxTeams(
+      categoryId,
+      parsed.data.maxTeams ?? null,
+      authz.userId,
+    );
+    revalidateCategory(tournamentId, categoryId);
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "updateCategoryMaxTeamsAction", userId: authz.userId }),
+    };
   }
 }
 
@@ -219,7 +261,9 @@ export async function generateBracketAction(
     revalidateCategory(tournamentId, categoryId);
     return { error: null };
   } catch (error) {
-    return { error: toActionError(error, { action: "generateBracketAction", userId: authz.userId }) };
+    return {
+      error: toActionError(error, { action: "generateBracketAction", userId: authz.userId }),
+    };
   }
 }
 

@@ -49,6 +49,16 @@ export const createCategorySchema = z.object({
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 
+// Same optional-number shape as createCategorySchema's own maxTeams —
+// undefined/blank means "clear the limit," not "leave unchanged" (the
+// form always sends the field's current intended value, never omits it
+// to mean no-op).
+export const updateCategoryMaxTeamsSchema = z.object({
+  maxTeams: z.coerce.number().int().positive().optional(),
+});
+
+export type UpdateCategoryMaxTeamsInput = z.infer<typeof updateCategoryMaxTeamsSchema>;
+
 // Team size is intentionally unenforced against the category (see
 // ARCHITECTURE.md's Phase 6 addendum) — 1 or 2 players is always valid,
 // staff uses the category name as the convention.

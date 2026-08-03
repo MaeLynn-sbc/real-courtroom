@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { BracketView } from "@/features/tournaments/components/bracket-view";
 import { GenerateBracketButton } from "@/features/tournaments/components/generate-bracket-button";
+import { MaxTeamsField } from "@/features/tournaments/components/max-teams-field";
 import { RegistrationForm } from "@/features/tournaments/components/registration-form";
 import { RegistrationList } from "@/features/tournaments/components/registration-list";
 import { StandingsTable } from "@/features/tournaments/components/standings-table";
@@ -67,7 +68,9 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
   const teamNames: Record<string, string> = {};
   for (const registration of category.registrations) {
     const player1Name =
-      registration.team.player1.user.name ?? registration.team.player1.user.email ?? "Unknown player";
+      registration.team.player1.user.name ??
+      registration.team.player1.user.email ??
+      "Unknown player";
     const player2 = registration.team.player2;
     teamNames[registration.teamId] = player2
       ? `${player1Name} / ${player2.user.name ?? player2.user.email ?? "Unknown player"}`
@@ -84,6 +87,14 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
         <p className="text-muted-foreground text-sm">
           {category.tournament.name} · {FORMAT_LABELS[category.format] ?? category.format}
         </p>
+        <div className="mt-3">
+          <MaxTeamsField
+            tournamentId={tournamentId}
+            categoryId={categoryId}
+            maxTeams={category.maxTeams}
+            confirmedCount={confirmedCount}
+          />
+        </div>
       </div>
 
       <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">
@@ -121,11 +132,16 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
         </div>
         {!bracketGenerated ? (
           <p className="text-muted-foreground text-sm">
-            {confirmedCount} confirmed team{confirmedCount === 1 ? "" : "s"} — at least 2 are required to
-            generate the bracket.
+            {confirmedCount} confirmed team{confirmedCount === 1 ? "" : "s"} — at least 2 are
+            required to generate the bracket.
           </p>
         ) : null}
-        <BracketView tournamentId={tournamentId} categoryId={categoryId} matches={matches} courts={courtOptions} />
+        <BracketView
+          tournamentId={tournamentId}
+          categoryId={categoryId}
+          matches={matches}
+          courts={courtOptions}
+        />
       </section>
 
       <section className="flex flex-col gap-3">

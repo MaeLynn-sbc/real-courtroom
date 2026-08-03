@@ -3,7 +3,12 @@ import type {
   CreateTournamentInput,
   RegisterTeamInput,
 } from "@/features/tournaments/schemas/tournament.schema";
-import type { Prisma, Tournament, TournamentCategory, TournamentRegistration } from "@/lib/generated/prisma/client";
+import type {
+  Prisma,
+  Tournament,
+  TournamentCategory,
+  TournamentRegistration,
+} from "@/lib/generated/prisma/client";
 import type { TournamentStatus } from "@/lib/generated/prisma/enums";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
@@ -206,6 +211,42 @@ export class TournamentService {
     return category;
   }
 
+  // Set after creation — createCategory's own maxTeams field is optional,
+  // and there was previously no way back to it once a category existed
+  // (reported live: staff landed on the category detail page with no
+  // option to set it at all). null clears the limit (unlimited teams),
+  // same "empty means unset" convention createCategory's own optional
+  // maxTeams already uses. Deliberately NOT retroactive — changing this
+  // doesn't re-evaluate already-CONFIRMED registrations; createRegistration
+  // (below) reads maxTeams fresh only for the NEXT registration, same as
+  // every other capacity-limit setting in this app (e.g. Open Play's
+  // OpenPlayCapacityDefault).
+  async updateCategoryMaxTeams(
+    categoryId: string,
+    maxTeams: number | null,
+    actorUserId: string,
+  ): Promise<TournamentCategory> {
+    const existing = await prisma.tournamentCategory.findUniqueOrThrow({
+      where: { id: categoryId },
+    });
+
+    const updated = await prisma.tournamentCategory.update({
+      where: { id: categoryId },
+      data: { maxTeams },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.category_max_teams_updated",
+      entityType: "TournamentCategory",
+      entityId: categoryId,
+      oldValues: { maxTeams: existing.maxTeams },
+      newValues: { maxTeams },
+    });
+
+    return updated;
+  }
+
   // v1.1 Sub-phase 2: wrapped in a transaction (previously three separate
   // un-transacted writes) so the Team/Registration rows and their Sale are
   // always created atomically — never one without the other. v1.1
@@ -218,7 +259,9 @@ export class TournamentService {
     actorUserId: string,
     saleContext: RegisterTeamSaleContext,
   ): Promise<TournamentRegistration> {
-    const category = await prisma.tournamentCategory.findUniqueOrThrow({ where: { id: categoryId } });
+    const category = await prisma.tournamentCategory.findUniqueOrThrow({
+      where: { id: categoryId },
+    });
 
     const { registration, sale } = await prisma.$transaction(async (tx) => {
       const team = await tx.team.create({
@@ -229,7 +272,8 @@ export class TournamentService {
         where: { tournamentCategoryId: categoryId, status: "CONFIRMED" },
       });
 
-      const status = category.maxTeams && confirmedCount >= category.maxTeams ? "WAITLISTED" : "CONFIRMED";
+      const status =
+        category.maxTeams && confirmedCount >= category.maxTeams ? "WAITLISTED" : "CONFIRMED";
 
       const createdRegistration = await tx.tournamentRegistration.create({
         data: { tournamentCategoryId: categoryId, teamId: team.id, status },
@@ -263,7 +307,10 @@ export class TournamentService {
     return registration;
   }
 
-  async cancelRegistration(registrationId: string, actorUserId: string): Promise<TournamentRegistration> {
+  async cancelRegistration(
+    registrationId: string,
+    actorUserId: string,
+  ): Promise<TournamentRegistration> {
     const existing = await prisma.tournamentRegistration.findUniqueOrThrow({
       where: { id: registrationId },
     });
@@ -297,9 +344,13 @@ export class TournamentService {
   }
 
   async generateBracket(categoryId: string, actorUserId: string): Promise<void> {
-    const category = await prisma.tournamentCategory.findUniqueOrThrow({ where: { id: categoryId } });
+    const category = await prisma.tournamentCategory.findUniqueOrThrow({
+      where: { id: categoryId },
+    });
 
-    const existingMatchCount = await prisma.match.count({ where: { tournamentCategoryId: categoryId } });
+    const existingMatchCount = await prisma.match.count({
+      where: { tournamentCategoryId: categoryId },
+    });
     if (existingMatchCount > 0) {
       throw new Error("A bracket has already been generated for this category.");
     }
