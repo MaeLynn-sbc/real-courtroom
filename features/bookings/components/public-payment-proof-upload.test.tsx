@@ -7,7 +7,11 @@ jest.mock("@/actions/public-booking-payment-proof.actions", () => ({
   submitPublicBookingPaymentProofAction: jest.fn(),
 }));
 
-const gcashInfo: GcashPaymentInfo = { qrImageUrl: null, accountName: "The Courtroom", accountNumber: "0917 000 0000" };
+const gcashInfo: GcashPaymentInfo = {
+  qrImageUrl: null,
+  accountName: "The Courtroom",
+  accountNumber: "0917 000 0000",
+};
 
 // Reported live: the "Choose File" button text was nearly invisible
 // (native ::file-selector-button chrome fighting file:text-foreground),
@@ -20,13 +24,7 @@ describe("PublicPaymentProofUpload — screenshot field copy", () => {
 
   it("shows the new placeholder before a file is chosen, and the filename after", async () => {
     render(
-      <PublicPaymentProofUpload
-        bookingId="b1"
-        bookingReference="BR-0001"
-        amountDueCents={35000}
-        guestPhone="09171234567"
-        gcashInfo={gcashInfo}
-      />,
+      <PublicPaymentProofUpload bookingId="b1" amountDueCents={35000} gcashInfo={gcashInfo} />,
     );
 
     expect(screen.getByText("Upload payment screenshot")).toBeInTheDocument();
@@ -54,13 +52,7 @@ describe("PublicPaymentProofUpload — GCash reference field removed", () => {
 
   it("does not render a GCash reference field", () => {
     render(
-      <PublicPaymentProofUpload
-        bookingId="b1"
-        bookingReference="BR-0001"
-        amountDueCents={35000}
-        guestPhone="09171234567"
-        gcashInfo={gcashInfo}
-      />,
+      <PublicPaymentProofUpload bookingId="b1" amountDueCents={35000} gcashInfo={gcashInfo} />,
     );
 
     expect(screen.queryByText(/gcash reference/i)).not.toBeInTheDocument();

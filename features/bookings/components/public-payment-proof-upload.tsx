@@ -24,20 +24,14 @@ function fileToBase64(file: File): Promise<string> {
 
 interface PublicPaymentProofUploadProps {
   bookingId: string;
-  bookingReference: string;
   amountDueCents: number;
-  guestPhone: string;
   gcashInfo: GcashPaymentInfo;
-  // Set when the parent already submitted the screenshot automatically
-  // — the initial booking form now collects the screenshot up front
-  // (see public-booking-form.tsx) and submits it right after the
-  // booking is created, one click, no separate step here. Seeds this
-  // component straight into its "received" display instead of showing
-  // a blank upload form for a proof that's already in.
-  initialSubmittedFileName?: string | null;
-  // Fires once, right after a successful submission — lets the parent
-  // lock the coach add-on (see public-booking-form.tsx): once proof is
-  // submitted, the amount is committed and can no longer safely change.
+  // Fires once, right after a successful submission — the parent
+  // (public-booking-form.tsx) owns the post-upload "received" screen
+  // entirely (state 2, replacing this form rather than this component
+  // showing its own confirmation sub-state), and locks the coach add-on:
+  // once proof is submitted, the amount is committed and can no longer
+  // safely change.
   onSubmitted?: () => void;
 }
 
@@ -46,14 +40,14 @@ interface PublicPaymentProofUploadProps {
 // server hardcodes status=PENDING) but had no UI reachable from the
 // public confirmation screen until now; the only existing caller was
 // RecordGcashPaymentForm, a staff-facing form for a customer who calls
-// in or visits the desk instead of paying online.
+// in or visits the desk instead of paying online. Only ever rendered
+// while awaiting a screenshot — the parent stops rendering this
+// component entirely once onSubmitted fires, so there's no "already
+// submitted" sub-state to represent here.
 export function PublicPaymentProofUpload({
   bookingId,
-  bookingReference,
   amountDueCents,
-  guestPhone,
   gcashInfo,
-  initialSubmittedFileName,
   onSubmitted,
 }: PublicPaymentProofUploadProps) {
   const [submittedAmount, setSubmittedAmount] = useState(String(amountDueCents / 100));
@@ -72,10 +66,6 @@ export function PublicPaymentProofUpload({
   const [file, setFile] = useState<File | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  // Set once, at the moment of a successful submission — kept separate
-  // from `file` (which stays tied to the now-hidden form input) so the
-  // confirmation state below can still show which file went through.
-  const [submittedFileName, setSubmittedFileName] = useState<string | null>(initialSubmittedFileName ?? null);
 
   function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -106,39 +96,8 @@ export function PublicPaymentProofUpload({
         setServerError(result.error);
         return;
       }
-      setSubmittedFileName(file.name);
       onSubmitted?.();
     });
-  }
-
-  if (submittedFileName) {
-    // Deliberately NOT the success/green treatment — a screenshot being
-    // uploaded is not the same as a verified payment, and a green
-    // "done"-looking box was part of what led customers to believe
-    // they were already booked. Leads with "not verified yet," not a
-    // completion-sounding headline; "confirmed" only appears negated.
-    return (
-      <div className="flex flex-col gap-3">
-        <div className="border-warning/40 bg-warning/10 rounded-lg border p-4 text-sm">
-          <p className="font-medium">Screenshot received — not verified yet.</p>
-          <p className="text-muted-foreground mt-1">
-            Your slot is still just held, not confirmed. Staff will check your payment and text
-            you at <span className="text-foreground font-medium">{guestPhone}</span> once it&apos;s
-            done — please wait for that message before coming in.
-          </p>
-          <div className="border-border mt-2 flex flex-col gap-1 border-t pt-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Reference</span>
-              <span className="font-mono font-medium">{bookingReference}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">File uploaded</span>
-              <span className="font-medium">{submittedFileName}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -209,7 +168,10 @@ export function PublicPaymentProofUpload({
                 already tested for contrast in both themes, applied to a
                 <label> (not <button>) so a native click still triggers the
                 hidden input with no JS needed. */}
-            <label htmlFor="publicScreenshot" className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}>
+            <label
+              htmlFor="publicScreenshot"
+              className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}
+            >
               Choose file
             </label>
             <span className="text-muted-foreground truncate text-sm">

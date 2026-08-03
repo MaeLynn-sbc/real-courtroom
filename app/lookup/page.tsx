@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
+import { CustomerBookingStatusBadge } from "@/features/bookings/components/customer-booking-status-badge";
 import { bookingService } from "@/services/booking/booking.service";
 
 export const metadata: Metadata = {
@@ -20,13 +20,18 @@ interface LookupPageProps {
   searchParams: Promise<{ reference?: string; phone?: string }>;
 }
 
-const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" });
+const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 
 export default async function LookupPage({ searchParams }: LookupPageProps) {
   const { reference, phone } = await searchParams;
   const hasQuery = Boolean(reference && phone);
   const booking =
-    hasQuery && reference && phone ? await bookingService.findByReferenceAndPhone(reference, phone) : null;
+    hasQuery && reference && phone
+      ? await bookingService.findByReferenceAndPhone(reference, phone)
+      : null;
 
   return (
     <div className="flex min-h-svh flex-1 flex-col">
@@ -58,7 +63,7 @@ export default async function LookupPage({ searchParams }: LookupPageProps) {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-3">
                 <CardTitle className="font-mono text-base">{booking.bookingReference}</CardTitle>
-                <BookingStatusBadge status={booking.status} />
+                <CustomerBookingStatusBadge status={booking.status} />
               </CardHeader>
               <CardContent className="flex flex-col gap-2 text-sm">
                 <div className="flex justify-between">

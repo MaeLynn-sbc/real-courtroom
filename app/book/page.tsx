@@ -52,24 +52,32 @@ export default async function BookPage({ searchParams }: BookPageProps) {
   const { courtId, date, time, durationMinutes } = await searchParams;
   const deepLinkedSlot = courtId ? resolveDeepLinkedSlot(date, time, durationMinutes) : null;
 
-  const [courts, requiresPrepayment, courtHours, gcashInfo, businessInfo, slotAvailability] =
-    await Promise.all([
-      courtService.listCourts(),
-      settingsService.getBookingRequirePrepayment(),
-      settingsService.getCourtHours(),
-      settingsService.getGcashPaymentInfo(),
-      settingsService.getBusinessInfo(),
-      // Read-only, non-transactional preview (bookingService.checkAvailability)
-      // — same one this same form's own live pre-submit check already
-      // uses. The real gate stays createPublicBooking's own Serializable-
-      // transaction check at actual submission; this is only about not
-      // showing a pre-filled form for a slot that's visibly already gone,
-      // rather than letting the customer fill in name/phone/payment
-      // first and find out at the very end.
-      deepLinkedSlot
-        ? bookingService.checkAvailability(courtId!, deepLinkedSlot.startAt, deepLinkedSlot.endAt)
-        : Promise.resolve(null),
-    ]);
+  const [
+    courts,
+    requiresPrepayment,
+    courtHours,
+    gcashInfo,
+    businessInfo,
+    bookingCommunication,
+    slotAvailability,
+  ] = await Promise.all([
+    courtService.listCourts(),
+    settingsService.getBookingRequirePrepayment(),
+    settingsService.getCourtHours(),
+    settingsService.getGcashPaymentInfo(),
+    settingsService.getBusinessInfo(),
+    settingsService.getBookingCommunicationSettings(),
+    // Read-only, non-transactional preview (bookingService.checkAvailability)
+    // — same one this same form's own live pre-submit check already
+    // uses. The real gate stays createPublicBooking's own Serializable-
+    // transaction check at actual submission; this is only about not
+    // showing a pre-filled form for a slot that's visibly already gone,
+    // rather than letting the customer fill in name/phone/payment
+    // first and find out at the very end.
+    deepLinkedSlot
+      ? bookingService.checkAvailability(courtId!, deepLinkedSlot.startAt, deepLinkedSlot.endAt)
+      : Promise.resolve(null),
+  ]);
   const courtOptions = courts
     .filter((court) => court.status === "ACTIVE")
     .map((court) => ({ id: court.id, name: court.name, hourlyRateCents: court.hourlyRateCents }));
@@ -99,21 +107,6 @@ export default async function BookPage({ searchParams }: BookPageProps) {
     <div className="flex min-h-svh flex-1 flex-col">
       <SiteHeader />
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-16">
-        <div className="text-center">
-          <h1 className="font-heading text-4xl font-semibold tracking-tight">Book Now</h1>
-          {/* Phase 8: "pay when you arrive" is only ever true for a
-              pay-at-venue booking — the public/online default once the
-              prepayment switch is on, and always the case while it's
-              off. Never state it unconditionally: once the switch
-              flips on, pay-at-venue becomes a staff-assisted-only
-              capability (BOOKINGS_PAY_AT_VENUE), not something this
-              public form still offers by default. */}
-          <p className="text-muted-foreground mt-2 text-lg">
-            {requiresPrepayment
-              ? "Reserve your court in a minute — pay via GCash to confirm your slot."
-              : "Reserve your court — quick and easy."}
-          </p>
-        </div>
         <PublicBookingForm
           courts={courtOptions}
           courtHours={courtHours}
@@ -125,6 +118,7 @@ export default async function BookPage({ searchParams }: BookPageProps) {
           initialTime={time}
           initialDurationMinutes={durationMinutes}
           requiresPrepayment={requiresPrepayment}
+          pageConfirmationCopy={bookingCommunication.pageConfirmationCopy}
         />
       </main>
       <SiteFooter />

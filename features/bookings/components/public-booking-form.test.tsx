@@ -24,15 +24,21 @@ jest.mock("@/actions/public-booking-payment-proof.actions", () => ({
   submitPublicBookingPaymentProofAction: jest.fn(),
 }));
 
-const mockedCreateBooking = createPublicBookingAction as jest.MockedFunction<typeof createPublicBookingAction>;
-const mockedAddCoach = addPublicCoachToBookingAction as jest.MockedFunction<typeof addPublicCoachToBookingAction>;
+const mockedCreateBooking = createPublicBookingAction as jest.MockedFunction<
+  typeof createPublicBookingAction
+>;
+const mockedAddCoach = addPublicCoachToBookingAction as jest.MockedFunction<
+  typeof addPublicCoachToBookingAction
+>;
 const mockedListOccupiedWindows = listPublicCourtOccupiedWindowsAction as jest.MockedFunction<
   typeof listPublicCourtOccupiedWindowsAction
 >;
 const mockedListAvailableCoaches = listPublicAvailableCoachesAction as jest.MockedFunction<
   typeof listPublicAvailableCoachesAction
 >;
-const mockedListCoachSchedule = listPublicCoachScheduleAction as jest.MockedFunction<typeof listPublicCoachScheduleAction>;
+const mockedListCoachSchedule = listPublicCoachScheduleAction as jest.MockedFunction<
+  typeof listPublicCoachScheduleAction
+>;
 const mockedSubmitBookingProof = submitPublicBookingPaymentProofAction as jest.MockedFunction<
   typeof submitPublicBookingPaymentProofAction
 >;
@@ -41,13 +47,25 @@ const courts = [{ id: "court-1", name: "Court 1", hourlyRateCents: 35000 }];
 
 const courtHours: CourtHoursSettings = {
   facilityOpenTime: "07:00",
-  facilityCloseTimes: { "0": "22:00", "1": "22:00", "2": "22:00", "3": "22:00", "4": "22:00", "5": "22:00", "6": "22:00" },
+  facilityCloseTimes: {
+    "0": "22:00",
+    "1": "22:00",
+    "2": "22:00",
+    "3": "22:00",
+    "4": "22:00",
+    "5": "22:00",
+    "6": "22:00",
+  },
   fridaySaturdayCloseTime: "23:00",
   courtCloseTimes: {},
   businessDateRolloverHour: 3,
 };
 
-const gcashInfo: GcashPaymentInfo = { qrImageUrl: null, accountName: "The Courtroom", accountNumber: "0917 000 0000" };
+const gcashInfo: GcashPaymentInfo = {
+  qrImageUrl: null,
+  accountName: "The Courtroom",
+  accountNumber: "0917 000 0000",
+};
 
 // No @testing-library/user-event in this repo's dependencies — fireEvent
 // (already available via @testing-library/react) is used throughout
@@ -90,7 +108,9 @@ describe("PublicBookingForm — coach add-on payment wiring", () => {
       bookingReference: "BR-0001",
       requiresPayment: true,
       totalAmountCents: 35000, // ₱350 court-only
-      availableCoaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }], // ₱400
+      availableCoaches: [
+        { id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] },
+      ], // ₱400
     });
   });
 
@@ -107,6 +127,7 @@ describe("PublicBookingForm — coach add-on payment wiring", () => {
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
         requiresPrepayment={false}
+        pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
       />,
     );
 
@@ -180,7 +201,10 @@ describe("PublicBookingForm — Time dropdown excludes already-booked slots", ()
     mockedListOccupiedWindows.mockResolvedValue({
       error: null,
       windows: [
-        { startAt: new Date(2026, 6, 29, 16, 0).toISOString(), endAt: new Date(2026, 6, 29, 17, 0).toISOString() },
+        {
+          startAt: new Date(2026, 6, 29, 16, 0).toISOString(),
+          endAt: new Date(2026, 6, 29, 17, 0).toISOString(),
+        },
       ],
     });
 
@@ -192,6 +216,7 @@ describe("PublicBookingForm — Time dropdown excludes already-booked slots", ()
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
         requiresPrepayment={false}
+        pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
       />,
     );
 
@@ -231,6 +256,7 @@ describe("PublicBookingForm — coach section when no coach is available", () =>
         contactPhone="0917 000 0000"
         contactFacebookUrl="https://facebook.com/thecourtroom"
         requiresPrepayment={false}
+        pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
       />,
     );
 
@@ -288,7 +314,9 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
       bookingReference: "BR-0001",
       requiresPayment: true,
       totalAmountCents: 35000, // ₱350 court-only
-      availableCoaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
+      availableCoaches: [
+        { id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] },
+      ],
     });
   });
 
@@ -305,6 +333,7 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
         requiresPrepayment={false}
+        pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
       />,
     );
   }
@@ -362,7 +391,11 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
 
     await screen.findByText("BR-0001");
 
-    expect(mockedAddCoach).toHaveBeenCalledWith({ bookingId: "booking-1", coachId: "coach-1", groupSize: 1 });
+    expect(mockedAddCoach).toHaveBeenCalledWith({
+      bookingId: "booking-1",
+      coachId: "coach-1",
+      groupSize: 1,
+    });
     // Already reflected on the confirmation screen, no extra click needed.
     expect(screen.getByText("Coach added")).toBeInTheDocument();
     expect(screen.getByText("₱750.00")).toBeInTheDocument();
@@ -398,7 +431,10 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
     mockedListCoachSchedule.mockResolvedValue({
       error: null,
       windows: [
-        { startAt: new Date(2026, 6, 30, 9, 0).toISOString(), endAt: new Date(2026, 6, 30, 12, 0).toISOString() },
+        {
+          startAt: new Date(2026, 6, 30, 9, 0).toISOString(),
+          endAt: new Date(2026, 6, 30, 12, 0).toISOString(),
+        },
       ],
     });
 
@@ -445,6 +481,7 @@ describe("PublicBookingForm — payment screenshot required when prepayment is o
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
         requiresPrepayment
+        pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
       />,
     );
   }
@@ -456,7 +493,9 @@ describe("PublicBookingForm — payment screenshot required when prepayment is o
 
     await clickAsync(screen.getByRole("button", { name: /book now/i }));
 
-    expect(screen.getByText("Please upload your proof of payment to complete your booking.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Please upload your proof of payment to complete your booking."),
+    ).toBeInTheDocument();
     expect(mockedCreateBooking).not.toHaveBeenCalled();
   });
 
@@ -475,7 +514,7 @@ describe("PublicBookingForm — payment screenshot required when prepayment is o
 
     await clickAsync(screen.getByRole("button", { name: /book now/i }));
 
-    await screen.findByText("Screenshot received — not verified yet.");
+    await screen.findByText("Booking received ✓");
     expect(mockedSubmitBookingProof).toHaveBeenCalledWith(
       expect.objectContaining({ bookingId: "booking-1", submittedAmountCents: 35000 }),
     );
@@ -498,6 +537,6 @@ describe("PublicBookingForm — payment screenshot required when prepayment is o
 
     await screen.findByText("BR-0001");
     expect(screen.getByText(/Pay via GCash/i)).toBeInTheDocument();
-    expect(screen.queryByText("Screenshot received — not verified yet.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Booking received ✓")).not.toBeInTheDocument();
   });
 });

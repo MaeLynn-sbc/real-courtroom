@@ -30,7 +30,6 @@ import {
   PublicCoachAddOn,
   type PublicCoachAddOnConfirmed,
 } from "@/features/coaching/components/public-coach-add-on";
-import { ContactFallbackLinks } from "@/features/bookings/components/contact-fallback-links";
 import { PublicPaymentProofUpload } from "@/features/bookings/components/public-payment-proof-upload";
 import { useLiveNow } from "@/hooks/use-live-now";
 import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
@@ -199,6 +198,12 @@ interface PublicBookingFormProps {
   // registration. When false, this is a pay-at-venue booking and no
   // screenshot is ever asked for, unchanged from before.
   requiresPrepayment: boolean;
+  // Owner-editable (settingsService.getBookingCommunicationSettings) —
+  // shown on the state-2 confirmation screen once a screenshot is
+  // uploaded, {phone} substituted with this booking's own guestPhone.
+  // Every string that mentions timing/contact channel/phone must be
+  // configurable, not hardcoded — see that setting's own schema comment.
+  pageConfirmationCopy: string;
 }
 
 export function PublicBookingForm({
@@ -212,6 +217,7 @@ export function PublicBookingForm({
   initialTime,
   initialDurationMinutes,
   requiresPrepayment,
+  pageConfirmationCopy,
 }: PublicBookingFormProps) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -255,7 +261,6 @@ export function PublicBookingForm({
   const [bookingScreenshot, setBookingScreenshot] = useState<File | null>(null);
   const [bookingSubmittedAmount, setBookingSubmittedAmount] = useState("");
   const [hasEditedBookingAmount, setHasEditedBookingAmount] = useState(false);
-  const [autoSubmittedProofFileName, setAutoSubmittedProofFileName] = useState<string | null>(null);
 
   const validInitialDuration =
     initialDurationMinutes && DURATIONS_MINUTES.includes(Number(initialDurationMinutes))
@@ -572,7 +577,6 @@ export function PublicBookingForm({
               `Your slot is booked, but the screenshot upload failed: ${proofResult.error} Please try again below.`,
             );
           } else {
-            setAutoSubmittedProofFileName(bookingScreenshot.name);
             setHasSubmittedProof(true);
           }
         } catch {
@@ -686,35 +690,111 @@ export function PublicBookingForm({
       );
     }
 
-    // requiresPayment true — deliberately NOT a Card. Reported live:
-    // a boxed panel replacing the form read as a receipt/arrival, and
-    // people stopped there without paying. Same bare container shape
-    // as the form itself (mx-auto max-w-md flex flex-col gap-4,
-    // matching the <form> below) so this reads as the form
-    // continuing, not a new screen — no border, no shadow, no
-    // success color, no checkmark anywhere in this branch. The hold
-    // itself is unchanged: the booking (and its hold) already exists
-    // by this point, same as before — only the FEEL of this state
-    // changed, not the sequence (create hold, then pay).
+    // Owner decision (2026-08-03): banned "not verified yet" / "unverified"
+    // / "pending verification" / "not confirmed" / anything implying the
+    // slot ISN'T reserved from every customer-facing string. Internally
+    // the booking is still AWAITING_PAYMENT then PENDING_VERIFICATION
+    // (staff still need and see that precise distinction — see
+    // booking-status-badge.tsx, unchanged) — customers don't, and the old
+    // wording read as alarming rather than informative. State what IS
+    // true instead of what isn't (yet).
+    if (hasSubmittedProof) {
+      // State 2 — REPLACES state 1 entirely (previously this was layered
+      // ON TOP of state 1's own "Pay X to confirm" / "isn't reserved"
+      // copy, which kept showing even after the screenshot was in).
+      // Deliberately still no Card/checkmark/success-green background —
+      // a screenshot being uploaded isn't a staff-verified payment yet,
+      // that distinction still matters internally — but nothing here
+      // frames it as a doubt either.
+      const confirmationMessage = pageConfirmationCopy.replace(
+        /\{phone\}/g,
+        confirmation.guestPhone,
+      );
+      return (
+        <div className="mx-auto flex max-w-md flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-success text-lg font-semibold">Booking received ✓</h2>
+            <p className="text-sm">
+              <span className="font-mono font-medium">{confirmation.bookingReference}</span>
+              <br />
+              {confirmation.courtName} · {confirmation.date} · {confirmation.time} ·{" "}
+              {formatDurationLabel(confirmation.durationMinutes)} · {formatCurrency(totalDueCents)}
+            </p>
+          </div>
+
+          <p className="text-sm">{confirmationMessage}</p>
+
+          <p className="text-muted-foreground text-xs">
+            Save your reference number. That&apos;s all you need when you arrive.
+          </p>
+
+          {/* Requirement C: a small link, not a sentence leading with
+              "haven't heard back" — that plants the idea that they
+              won't. Built inline (not via ContactFallbackLinks, whose
+              own rendering — raw phone/"Message us on Facebook" text —
+              is reused as-is elsewhere, e.g. PublicCoachAddOn) so this
+              one spot can carry its own short label. */}
+          {contactFacebookUrl || contactPhone ? (
+            <a
+              href={contactFacebookUrl || `tel:${contactPhone}`}
+              target={contactFacebookUrl ? "_blank" : undefined}
+              rel={contactFacebookUrl ? "noopener noreferrer" : undefined}
+              className="text-muted-foreground w-fit text-xs underline underline-offset-2"
+            >
+              Uploaded the wrong file?
+            </a>
+          ) : null}
+
+          {/* Offered regardless of stage — a reserved slot can still have
+              a coach attached, same as coach-session.service.ts's
+              createCoachSession itself never gating on Booking.status.
+              Locked once hasSubmittedProof flips true — see that same
+              service's ordering-guard comment. */}
+          <div className="border-t pt-3">
+            <PublicCoachAddOn
+              bookingId={confirmation.bookingId}
+              availableCoaches={confirmation.availableCoaches}
+              requiresPayment={confirmation.requiresPayment}
+              hasSubmittedProof={hasSubmittedProof}
+              contactPhone={contactPhone}
+              contactFacebookUrl={contactFacebookUrl}
+              initialConfirmed={coachSession}
+              onCoachSessionChange={setCoachSession}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // State 1 — awaiting screenshot. Deliberately NOT a Card. Reported
+    // live: a boxed panel replacing the form read as a receipt/arrival,
+    // and people stopped there without paying. Same bare container shape
+    // as the form itself (mx-auto max-w-md flex flex-col gap-4, matching
+    // the <form> below) so this reads as the form continuing, not a new
+    // screen — no border, no shadow, no success color, no checkmark. The
+    // hold itself is unchanged: the booking (and its hold) already
+    // exists by this point, same as before — only the FEEL of this state
+    // changed, not the sequence (create hold, then pay). Copy states
+    // what we ARE doing (holding the slot), not what isn't true yet.
     return (
       <div className="mx-auto flex max-w-md flex-col gap-4">
         <div className="flex flex-col gap-1">
           <h2 className="text-lg font-semibold">
-            Pay {formatCurrency(totalDueCents)} to confirm your slot
+            Pay {formatCurrency(totalDueCents)} to lock in your slot
           </h2>
           {/* text-warning, not text-warning-foreground — that token is
-              designed for dark text ON a light bg-warning box (see
-              public-payment-proof-upload.tsx's own such box). This line
+              designed for dark text ON a light bg-warning box. This line
               sits directly on the page background now that the Card
               wrapper is gone, so the "on-warning" foreground color was
               nearly invisible here — same class of contrast bug as the
               table header fix earlier this session, caught the same way
               (looked at the actual rendered screenshot). */}
           <p className="text-warning text-sm font-medium">
-            Your slot isn&apos;t reserved until we receive your payment.
+            We&apos;re holding {confirmation.courtName} for you
             {confirmation.holdExpiresAt
-              ? ` Held until ${holdTimeFormatter.format(confirmation.holdExpiresAt)}.`
+              ? ` until ${holdTimeFormatter.format(confirmation.holdExpiresAt)}`
               : ""}
+            . Send your GCash payment and upload the screenshot below.
           </p>
         </div>
 
@@ -762,19 +842,10 @@ export function PublicBookingForm({
 
         <PublicPaymentProofUpload
           bookingId={confirmation.bookingId}
-          bookingReference={confirmation.bookingReference}
           amountDueCents={totalDueCents}
-          guestPhone={confirmation.guestPhone}
           gcashInfo={gcashInfo}
-          initialSubmittedFileName={autoSubmittedProofFileName}
           onSubmitted={() => setHasSubmittedProof(true)}
         />
-        {contactPhone || contactFacebookUrl ? (
-          <p className="text-muted-foreground text-xs">
-            Wrong file, or haven&apos;t heard back?{" "}
-            <ContactFallbackLinks phone={contactPhone} facebookUrl={contactFacebookUrl} />.
-          </p>
-        ) : null}
 
         {/* Offered regardless of requiresPayment above — a held slot
             can still have a coach attached before payment clears, same
@@ -798,374 +869,399 @@ export function PublicBookingForm({
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate className="mx-auto flex max-w-md flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="guestName">Name</Label>
-        <Input id="guestName" {...register("guestName", { required: true })} />
+    <div className="mx-auto flex max-w-md flex-col gap-8">
+      {/* Moved here from app/book/page.tsx (owner request, 2026-08-03,
+          requirement D): that page rendered this heading unconditionally,
+          so it kept showing "Book Now" / "pay via GCash to confirm your
+          slot" even once the customer had already booked and uploaded
+          proof — this component is the only thing that knows the current
+          stage, so the heading has to live here to disappear once
+          `confirmation` is set. */}
+      <div className="text-center">
+        <h1 className="font-heading text-4xl font-semibold tracking-tight">Book Now</h1>
+        {/* Phase 8: "pay when you arrive" is only ever true for a
+            pay-at-venue booking — the public/online default once the
+            prepayment switch is on, and always the case while it's
+            off. Never state it unconditionally: once the switch
+            flips on, pay-at-venue becomes a staff-assisted-only
+            capability (BOOKINGS_PAY_AT_VENUE), not something this
+            public form still offers by default. */}
+        <p className="text-muted-foreground mt-2 text-lg">
+          {requiresPrepayment
+            ? "Reserve your court in a minute — pay via GCash to confirm your slot."
+            : "Reserve your court — quick and easy."}
+        </p>
       </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="guestPhone">Phone number</Label>
-        <Input id="guestPhone" type="tel" {...register("guestPhone", { required: true })} />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="courtId">Court</Label>
-        <Controller
-          control={control}
-          name="courtId"
-          render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger id="courtId" className="w-full">
-                <SelectValue placeholder="Select a court">
-                  {(value: string) =>
-                    courts.find((court) => court.id === value)?.name ?? "Select a court"
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {courts.map((court) => (
-                  <SelectItem key={court.id} value={court.id}>
-                    {court.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
+      <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="date">Date</Label>
-          <Input id="date" type="date" {...register("date", { required: true })} />
+          <Label htmlFor="guestName">Name</Label>
+          <Input id="guestName" {...register("guestName", { required: true })} />
         </div>
+
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="time">Time</Label>
+          <Label htmlFor="guestPhone">Phone number</Label>
+          <Input id="guestPhone" type="tel" {...register("guestPhone", { required: true })} />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="courtId">Court</Label>
           <Controller
             control={control}
-            name="time"
+            name="courtId"
             render={({ field }) => (
-              <Select
-                value={field.value}
-                onValueChange={field.onChange}
-                disabled={isLoadingAvailability || availableTimeOptions.length === 0}
-              >
-                <SelectTrigger id="time" className="w-full">
-                  <SelectValue
-                    placeholder={
-                      isLoadingAvailability ? "Checking availability…" : "No times available"
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger id="courtId" className="w-full">
+                  <SelectValue placeholder="Select a court">
+                    {(value: string) =>
+                      courts.find((court) => court.id === value)?.name ?? "Select a court"
                     }
-                  >
-                    {(value: string) => (value ? formatTimeLabel(value) : "No times available")}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {availableTimeOptions.map((time) => (
-                    <SelectItem key={time} value={time}>
-                      {formatTimeLabel(time)}
+                  {courts.map((court) => (
+                    <SelectItem key={court.id} value={court.id}>
+                      {court.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             )}
           />
-          {!isLoadingAvailability && availableTimeOptions.length === 0 && selectedCourt ? (
-            <p className="text-muted-foreground text-xs">
-              {watchedDate === toLocalDateValue(new Date())
-                ? "No times left today — try tomorrow or another court."
-                : `${selectedCourt.name} has no ${formatDurationLabel(Number(watchedDurationMinutes)).toLowerCase()} slot available that day — try a shorter duration or another court.`}
-            </p>
-          ) : null}
         </div>
-      </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="durationMinutes">Duration</Label>
-        <Controller
-          control={control}
-          name="durationMinutes"
-          render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger id="durationMinutes" className="w-full">
-                <SelectValue>{(value: string) => formatDurationLabel(Number(value))}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {DURATIONS_MINUTES.map((minutes) => (
-                  <SelectItem key={minutes} value={String(minutes)}>
-                    {formatDurationLabel(minutes)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label>Coach (optional)</Label>
-        {isLoadingCoaches ? (
-          <p className="text-muted-foreground text-xs">Checking coach availability…</p>
-        ) : previewCoaches.length === 0 ? (
+        <div className="grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
-            <p className="text-muted-foreground text-xs">No coach available at this slot.</p>
-            {/* Opens in a new tab so an in-progress booking form (court,
-                date, time already picked) never gets discarded by
-                navigating away to check schedules. Links to the existing
-                per-coach public availability page — a read-only table per
-                coach, not a name-picker dropdown. */}
-            <Link
-              href="/coaches/availability"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={buttonVariants({ variant: "outline", size: "sm", className: "w-fit" })}
-            >
-              Coach&apos;s availability
-            </Link>
+            <Label htmlFor="date">Date</Label>
+            <Input id="date" type="date" {...register("date", { required: true })} />
           </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {/* Reported live: a dropdown to click open just to see who's
-                available was an extra, pointless step — clickable cards
-                instead, whether there's one coach or several. Clicking
-                the already-selected card again deselects it. */}
-            <div className="flex flex-wrap gap-2">
-              {previewCoaches.map((coach) => {
-                const isSelected = previewCoachId === coach.id;
-                return (
-                  <button
-                    key={coach.id}
-                    type="button"
-                    onClick={() => {
-                      if (isSelected) {
-                        setPreviewCoachId("");
-                        setPreviewGroupSize("");
-                      } else {
-                        setPreviewCoachId(coach.id);
-                        setPreviewGroupSize("");
-                      }
-                    }}
-                    className={cn(
-                      "rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
-                      isSelected
-                        ? "border-success bg-success/10 text-success"
-                        : "border-input hover:bg-muted/40",
-                    )}
-                  >
-                    {coach.name}
-                  </button>
-                );
-              })}
-            </div>
-
-            {previewCoaches.map((coach) => (
-              <div key={coach.id} className="flex flex-col gap-1.5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground hover:text-foreground w-fit px-0"
-                  onClick={() => toggleCoachSchedule(coach.id)}
-                >
-                  {openScheduleCoachId === coach.id ? "Hide" : "See"} {coach.name}&apos;s
-                  availability
-                </Button>
-                {openScheduleCoachId === coach.id ? (
-                  <div className="bg-muted/40 flex flex-col gap-1 rounded-lg border p-2 text-xs">
-                    {isLoadingSchedule && !coachSchedules[coach.id] ? (
-                      <span className="text-muted-foreground">Loading schedule…</span>
-                    ) : (coachSchedules[coach.id]?.length ?? 0) === 0 ? (
-                      <span className="text-muted-foreground">No upcoming open times found.</span>
-                    ) : (
-                      coachSchedules[coach.id]!.map((window, index) => (
-                        <span key={index}>
-                          {window.startAt.toLocaleDateString("en-PH", {
-                            weekday: "short",
-                            month: "short",
-                            day: "numeric",
-                          })}
-                          ,{" "}
-                          {window.startAt.toLocaleTimeString("en-PH", {
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
-                          –
-                          {window.endAt.toLocaleTimeString("en-PH", {
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      ))
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            ))}
-
-            {previewCoachId ? (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="previewGroupSize">
-                  Group size (select to add {selectedPreviewCoach?.name ?? "a coach"})
-                </Label>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="time">Time</Label>
+            <Controller
+              control={control}
+              name="time"
+              render={({ field }) => (
                 <Select
-                  value={previewGroupSize}
-                  onValueChange={(value) => setPreviewGroupSize(value ?? "")}
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={isLoadingAvailability || availableTimeOptions.length === 0}
                 >
-                  <SelectTrigger id="previewGroupSize" className="w-full">
-                    <SelectValue placeholder="Select group size">
-                      {(value: string) =>
-                        value
-                          ? `${value} ${Number(value) === 1 ? "person" : "people"}`
-                          : "Select group size"
+                  <SelectTrigger id="time" className="w-full">
+                    <SelectValue
+                      placeholder={
+                        isLoadingAvailability ? "Checking availability…" : "No times available"
                       }
+                    >
+                      {(value: string) => (value ? formatTimeLabel(value) : "No times available")}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {previewCoachGroupSizeOptions.map((size) => (
-                      <SelectItem key={size} value={String(size)}>
-                        {size} {size === 1 ? "person" : "people"}
+                    {availableTimeOptions.map((time) => (
+                      <SelectItem key={time} value={time}>
+                        {formatTimeLabel(time)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {selectedPreviewRate ? (
-                  <p className="text-sm">
-                    <span className="text-muted-foreground">Coach rate: </span>
-                    <span className="font-medium">
-                      {formatCurrency(selectedPreviewRate.priceCents)}
-                    </span>
-                  </p>
+              )}
+            />
+            {!isLoadingAvailability && availableTimeOptions.length === 0 && selectedCourt ? (
+              <p className="text-muted-foreground text-xs">
+                {watchedDate === toLocalDateValue(new Date())
+                  ? "No times left today — try tomorrow or another court."
+                  : `${selectedCourt.name} has no ${formatDurationLabel(Number(watchedDurationMinutes)).toLowerCase()} slot available that day — try a shorter duration or another court.`}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="durationMinutes">Duration</Label>
+          <Controller
+            control={control}
+            name="durationMinutes"
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger id="durationMinutes" className="w-full">
+                  <SelectValue>{(value: string) => formatDurationLabel(Number(value))}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {DURATIONS_MINUTES.map((minutes) => (
+                    <SelectItem key={minutes} value={String(minutes)}>
+                      {formatDurationLabel(minutes)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Coach (optional)</Label>
+          {isLoadingCoaches ? (
+            <p className="text-muted-foreground text-xs">Checking coach availability…</p>
+          ) : previewCoaches.length === 0 ? (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-muted-foreground text-xs">No coach available at this slot.</p>
+              {/* Opens in a new tab so an in-progress booking form (court,
+                date, time already picked) never gets discarded by
+                navigating away to check schedules. Links to the existing
+                per-coach public availability page — a read-only table per
+                coach, not a name-picker dropdown. */}
+              <Link
+                href="/coaches/availability"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buttonVariants({ variant: "outline", size: "sm", className: "w-fit" })}
+              >
+                Coach&apos;s availability
+              </Link>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {/* Reported live: a dropdown to click open just to see who's
+                available was an extra, pointless step — clickable cards
+                instead, whether there's one coach or several. Clicking
+                the already-selected card again deselects it. */}
+              <div className="flex flex-wrap gap-2">
+                {previewCoaches.map((coach) => {
+                  const isSelected = previewCoachId === coach.id;
+                  return (
+                    <button
+                      key={coach.id}
+                      type="button"
+                      onClick={() => {
+                        if (isSelected) {
+                          setPreviewCoachId("");
+                          setPreviewGroupSize("");
+                        } else {
+                          setPreviewCoachId(coach.id);
+                          setPreviewGroupSize("");
+                        }
+                      }}
+                      className={cn(
+                        "rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                        isSelected
+                          ? "border-success bg-success/10 text-success"
+                          : "border-input hover:bg-muted/40",
+                      )}
+                    >
+                      {coach.name}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {previewCoaches.map((coach) => (
+                <div key={coach.id} className="flex flex-col gap-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground hover:text-foreground w-fit px-0"
+                    onClick={() => toggleCoachSchedule(coach.id)}
+                  >
+                    {openScheduleCoachId === coach.id ? "Hide" : "See"} {coach.name}&apos;s
+                    availability
+                  </Button>
+                  {openScheduleCoachId === coach.id ? (
+                    <div className="bg-muted/40 flex flex-col gap-1 rounded-lg border p-2 text-xs">
+                      {isLoadingSchedule && !coachSchedules[coach.id] ? (
+                        <span className="text-muted-foreground">Loading schedule…</span>
+                      ) : (coachSchedules[coach.id]?.length ?? 0) === 0 ? (
+                        <span className="text-muted-foreground">No upcoming open times found.</span>
+                      ) : (
+                        coachSchedules[coach.id]!.map((window, index) => (
+                          <span key={index}>
+                            {window.startAt.toLocaleDateString("en-PH", {
+                              weekday: "short",
+                              month: "short",
+                              day: "numeric",
+                            })}
+                            ,{" "}
+                            {window.startAt.toLocaleTimeString("en-PH", {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                            –
+                            {window.endAt.toLocaleTimeString("en-PH", {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+
+              {previewCoachId ? (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="previewGroupSize">
+                    Group size (select to add {selectedPreviewCoach?.name ?? "a coach"})
+                  </Label>
+                  <Select
+                    value={previewGroupSize}
+                    onValueChange={(value) => setPreviewGroupSize(value ?? "")}
+                  >
+                    <SelectTrigger id="previewGroupSize" className="w-full">
+                      <SelectValue placeholder="Select group size">
+                        {(value: string) =>
+                          value
+                            ? `${value} ${Number(value) === 1 ? "person" : "people"}`
+                            : "Select group size"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {previewCoachGroupSizeOptions.map((size) => (
+                        <SelectItem key={size} value={String(size)}>
+                          {size} {size === 1 ? "person" : "people"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedPreviewRate ? (
+                    <p className="text-sm">
+                      <span className="text-muted-foreground">Coach rate: </span>
+                      <span className="font-medium">
+                        {formatCurrency(selectedPreviewRate.priceCents)}
+                      </span>
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        <Card>
+          <CardContent className="flex flex-col gap-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Court rate</span>
+              <span className="font-medium tabular-nums">
+                {selectedCourt?.hourlyRateCents != null
+                  ? `${formatCurrency(selectedCourt.hourlyRateCents)}/hr`
+                  : "—"}
+              </span>
+            </div>
+            {previewCoachFeeCents > 0 ? (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Coach rate</span>
+                <span className="font-medium tabular-nums">
+                  {formatCurrency(previewCoachFeeCents)}
+                </span>
+              </div>
+            ) : null}
+            <div className="flex justify-between border-t pt-2 text-base">
+              <span className="font-medium">Total</span>
+              <span className="font-semibold tabular-nums">
+                {previewTotalCents != null ? formatCurrency(previewTotalCents) : "—"}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {requiresPrepayment ? (
+          <div className="flex flex-col gap-3 rounded-lg border p-3">
+            <div>
+              <p className="text-sm font-medium">Pay via GCash to confirm your slot</p>
+              <p className="text-muted-foreground text-xs">
+                Send the total above to the account below, then attach your payment screenshot —
+                your slot isn&apos;t held until both this form and the screenshot are submitted
+                together.
+              </p>
+            </div>
+
+            {gcashInfo.qrImageUrl ? (
+              <Image
+                src={gcashInfo.qrImageUrl}
+                alt="GCash QR code"
+                width={140}
+                height={140}
+                unoptimized
+                className="self-center rounded-lg border"
+              />
+            ) : null}
+
+            {gcashInfo.accountName || gcashInfo.accountNumber ? (
+              <div className="rounded-lg border p-2 text-sm">
+                {gcashInfo.accountName ? (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Account name</span>
+                    <span className="font-medium">{gcashInfo.accountName}</span>
+                  </div>
+                ) : null}
+                {gcashInfo.accountNumber ? (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Account number</span>
+                    <span className="font-mono font-medium">{gcashInfo.accountNumber}</span>
+                  </div>
                 ) : null}
               </div>
             ) : null}
-          </div>
-        )}
-      </div>
 
-      <Card>
-        <CardContent className="flex flex-col gap-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Court rate</span>
-            <span className="font-medium tabular-nums">
-              {selectedCourt?.hourlyRateCents != null
-                ? `${formatCurrency(selectedCourt.hourlyRateCents)}/hr`
-                : "—"}
-            </span>
-          </div>
-          {previewCoachFeeCents > 0 ? (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Coach rate</span>
-              <span className="font-medium tabular-nums">
-                {formatCurrency(previewCoachFeeCents)}
-              </span>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="bookingSubmittedAmount">Amount sent (₱)</Label>
+              <Input
+                id="bookingSubmittedAmount"
+                type="number"
+                step="0.01"
+                value={bookingSubmittedAmount}
+                onChange={(event) => {
+                  setHasEditedBookingAmount(true);
+                  setBookingSubmittedAmount(event.target.value);
+                }}
+              />
             </div>
-          ) : null}
-          <div className="flex justify-between border-t pt-2 text-base">
-            <span className="font-medium">Total</span>
-            <span className="font-semibold tabular-nums">
-              {previewTotalCents != null ? formatCurrency(previewTotalCents) : "—"}
-            </span>
-          </div>
-        </CardContent>
-      </Card>
 
-      {requiresPrepayment ? (
-        <div className="flex flex-col gap-3 rounded-lg border p-3">
-          <div>
-            <p className="text-sm font-medium">Pay via GCash to confirm your slot</p>
-            <p className="text-muted-foreground text-xs">
-              Send the total above to the account below, then attach your payment screenshot — your
-              slot isn&apos;t held until both this form and the screenshot are submitted together.
-            </p>
-          </div>
-
-          {gcashInfo.qrImageUrl ? (
-            <Image
-              src={gcashInfo.qrImageUrl}
-              alt="GCash QR code"
-              width={140}
-              height={140}
-              unoptimized
-              className="self-center rounded-lg border"
-            />
-          ) : null}
-
-          {gcashInfo.accountName || gcashInfo.accountNumber ? (
-            <div className="rounded-lg border p-2 text-sm">
-              {gcashInfo.accountName ? (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Account name</span>
-                  <span className="font-medium">{gcashInfo.accountName}</span>
-                </div>
-              ) : null}
-              {gcashInfo.accountNumber ? (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Account number</span>
-                  <span className="font-mono font-medium">{gcashInfo.accountNumber}</span>
-                </div>
-              ) : null}
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="bookingScreenshot">Payment screenshot (required)</Label>
+              <div className="flex items-center gap-3">
+                <label
+                  htmlFor="bookingScreenshot"
+                  className={cn(
+                    buttonVariants({ variant: "secondary", size: "sm" }),
+                    "cursor-pointer",
+                  )}
+                >
+                  Choose file
+                </label>
+                <span className="text-muted-foreground truncate text-sm">
+                  {bookingScreenshot ? bookingScreenshot.name : "No file chosen"}
+                </span>
+              </div>
+              <input
+                id="bookingScreenshot"
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(event) => setBookingScreenshot(event.target.files?.[0] ?? null)}
+              />
             </div>
-          ) : null}
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="bookingSubmittedAmount">Amount sent (₱)</Label>
-            <Input
-              id="bookingSubmittedAmount"
-              type="number"
-              step="0.01"
-              value={bookingSubmittedAmount}
-              onChange={(event) => {
-                setHasEditedBookingAmount(true);
-                setBookingSubmittedAmount(event.target.value);
-              }}
-            />
           </div>
+        ) : null}
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="bookingScreenshot">Payment screenshot (required)</Label>
-            <div className="flex items-center gap-3">
-              <label
-                htmlFor="bookingScreenshot"
-                className={cn(
-                  buttonVariants({ variant: "secondary", size: "sm" }),
-                  "cursor-pointer",
-                )}
-              >
-                Choose file
-              </label>
-              <span className="text-muted-foreground truncate text-sm">
-                {bookingScreenshot ? bookingScreenshot.name : "No file chosen"}
-              </span>
-            </div>
-            <input
-              id="bookingScreenshot"
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={(event) => setBookingScreenshot(event.target.files?.[0] ?? null)}
-            />
-          </div>
-        </div>
-      ) : null}
+        {serverError ? (
+          <p className="text-destructive text-sm" role="alert">
+            {serverError}
+          </p>
+        ) : null}
 
-      {serverError ? (
-        <p className="text-destructive text-sm" role="alert">
-          {serverError}
-        </p>
-      ) : null}
-
-      <Button
-        type="submit"
-        size="lg"
-        disabled={
-          isPending ||
-          courts.length === 0 ||
-          isLoadingAvailability ||
-          availableTimeOptions.length === 0
-        }
-      >
-        {isPending ? "Booking…" : "Book Now"}
-      </Button>
-    </form>
+        <Button
+          type="submit"
+          size="lg"
+          disabled={
+            isPending ||
+            courts.length === 0 ||
+            isLoadingAvailability ||
+            availableTimeOptions.length === 0
+          }
+        >
+          {isPending ? "Booking…" : "Book Now"}
+        </Button>
+      </form>
+    </div>
   );
 }

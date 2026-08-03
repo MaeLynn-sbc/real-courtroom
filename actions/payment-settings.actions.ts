@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 
-import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
+import {
+  bookingCommunicationSettingsSchema,
+  type BookingCommunicationSettings,
+  type GcashPaymentInfo,
+} from "@/features/cms/schemas/cms.schema";
 import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { settingsService } from "@/services/settings/settings.service";
@@ -44,7 +48,10 @@ export async function setBookingRequirePrepaymentAction(
     return { error: null };
   } catch (error) {
     return {
-      error: toActionError(error, { action: "setBookingRequirePrepaymentAction", userId: authz.userId }),
+      error: toActionError(error, {
+        action: "setBookingRequirePrepaymentAction",
+        userId: authz.userId,
+      }),
     };
   }
 }
@@ -58,14 +65,18 @@ export async function setBookingRequirePrepaymentAction(
 const MIN_HOLD_MINUTES = 5;
 const MAX_HOLD_MINUTES = 240;
 
-export async function setBookingHoldMinutesAction(value: number): Promise<PaymentSettingsActionState> {
+export async function setBookingHoldMinutesAction(
+  value: number,
+): Promise<PaymentSettingsActionState> {
   const authz = await requireSystemAdmin();
   if (!authz.ok) {
     return { error: authz.error };
   }
 
   if (!Number.isInteger(value) || value < MIN_HOLD_MINUTES || value > MAX_HOLD_MINUTES) {
-    return { error: `Hold window must be a whole number between ${MIN_HOLD_MINUTES} and ${MAX_HOLD_MINUTES} minutes.` };
+    return {
+      error: `Hold window must be a whole number between ${MIN_HOLD_MINUTES} and ${MAX_HOLD_MINUTES} minutes.`,
+    };
   }
 
   try {
@@ -90,7 +101,9 @@ const ALLOWED_QR_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]
 // customer on the payment step, unlike a payment-proof screenshot
 // (uploadPrivate, proxied through an authenticated route). Same
 // SYSTEM_ADMIN tier as every other owner-only payment setting.
-export async function uploadGcashQrAction(formData: FormData): Promise<GcashPaymentInfoActionState> {
+export async function uploadGcashQrAction(
+  formData: FormData,
+): Promise<GcashPaymentInfoActionState> {
   const authz = await requireSystemAdmin();
   if (!authz.ok) {
     return { error: authz.error };
@@ -119,7 +132,9 @@ export async function uploadGcashQrAction(formData: FormData): Promise<GcashPaym
       });
       qrImageUrl = result.url;
     } catch (error) {
-      return { error: toActionError(error, { action: "uploadGcashQrAction", userId: authz.userId }) };
+      return {
+        error: toActionError(error, { action: "uploadGcashQrAction", userId: authz.userId }),
+      };
     }
   }
 
@@ -132,5 +147,37 @@ export async function uploadGcashQrAction(formData: FormData): Promise<GcashPaym
     return { error: null, info };
   } catch (error) {
     return { error: toActionError(error, { action: "uploadGcashQrAction", userId: authz.userId }) };
+  }
+}
+
+// Owner decision (2026-08-03): every customer-facing string mentioning
+// timing/contact channel/phone number must be owner-editable, not
+// hardcoded — same SYSTEM_ADMIN tier as every other owner-only payment/
+// communication setting on this page.
+export async function setBookingCommunicationSettingsAction(
+  input: BookingCommunicationSettings,
+): Promise<PaymentSettingsActionState> {
+  const authz = await requireSystemAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = bookingCommunicationSettingsSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid settings." };
+  }
+
+  try {
+    await settingsService.setBookingCommunicationSettings(parsed.data, authz.userId);
+    revalidatePath("/dashboard/admin/settings");
+    revalidatePath("/book");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, {
+        action: "setBookingCommunicationSettingsAction",
+        userId: authz.userId,
+      }),
+    };
   }
 }

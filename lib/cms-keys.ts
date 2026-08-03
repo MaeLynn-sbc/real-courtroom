@@ -10,4 +10,5 @@ export const CMS_KEYS = {
   COURT_HOURS: "cms.courtHours",
   OPEN_PLAY_SETTINGS: "cms.openPlaySettings",
   GCASH_PAYMENT_INFO: "cms.gcashPaymentInfo",
+  BOOKING_COMMUNICATION: "cms.bookingCommunication",
 } as const;

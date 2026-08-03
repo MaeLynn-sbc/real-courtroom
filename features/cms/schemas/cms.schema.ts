@@ -51,12 +51,36 @@ export const gcashPaymentInfoSchema = z.object({
 
 export type GcashPaymentInfo = z.infer<typeof gcashPaymentInfoSchema>;
 
+// Owner decision (2026-08-03): every customer-facing string that
+// mentions timing, contact channel, or the phone number must be
+// configurable, not hardcoded — so a confirmation-window promise or a
+// channel that changes later (e.g. SMS provider swapped, hours
+// changed) never needs a code deploy to fix. {phone} is the only
+// placeholder substituted at render time (the booking's own guestPhone)
+// — deliberately not court/date/time, which already have their own
+// dedicated summary line above this text, not embedded in prose.
+export const bookingCommunicationSettingsSchema = z.object({
+  // Optional: Semaphore's own default sender ("SEMAPHORE") is used
+  // whenever this is empty — a CUSTOM sender name requires Semaphore's
+  // approval first (services/sms/semaphore-sms.service.ts's own
+  // comment). Never required to have real SMS sending working.
+  smsSenderName: z.string().max(20).optional(),
+  // {reference}/{court}/{date}/{time}/{duration} placeholders,
+  // substituted by whatever sends this (services/sms/ once wired).
+  // Sender reads "SEMAPHORE" by default, so the body must self-identify
+  // — see the default value's own "The Courtroom Kalibo:" lead-in.
+  smsConfirmationTemplate: z.string().min(1, "Enter a confirmation message.").max(320),
+  // Shown on the booking confirmation page once a screenshot is
+  // uploaded — {phone} substituted with the booking's own guestPhone.
+  pageConfirmationCopy: z.string().min(1, "Enter the confirmation page copy.").max(500),
+});
+
+export type BookingCommunicationSettings = z.infer<typeof bookingCommunicationSettingsSchema>;
+
 // Plain "HH:MM" 24-hour time. "00:00" is a valid value everywhere this is
 // used — for courtCloseTimes specifically it doubles as a sentinel (see
 // courtHoursSchema below), not a real midnight cutoff.
-const timeStringSchema = z
-  .string()
-  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use 24-hour HH:MM format.");
+const timeStringSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use 24-hour HH:MM format.");
 
 // BUILD-SPEC.md §0. Fixed weekday keys "0"-"6" (Sun-Sat, Date#getDay()
 // convention) — z.record needs string keys, JSON can't hold numeric ones.

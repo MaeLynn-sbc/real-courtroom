@@ -40,7 +40,10 @@ async function sendBookingProofSms(phone: string | null, message: string): Promi
 // schema.prisma, so this check covers both the same way.
 function isUniqueConstraintViolation(error: unknown): boolean {
   return (
-    typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002"
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
   );
 }
 
@@ -138,7 +141,9 @@ export class BookingPaymentProofService {
   // employee context — every trusted value below (status=PENDING, the
   // booking-status transition target) is hardcoded in this method, never
   // taken from the caller.
-  async submitBookingPaymentProof(input: SubmitBookingPaymentProofInput): Promise<BookingPaymentProof> {
+  async submitBookingPaymentProof(
+    input: SubmitBookingPaymentProofInput,
+  ): Promise<BookingPaymentProof> {
     const upload = await getUploadService().uploadPrivate({
       fileName: input.screenshot.fileName,
       contentType: input.screenshot.contentType,
@@ -146,55 +151,57 @@ export class BookingPaymentProofService {
     });
 
     try {
-      const { proof, bookedById, guestPhone, bookingReference } = await prisma.$transaction(async (tx) => {
-        const now = new Date();
-        // Atomic conditional UPDATE (§15 pattern 2) — the WHERE clause IS
-        // the check: only a booking that is STILL AWAITING_PAYMENT with an
-        // UNEXPIRED hold can be moved. A concurrent second submission for
-        // the same booking (double-tap) affects 0 rows here and is
-        // rejected below, instead of racing to create two PENDING proof
-        // rows for one booking.
-        const updateResult = await tx.booking.updateMany({
-          where: { id: input.bookingId, status: "AWAITING_PAYMENT", holdExpiresAt: { gte: now } },
-          data: { status: "PENDING_VERIFICATION", holdExpiresAt: null },
-        });
+      const { proof, bookedById, guestPhone, bookingReference } = await prisma.$transaction(
+        async (tx) => {
+          const now = new Date();
+          // Atomic conditional UPDATE (§15 pattern 2) — the WHERE clause IS
+          // the check: only a booking that is STILL AWAITING_PAYMENT with an
+          // UNEXPIRED hold can be moved. A concurrent second submission for
+          // the same booking (double-tap) affects 0 rows here and is
+          // rejected below, instead of racing to create two PENDING proof
+          // rows for one booking.
+          const updateResult = await tx.booking.updateMany({
+            where: { id: input.bookingId, status: "AWAITING_PAYMENT", holdExpiresAt: { gte: now } },
+            data: { status: "PENDING_VERIFICATION", holdExpiresAt: null },
+          });
 
-        if (updateResult.count === 0) {
-          const booking = await tx.booking.findUnique({ where: { id: input.bookingId } });
-          if (!booking) {
-            throw new BookingNotAwaitingPaymentError("not_found");
+          if (updateResult.count === 0) {
+            const booking = await tx.booking.findUnique({ where: { id: input.bookingId } });
+            if (!booking) {
+              throw new BookingNotAwaitingPaymentError("not_found");
+            }
+            if (booking.status === "AWAITING_PAYMENT") {
+              throw new BookingNotAwaitingPaymentError("hold_expired");
+            }
+            throw new BookingNotAwaitingPaymentError("wrong_status");
           }
-          if (booking.status === "AWAITING_PAYMENT") {
-            throw new BookingNotAwaitingPaymentError("hold_expired");
-          }
-          throw new BookingNotAwaitingPaymentError("wrong_status");
-        }
 
-        // Hardcoded — see this method's own doc comment. input.status /
-        // input.resolvedByEmployeeId / input.resolvedAt / input.
-        // rejectionReason are never read here, on purpose.
-        const created = await tx.bookingPaymentProof.create({
-          data: {
-            bookingId: input.bookingId,
-            gcashReference: input.gcashReference,
-            submittedAmountCents: input.submittedAmountCents,
-            screenshotStorageKey: upload.key,
-            status: "PENDING",
-          },
-        });
+          // Hardcoded — see this method's own doc comment. input.status /
+          // input.resolvedByEmployeeId / input.resolvedAt / input.
+          // rejectionReason are never read here, on purpose.
+          const created = await tx.bookingPaymentProof.create({
+            data: {
+              bookingId: input.bookingId,
+              gcashReference: input.gcashReference,
+              submittedAmountCents: input.submittedAmountCents,
+              screenshotStorageKey: upload.key,
+              status: "PENDING",
+            },
+          });
 
-        // No real signed-in actor exists for an unauthenticated public
-        // submission — attribute the audit trail to the same seeded
-        // Website system identity the booking itself is already
-        // attributed to (Booking.bookedById), not a made-up value.
-        const booking = await tx.booking.findUniqueOrThrow({ where: { id: input.bookingId } });
-        return {
-          proof: created,
-          bookedById: booking.bookedById,
-          guestPhone: booking.guestPhone,
-          bookingReference: booking.bookingReference,
-        };
-      });
+          // No real signed-in actor exists for an unauthenticated public
+          // submission — attribute the audit trail to the same seeded
+          // Website system identity the booking itself is already
+          // attributed to (Booking.bookedById), not a made-up value.
+          const booking = await tx.booking.findUniqueOrThrow({ where: { id: input.bookingId } });
+          return {
+            proof: created,
+            bookedById: booking.bookedById,
+            guestPhone: booking.guestPhone,
+            bookingReference: booking.bookingReference,
+          };
+        },
+      );
 
       await this.writeBookingHistory(input.bookingId, "PENDING_VERIFICATION", bookedById);
       await this.writeAuditLog({
@@ -207,20 +214,29 @@ export class BookingPaymentProofService {
 
       // Submission acknowledgment — confirms the screenshot itself was
       // received before staff ever look at it, so the customer isn't
-      // left wondering whether the upload went through. Deliberately
-      // says "not yet confirmed" explicitly rather than just leaving
-      // "confirmed" in a future-tense clause — found live: customers
-      // were reading this kind of message as already-booked.
+      // left wondering whether the upload went through. Reworded per
+      // the booking-flow wording sweep (2026-08-03): says what IS true
+      // (the court is reserved — it's already secured server-side the
+      // instant this transaction commits, see submitBookingPaymentProof's
+      // updateMany above, which clears holdExpiresAt entirely so nothing
+      // can release this slot to anyone else) rather than leading with
+      // "not yet confirmed," which read to customers as still-at-risk —
+      // especially anyone who booked overnight with no staff on shift to
+      // review it for hours. Payment verification (staff-checked, still
+      // required before CONFIRMED — see approveBookingPaymentProof) is
+      // a separate concern from whether the court itself is held.
       await sendBookingProofSms(
         guestPhone,
-        `The Courtroom: We received your payment screenshot for booking ${bookingReference} — not yet confirmed. We're verifying it now; you'll get a text once it's confirmed.`,
+        `The Courtroom: Got your payment screenshot for booking ${bookingReference} — your court is reserved. We'll text you once payment is confirmed.`,
       );
 
       return proof;
     } catch (error) {
       // The upload already landed — clean it up rather than leaving an
       // orphaned file for a submission that never became a real proof row.
-      await getUploadService().delete(upload.key).catch(() => undefined);
+      await getUploadService()
+        .delete(upload.key)
+        .catch(() => undefined);
 
       if (isUniqueConstraintViolation(error)) {
         throw new DuplicateGcashReferenceError();
@@ -258,7 +274,9 @@ export class BookingPaymentProofService {
 
     const existing = await prisma.bookingPaymentProof.findUniqueOrThrow({ where: { id: proofId } });
     if (existing.status !== "PENDING") {
-      throw new Error(`Can only record a reference on a payment still awaiting verification (current status: ${existing.status.toLowerCase()}).`);
+      throw new Error(
+        `Can only record a reference on a payment still awaiting verification (current status: ${existing.status.toLowerCase()}).`,
+      );
     }
 
     const updated = await prisma.bookingPaymentProof.update({
@@ -313,7 +331,9 @@ export class BookingPaymentProofService {
       // requires a real rejection reason below.
       const expectedAmountCents = getExpectedPaymentTotalCents(booking);
       if (proof.submittedAmountCents !== expectedAmountCents && !context.overrideReason?.trim()) {
-        throw new Error("A reason is required to approve a payment that doesn't match the expected amount.");
+        throw new Error(
+          "A reason is required to approve a payment that doesn't match the expected amount.",
+        );
       }
 
       const confirmedBooking = await tx.booking.update({
@@ -432,7 +452,9 @@ export class BookingPaymentProofService {
       // happened. createCoachSession never checks Booking.status when it
       // attaches (services/coaching/coach-session.service.ts), so nothing
       // else would have caught this.
-      const coachSession = await prisma.coachSession.findUnique({ where: { bookingId: result.booking.id } });
+      const coachSession = await prisma.coachSession.findUnique({
+        where: { bookingId: result.booking.id },
+      });
       if (coachSession && coachSession.status !== "CANCELLED") {
         await coachSessionService.cancelCoachSession(
           coachSession.id,
@@ -490,7 +512,11 @@ export class BookingPaymentProofService {
   // approved without having to separately go dig through Audit Logs.
   async getApprovalOverrideReason(proofId: string): Promise<string | null> {
     const entry = await prisma.auditLog.findFirst({
-      where: { entityType: "BookingPaymentProof", entityId: proofId, action: "booking_payment_proof.approved" },
+      where: {
+        entityType: "BookingPaymentProof",
+        entityId: proofId,
+        action: "booking_payment_proof.approved",
+      },
       orderBy: { createdAt: "desc" },
     });
     const newValues = entry?.newValues as { overrideReason?: string | null } | null | undefined;
