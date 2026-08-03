@@ -11,34 +11,45 @@ export const metadata: Metadata = {
   title: "Coaching Availability",
 };
 
-interface CoachAvailabilityPageProps {
-  searchParams: Promise<{ coachId?: string }>;
-}
-
-// Part B: any employee holding coaching:manage_own_availability can view
-// and edit ANY coach's calendar right now (see
-// coach-availability.service.ts's ALLOW_CROSS_COACH_AVAILABILITY_EDITS
-// and BUILD-SPEC.md §15 for why) — including a non-coach admin managing
-// a coach's schedule on their behalf. This page needs a coach picker for
-// that to actually be reachable, not just permitted at the service
-// layer; defaults to "my own" when the signed-in account is itself a
-// coach, since that's still the common case.
-export default async function CoachAvailabilityPage({ searchParams }: CoachAvailabilityPageProps) {
-  const { coachId: coachIdParam } = await searchParams;
+// Owner request (2026-08-03): "I don't want a dropdown for coaches — I
+// want them to have their own tables. There's only 2 of them currently
+// so they're not space consuming." Replaces the coachId-driven single
+// picker (one CoachAvailabilityManager instance, switched via a Select +
+// ?coachId= in the URL) with one instance PER coach, all rendered at
+// once, each a fully independent section — its own week nav, its own
+// selected day, its own optimistic-save state, since each is a genuinely
+// separate mounted component (keyed by coach.id below, React gives each
+// its own state automatically). Scales as a longer scrolling page if
+// more coaches are ever added, the right degradation for a staff-only
+// screen with a handful of coaches, not a picker that hides everyone
+// but one. Cross-coach editing (Part B: any employee holding
+// coaching:manage_own_availability can edit ANY coach's calendar, see
+// coach-availability.service.ts's ALLOW_CROSS_COACH_AVAILABILITY_EDITS)
+// stays reachable — every coach's table is just always visible now,
+// nothing to pick to get there.
+export default async function CoachAvailabilityPage() {
   const session = await auth();
   const ownEmployee = session?.user.id
     ? await prisma.employee.findUnique({ where: { userId: session.user.id } })
     : null;
 
-  const coaches = await coachAvailabilityService.listCoaches();
-  const selectedCoachId =
-    coachIdParam && coaches.some((coach) => coach.id === coachIdParam)
-      ? coachIdParam
-      : (ownEmployee?.isCoach ? ownEmployee.id : coaches[0]?.id) ?? "";
-  const isOwnCalendar = selectedCoachId === ownEmployee?.id;
+  const [coaches, courtHours] = await Promise.all([
+    coachAvailabilityService.listCoaches(),
+    settingsService.getCourtHours(),
+  ]);
+
+  const coachData = await Promise.all(
+    coaches.map(async (coach) => {
+      const [windows, activeSessions] = await Promise.all([
+        coachAvailabilityService.listWindows(coach.id),
+        coachSessionService.listActiveSessionsForCoach(coach.id),
+      ]);
+      return { coach, windows, activeSessions };
+    }),
+  );
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex max-w-3xl flex-col gap-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Coaching availability</h1>
         <p className="text-muted-foreground text-sm">
@@ -52,39 +63,17 @@ export default async function CoachAvailabilityPage({ searchParams }: CoachAvail
           No employees are marked as a coach yet — mark one on their employee profile first.
         </p>
       ) : (
-        <CoachAvailabilityManagerData
-          coaches={coaches}
-          selectedCoachId={selectedCoachId}
-          isOwnCalendar={isOwnCalendar}
-        />
+        coachData.map(({ coach, windows, activeSessions }) => (
+          <CoachAvailabilityManager
+            key={coach.id}
+            coach={coach}
+            isOwnCalendar={coach.id === ownEmployee?.id}
+            windows={windows}
+            activeSessions={activeSessions}
+            courtHours={courtHours}
+          />
+        ))
       )}
     </div>
-  );
-}
-
-async function CoachAvailabilityManagerData({
-  coaches,
-  selectedCoachId,
-  isOwnCalendar,
-}: {
-  coaches: Awaited<ReturnType<typeof coachAvailabilityService.listCoaches>>;
-  selectedCoachId: string;
-  isOwnCalendar: boolean;
-}) {
-  const [windows, activeSessions, courtHours] = await Promise.all([
-    selectedCoachId ? coachAvailabilityService.listWindows(selectedCoachId) : Promise.resolve([]),
-    selectedCoachId ? coachSessionService.listActiveSessionsForCoach(selectedCoachId) : Promise.resolve([]),
-    settingsService.getCourtHours(),
-  ]);
-
-  return (
-    <CoachAvailabilityManager
-      coaches={coaches}
-      selectedCoachId={selectedCoachId}
-      isOwnCalendar={isOwnCalendar}
-      windows={windows}
-      activeSessions={activeSessions}
-      courtHours={courtHours}
-    />
   );
 }

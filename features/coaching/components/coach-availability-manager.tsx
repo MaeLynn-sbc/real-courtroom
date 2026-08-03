@@ -17,14 +17,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { HourGrid, type HourCellState } from "@/components/shared/hour-grid";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
 import { getFacilityCloseMinutes } from "@/lib/court-hours";
@@ -34,7 +26,9 @@ import type { coachAvailabilityService } from "@/services/coaching/coach-availab
 import type { coachSessionService } from "@/services/coaching/coach-session.service";
 
 type Coach = Awaited<ReturnType<typeof coachAvailabilityService.listCoaches>>[number];
-type ActiveSession = Awaited<ReturnType<typeof coachSessionService.listActiveSessionsForCoach>>[number];
+type ActiveSession = Awaited<
+  ReturnType<typeof coachSessionService.listActiveSessionsForCoach>
+>[number];
 
 // Only startAt/endAt ever get read anywhere below — a narrower local
 // shape than the full service row, so optimistic entries synthesized
@@ -47,7 +41,11 @@ interface WindowLike {
 }
 
 const weekdayFormatter = new Intl.DateTimeFormat("en-PH", { weekday: "short" });
-const dayHeadingFormatter = new Intl.DateTimeFormat("en-PH", { weekday: "long", month: "long", day: "numeric" });
+const dayHeadingFormatter = new Intl.DateTimeFormat("en-PH", {
+  weekday: "long",
+  month: "long",
+  day: "numeric",
+});
 
 function startOfWeek(date: Date): Date {
   const day = date.getDay();
@@ -64,18 +62,25 @@ function addDays(date: Date, days: number): Date {
 }
 
 function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
 
-const personDateTimeFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short", hour12: true });
+const personDateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  hour12: true,
+});
 
 function sessionCustomerName(session: ActiveSession): string {
   return session.player?.user.name ?? session.player?.user.email ?? session.guestName ?? "Guest";
 }
 
 interface CoachAvailabilityManagerProps {
-  coaches: Coach[];
-  selectedCoachId: string;
+  coach: Coach;
   isOwnCalendar: boolean;
   windows: WindowLike[];
   activeSessions: ActiveSession[];
@@ -83,19 +88,22 @@ interface CoachAvailabilityManagerProps {
 }
 
 export function CoachAvailabilityManager({
-  coaches,
-  selectedCoachId,
+  coach,
   isOwnCalendar,
   windows: windowsProp,
   activeSessions,
   courtHours,
 }: CoachAvailabilityManagerProps) {
+  const selectedCoachId = coach.id;
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const today = useMemo(() => new Date(), []);
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(today));
   const [selectedDate, setSelectedDate] = useState<Date>(today);
-  const [pendingClear, setPendingClear] = useState<{ hour: number; sessions: ActiveSession[] } | null>(null);
+  const [pendingClear, setPendingClear] = useState<{
+    hour: number;
+    sessions: ActiveSession[];
+  } | null>(null);
 
   // Local, optimistically-updated mirror of the server-fetched windows.
   // Two layers, found necessary live, in order:
@@ -179,14 +187,15 @@ export function CoachAvailabilityManager({
     return hours;
   }
 
-  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
-
-  function onSelectCoach(coachId: string) {
-    router.push(`/dashboard/coaching/availability?coachId=${coachId}`);
-  }
+  const weekDays = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
+    [weekStart],
+  );
 
   function goToWeek(newWeekStart: Date) {
-    const dayOffset = Math.round((selectedDate.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
+    const dayOffset = Math.round(
+      (selectedDate.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000),
+    );
     setWeekStart(newWeekStart);
     setSelectedDate(addDays(newWeekStart, dayOffset));
   }
@@ -199,7 +208,10 @@ export function CoachAvailabilityManager({
   // Render-only — derived from the `windows` STATE (so it correctly
   // triggers re-renders), never read by commitToggle's own logic. See
   // windowsRef's comment above for why the two must stay separate.
-  const onHoursForSelectedDate = useMemo(() => hoursForDay(windows, selectedDate), [windows, selectedDate]);
+  const onHoursForSelectedDate = useMemo(
+    () => hoursForDay(windows, selectedDate),
+    [windows, selectedDate],
+  );
 
   // Bounded by the facility's own configured hours for this weekday
   // (defaults 7 AM-11 PM) — never a hardcoded 7/23, same discipline as
@@ -209,7 +221,10 @@ export function CoachAvailabilityManager({
     const openHour = Number(openHourStr);
     const closeMinutes = getFacilityCloseMinutes(courtHours, selectedDate);
     const closeHour = Math.min(Math.floor(closeMinutes / 60), 24);
-    return Array.from({ length: Math.max(0, closeHour - openHour) }, (_, index) => openHour + index);
+    return Array.from(
+      { length: Math.max(0, closeHour - openHour) },
+      (_, index) => openHour + index,
+    );
   }, [courtHours, selectedDate]);
 
   function commitToggle(hour: number) {
@@ -231,8 +246,18 @@ export function CoachAvailabilityManager({
     // update rather than stale data.
     const mergedForDay: WindowLike[] = mergeHoursIntoWindows(sortedHours).map((window, index) => ({
       id: `optimistic-${selectedDate.toISOString()}-${index}`,
-      startAt: new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), window.startHour),
-      endAt: new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), window.endHour),
+      startAt: new Date(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        selectedDate.getDate(),
+        window.startHour,
+      ),
+      endAt: new Date(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        selectedDate.getDate(),
+        window.endHour,
+      ),
     }));
     const newWindows = [
       ...windowsRef.current.filter((window) => !isSameDay(window.startAt, selectedDate)),
@@ -277,29 +302,13 @@ export function CoachAvailabilityManager({
     });
   }
 
-  const cellState = (hour: number): HourCellState => (onHoursForSelectedDate.has(hour) ? "on" : "off");
+  const cellState = (hour: number): HourCellState =>
+    onHoursForSelectedDate.has(hour) ? "on" : "off";
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="border-border flex flex-col gap-6 border-t pt-6 first:border-t-0 first:pt-0">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="coachId">Coach</Label>
-        <Select value={selectedCoachId} onValueChange={(value) => value && onSelectCoach(value)}>
-          <SelectTrigger id="coachId" className="w-full max-w-sm">
-            <SelectValue placeholder="Select a coach">
-              {(value: string) => {
-                const coach = coaches.find((c) => c.id === value);
-                return coach ? (coach.user.name ?? coach.user.email) : "Select a coach";
-              }}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {coaches.map((coach) => (
-              <SelectItem key={coach.id} value={coach.id}>
-                {coach.user.name ?? coach.user.email}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <h2 className="text-lg font-semibold">{coach.user.name ?? coach.user.email}</h2>
         {!isOwnCalendar ? (
           <p className="text-muted-foreground text-xs">
             You&apos;re editing another coach&apos;s calendar — allowed for now while the current
@@ -313,17 +322,33 @@ export function CoachAvailabilityManager({
         <CardContent className="flex flex-col gap-4 pt-6">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => goToWeek(addDays(weekStart, -7))}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => goToWeek(addDays(weekStart, -7))}
+              >
                 ← Prev week
               </Button>
               <Button type="button" variant="ghost" size="sm" onClick={goToThisWeek}>
                 This week
               </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => goToWeek(addDays(weekStart, 7))}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => goToWeek(addDays(weekStart, 7))}
+              >
                 Next week →
               </Button>
             </div>
-            <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={handleCopyLastWeek}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isPending}
+              onClick={handleCopyLastWeek}
+            >
               Copy last week
             </Button>
           </div>
@@ -351,12 +376,18 @@ export function CoachAvailabilityManager({
                         "bg-card text-card-foreground hover:bg-accent border-input",
                   )}
                 >
-                  <span className="uppercase tracking-wide opacity-80">{weekdayFormatter.format(day)}</span>
+                  <span className="tracking-wide uppercase opacity-80">
+                    {weekdayFormatter.format(day)}
+                  </span>
                   <span className="text-base font-semibold">{day.getDate()}</span>
                   <span
                     className={cn(
                       "size-1.5 rounded-full",
-                      hasAvailability ? (isSelected ? "bg-primary-foreground" : "bg-primary") : "bg-transparent",
+                      hasAvailability
+                        ? isSelected
+                          ? "bg-primary-foreground"
+                          : "bg-primary"
+                        : "bg-transparent",
                     )}
                     aria-hidden="true"
                   />
@@ -397,8 +428,9 @@ export function CoachAvailabilityManager({
             <AlertDialogDescription>
               {pendingClear ? (
                 <>
-                  {pendingClear.sessions.length === 1 ? "A" : pendingClear.sessions.length} real coaching{" "}
-                  {pendingClear.sessions.length === 1 ? "session falls" : "sessions fall"} in this hour:
+                  {pendingClear.sessions.length === 1 ? "A" : pendingClear.sessions.length} real
+                  coaching {pendingClear.sessions.length === 1 ? "session falls" : "sessions fall"}{" "}
+                  in this hour:
                   <span className="mt-2 block flex-col gap-1">
                     {pendingClear.sessions.map((session) => (
                       <span key={session.id} className="text-foreground block text-sm font-medium">
@@ -409,7 +441,8 @@ export function CoachAvailabilityManager({
                   </span>
                   <span className="mt-2 block">
                     Clearing availability will NOT cancel or change this booking — resolving a real
-                    conflict means contacting the customer directly, not something this screen can do.
+                    conflict means contacting the customer directly, not something this screen can
+                    do.
                   </span>
                 </>
               ) : null}
