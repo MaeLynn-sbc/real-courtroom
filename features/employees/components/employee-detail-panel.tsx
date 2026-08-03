@@ -56,6 +56,7 @@ function ProfileSection({ employee }: { employee: Employee }) {
     phone: employee.phone ?? "",
     email: employee.user.email ?? "",
     photoUrl: employee.photoUrl ?? "",
+    title: employee.title ?? "",
     bio: employee.bio ?? "",
   });
 
@@ -73,6 +74,7 @@ function ProfileSection({ employee }: { employee: Employee }) {
       phone: values.phone || undefined,
       email: values.email || undefined,
       photoUrl: values.photoUrl || undefined,
+      title: values.title || undefined,
       bio: values.bio || undefined,
     });
 
@@ -133,6 +135,17 @@ function ProfileSection({ employee }: { employee: Employee }) {
           id="photoUrl"
           value={values.photoUrl}
           onChange={(event) => setField("photoUrl", event.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="title">
+          Title {employee.isCoach ? "(shown under their name on the public coaching page)" : ""}
+        </Label>
+        <Input
+          id="title"
+          placeholder="e.g. Pickleball Development Coach"
+          value={values.title}
+          onChange={(event) => setField("title", event.target.value)}
         />
       </div>
       <div className="flex flex-col gap-1.5">

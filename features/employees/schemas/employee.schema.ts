@@ -9,6 +9,10 @@ const employeeProfileSchema = z.object({
   phone: z.string().max(50).optional(),
   photoUrl: z.string().max(500).optional(),
   email: z.string().email("Enter a valid email address.").optional(),
+  // Public coaching page (app/coaches/page.tsx), shown right under the
+  // coach's name, e.g. "Pickleball Development Coach" — same nullable,
+  // not-required treatment as bio/photoUrl below.
+  title: z.string().max(120, "Keep it under 120 characters.").optional(),
   // Public coaching page (app/coaches/page.tsx): shown for any coach who
   // has one, simply omitted otherwise — same nullable, not-required
   // treatment as photoUrl above.

@@ -77,9 +77,14 @@ export default async function CoachesPage() {
                     />
                   ) : null}
                   <div className="flex flex-1 flex-col gap-2">
-                    <h2 className="font-heading text-xl font-semibold">
-                      {coach.firstName} {coach.lastName}
-                    </h2>
+                    <div>
+                      <h2 className="font-heading text-xl font-semibold">
+                        {coach.firstName} {coach.lastName}
+                      </h2>
+                      {coach.title ? (
+                        <p className="text-primary text-sm font-medium">{coach.title}</p>
+                      ) : null}
+                    </div>
                     {coach.bio ? (
                       <p className="text-muted-foreground text-sm whitespace-pre-line">{coach.bio}</p>
                     ) : null}

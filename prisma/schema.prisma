@@ -323,6 +323,10 @@ model Employee {
   lastName       String
   phone          String?
   photoUrl       String?
+  // Public coaching page (app/coaches/page.tsx), shown directly under
+  // the coach's name — e.g. "Pickleball Development Coach". Same
+  // nullable, simply-omitted-when-empty treatment as bio/photoUrl.
+  title          String?
   // New coaching page (public, no login): a short bio shown alongside
   // photoUrl for any coach who has one — same "leave room for it, don't
   // block the page" treatment as photoUrl already gets (both nullable,
