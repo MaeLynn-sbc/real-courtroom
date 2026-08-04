@@ -204,6 +204,41 @@ async function main(): Promise<void> {
   assert(activeAfter.length === 0, `expected 0 active sessions after cancelling the only one, got ${activeAfter.length}`);
   console.log("PASS: listActiveSessionsForCoach excludes a CANCELLED session — the conflict-warning UI won't flag a booking that isn't real anymore.");
 
+  // === Case 7: listActiveSessionsForCoach also excludes a REJECTED booking ===
+  // Reported live, 2026-08-04, alongside the coach-availability calendar's
+  // "still shows available" bug: the session itself can be CONFIRMED
+  // while its BOOKING is REJECTED (GCash proof never cleared, court slot
+  // released) — this used to still count as "active" here, which would
+  // have shown that hour as falsely booked once the calendar started
+  // reading this data to render a blocked state.
+  const secondSlotStart = new Date(TEST_DATE.getFullYear(), TEST_DATE.getMonth(), TEST_DATE.getDate(), 11);
+  const secondSlotEnd = new Date(secondSlotStart.getTime() + 60 * 60 * 1000);
+  await coachAvailabilityService.setDayAvailability(
+    { coachId: rateCoach.id, date: TEST_DATE, hours: [11] },
+    rateCoach.id,
+    owner.id,
+  );
+  const secondBooking = await createPublicBooking({
+    courtId: court.id,
+    startAt: secondSlotStart,
+    endAt: secondSlotEnd,
+    guestName: "Rejected Booking Guest",
+    guestPhone: "09171110098",
+  });
+  const secondAddResult = await addPublicCoachToBooking(
+    { bookingId: secondBooking.bookingId, coachId: rateCoach.id, groupSize: 1 },
+    websiteContext.userId,
+  );
+  assert(secondAddResult.error === null, `expected the second coach session to attach cleanly, got error: ${secondAddResult.error}`);
+
+  const activeBeforeReject = await coachSessionService.listActiveSessionsForCoach(rateCoach.id);
+  assert(activeBeforeReject.length === 1, `expected 1 active session before rejecting the booking, got ${activeBeforeReject.length}`);
+
+  await prisma.booking.update({ where: { id: secondBooking.bookingId }, data: { status: "REJECTED" } });
+  const activeAfterReject = await coachSessionService.listActiveSessionsForCoach(rateCoach.id);
+  assert(activeAfterReject.length === 0, `expected 0 active sessions once the underlying booking is REJECTED, got ${activeAfterReject.length}`);
+  console.log("PASS: listActiveSessionsForCoach excludes a session whose booking was REJECTED — the calendar's booked state won't falsely block an hour whose slot was actually released.");
+
   await cleanUp(coach.id, court.id);
   await cleanUpUsers();
   process.exit(0);

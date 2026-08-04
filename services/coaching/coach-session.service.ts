@@ -76,16 +76,25 @@ export class CoachSessionService {
     });
   }
 
-  // For the coach-availability editor's "warn, don't block" step
-  // (clearing hours that have a real coaching session in them) — the
-  // client checks locally, hour by hour, whether the change would
-  // remove availability under an active session, so it can ask for
-  // confirmation before calling setDayAvailabilityAction. Excludes
-  // CANCELLED/NO_SHOW: a session that isn't actually happening anymore
-  // is nothing to warn about.
+  // Powers two things: the coach-availability editor's "booked" cell
+  // state (features/coaching/components/coach-availability-manager.tsx)
+  // and its "warn, don't block" clear-hour confirmation. Excludes
+  // CANCELLED/NO_SHOW on the session itself, AND — reported live,
+  // 2026-08-04, fixed alongside the "still shows available" calendar
+  // bug — CANCELLED/NO_SHOW/REJECTED on the linked booking too, same
+  // exclusion createCoachSession's own double-booking check and
+  // listAvailableCoaches already use. Missing that second half meant a
+  // coach session whose booking was REJECTED (GCash proof never
+  // cleared, court slot released) still counted as "active" here,
+  // which would have shown that hour as falsely booked once the
+  // calendar started using this data to render a blocked state.
   async listActiveSessionsForCoach(coachId: string) {
     return prisma.coachSession.findMany({
-      where: { coachId, status: { notIn: ["CANCELLED", "NO_SHOW"] } },
+      where: {
+        coachId,
+        status: { notIn: ["CANCELLED", "NO_SHOW"] },
+        booking: { status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] } },
+      },
       select: {
         id: true,
         sessionReference: true,

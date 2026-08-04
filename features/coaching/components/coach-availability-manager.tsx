@@ -269,19 +269,25 @@ export function CoachAvailabilityManager({
     scheduleSave(selectedDate, sortedHours);
   }
 
+  // Shared by the calendar's "booked" cell state and the turn-off
+  // conflict dialog below — one overlap rule, not two copies of it.
+  function conflictingSessionsForHour(hour: number): ActiveSession[] {
+    const slotStart = new Date(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate(),
+      hour,
+    );
+    const slotEnd = new Date(slotStart.getTime() + 60 * 60 * 1000);
+    return activeSessions.filter(
+      (session) => session.booking.startAt < slotEnd && session.booking.endAt > slotStart,
+    );
+  }
+
   function handleHourClick(hour: number) {
     const turningOff = hoursForDay(windowsRef.current, selectedDate).has(hour);
     if (turningOff) {
-      const slotStart = new Date(
-        selectedDate.getFullYear(),
-        selectedDate.getMonth(),
-        selectedDate.getDate(),
-        hour,
-      );
-      const slotEnd = new Date(slotStart.getTime() + 60 * 60 * 1000);
-      const conflicting = activeSessions.filter(
-        (session) => session.booking.startAt < slotEnd && session.booking.endAt > slotStart,
-      );
+      const conflicting = conflictingSessionsForHour(hour);
       if (conflicting.length > 0) {
         setPendingClear({ hour, sessions: conflicting });
         return;
@@ -302,8 +308,24 @@ export function CoachAvailabilityManager({
     });
   }
 
-  const cellState = (hour: number): HourCellState =>
-    onHoursForSelectedDate.has(hour) ? "on" : "off";
+  // Reported live (2026-08-04): "the coach said he could have a double
+  // booking... it still shows available." The actual booking-time
+  // conflict check (createCoachSession) was already correct and
+  // court-agnostic — coachId alone, not scoped to a court, so a coach
+  // genuinely can't be double-booked across different courts at the
+  // same time. The bug was purely visual: this calendar only ever
+  // rendered "on" (available) or "off," with no state at all for
+  // "already booked," so a booked hour looked identical to a free one.
+  // activeSessions is itself coach-scoped, not court-scoped (see
+  // listActiveSessionsForCoach), so this check already blocks the WHOLE
+  // hour regardless of which specific court the session is on — not
+  // just that one court/time pair.
+  const cellState = (hour: number): HourCellState => {
+    if (conflictingSessionsForHour(hour).length > 0) {
+      return "booked";
+    }
+    return onHoursForSelectedDate.has(hour) ? "on" : "off";
+  };
 
   return (
     <div className="border-border flex flex-col gap-6 border-t pt-6 first:border-t-0 first:pt-0">
@@ -403,6 +425,10 @@ export function CoachAvailabilityManager({
           <h2 className="text-lg font-semibold">{dayHeadingFormatter.format(selectedDate)}</h2>
           <p className="text-muted-foreground text-xs">
             Tap an hour to mark it available; tap again to clear it. Whole hours only.
+          </p>
+          <p className="text-muted-foreground mt-1 flex items-center gap-1.5 text-xs">
+            <span className="bg-court-blue/60 inline-block size-2.5 rounded-full" aria-hidden="true" />
+            Blue = already booked, on any court — never available for a second booking.
           </p>
         </div>
         {gridHours.length === 0 ? (

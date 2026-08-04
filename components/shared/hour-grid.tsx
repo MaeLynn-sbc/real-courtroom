@@ -10,7 +10,11 @@ import { cn } from "@/lib/utils";
 // can layer a different selection rule (single contiguous range with a
 // duration cap) on top of the same rendering, by passing a different
 // cellState/onHourClick pair — not a second component.
-export type HourCellState = "on" | "off" | "disabled";
+// "booked" is deliberately NOT "disabled" — a booked hour must stay
+// clickable (coach-availability-manager.tsx's own conflict-warning
+// dialog fires from that click), just visually distinct from a plain
+// open/closed toggle so it can never be mistaken for either.
+export type HourCellState = "on" | "off" | "disabled" | "booked";
 
 export interface HourGridProps {
   hours: number[];
@@ -46,7 +50,15 @@ export function HourGrid({
             type="button"
             disabled={isDisabled}
             aria-pressed={state === "on"}
-            aria-label={`${label}, ${state === "on" ? "selected" : isDisabled ? "unavailable" : "not selected"}`}
+            aria-label={`${label}, ${
+              state === "booked"
+                ? "booked"
+                : state === "on"
+                  ? "selected"
+                  : isDisabled
+                    ? "unavailable"
+                    : "not selected"
+            }`}
             onClick={() => onHourClick?.(hour)}
             className={cn(
               "rounded-lg border px-2 py-2.5 text-sm font-medium transition-colors",
@@ -55,6 +67,15 @@ export function HourGrid({
               state === "off" &&
                 "bg-background hover:bg-accent hover:text-accent-foreground border-input cursor-pointer",
               isDisabled && "bg-muted text-muted-foreground cursor-not-allowed border-transparent opacity-60",
+              // Reported live (2026-08-04): a booked hour rendered
+              // identically to a plain open one — no visual signal a real
+              // session already sat there, which is exactly what made a
+              // coach worry the system could double-book them. court-blue
+              // is this app's established "currently occupied" color
+              // (Badge's "status" variant, the Court Status panel's
+              // "Occupied") — never used for a plain toggle state.
+              state === "booked" &&
+                "bg-court-blue/15 text-court-blue border-court-blue hover:bg-court-blue/25 cursor-pointer",
             )}
           >
             {label}
