@@ -4,6 +4,10 @@ import type { SalesSummary } from "@/services/sales/sale.service";
 
 const CATEGORY_LABELS: Record<string, string> = {
   BOOKING: "Booking",
+  // Reported live (2026-08-04): missing here, so this row fell back to
+  // the raw enum string "COACHING" — the one all-caps label sitting
+  // among every other category's normal-case one.
+  COACHING: "Coaching",
   MEMBERSHIP: "Membership",
   EQUIPMENT_RENTAL: "Equipment rental",
   LOCKER_RENTAL: "Locker rental",

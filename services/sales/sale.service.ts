@@ -176,6 +176,27 @@ export class SaleService {
   // Sale-backed report types — one grouped-query pass, no per-row loop.
   // VOID sales are excluded (COMPLETED only) since a voided sale isn't
   // revenue.
+  //
+  // byCategory's row order below is explicitly sorted by this list, not
+  // left to Prisma's groupBy — reported live (2026-08-04): with no
+  // orderBy, Postgres returned Coaching before Booking regardless of
+  // which had the larger amount, an unstable/arbitrary order that read
+  // as "sorted by size" but wasn't. Fixed categories go first in a
+  // sensible reading order; anything not listed here (a future category)
+  // sorts after everything named, alphabetically among itself.
+  static readonly CATEGORY_DISPLAY_ORDER: readonly string[] = [
+    "BOOKING",
+    "COACHING",
+    "MEMBERSHIP",
+    "EQUIPMENT_RENTAL",
+    "LOCKER_RENTAL",
+    "TOURNAMENT_REGISTRATION",
+    "OPEN_PLAY_REGULAR",
+    "OPEN_PLAY_UNLI",
+    "PRODUCT",
+    "OTHER",
+  ];
+
   async getSalesSummary(range: DateRange): Promise<SalesSummary> {
     const where: Prisma.SaleWhereInput = {
       createdAt: { gte: range.from, lte: range.to },
@@ -234,29 +255,38 @@ export class SaleService {
       totalAmountCents,
       transactionCount,
       averageAmountCents,
-      byCategory: byCategory.flatMap((row): SalesSummaryCategoryBreakdown[] => {
-        if (row.category !== "OPEN_PLAY") {
-          return [
-            { category: row.category, amountCents: row._sum.amountCents ?? 0, count: row._count },
-          ];
-        }
-        const rows: SalesSummaryCategoryBreakdown[] = [];
-        if (openPlayRegular._count > 0) {
-          rows.push({
-            category: "OPEN_PLAY_REGULAR",
-            amountCents: openPlayRegular._sum.amountCents ?? 0,
-            count: openPlayRegular._count,
-          });
-        }
-        if (openPlayUnli._count > 0) {
-          rows.push({
-            category: "OPEN_PLAY_UNLI",
-            amountCents: openPlayUnli._sum.amountCents ?? 0,
-            count: openPlayUnli._count,
-          });
-        }
-        return rows;
-      }),
+      byCategory: byCategory
+        .flatMap((row): SalesSummaryCategoryBreakdown[] => {
+          if (row.category !== "OPEN_PLAY") {
+            return [
+              { category: row.category, amountCents: row._sum.amountCents ?? 0, count: row._count },
+            ];
+          }
+          const rows: SalesSummaryCategoryBreakdown[] = [];
+          if (openPlayRegular._count > 0) {
+            rows.push({
+              category: "OPEN_PLAY_REGULAR",
+              amountCents: openPlayRegular._sum.amountCents ?? 0,
+              count: openPlayRegular._count,
+            });
+          }
+          if (openPlayUnli._count > 0) {
+            rows.push({
+              category: "OPEN_PLAY_UNLI",
+              amountCents: openPlayUnli._sum.amountCents ?? 0,
+              count: openPlayUnli._count,
+            });
+          }
+          return rows;
+        })
+        .sort((a, b) => {
+          const orderA = SaleService.CATEGORY_DISPLAY_ORDER.indexOf(a.category);
+          const orderB = SaleService.CATEGORY_DISPLAY_ORDER.indexOf(b.category);
+          if (orderA === -1 && orderB === -1) return a.category.localeCompare(b.category);
+          if (orderA === -1) return 1;
+          if (orderB === -1) return -1;
+          return orderA - orderB;
+        }),
       byPaymentMethod: byPaymentMethod.map((row) => ({
         paymentMethodId: row.paymentMethodId,
         label: paymentMethodById.get(row.paymentMethodId)?.label ?? "Unknown",
