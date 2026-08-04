@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { BookingSourceBadge } from "@/features/bookings/components/booking-source-badge";
 import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
+import { getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 import type { bookingService } from "@/services/booking/booking.service";
 
@@ -111,14 +112,17 @@ function PaymentCell({ booking }: { booking: BookingRow }) {
   return (
     <div className="flex flex-col gap-0.5">
       {badge}
-      {/* Reported live: the amount wasn't visible anywhere on this row —
-          totalAmountCents is what's owed for an unpaid booking and
-          exactly what gets charged at settlement (settleBooking mirrors
-          it onto the Sale 1:1, no partial payments/discounts happen at
-          that step), so it's accurate whether or not this row is paid
-          yet. */}
+      {/* Reported live: the amount wasn't visible anywhere on this row.
+          getExpectedPaymentTotalCents (court + any non-cancelled coach
+          add-on) — a previous version of this comment claimed
+          totalAmountCents alone was "exactly what gets charged," which
+          was wrong the moment a coach session existed; see that
+          function's own comment for why the Sale itself still stays
+          court-only (the coach's fee is a separate Expense, not Sale
+          revenue) even though this is the real combined amount the
+          guest is asked to pay. */}
       <span className="text-muted-foreground text-xs tabular-nums">
-        {formatCurrency(booking.totalAmountCents ?? 0)}
+        {formatCurrency(getExpectedPaymentTotalCents(booking))}
       </span>
       {/* Reported live: the badge alone being clickable (a bare
           cursor-pointer, no visible label) wasn't discoverable — an

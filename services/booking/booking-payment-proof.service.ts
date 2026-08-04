@@ -3,6 +3,7 @@ import { getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
+import { recordCoachSessionFeeSale } from "@/services/coaching/coach-session-fee-sale";
 import { getUploadService } from "@/services/upload/upload-service.factory";
 import { saleService } from "@/services/sales/sale.service";
 import { getSmsService } from "@/services/sms/sms-service.factory";
@@ -332,7 +333,7 @@ export class BookingPaymentProofService {
 
       const booking = await tx.booking.findUniqueOrThrow({
         where: { id: proof.bookingId },
-        include: { coachSession: true },
+        include: { coachSession: { include: { coach: true } } },
       });
       if (booking.status !== "PENDING_VERIFICATION") {
         throw new BookingNotAwaitingVerificationError();
@@ -371,7 +372,34 @@ export class BookingPaymentProofService {
         tx,
       );
 
-      return { alreadyResolved: false as const, proof, booking: confirmedBooking, sale };
+      // Same combined GCash payment, split into a second Sale — see
+      // coach-session-fee-sale.ts's own comment for why this is its own
+      // Sale (category COACHING) rather than folded into the amount
+      // above. Created in the SAME transaction as the court Sale, not
+      // after commit — both are real revenue rows that must land
+      // atomically together.
+      const coachingSale =
+        booking.coachSession && booking.coachSession.status !== "CANCELLED"
+          ? await recordCoachSessionFeeSale(
+              {
+                coachSessionId: booking.coachSession.id,
+                rateCents: booking.coachSession.rateCents,
+                paymentMethodId: context.paymentMethodId,
+                employeeId: context.employeeId,
+                shiftId: context.shiftId,
+                playerId: booking.playerId,
+              },
+              tx,
+            )
+          : null;
+
+      return {
+        alreadyResolved: false as const,
+        proof,
+        booking: confirmedBooking,
+        sale,
+        coachingSale,
+      };
     });
 
     if (!result.alreadyResolved) {
@@ -388,6 +416,9 @@ export class BookingPaymentProofService {
         newValues: { ...result.proof, overrideReason: context.overrideReason?.trim() || null },
       });
       await saleService.logSaleCreated(result.sale, context.actorUserId);
+      if (result.coachingSale) {
+        await saleService.logSaleCreated(result.coachingSale, context.actorUserId);
+      }
       await sendBookingProofSms(
         result.booking.guestPhone,
         `The Courtroom: Your booking ${result.booking.bookingReference} is CONFIRMED! See you on the court. Check your booking anytime: thecourtroomkalibo.com/lookup`,

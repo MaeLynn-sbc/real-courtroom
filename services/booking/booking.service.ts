@@ -19,6 +19,7 @@ import { formatBookingReference } from "@/services/booking/booking-reference";
 import { canTransitionBookingStatus } from "@/services/booking/booking-status";
 import { PAY_AT_VENUE_PAYMENT_METHOD_KEY } from "@/lib/system-identities";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
+import { recordCoachSessionFeeSale } from "@/services/coaching/coach-session-fee-sale";
 import { saleService } from "@/services/sales/sale.service";
 import { settingsService } from "@/services/settings/settings.service";
 import { getUploadService } from "@/services/upload/upload-service.factory";
@@ -217,6 +218,12 @@ export class BookingService {
           take: 1,
           select: { id: true, status: true, submittedAt: true, resolvedAt: true },
         },
+        // Reported live (Bea Señeris, BK-20260804-0002): the Payment
+        // column read totalAmountCents directly (court hire only) — same
+        // bug class as the verification queue had, same fix (see
+        // lib/booking-payment-total.ts's getExpectedPaymentTotalCents,
+        // which needs this to include the coach add-on).
+        coachSession: { select: { status: true, rateCents: true } },
       },
       orderBy: filters?.sortBy === "createdAt" ? { createdAt: "desc" } : { startAt: "asc" },
       // Defensive cap — most calls already narrow by date/court/status;
@@ -798,7 +805,10 @@ export class BookingService {
           throw new BookingAlreadySettledError();
         }
 
-        const updated = await tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
+        const updated = await tx.booking.findUniqueOrThrow({
+          where: { id: bookingId },
+          include: { coachSession: { include: { coach: true } } },
+        });
 
         const sale = await saleService.createSale(
           {
@@ -813,7 +823,27 @@ export class BookingService {
           tx,
         );
 
-        return { booking: updated, sale };
+        // Same combined payment, split into a second Sale — see
+        // coach-session-fee-sale.ts's own comment for why. Created in
+        // the SAME transaction as the court Sale above, not after
+        // commit — both are real revenue rows that must land atomically
+        // together.
+        const coachingSale =
+          updated.coachSession && updated.coachSession.status !== "CANCELLED"
+            ? await recordCoachSessionFeeSale(
+                {
+                  coachSessionId: updated.coachSession.id,
+                  rateCents: updated.coachSession.rateCents,
+                  paymentMethodId: saleContext.paymentMethodId,
+                  employeeId: saleContext.employeeId,
+                  shiftId: saleContext.shiftId,
+                  playerId: updated.playerId,
+                },
+                tx,
+              )
+            : null;
+
+        return { booking: updated, sale, coachingSale };
       });
 
       await this.writeAuditLog({
@@ -824,6 +854,9 @@ export class BookingService {
         newValues: { method, amountCents: result.sale.amountCents },
       });
       await saleService.logSaleCreated(result.sale, actorUserId);
+      if (result.coachingSale) {
+        await saleService.logSaleCreated(result.coachingSale, actorUserId);
+      }
 
       return result.booking;
     } catch (error) {

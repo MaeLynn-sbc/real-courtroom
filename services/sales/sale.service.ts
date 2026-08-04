@@ -39,6 +39,11 @@ export interface CreateSaleInput {
   playerTabId?: string;
   openPlayNightRegistrationId?: string;
   bookingTabId?: string;
+  // First real writer (2026-08-04) — see coach-session-fee-sale.ts's own
+  // comment for why a coach session's fee is its own Sale (category
+  // COACHING), separate from the court booking's own BOOKING Sale, not
+  // folded into one combined amount.
+  coachSessionId?: string;
   description?: string;
   notes?: string;
 }
@@ -132,6 +137,7 @@ export class SaleService {
         playerTabId: input.playerTabId,
         openPlayNightRegistrationId: input.openPlayNightRegistrationId,
         bookingTabId: input.bookingTabId,
+        coachSessionId: input.coachSessionId,
         description: input.description,
         notes: input.notes,
       },
