@@ -70,7 +70,7 @@ describe("getBookingPaymentState", () => {
       NOW,
     );
     expect(state.label).toBe("Awaiting payment");
-    expect(state.variant).toBe("warning");
+    expect(state.variant).toBe("outline");
   });
 
   it("shows Hold expired once holdExpiresAt has passed", () => {

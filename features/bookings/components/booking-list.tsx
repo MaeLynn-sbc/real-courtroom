@@ -86,9 +86,15 @@ export function getBookingPaymentState(
   if (booking.status === "AWAITING_PAYMENT") {
     const expired =
       booking.holdExpiresAt != null && booking.holdExpiresAt.getTime() < now.getTime();
+    // Reported live: this and PENDING_VERIFICATION below both rendered
+    // "warning" (identical amber) — staff had to read the label to tell
+    // "just holding, no proof yet" apart from "proof submitted, needs my
+    // review." AWAITING_PAYMENT (unexpired) now stays neutral "outline";
+    // PENDING_VERIFICATION keeps "warning" since it's the one actually
+    // waiting on a staff action.
     return expired
       ? { label: "Hold expired", variant: "destructive", when: booking.holdExpiresAt }
-      : { label: "Awaiting payment", variant: "warning", when: booking.holdExpiresAt };
+      : { label: "Awaiting payment", variant: "outline", when: booking.holdExpiresAt };
   }
   if (booking.status === "REJECTED") {
     return {

@@ -1,10 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import type { BookingStatus } from "@/lib/generated/prisma/enums";
 
-// AWAITING_PAYMENT/PENDING_VERIFICATION/REJECTED/REFUNDED (Phase 8
-// plumbing, Gate 1): no service sets a booking to any of these yet, so
-// this badge never actually renders them — entries exist only because
-// Record<BookingStatus, ...> is exhaustive.
 const STATUS_LABELS: Record<BookingStatus, string> = {
   PENDING: "Pending",
   CONFIRMED: "Confirmed",
@@ -19,7 +15,14 @@ const STATUS_LABELS: Record<BookingStatus, string> = {
   REFUNDED: "Refunded",
 };
 
-const STATUS_VARIANTS: Record<BookingStatus, "success" | "outline" | "destructive"> = {
+// AWAITING_PAYMENT (grey outline) and PENDING_VERIFICATION (amber) used
+// to both render "outline" — identical color, told apart only by label
+// text. Reported live: staff couldn't spot which bookings still needed
+// payment verification at a glance. PENDING_VERIFICATION now gets
+// "warning" — it's the one that actually needs a staff action (a
+// submitted proof sitting unreviewed); AWAITING_PAYMENT stays neutral
+// "outline" since nothing's waiting on staff yet, just the customer.
+const STATUS_VARIANTS: Record<BookingStatus, "success" | "outline" | "destructive" | "warning"> = {
   PENDING: "outline",
   CONFIRMED: "success",
   PAID: "success",
@@ -28,7 +31,7 @@ const STATUS_VARIANTS: Record<BookingStatus, "success" | "outline" | "destructiv
   CANCELLED: "destructive",
   NO_SHOW: "destructive",
   AWAITING_PAYMENT: "outline",
-  PENDING_VERIFICATION: "outline",
+  PENDING_VERIFICATION: "warning",
   REJECTED: "destructive",
   REFUNDED: "destructive",
 };
