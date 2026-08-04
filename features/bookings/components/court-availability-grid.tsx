@@ -5,7 +5,7 @@ import {
   type BoardCell,
   type BoardCourt,
 } from "@/features/bookings/components/availability-board";
-import { classifyCourtSlot, getCourtBookingWindow } from "@/lib/court-hours";
+import { classifyCourtSlot, getCourtBookingWindow, overlappingRangeCoachName } from "@/lib/court-hours";
 import { cn } from "@/lib/utils";
 import { bookingService } from "@/services/booking/booking.service";
 import { generateHomeScheduleQrCode } from "@/services/booking/qr-code";
@@ -85,6 +85,7 @@ export async function CourtAvailabilityGrid({
       const courtSchedule = scheduleByCourtId.get(court.id);
       const window = getCourtBookingWindow(courtHours, court.name, date);
 
+      const bookedRanges = courtSchedule?.bookedRanges ?? [];
       const state = classifyCourtSlot({
         hour,
         slotStart,
@@ -92,10 +93,13 @@ export async function CourtAvailabilityGrid({
         now,
         window,
         maintenanceRanges: courtSchedule?.maintenanceRanges ?? [],
-        bookedRanges: courtSchedule?.bookedRanges ?? [],
+        bookedRanges,
       });
 
-      cells[`${hour}:${court.id}`] = { state };
+      cells[`${hour}:${court.id}`] =
+        state === "bookedCoach"
+          ? { state, coachName: overlappingRangeCoachName(slotStart, slotEnd, bookedRanges) }
+          : { state };
     }
   }
 

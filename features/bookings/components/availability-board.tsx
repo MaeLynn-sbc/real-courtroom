@@ -13,6 +13,9 @@ export interface BoardCourt {
 
 export interface BoardCell {
   state: "unavailable" | "openPlay" | "past" | "booked" | "bookedCoach" | "available";
+  // Only ever set (and only ever read) when state === "bookedCoach" —
+  // see the "Coach" sub-label in the render below.
+  coachName?: string;
 }
 
 interface AvailabilityBoardProps {
@@ -231,7 +234,9 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue }: Availabil
                               cellClasses(cell.state),
                             )}
                             aria-label={`Court ${court.name}, ${hourLabel(hour)}, ${
-                              isBookedCoach ? "booked, coach expected" : label.toLowerCase()
+                              isBookedCoach
+                                ? `booked, coach ${cell.coachName ?? "expected"}`
+                                : label.toLowerCase()
                             }`}
                           >
                             {label}
@@ -240,10 +245,13 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue }: Availabil
                                 phone, must still be able to tell this apart from
                                 a plain Booked cell) — a small text badge, not an
                                 icon, matching every other state in this grid
-                                being text-only. */}
+                                being text-only. Owner request (2026-08-05): the
+                                coach's actual name now, not just the bare word —
+                                coaches are already public (photo/bio on
+                                /coaches), unlike a customer's name. */}
                             {isBookedCoach ? (
                               <span className="text-[9px] font-bold tracking-[0.08em] uppercase opacity-80">
-                                Coach
+                                Coach{cell.coachName ? ` ${cell.coachName}` : ""}
                               </span>
                             ) : null}
                           </div>

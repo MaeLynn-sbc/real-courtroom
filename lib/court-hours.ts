@@ -147,8 +147,13 @@ export interface CourtSlotRange {
   startAt: Date;
   endAt: Date;
   // Optional: maintenanceRanges pass no coach concept at all and don't
-  // set this. Only bookedRanges' hasCoach is ever read.
+  // set these. Only bookedRanges' hasCoach/coachName are ever read.
   hasCoach?: boolean;
+  // Owner request (2026-08-05): show which coach on the public grid's
+  // "Coach" sub-label, not just the bare word. Coaches are already
+  // public figures (photo/bio on /coaches) — unlike a customer's name,
+  // there's no privacy reason to withhold this on the public grid.
+  coachName?: string;
 }
 
 function rangesOverlap(slotStart: Date, slotEnd: Date, ranges: CourtSlotRange[]): boolean {
@@ -163,6 +168,20 @@ function overlappingRangeHasCoach(
   return ranges.some(
     (range) => slotStart < range.endAt && slotEnd > range.startAt && range.hasCoach,
   );
+}
+
+// Separate from classifyCourtSlot deliberately — that function's return
+// type (a single CourtSlotState string) is also consumed by
+// public-booking-form.tsx's time dropdown, which has no use for a coach
+// name. Only the grid itself needs it.
+export function overlappingRangeCoachName(
+  slotStart: Date,
+  slotEnd: Date,
+  ranges: CourtSlotRange[],
+): string | undefined {
+  return ranges.find(
+    (range) => slotStart < range.endAt && slotEnd > range.startAt && range.hasCoach,
+  )?.coachName;
 }
 
 // Single shared definition of "past" for an hourly slot — used by the

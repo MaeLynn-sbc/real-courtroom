@@ -84,7 +84,7 @@ export interface PublicCourtDaySchedule {
   courtId: string;
   courtName: string;
   status: CourtStatus;
-  bookedRanges: { startAt: Date; endAt: Date; hasCoach: boolean }[];
+  bookedRanges: { startAt: Date; endAt: Date; hasCoach: boolean; coachName?: string }[];
   maintenanceRanges: { startAt: Date; endAt: Date }[];
 }
 
@@ -1090,7 +1090,12 @@ export class BookingService {
           courtId: true,
           startAt: true,
           endAt: true,
-          coachSession: { select: { status: true } },
+          // Owner request (2026-08-05): the public grid's "Coach" sub-
+          // label shows the coach's actual name now, not just the bare
+          // word — coach.firstName/lastName rides along in this same
+          // query, same "JOIN, not a second round trip" reasoning as
+          // coachSession.status above.
+          coachSession: { select: { status: true, coach: { select: { firstName: true, lastName: true } } } },
         },
       }),
       prisma.courtMaintenance.findMany({
@@ -1114,6 +1119,9 @@ export class BookingService {
           startAt,
           endAt,
           hasCoach: coachSession != null && coachSession.status !== "CANCELLED",
+          coachName: coachSession
+            ? `${coachSession.coach.firstName} ${coachSession.coach.lastName}`
+            : undefined,
         })),
       maintenanceRanges: maintenanceWindows
         .filter((window) => window.courtId === court.id)

@@ -3,6 +3,7 @@ import {
   getCourtBookingWindow,
   isBeforeFridaySaturdayOpenPlayCutoff,
   isWithinCourtBookingWindow,
+  overlappingRangeCoachName,
 } from "@/lib/court-hours";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
 
@@ -180,6 +181,39 @@ describe("classifyCourtSlot", () => {
         bookedRanges: [{ ...booking, hasCoach: false }],
       }),
     ).toBe("booked");
+  });
+});
+
+// Owner request (2026-08-05): show the actual coach on the public
+// grid's "Coach" sub-label, not just the bare word. Separate from
+// classifyCourtSlot deliberately — that function's return type is also
+// consumed by the /book time dropdown, which has no use for a name.
+describe("overlappingRangeCoachName", () => {
+  const slotStart = new Date(2026, 6, 20, 8, 0);
+  const slotEnd = new Date(2026, 6, 20, 9, 0);
+  const coachedBooking = {
+    startAt: new Date(2026, 6, 20, 7, 0),
+    endAt: new Date(2026, 6, 20, 10, 0),
+    hasCoach: true,
+    coachName: "Tito Voi Quinto",
+  };
+
+  it("returns the coach's name for an overlapping coached range", () => {
+    expect(overlappingRangeCoachName(slotStart, slotEnd, [coachedBooking])).toBe(
+      "Tito Voi Quinto",
+    );
+  });
+
+  it("returns undefined when the overlapping range has no coach", () => {
+    expect(
+      overlappingRangeCoachName(slotStart, slotEnd, [{ ...coachedBooking, hasCoach: false }]),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when nothing overlaps at all", () => {
+    const laterStart = new Date(2026, 6, 20, 14, 0);
+    const laterEnd = new Date(2026, 6, 20, 15, 0);
+    expect(overlappingRangeCoachName(laterStart, laterEnd, [coachedBooking])).toBeUndefined();
   });
 });
 
