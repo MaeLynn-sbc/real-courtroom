@@ -93,6 +93,7 @@ export interface MembershipReportResult {
 export interface CoachingReportRow {
   id: string;
   sessionReference: string;
+  coachId: string;
   coachName: string;
   playerName: string | null;
   bookingReference: string;
@@ -376,6 +377,7 @@ export class ReportingService {
     const rows: CoachingReportRow[] = sessions.map((session) => ({
       id: session.id,
       sessionReference: session.sessionReference,
+      coachId: session.coachId,
       coachName: `${session.coach.firstName} ${session.coach.lastName}`,
       playerName: playerDisplayName(session.player, session.guestName),
       bookingReference: session.booking.bookingReference,

@@ -7,6 +7,7 @@ import { BookingStatusBadge } from "@/features/bookings/components/booking-statu
 import { EquipmentRentalStatusBadge } from "@/features/equipment/components/equipment-rental-status-badge";
 import { LockerRentalStatusBadge } from "@/features/lockers/components/locker-rental-status-badge";
 import { MembershipStatusBadge } from "@/features/memberships/components/membership-status-badge";
+import { CoachingWeeklyReport } from "@/features/reports/components/coaching-weekly-report";
 import { ExportCsvButton } from "@/features/reports/components/export-csv-button";
 import { ReportTable, type ReportTableColumn } from "@/features/reports/components/report-table";
 import {
@@ -28,7 +29,6 @@ import { resolveDateRangeFromSearchParams, type DateRange } from "@/services/ana
 import {
   reportingService,
   type BookingReportRow,
-  type CoachingReportRow,
   type CourtUtilizationRow,
   type EquipmentRentalReportRow,
   type LockerRentalReportRow,
@@ -68,6 +68,13 @@ export default async function ReportPage({ params, searchParams }: ReportPagePro
   const parsedType = reportTypeSchema.safeParse(reportType);
   if (!parsedType.success) {
     notFound();
+  }
+
+  // Coaching gets its own weekly-tabs/per-coach/archive layout, not the
+  // generic DateRangePicker + single-table chrome every other report
+  // type below shares — see that component's own comment.
+  if (parsedType.data === "coaching") {
+    return <CoachingWeeklyReport searchParams={rawSearchParams} />;
   }
 
   const range = resolveDateRangeFromSearchParams(rawSearchParams);
@@ -161,50 +168,6 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
         { header: "End", render: (r) => dateFormatter.format(r.endDate) },
       ];
       return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.id} />;
-    }
-    case "coaching": {
-      const [{ rows }, byCoach] = await Promise.all([
-        reportingService.getCoachingReport(range),
-        reportingService.getCoachingFeesByCoachReport(range),
-      ]);
-      const columns: ReportTableColumn<CoachingReportRow>[] = [
-        { header: "Reference", render: (r) => r.sessionReference },
-        { header: "Coach", render: (r) => r.coachName },
-        { header: "Player", render: (r) => r.playerName ?? "—" },
-        { header: "Booking", render: (r) => r.bookingReference },
-        { header: "Court", render: (r) => r.courtName },
-        { header: "Status", render: (r) => r.status },
-        { header: "Start", render: (r) => dateFormatter.format(r.startAt) },
-        { header: "Fee", render: (r) => formatCurrency(r.rateCents) },
-      ];
-      return (
-        <div className="flex flex-col gap-6">
-          {byCoach.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              <h2 className="text-muted-foreground text-sm font-medium">
-                Coaching fees collected, by coach
-              </h2>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {byCoach.map((coach) => (
-                  <div
-                    key={coach.coachId}
-                    className="flex items-center justify-between gap-3 rounded-lg border p-3"
-                  >
-                    <div>
-                      <p className="font-medium">{coach.coachName}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {coach.transactionCount} session{coach.transactionCount === 1 ? "" : "s"}
-                      </p>
-                    </div>
-                    <p className="font-semibold tabular-nums">{formatCurrency(coach.amountCents)}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.id} />
-        </div>
-      );
     }
     case "equipmentRental": {
       const rows = await reportingService.getEquipmentRentalReport(range);
