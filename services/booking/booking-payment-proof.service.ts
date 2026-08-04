@@ -182,24 +182,34 @@ export class BookingPaymentProofService {
             throw new BookingNotAwaitingPaymentError("wrong_status");
           }
 
+          // No real signed-in actor exists for an unauthenticated public
+          // submission — attribute the audit trail to the same seeded
+          // Website system identity the booking itself is already
+          // attributed to (Booking.bookedById), not a made-up value.
+          // Also the source for expectedAmountCents below — fetched once,
+          // with coachSession, and reused for both.
+          const booking = await tx.booking.findUniqueOrThrow({
+            where: { id: input.bookingId },
+            include: { coachSession: true },
+          });
+
           // Hardcoded — see this method's own doc comment. input.status /
           // input.resolvedByEmployeeId / input.resolvedAt / input.
           // rejectionReason are never read here, on purpose.
+          // expectedAmountCents: frozen HERE, in the same transaction as
+          // submittedAmountCents — see the column's own schema comment
+          // for why this must never be recomputed after insert.
           const created = await tx.bookingPaymentProof.create({
             data: {
               bookingId: input.bookingId,
               gcashReference: input.gcashReference,
               submittedAmountCents: input.submittedAmountCents,
+              expectedAmountCents: getExpectedPaymentTotalCents(booking),
               screenshotStorageKey: upload.key,
               status: "PENDING",
             },
           });
 
-          // No real signed-in actor exists for an unauthenticated public
-          // submission — attribute the audit trail to the same seeded
-          // Website system identity the booking itself is already
-          // attributed to (Booking.bookedById), not a made-up value.
-          const booking = await tx.booking.findUniqueOrThrow({ where: { id: input.bookingId } });
           return {
             proof: created,
             bookedById: booking.bookedById,
@@ -486,10 +496,17 @@ export class BookingPaymentProofService {
     return { alreadyResolved: result.alreadyResolved, proof: result.proof };
   }
 
+  // Reported live (Bea Señeris, BK-20260804-0002): this query never
+  // fetched coachSession, so the verification queue's own "Expected"
+  // fell back to Booking.totalAmountCents (court hire only) — a
+  // different, understated number than the detail screen's
+  // getExpectedPaymentTotalCents(booking), which DOES see the coach
+  // add-on. Same include shape as getProofById below, so both screens
+  // now compute Expected from the exact same data.
   async listPendingProofs() {
     return prisma.bookingPaymentProof.findMany({
       where: { status: "PENDING" },
-      include: { booking: { include: { court: true } } },
+      include: { booking: { include: { court: true, coachSession: true } } },
       orderBy: { submittedAt: "asc" },
     });
   }
@@ -505,7 +522,16 @@ export class BookingPaymentProofService {
     return prisma.bookingPaymentProof.findUnique({
       where: { id: proofId },
       include: {
-        booking: { include: { court: true, coachSession: { include: { coach: true } } } },
+        booking: {
+          include: {
+            court: true,
+            // history included for the detail screen's "what changed and
+            // when" line — only ever rendered when expectedAmountCents
+            // (the submission-time snapshot) disagrees with the live
+            // total, to explain the divergence rather than just flag it.
+            coachSession: { include: { coach: true, history: { orderBy: { createdAt: "desc" } } } },
+          },
+        },
         resolvedByEmployee: true,
       },
     });

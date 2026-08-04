@@ -20,6 +20,29 @@ import { formatCurrency } from "@/lib/utils";
 import type { bookingPaymentProofService } from "@/services/booking/booking-payment-proof.service";
 
 type Proof = NonNullable<Awaited<ReturnType<typeof bookingPaymentProofService.getProofById>>>;
+type CoachSession = NonNullable<Proof["booking"]["coachSession"]>;
+
+const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+// "What changed and when" for the submission-vs-live divergence banner
+// below — the most recent coach-session status change made AFTER this
+// proof was submitted, if any. Only ever explains a STATUS change
+// (CoachSessionHistory has no rateCents field to diff a rate change
+// against) — a rate change with no status change shows the two totals
+// but no explanation, which is honest: the data to explain it doesn't
+// exist.
+function describeCoachSessionChangeAfter(coachSession: CoachSession, after: Date): string | null {
+  const changed = coachSession.history.find((entry) => entry.createdAt > after);
+  if (!changed) {
+    return null;
+  }
+  return `Coach session marked ${changed.status} on ${dateTimeFormatter.format(changed.createdAt)}`;
+}
 
 interface PaymentVerificationDetailProps {
   proof: Proof;
@@ -64,8 +87,20 @@ export function PaymentVerificationDetail({ proof, approvalOverrideReason }: Pay
   const courtCents = proof.booking.totalAmountCents ?? 0;
   const coachSession = proof.booking.coachSession;
   const coachCents = coachSession && coachSession.status !== "CANCELLED" ? coachSession.rateCents : 0;
+  // The approval gate (server-side, approveBookingPaymentProof) compares
+  // against THIS — live, recomputed from the booking's current contents
+  // — deliberately unchanged. A real current discrepancy must always
+  // surface, even if it differs from what was expected at submission.
   const expectedAmountCents = getExpectedPaymentTotalCents(proof.booking);
   const amountMismatches = proof.submittedAmountCents !== expectedAmountCents;
+  // The submission-time snapshot (lib/booking-payment-total.ts's own
+  // schema comment) — null for proofs submitted before this column
+  // existed, which is a real, expected state, not a bug to work around.
+  const submissionExpectedAmountCents = proof.expectedAmountCents;
+  const hasDiverged =
+    submissionExpectedAmountCents !== null && submissionExpectedAmountCents !== expectedAmountCents;
+  const divergenceExplanation =
+    hasDiverged && coachSession ? describeCoachSessionChangeAfter(coachSession, proof.submittedAt) : null;
 
   function handleCopyReference() {
     if (!proof.gcashReference) {
@@ -292,10 +327,28 @@ export function PaymentVerificationDetail({ proof, approvalOverrideReason }: Pay
               <div className="border-border my-1 border-t" />
             </>
           ) : null}
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Expected</span>
-            <span className="font-medium">{formatCurrency(expectedAmountCents)}</span>
-          </div>
+          {hasDiverged ? (
+            <>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Expected at submission</span>
+                <span className="font-medium">{formatCurrency(submissionExpectedAmountCents!)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Currently expected</span>
+                <span className="font-medium">{formatCurrency(expectedAmountCents)}</span>
+              </div>
+              <p className="text-warning-foreground bg-warning/15 rounded-lg px-2.5 py-1.5 text-xs">
+                {divergenceExplanation ??
+                  "This booking's coaching changed after the payment was submitted."}
+              </p>
+              <div className="border-border my-1 border-t" />
+            </>
+          ) : (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Expected</span>
+              <span className="font-medium">{formatCurrency(expectedAmountCents)}</span>
+            </div>
+          )}
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Submitted by customer</span>
             <span className="flex items-center gap-2 font-medium">

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 import { bookingPaymentProofService } from "@/services/booking/booking-payment-proof.service";
 
@@ -54,7 +55,7 @@ export default async function VerifyPaymentsPage() {
             {proofs.map((proof) => {
               const elapsedMs = now - proof.submittedAt.getTime();
               const isOverThirtyMinutes = elapsedMs > THIRTY_MINUTES_MS;
-              const expectedAmountCents = proof.booking.totalAmountCents ?? 0;
+              const expectedAmountCents = getExpectedPaymentTotalCents(proof.booking);
               const amountMismatches = proof.submittedAmountCents !== expectedAmountCents;
 
               return (

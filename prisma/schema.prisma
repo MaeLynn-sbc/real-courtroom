@@ -2765,6 +2765,22 @@ model BookingPaymentProof {
   // verification screen's mismatch flag, never trusted as proof of
   // actual payment on its own (that's what the screenshot is for).
   submittedAmountCents Int
+  // Reported live 2026-08-04 (Bea Señeris, BK-20260804-0002): Expected
+  // was recomputed live on every page load, so a coach added or
+  // removed after submission silently changed what a proof was
+  // compared against, with no record of what it originally was. Frozen
+  // at submission via getExpectedPaymentTotalCents(booking)
+  // (lib/booking-payment-total.ts), inside the same transaction as
+  // submittedAmountCents — never touched again after insert. Nullable:
+  // rows created before this column existed have no true historical
+  // value to backfill (we never captured it), so they stay null and
+  // read as "predates snapshot" rather than a guessed/backfilled
+  // number. The approval gate (approveBookingPaymentProof) deliberately
+  // keeps comparing against the LIVE total, not this snapshot — a real
+  // current discrepancy must still surface even if this differs from
+  // it; the detail screen shows BOTH when they disagree instead of
+  // picking one.
+  expectedAmountCents  Int?
   submittedAt          DateTime                  @default(now())
   status               BookingPaymentProofStatus @default(PENDING)
   // Nullable for the same reason PlayerTab.writeOffEmployeeId is —

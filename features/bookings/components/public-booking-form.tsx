@@ -32,6 +32,7 @@ import {
 } from "@/features/coaching/components/public-coach-add-on";
 import { PublicPaymentProofUpload } from "@/features/bookings/components/public-payment-proof-upload";
 import { useLiveNow } from "@/hooks/use-live-now";
+import { getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
 import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
 import { cn, formatCurrency } from "@/lib/utils";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
@@ -604,8 +605,14 @@ export function PublicBookingForm({
   });
 
   if (confirmation) {
-    const coachFeeCents = coachSession?.priceCents ?? 0;
-    const totalDueCents = confirmation.totalAmountCents + coachFeeCents;
+    // Same source of truth as the staff verification screens (lib/
+    // booking-payment-total.ts) — no third, independent sum. A just-
+    // confirmed add-on is always CONFIRMED here; there's no cancelled
+    // state reachable mid-checkout.
+    const totalDueCents = getExpectedPaymentTotalCents({
+      totalAmountCents: confirmation.totalAmountCents,
+      coachSession: coachSession ? { status: "CONFIRMED", rateCents: coachSession.priceCents } : null,
+    });
 
     // Genuinely confirmed (pay-at-venue-by-default, requiresPayment
     // false) is a real completion — Card + success styling stays.
