@@ -246,6 +246,54 @@ export class GcashReconciliationService {
     return balance;
   }
 
+  // "There's no option to close it" (reported live, 2026-08-04): a day
+  // confirmed too early (staff closed at 8 AM, before most of the day's
+  // real sales had even happened) has no way back to OPEN through
+  // confirmBalance/overrideStartingBalance — both explicitly require
+  // OPEN. This is the undo. Only from CONFIRMED (nothing to reopen from
+  // OPEN); wipes the confirm-time fields back to their pre-confirm
+  // state, but the audit log (oldValues below) keeps the original close
+  // — including whatever real numbers were entered then — permanently
+  // recoverable even after this runs.
+  async reopenBalance(date: Date, reason: string, actorUserId: string): Promise<GcashDailyBalance> {
+    if (!reason.trim()) {
+      throw new Error("A reason is required to reopen this day.");
+    }
+
+    const targetDate = toMidnight(date);
+    const existing = await prisma.gcashDailyBalance.findUnique({ where: { date: targetDate } });
+    if (!existing) {
+      throw new Error("No GCash balance record exists for this date yet.");
+    }
+    if (existing.status !== "CONFIRMED") {
+      throw new Error("This day isn't confirmed — nothing to reopen.");
+    }
+
+    const balance = await prisma.gcashDailyBalance.update({
+      where: { id: existing.id },
+      data: {
+        status: "OPEN",
+        expectedEndingBalanceCents: null,
+        confirmedEndingBalanceCents: null,
+        varianceCents: null,
+        notes: null,
+        confirmedByEmployeeId: null,
+        confirmedAt: null,
+      },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "gcash_daily_balance.reopened",
+      entityType: "GcashDailyBalance",
+      entityId: balance.id,
+      oldValues: { ...existing, reason },
+      newValues: balance,
+    });
+
+    return balance;
+  }
+
   private async writeAuditLog(entry: AuditLogEntry): Promise<void> {
     try {
       await prisma.auditLog.create({

@@ -5,9 +5,11 @@ import { revalidatePath } from "next/cache";
 import {
   confirmGcashBalanceSchema,
   overrideGcashStartingBalanceSchema,
+  reopenGcashBalanceSchema,
   seedGcashBalanceSchema,
   type ConfirmGcashBalanceInput,
   type OverrideGcashStartingBalanceInput,
+  type ReopenGcashBalanceInput,
   type SeedGcashBalanceInput,
 } from "@/features/gcash/schemas/gcash-reconciliation.schema";
 import { requirePermission } from "@/lib/action-auth";
@@ -118,5 +120,31 @@ export async function overrideGcashStartingBalanceAction(
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "overrideGcashStartingBalanceAction", userId: authz.userId }) };
+  }
+}
+
+export async function reopenGcashBalanceAction(
+  input: ReopenGcashBalanceInput,
+): Promise<GcashReconciliationActionState> {
+  const authz = await requireGcashReconciliationEmployee();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = reopenGcashBalanceSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await gcashReconciliationService.reopenBalance(
+      new Date(`${parsed.data.date}T00:00:00`),
+      parsed.data.reason,
+      authz.userId,
+    );
+    revalidateGcashReconciliation();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "reopenGcashBalanceAction", userId: authz.userId }) };
   }
 }

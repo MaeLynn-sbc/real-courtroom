@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -7,6 +8,7 @@ import { toast } from "sonner";
 import {
   confirmGcashBalanceAction,
   overrideGcashStartingBalanceAction,
+  reopenGcashBalanceAction,
   seedGcashBalanceAction,
 } from "@/actions/gcash-reconciliation.actions";
 import { Badge } from "@/components/ui/badge";
@@ -344,6 +346,78 @@ function ConfirmBalanceCard({
   );
 }
 
+// Reported live (2026-08-04): a day confirmed too early (e.g. 8 AM, with
+// most of the day's real sales still ahead) had no way back to OPEN —
+// this undoes that specific mistake. Reason required, audit-logged; the
+// original confirmed numbers stay fully recoverable in the audit trail
+// even after this runs (see reopenBalance's own comment).
+function ReopenBalanceForm({ balance }: { balance: TodayBalance }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [reason, setReason] = useState("");
+
+  function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setServerError(null);
+
+    if (!reason.trim()) {
+      setServerError("Enter a reason for reopening this day.");
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await reopenGcashBalanceAction({
+        date: toDateValue(balance.date),
+        reason: reason.trim(),
+      });
+      if (result.error) {
+        setServerError(result.error);
+        return;
+      }
+      toast.success("Day reopened — you can now confirm it again with the correct numbers.");
+      setOpen(false);
+      router.refresh();
+    });
+  }
+
+  if (!open) {
+    return (
+      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        Reopen this day…
+      </Button>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-lg border border-dashed p-3">
+      <p className="text-muted-foreground text-xs">
+        Use this if the day was closed too early (e.g. before the full day&apos;s sales came in).
+        The current confirmed numbers stay in the audit trail; this just reopens the day so it can
+        be confirmed again with the correct amount.
+      </p>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="reopenReason">Reason (required)</Label>
+        <Textarea id="reopenReason" value={reason} onChange={(event) => setReason(event.target.value)} />
+      </div>
+      {serverError ? (
+        <p className="text-destructive text-sm" role="alert">
+          {serverError}
+        </p>
+      ) : null}
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" variant="destructive" disabled={isPending}>
+          {isPending ? "Reopening…" : "Reopen day"}
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={isPending}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function AlreadyConfirmedCard({ balance }: { balance: TodayBalance }) {
   return (
     <Card>
@@ -377,6 +451,9 @@ function AlreadyConfirmedCard({ balance }: { balance: TodayBalance }) {
         {balance.notes ? (
           <p className="text-muted-foreground mt-1">Notes: {balance.notes}</p>
         ) : null}
+        <div className="mt-2 border-t pt-3">
+          <ReopenBalanceForm balance={balance} />
+        </div>
       </CardContent>
     </Card>
   );
@@ -426,7 +503,17 @@ export function GcashReconciliationWorkspace({
                 {recentBalances.map((balance) => (
                   <TableRow key={balance.id}>
                     <TableCell className="font-medium">
-                      {dateFormatter.format(balance.date)}
+                      {/* Reported live (2026-08-04): this list used to be
+                          purely read-only — no way to reach a stuck past
+                          day at all, which is exactly how a never-
+                          confirmed day like this stayed permanently
+                          unreachable. */}
+                      <Link
+                        href={`?date=${toDateValue(balance.date)}`}
+                        className="text-primary hover:underline"
+                      >
+                        {dateFormatter.format(balance.date)}
+                      </Link>
                     </TableCell>
                     <TableCell>
                       <Badge variant={balance.status === "OPEN" ? "status" : "outline"}>

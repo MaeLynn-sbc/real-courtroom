@@ -40,3 +40,13 @@ export const overrideCashStartingBalanceSchema = z.object({
   reason: z.string().min(1, "Enter a reason for this correction."),
 });
 export type OverrideCashStartingBalanceInput = z.infer<typeof overrideCashStartingBalanceSchema>;
+
+// Reported live (2026-08-04): a day confirmed too early (e.g. 8 AM, with
+// most of the day's real sales still to come) had no way back to OPEN —
+// undoing a mistaken close needed a real reason, same discipline as
+// overrideStartingBalance.
+export const reopenCashBalanceSchema = z.object({
+  date: z.string().min(1),
+  reason: z.string().min(1, "Enter a reason for reopening this day."),
+});
+export type ReopenCashBalanceInput = z.infer<typeof reopenCashBalanceSchema>;

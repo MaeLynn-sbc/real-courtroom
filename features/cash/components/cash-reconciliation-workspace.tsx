@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -7,6 +8,7 @@ import { toast } from "sonner";
 import {
   confirmCashBalanceAction,
   overrideCashStartingBalanceAction,
+  reopenCashBalanceAction,
   seedCashBalanceAction,
 } from "@/actions/cash-reconciliation.actions";
 import { Badge } from "@/components/ui/badge";
@@ -366,6 +368,76 @@ function ConfirmBalanceCard({
   );
 }
 
+// Reported live (2026-08-04): a day confirmed too early had no way back
+// to OPEN — see GcashReconciliationWorkspace's identical form for the
+// full reasoning (both mirror the same underlying reopenBalance shape).
+function ReopenBalanceForm({ balance }: { balance: TodayBalance }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [reason, setReason] = useState("");
+
+  function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setServerError(null);
+
+    if (!reason.trim()) {
+      setServerError("Enter a reason for reopening this day.");
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await reopenCashBalanceAction({
+        date: toDateValue(balance.date),
+        reason: reason.trim(),
+      });
+      if (result.error) {
+        setServerError(result.error);
+        return;
+      }
+      toast.success("Day reopened — you can now confirm it again with the correct numbers.");
+      setOpen(false);
+      router.refresh();
+    });
+  }
+
+  if (!open) {
+    return (
+      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        Reopen this day…
+      </Button>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-lg border border-dashed p-3">
+      <p className="text-muted-foreground text-xs">
+        Use this if the day was closed too early (e.g. before the full day&apos;s sales came in).
+        The current confirmed numbers stay in the audit trail; this just reopens the day so it can
+        be confirmed again with the correct amount.
+      </p>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="reopenReason">Reason (required)</Label>
+        <Textarea id="reopenReason" value={reason} onChange={(event) => setReason(event.target.value)} />
+      </div>
+      {serverError ? (
+        <p className="text-destructive text-sm" role="alert">
+          {serverError}
+        </p>
+      ) : null}
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" variant="destructive" disabled={isPending}>
+          {isPending ? "Reopening…" : "Reopen day"}
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={isPending}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function AlreadyConfirmedCard({ balance }: { balance: TodayBalance }) {
   return (
     <Card>
@@ -411,6 +483,9 @@ function AlreadyConfirmedCard({ balance }: { balance: TodayBalance }) {
         {balance.notes ? (
           <p className="text-muted-foreground mt-1">Notes: {balance.notes}</p>
         ) : null}
+        <div className="mt-2 border-t pt-3">
+          <ReopenBalanceForm balance={balance} />
+        </div>
       </CardContent>
     </Card>
   );
@@ -461,7 +536,12 @@ export function CashReconciliationWorkspace({
                 {recentBalances.map((balance) => (
                   <TableRow key={balance.id}>
                     <TableCell className="font-medium">
-                      {dateFormatter.format(balance.date)}
+                      <Link
+                        href={`?date=${toDateValue(balance.date)}`}
+                        className="text-primary hover:underline"
+                      >
+                        {dateFormatter.format(balance.date)}
+                      </Link>
                     </TableCell>
                     <TableCell>
                       <Badge variant={balance.status === "OPEN" ? "status" : "outline"}>

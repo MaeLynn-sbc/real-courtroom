@@ -214,6 +214,63 @@ async function main(): Promise<void> {
     assert(overrideRejectedAfterConfirm, "expected an override attempt on an already-CONFIRMED day to be rejected");
     console.log("PASS: the starting balance can't be overridden once the day is already confirmed.");
 
+    // ============== 7. reopenBalance — the "closed too early" undo ==============
+    let reopenRejectedNoReason = false;
+    try {
+      await gcashReconciliationService.reopenBalance(tomorrow, "", owner.id);
+    } catch {
+      reopenRejectedNoReason = true;
+    }
+    assert(reopenRejectedNoReason, "expected reopenBalance with no reason to be rejected");
+
+    const beforeReopen = await gcashReconciliationService.getBalanceForDate(tomorrow);
+    assert(beforeReopen?.status === "CONFIRMED", "expected tomorrow to still be CONFIRMED going into the reopen test");
+    const originalConfirmedEnding = beforeReopen!.confirmedEndingBalanceCents;
+
+    const reopened = await gcashReconciliationService.reopenBalance(
+      tomorrow,
+      "Closed at 8am before the day's real sales came in.",
+      owner.id,
+    );
+    assert(reopened.status === "OPEN", `expected OPEN after reopening, got ${reopened.status}`);
+    assert(reopened.confirmedEndingBalanceCents === null, "expected confirmedEndingBalanceCents cleared after reopening");
+    assert(reopened.confirmedAt === null, "expected confirmedAt cleared after reopening");
+    console.log("PASS: reopenBalance requires a reason and flips a CONFIRMED day back to OPEN, clearing the confirm-time fields.");
+
+    const reopenAuditLog = await prisma.auditLog.findFirst({
+      where: { entityType: "GcashDailyBalance", entityId: reopened.id, action: "gcash_daily_balance.reopened" },
+      orderBy: { createdAt: "desc" },
+    });
+    assert(reopenAuditLog !== null, "expected an audit log entry for the reopen");
+    const reopenOldValues = reopenAuditLog!.oldValues as { confirmedEndingBalanceCents: number; reason: string } | null;
+    assert(
+      reopenOldValues?.confirmedEndingBalanceCents === originalConfirmedEnding,
+      `expected the audit log to preserve the original confirmed ending balance (${originalConfirmedEnding}), got ${reopenOldValues?.confirmedEndingBalanceCents}`,
+    );
+    assert(reopenOldValues?.reason === "Closed at 8am before the day's real sales came in.", "expected the audit log to record the reopen reason");
+    console.log("PASS: the original confirmed numbers survive in the audit trail even after reopening.");
+
+    // Reject reopening a day that's already OPEN — nothing to reopen.
+    let reopenRejectedAlreadyOpen = false;
+    try {
+      await gcashReconciliationService.reopenBalance(tomorrow, "trying again", owner.id);
+    } catch {
+      reopenRejectedAlreadyOpen = true;
+    }
+    assert(reopenRejectedAlreadyOpen, "expected reopening an already-OPEN day to be rejected");
+    console.log("PASS: reopening a day that's already OPEN is rejected — nothing to undo.");
+
+    // The reopened day can be confirmed again, cleanly, with a corrected amount.
+    const reconfirmed = await gcashReconciliationService.confirmBalance(
+      tomorrow,
+      tomorrowExpected + 30000,
+      "Corrected close with the full day's sales.",
+      employee.id,
+      owner.id,
+    );
+    assert(reconfirmed.status === "CONFIRMED", "expected the reopened day to be confirmable again");
+    console.log("PASS: a reopened day can be confirmed again with the corrected numbers.");
+
     await cleanUp(employeeId);
     console.log("\nPASS: GCash reconciliation proven against real rows.");
   } catch (error) {

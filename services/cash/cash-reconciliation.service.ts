@@ -265,6 +265,52 @@ export class CashReconciliationService {
     return balance;
   }
 
+  // "There's no option to close it" (reported live, 2026-08-04) — same
+  // undo as GcashReconciliationService.reopenBalance, see that method's
+  // own comment. Only from CONFIRMED; wipes confirm-time fields
+  // (including withdrawnCents) back to pre-confirm state, but the audit
+  // log (oldValues below) keeps the original close permanently
+  // recoverable.
+  async reopenBalance(date: Date, reason: string, actorUserId: string): Promise<CashDailyBalance> {
+    if (!reason.trim()) {
+      throw new Error("A reason is required to reopen this day.");
+    }
+
+    const targetDate = toMidnight(date);
+    const existing = await prisma.cashDailyBalance.findUnique({ where: { date: targetDate } });
+    if (!existing) {
+      throw new Error("No cash balance record exists for this date yet.");
+    }
+    if (existing.status !== "CONFIRMED") {
+      throw new Error("This day isn't confirmed — nothing to reopen.");
+    }
+
+    const balance = await prisma.cashDailyBalance.update({
+      where: { id: existing.id },
+      data: {
+        status: "OPEN",
+        expectedEndingBalanceCents: null,
+        confirmedEndingBalanceCents: null,
+        withdrawnCents: 0,
+        varianceCents: null,
+        notes: null,
+        confirmedByEmployeeId: null,
+        confirmedAt: null,
+      },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "cash_daily_balance.reopened",
+      entityType: "CashDailyBalance",
+      entityId: balance.id,
+      oldValues: { ...existing, reason },
+      newValues: balance,
+    });
+
+    return balance;
+  }
+
   private async writeAuditLog(entry: AuditLogEntry): Promise<void> {
     try {
       await prisma.auditLog.create({

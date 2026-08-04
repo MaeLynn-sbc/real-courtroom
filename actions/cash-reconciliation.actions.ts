@@ -5,9 +5,11 @@ import { revalidatePath } from "next/cache";
 import {
   confirmCashBalanceSchema,
   overrideCashStartingBalanceSchema,
+  reopenCashBalanceSchema,
   seedCashBalanceSchema,
   type ConfirmCashBalanceInput,
   type OverrideCashStartingBalanceInput,
+  type ReopenCashBalanceInput,
   type SeedCashBalanceInput,
 } from "@/features/cash/schemas/cash-reconciliation.schema";
 import { requirePermission } from "@/lib/action-auth";
@@ -131,6 +133,34 @@ export async function overrideCashStartingBalanceAction(
         action: "overrideCashStartingBalanceAction",
         userId: authz.userId,
       }),
+    };
+  }
+}
+
+export async function reopenCashBalanceAction(
+  input: ReopenCashBalanceInput,
+): Promise<CashReconciliationActionState> {
+  const authz = await requireCashReconciliationEmployee();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = reopenCashBalanceSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await cashReconciliationService.reopenBalance(
+      new Date(`${parsed.data.date}T00:00:00`),
+      parsed.data.reason,
+      authz.userId,
+    );
+    revalidateCashReconciliation();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "reopenCashBalanceAction", userId: authz.userId }),
     };
   }
 }
