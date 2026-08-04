@@ -73,9 +73,14 @@ export function HourGrid({
               // coach worry the system could double-book them. court-blue
               // is this app's established "currently occupied" color
               // (Badge's "status" variant, the Court Status panel's
-              // "Occupied") — never used for a plain toggle state.
+              // "Occupied") — never used for a plain toggle state. Solid
+              // fill (not a translucent tint) — reported live, 2026-08-05,
+              // the /15 tint read as "barely there" next to the public
+              // grid's own solid Booked cells; court-blue-foreground is
+              // the token's own paired contrast color, same pattern as
+              // "on" above using primary-foreground.
               state === "booked" &&
-                "bg-court-blue/15 text-court-blue border-court-blue hover:bg-court-blue/25 cursor-pointer",
+                "bg-court-blue text-court-blue-foreground border-court-blue hover:bg-court-blue/90 cursor-pointer",
             )}
           >
             {label}
