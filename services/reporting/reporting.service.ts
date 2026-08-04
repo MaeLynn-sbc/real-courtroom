@@ -88,6 +88,26 @@ export interface MembershipReportResult {
   renewalsInRange: number;
 }
 
+// --- Coaching report -----------------------------------------------------
+
+export interface CoachingReportRow {
+  id: string;
+  sessionReference: string;
+  coachName: string;
+  playerName: string | null;
+  bookingReference: string;
+  courtName: string;
+  status: string;
+  startAt: Date;
+  rateCents: number;
+}
+
+export interface CoachingReportResult {
+  rows: CoachingReportRow[];
+  totalSessions: number;
+  totalFeeCentsExcludingCancelled: number;
+}
+
 // --- Equipment rental report --------------------------------------------------
 
 export interface EquipmentRentalReportRow {
@@ -326,6 +346,43 @@ export class ReportingService {
       newEnrollmentsInRange: historyInRange.filter((h) => h.eventType === "ENROLLED").length,
       renewalsInRange: historyInRange.filter((h) => h.eventType === "RENEWED").length,
     };
+  }
+
+  // Date-ranged by the linked booking's startAt — a coach session's own
+  // "when" is the court time it was attached to, same as the booking
+  // report right above filters by. CANCELLED sessions still appear as
+  // rows (a real, if unbilled, event worth seeing in range) but are
+  // excluded from totalFeeCentsExcludingCancelled, matching
+  // getExpectedPaymentTotalCents' own CANCELLED exclusion rule.
+  async getCoachingReport(range: DateRange): Promise<CoachingReportResult> {
+    const sessions = await prisma.coachSession.findMany({
+      where: { booking: { startAt: { gte: range.from, lte: range.to } } },
+      include: {
+        coach: true,
+        player: { include: { user: { select: { name: true, email: true } } } },
+        booking: { include: { court: { select: { name: true } } } },
+      },
+      orderBy: { booking: { startAt: "desc" } },
+      take: 500,
+    });
+
+    const rows: CoachingReportRow[] = sessions.map((session) => ({
+      id: session.id,
+      sessionReference: session.sessionReference,
+      coachName: `${session.coach.firstName} ${session.coach.lastName}`,
+      playerName: playerDisplayName(session.player, session.guestName),
+      bookingReference: session.booking.bookingReference,
+      courtName: session.booking.court.name,
+      status: session.status,
+      startAt: session.booking.startAt,
+      rateCents: session.rateCents,
+    }));
+
+    const totalFeeCentsExcludingCancelled = rows
+      .filter((row) => row.status !== "CANCELLED")
+      .reduce((sum, row) => sum + row.rateCents, 0);
+
+    return { rows, totalSessions: rows.length, totalFeeCentsExcludingCancelled };
   }
 
   async getEquipmentRentalReport(range: DateRange): Promise<EquipmentRentalReportRow[]> {

@@ -28,14 +28,14 @@ const REPORT_LINKS: { reportType: string; title: string; description: string }[]
     description: "Booked hours and booking counts per court.",
   },
   {
-    reportType: "tournament",
-    title: "Tournament report",
-    description: "Tournaments, registrations, and matches.",
+    reportType: "coaching",
+    title: "Coaching report",
+    description: "Coaching sessions, coaches, and fees in range.",
   },
   {
-    reportType: "membership",
-    title: "Membership report",
-    description: "Memberships, enrollments, and renewals.",
+    reportType: "salesByProduct",
+    title: "Sales by product",
+    description: "Per-product breakdown (shirts, grips, etc.) for consignment accounting.",
   },
   {
     reportType: "equipmentRental",
@@ -43,9 +43,9 @@ const REPORT_LINKS: { reportType: string; title: string; description: string }[]
     description: "Equipment rental transactions in range.",
   },
   {
-    reportType: "lockerRental",
-    title: "Locker rentals",
-    description: "Locker rental transactions in range.",
+    reportType: "membership",
+    title: "Membership report",
+    description: "Memberships, enrollments, and renewals.",
   },
   {
     reportType: "salesByCategory",
@@ -58,9 +58,9 @@ const REPORT_LINKS: { reportType: string; title: string; description: string }[]
     description: "Sale transactions grouped by how they were paid.",
   },
   {
-    reportType: "salesByProduct",
-    title: "Sales by product",
-    description: "Per-product breakdown (shirts, grips, etc.) for consignment accounting.",
+    reportType: "tournament",
+    title: "Tournament report",
+    description: "Tournaments, registrations, and matches.",
   },
 ];
 

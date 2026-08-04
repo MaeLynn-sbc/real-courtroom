@@ -1,5 +1,6 @@
 import type {
   BookingReportRow,
+  CoachingReportRow,
   CourtUtilizationRow,
   EquipmentRentalReportRow,
   LockerRentalReportRow,
@@ -86,6 +87,16 @@ export const REPORT_CSV_COLUMNS = {
     { header: "Start Date", value: (r: MembershipReportRow) => r.startDate },
     { header: "End Date", value: (r: MembershipReportRow) => r.endDate },
   ] satisfies CsvColumn<MembershipReportRow>[],
+  coaching: [
+    { header: "Session Reference", value: (r: CoachingReportRow) => r.sessionReference },
+    { header: "Coach", value: (r: CoachingReportRow) => r.coachName },
+    { header: "Player", value: (r: CoachingReportRow) => r.playerName },
+    { header: "Booking Reference", value: (r: CoachingReportRow) => r.bookingReference },
+    { header: "Court", value: (r: CoachingReportRow) => r.courtName },
+    { header: "Status", value: (r: CoachingReportRow) => r.status },
+    { header: "Start", value: (r: CoachingReportRow) => r.startAt },
+    { header: "Fee (cents)", value: (r: CoachingReportRow) => r.rateCents },
+  ] satisfies CsvColumn<CoachingReportRow>[],
   equipmentRental: [
     { header: "Rental Reference", value: (r: EquipmentRentalReportRow) => r.rentalReference },
     { header: "Equipment", value: (r: EquipmentRentalReportRow) => r.equipmentName },

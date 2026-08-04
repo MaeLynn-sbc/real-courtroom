@@ -55,6 +55,10 @@ async function buildReportCsv(
       const { rows } = await reportingService.getMembershipReport(range);
       return toCsv(rows, REPORT_CSV_COLUMNS.membership);
     }
+    case "coaching": {
+      const { rows } = await reportingService.getCoachingReport(range);
+      return toCsv(rows, REPORT_CSV_COLUMNS.coaching);
+    }
     case "equipmentRental": {
       const rows = await reportingService.getEquipmentRentalReport(range);
       return toCsv(rows, REPORT_CSV_COLUMNS.equipmentRental);

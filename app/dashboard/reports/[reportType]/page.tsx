@@ -28,6 +28,7 @@ import { resolveDateRangeFromSearchParams, type DateRange } from "@/services/ana
 import {
   reportingService,
   type BookingReportRow,
+  type CoachingReportRow,
   type CourtUtilizationRow,
   type EquipmentRentalReportRow,
   type LockerRentalReportRow,
@@ -44,6 +45,7 @@ const REPORT_TITLES: Record<string, string> = {
   courtUtilization: "Court utilization report",
   tournament: "Tournament report",
   membership: "Membership report",
+  coaching: "Coaching report",
   equipmentRental: "Equipment rental report",
   lockerRental: "Locker rental report",
   salesByCategory: "Sales by category",
@@ -157,6 +159,20 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
         },
         { header: "Start", render: (r) => dateFormatter.format(r.startDate) },
         { header: "End", render: (r) => dateFormatter.format(r.endDate) },
+      ];
+      return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.id} />;
+    }
+    case "coaching": {
+      const { rows } = await reportingService.getCoachingReport(range);
+      const columns: ReportTableColumn<CoachingReportRow>[] = [
+        { header: "Reference", render: (r) => r.sessionReference },
+        { header: "Coach", render: (r) => r.coachName },
+        { header: "Player", render: (r) => r.playerName ?? "—" },
+        { header: "Booking", render: (r) => r.bookingReference },
+        { header: "Court", render: (r) => r.courtName },
+        { header: "Status", render: (r) => r.status },
+        { header: "Start", render: (r) => dateFormatter.format(r.startAt) },
+        { header: "Fee", render: (r) => formatCurrency(r.rateCents) },
       ];
       return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.id} />;
     }

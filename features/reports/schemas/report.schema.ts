@@ -30,6 +30,7 @@ export const reportTypeSchema = z.enum([
   "courtUtilization",
   "tournament",
   "membership",
+  "coaching",
   "equipmentRental",
   "lockerRental",
   "salesByCategory",
