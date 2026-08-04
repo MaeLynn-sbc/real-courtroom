@@ -14,7 +14,11 @@ import { reportingService, type CoachingReportRow } from "@/services/reporting/r
 // page's DateRangePicker/single-table chrome entirely for this one
 // report type — see app/dashboard/reports/[reportType]/page.tsx's early
 // branch to this component.
-const RECENT_WEEKS_COUNT = 4;
+// Owner request (2026-08-04): trimmed from 4 to 2 — "we dont have the
+// website yet at that time," so weeks that far back never have any real
+// data and just added clutter. Anything genuinely older still reachable
+// via the Archive tab, unchanged.
+const RECENT_WEEKS_COUNT = 2;
 
 const rangeHeadingFormatter = new Intl.DateTimeFormat("en-PH", { month: "short", day: "numeric" });
 const rangeHeadingWithYearFormatter = new Intl.DateTimeFormat("en-PH", {
