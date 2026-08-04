@@ -358,13 +358,22 @@ export class ReportingService {
 
   // Date-ranged by the linked booking's startAt — a coach session's own
   // "when" is the court time it was attached to, same as the booking
-  // report right above filters by. CANCELLED sessions still appear as
-  // rows (a real, if unbilled, event worth seeing in range) but are
-  // excluded from totalFeeCentsExcludingCancelled, matching
-  // getExpectedPaymentTotalCents' own CANCELLED exclusion rule.
+  // report right above filters by.
+  //
+  // Owner request (2026-08-04): "if cancellation means no pay, then it
+  // shouldn't be there in the first place" — a CANCELLED session never
+  // gets a Sale (the live paths only record one for a non-cancelled
+  // session, see coach-session-fee-sale.ts), so `sale: { isNot: null }`
+  // is a single condition that means "confirmed AND actually paid" —
+  // exactly what was asked. This used to show every session in range,
+  // cancelled-or-not, with CANCELLED ones excluded only from the total,
+  // not the row list itself.
   async getCoachingReport(range: DateRange): Promise<CoachingReportResult> {
     const sessions = await prisma.coachSession.findMany({
-      where: { booking: { startAt: { gte: range.from, lte: range.to } } },
+      where: {
+        booking: { startAt: { gte: range.from, lte: range.to } },
+        sale: { isNot: null },
+      },
       include: {
         coach: true,
         player: { include: { user: { select: { name: true, email: true } } } },
