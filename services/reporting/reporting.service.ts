@@ -108,6 +108,13 @@ export interface CoachingReportResult {
   totalFeeCentsExcludingCancelled: number;
 }
 
+export interface CoachingFeesByCoachRow {
+  coachId: string;
+  coachName: string;
+  transactionCount: number;
+  amountCents: number;
+}
+
 // --- Equipment rental report --------------------------------------------------
 
 export interface EquipmentRentalReportRow {
@@ -383,6 +390,49 @@ export class ReportingService {
       .reduce((sum, row) => sum + row.rateCents, 0);
 
     return { rows, totalSessions: rows.length, totalFeeCentsExcludingCancelled };
+  }
+
+  // Owner request (2026-08-04): "separate the booking fees of coach
+  // Dhudz and Tito Voi so their income will be given separately." Built
+  // on real COACHING-category Sale rows, NOT CoachSession rows the way
+  // getCoachingReport's totalFeeCentsExcludingCancelled is — a coach
+  // session can be CONFIRMED with nothing actually collected yet
+  // (payment proof still pending, or never settled), and this figure
+  // must answer "how much do I actually owe this coach," not "how much
+  // is scheduled." Grouped in JS, not a Prisma groupBy — coachSession.
+  // coach is a nested relation, which groupBy can't traverse directly.
+  async getCoachingFeesByCoachReport(range: DateRange): Promise<CoachingFeesByCoachRow[]> {
+    const sales = await prisma.sale.findMany({
+      where: {
+        category: "COACHING",
+        createdAt: { gte: range.from, lte: range.to },
+        status: "COMPLETED",
+      },
+      select: {
+        amountCents: true,
+        coachSession: { select: { coach: { select: { id: true, firstName: true, lastName: true } } } },
+      },
+    });
+
+    const byCoach = new Map<string, CoachingFeesByCoachRow>();
+    for (const sale of sales) {
+      const coach = sale.coachSession?.coach;
+      if (!coach) continue; // every COACHING Sale has a coachSessionId — defensive only
+      const existing = byCoach.get(coach.id);
+      if (existing) {
+        existing.transactionCount += 1;
+        existing.amountCents += sale.amountCents;
+      } else {
+        byCoach.set(coach.id, {
+          coachId: coach.id,
+          coachName: `${coach.firstName} ${coach.lastName}`,
+          transactionCount: 1,
+          amountCents: sale.amountCents,
+        });
+      }
+    }
+
+    return Array.from(byCoach.values()).sort((a, b) => b.amountCents - a.amountCents);
   }
 
   async getEquipmentRentalReport(range: DateRange): Promise<EquipmentRentalReportRow[]> {

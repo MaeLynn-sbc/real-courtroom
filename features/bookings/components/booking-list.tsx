@@ -195,7 +195,23 @@ export function BookingList({ bookings }: BookingListProps) {
                 {booking.bookingReference}
               </Link>
             </TableCell>
-            <TableCell>{booking.court.name}</TableCell>
+            <TableCell>
+              <div className="flex flex-col gap-0.5">
+                <span>{booking.court.name}</span>
+                {/* Owner request (2026-08-04): show whether a coach is
+                    attached, and their name, at a glance — same
+                    non-CANCELLED-only rule getExpectedPaymentTotalCents
+                    and the availability grid's "hasCoach" both already
+                    use, so a cancelled coach session correctly reads as
+                    "no coach," not a stale leftover badge. */}
+                {booking.coachSession && booking.coachSession.status !== "CANCELLED" ? (
+                  <span className="text-muted-foreground text-xs">
+                    with Coach {booking.coachSession.coach.firstName}{" "}
+                    {booking.coachSession.coach.lastName}
+                  </span>
+                ) : null}
+              </div>
+            </TableCell>
             <TableCell>{booking.player?.user.name ?? booking.guestName ?? "—"}</TableCell>
             <TableCell>{formatBookingTimeRange(booking.startAt, booking.endAt)}</TableCell>
             <TableCell>

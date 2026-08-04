@@ -163,7 +163,10 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
       return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.id} />;
     }
     case "coaching": {
-      const { rows } = await reportingService.getCoachingReport(range);
+      const [{ rows }, byCoach] = await Promise.all([
+        reportingService.getCoachingReport(range),
+        reportingService.getCoachingFeesByCoachReport(range),
+      ]);
       const columns: ReportTableColumn<CoachingReportRow>[] = [
         { header: "Reference", render: (r) => r.sessionReference },
         { header: "Coach", render: (r) => r.coachName },
@@ -174,7 +177,34 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
         { header: "Start", render: (r) => dateFormatter.format(r.startAt) },
         { header: "Fee", render: (r) => formatCurrency(r.rateCents) },
       ];
-      return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.id} />;
+      return (
+        <div className="flex flex-col gap-6">
+          {byCoach.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              <h2 className="text-muted-foreground text-sm font-medium">
+                Coaching fees collected, by coach
+              </h2>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {byCoach.map((coach) => (
+                  <div
+                    key={coach.coachId}
+                    className="flex items-center justify-between gap-3 rounded-lg border p-3"
+                  >
+                    <div>
+                      <p className="font-medium">{coach.coachName}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {coach.transactionCount} session{coach.transactionCount === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                    <p className="font-semibold tabular-nums">{formatCurrency(coach.amountCents)}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.id} />
+        </div>
+      );
     }
     case "equipmentRental": {
       const rows = await reportingService.getEquipmentRentalReport(range);

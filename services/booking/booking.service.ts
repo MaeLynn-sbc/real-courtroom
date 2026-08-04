@@ -223,7 +223,13 @@ export class BookingService {
         // bug class as the verification queue had, same fix (see
         // lib/booking-payment-total.ts's getExpectedPaymentTotalCents,
         // which needs this to include the coach add-on).
-        coachSession: { select: { status: true, rateCents: true } },
+        // Owner request (2026-08-04): show whether a coach is attached,
+        // and their name, directly on the list — coach's own {first,last}
+        // name, same shape every other coach-name display in this app
+        // already uses.
+        coachSession: {
+          select: { status: true, rateCents: true, coach: { select: { firstName: true, lastName: true } } },
+        },
       },
       orderBy: filters?.sortBy === "createdAt" ? { createdAt: "desc" } : { startAt: "asc" },
       // Defensive cap — most calls already narrow by date/court/status;
