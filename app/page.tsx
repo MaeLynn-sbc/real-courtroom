@@ -6,6 +6,7 @@ import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { CourtAvailabilityGrid } from "@/features/bookings/components/court-availability-grid";
 import { CoachingTeaser } from "@/features/coaching/components/coaching-teaser";
+import { TournamentsTeaser } from "@/features/tournaments/components/tournaments-teaser";
 import { getCourtBookingWindow, getFacilityCloseMinutes } from "@/lib/court-hours";
 import { EQUIPMENT_KEYS } from "@/lib/equipment-keys";
 import { resolveOpenPlayClosedMessage } from "@/lib/open-play-closed-message";
@@ -479,6 +480,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
         </div>
       </section>
+
+      <TournamentsTeaser />
 
       <CoachingTeaser />
 

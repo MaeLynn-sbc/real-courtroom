@@ -86,6 +86,32 @@ export class TournamentService {
     });
   }
 
+  // Public home-page teaser + /tournaments/[id] page (owner, 2026-08-04):
+  // "bracketing is done" reuses the exact same signal the staff dashboard
+  // already computes (bracketGenerated = matches.length > 0) rather than
+  // a second concept of "ready" — a category still in registration-only
+  // has no bracket to show publicly, so it's excluded entirely, not shown
+  // half-empty. DRAFT/CANCELLED tournaments never qualify regardless of
+  // their categories' state.
+  async listPublicTournamentsWithBrackets() {
+    const tournaments = await prisma.tournament.findMany({
+      where: {
+        deletedAt: null,
+        status: { notIn: ["DRAFT", "CANCELLED"] },
+        categories: { some: { matches: { some: {} } } },
+      },
+      include: {
+        categories: {
+          where: { matches: { some: {} } },
+          orderBy: { createdAt: "asc" },
+          include: { _count: { select: { registrations: true, matches: true } } },
+        },
+      },
+      orderBy: { startDate: "desc" },
+    });
+    return tournaments;
+  }
+
   async getCategoryById(categoryId: string) {
     return prisma.tournamentCategory.findUnique({
       where: { id: categoryId },
