@@ -15,11 +15,18 @@
  * backfilled (or one that went through the live, fixed path) is never
  * revisited on a second run.
  *
- * Run via `npx tsx scripts/backfill-coaching-fee-expenses.ts`. Requires
+ * Run via `npx tsx scripts/backfill-coaching-fee-sales.ts`. Requires
  * the dev database up (or run against production the same way migration
  * scripts in this repo already are — see docs/DEPLOYMENT.md). Prints a
  * report of every booking it touched, and the total amount backfilled —
  * that report is the point of running it, not just a side effect.
+ *
+ * Each created Sale is backdated to its booking's own court-fee Sale's
+ * createdAt (see recordCoachSessionFeeSale's createdAt param), not
+ * "now" — the first live run of this script (2026-08-04) missed this,
+ * and the ₱2,600 backfilled that day briefly double-counted as part of
+ * THAT day's Today's Revenue / shift cash reconciliation instead of the
+ * historical days the fees actually belonged to. Corrected same-day.
  *
  * The DB-touching part is exported as backfillCoachingFeeSales() so
  * services/coaching/coach-session-fee-sale-backfill.integration.ts can
@@ -46,7 +53,15 @@ export async function backfillCoachingFeeSales(): Promise<CoachingFeeSaleBackfil
     },
     include: {
       coachSession: { include: { coach: true } },
-      sale: { select: { paymentMethodId: true, employeeId: true, shiftId: true, playerId: true } },
+      sale: {
+        select: {
+          paymentMethodId: true,
+          employeeId: true,
+          shiftId: true,
+          playerId: true,
+          createdAt: true,
+        },
+      },
     },
   });
 
@@ -71,6 +86,13 @@ export async function backfillCoachingFeeSales(): Promise<CoachingFeeSaleBackfil
       employeeId: booking.sale.employeeId,
       shiftId: booking.sale.shiftId,
       playerId: booking.sale.playerId,
+      // Backdated to when the court fee's own Sale was created — the
+      // real moment the money changed hands — not "now." Otherwise a
+      // backfill run today silently inflates today's Total Revenue /
+      // Today's Revenue panel and shift cash reconciliation by the whole
+      // backfilled amount (reported live, 2026-08-04, on the very first
+      // run of this script).
+      createdAt: booking.sale.createdAt,
     });
     results.push({
       bookingReference: booking.bookingReference,

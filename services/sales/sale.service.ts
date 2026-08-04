@@ -46,6 +46,15 @@ export interface CreateSaleInput {
   coachSessionId?: string;
   description?: string;
   notes?: string;
+  // Backfill-only escape hatch — every live revenue path leaves this
+  // unset and gets the real current moment, exactly as before. A
+  // backdated backfill (see coach-session-fee-sale.ts) sets it to when
+  // the money actually changed hands historically, so the row's own
+  // saleNumber sequence AND createdAt both land on that real day — not
+  // "today," which would otherwise silently inflate the Today's Revenue
+  // panel and shift cash reconciliation by the backfilled amount
+  // (reported live, 2026-08-04: the first backfill run did exactly this).
+  createdAt?: Date;
 }
 
 export interface UpsertPaymentMethodInput {
@@ -114,13 +123,14 @@ export class SaleService {
     input: CreateSaleInput,
     client: Prisma.TransactionClient | typeof prisma = prisma,
   ): Promise<Sale> {
-    const now = new Date();
+    const now = input.createdAt ?? new Date();
     const sequence = await nextSequence(dailyScope("SALE", now), client);
     const saleNumber = formatSaleNumber(now, sequence);
 
     return client.sale.create({
       data: {
         saleNumber,
+        createdAt: now,
         category: input.category,
         source: input.source ?? "RECEPTION",
         amountCents: input.amountCents,

@@ -123,6 +123,12 @@ async function main(): Promise<void> {
         source: "PUBLIC",
       },
     });
+    // Backdated 5 days before TEST_DATE — real production shape: the
+    // fixture's court Sale is created "in the past" relative to whenever
+    // this test actually runs, same as the 6 real bookings this backfill
+    // was written for. Proves the backfilled COACHING Sale inherits THIS
+    // date, not the real current moment the backfill script runs in.
+    const originalSaleCreatedAt = new Date(startAt.getTime() - 5 * 24 * 60 * 60 * 1000);
     await prisma.sale.create({
       data: {
         saleNumber: `SALE-COACHFEESALEBACKFILL-${Date.now()}`,
@@ -133,6 +139,7 @@ async function main(): Promise<void> {
         employeeId: ownerEmployee.id,
         shiftId: shift.id,
         bookingId: booking.id,
+        createdAt: originalSaleCreatedAt,
       },
     });
 
@@ -200,6 +207,19 @@ async function main(): Promise<void> {
       "expected the backfilled Sale to be attributed to the original settling staff member",
     );
     console.log("PASS: the backfilled COACHING Sale is categorized, linked, and attributed correctly.");
+
+    // Reported live, 2026-08-04: the first real backfill run left every
+    // Sale dated "today" (whenever the script happened to run), so 6
+    // historical coaching fees briefly inflated THAT day's Today's
+    // Revenue panel and shift cash reconciliation instead of landing on
+    // the real days they were earned. Fixed by backdating createdAt to
+    // the original court Sale's own createdAt — proven here, not just
+    // asserted in a comment.
+    assert(
+      coachingSale.createdAt.getTime() === originalSaleCreatedAt.getTime(),
+      `expected the backfilled Sale's createdAt to match the original court Sale's createdAt (${originalSaleCreatedAt.toISOString()}), got ${coachingSale.createdAt.toISOString()} — a backfill run today must not inflate today's revenue with historical fees`,
+    );
+    console.log("PASS: the backfilled COACHING Sale is backdated to the original court Sale's createdAt, not today.");
 
     const cancelledSessionSale = await prisma.sale.findFirst({
       where: { coachSession: { bookingId: booking2.id } },

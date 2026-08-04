@@ -27,6 +27,10 @@ export interface RecordCoachSessionFeeSaleInput {
   employeeId: string;
   shiftId: string;
   playerId?: string | null;
+  // Backfill-only — see CreateSaleInput.createdAt's own comment. Live
+  // callers (approveBookingPaymentProof, settleBooking) never set this,
+  // so they still get the real current moment.
+  createdAt?: Date;
 }
 
 export async function recordCoachSessionFeeSale(
@@ -42,6 +46,7 @@ export async function recordCoachSessionFeeSale(
       shiftId: input.shiftId,
       playerId: input.playerId ?? undefined,
       coachSessionId: input.coachSessionId,
+      createdAt: input.createdAt,
     },
     tx,
   );
