@@ -21,6 +21,11 @@ export interface HourGridProps {
   cellState: (hour: number) => HourCellState;
   onHourClick?: (hour: number) => void;
   hourLabel?: (hour: number) => string;
+  // Owner request (2026-08-05): "add the name of the person who
+  // booked" — a second, smaller line under the time for a booked hour.
+  // Optional/undefined for every other state; only coach-availability-
+  // manager.tsx currently supplies one.
+  cellSubLabel?: (hour: number) => string | undefined;
   className?: string;
 }
 
@@ -35,6 +40,7 @@ export function HourGrid({
   cellState,
   onHourClick,
   hourLabel = defaultHourLabel,
+  cellSubLabel,
   className,
 }: HourGridProps) {
   return (
@@ -43,6 +49,7 @@ export function HourGrid({
         const state = cellState(hour);
         const isDisabled = state === "disabled";
         const label = hourLabel(hour);
+        const subLabel = cellSubLabel?.(hour);
 
         return (
           <button
@@ -52,7 +59,7 @@ export function HourGrid({
             aria-pressed={state === "on"}
             aria-label={`${label}, ${
               state === "booked"
-                ? "booked"
+                ? `booked${subLabel ? ` by ${subLabel}` : ""}`
                 : state === "on"
                   ? "selected"
                   : isDisabled
@@ -61,7 +68,7 @@ export function HourGrid({
             }`}
             onClick={() => onHourClick?.(hour)}
             className={cn(
-              "rounded-lg border px-2 py-2.5 text-sm font-medium transition-colors",
+              "flex flex-col items-center gap-0.5 rounded-lg border px-2 py-2.5 text-sm font-medium transition-colors",
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
               state === "on" && "bg-primary text-primary-foreground border-primary",
               state === "off" &&
@@ -83,7 +90,12 @@ export function HourGrid({
                 "bg-court-blue text-court-blue-foreground border-court-blue hover:bg-court-blue/90 cursor-pointer",
             )}
           >
-            {label}
+            <span>{label}</span>
+            {subLabel ? (
+              <span className="max-w-full truncate text-[10px] font-normal opacity-85">
+                {subLabel}
+              </span>
+            ) : null}
           </button>
         );
       })}

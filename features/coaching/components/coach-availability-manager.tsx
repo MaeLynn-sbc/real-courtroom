@@ -327,6 +327,18 @@ export function CoachAvailabilityManager({
     return onHoursForSelectedDate.has(hour) ? "on" : "off";
   };
 
+  // Owner request (2026-08-05): "add the name of the person who booked
+  // in the availability" — same customer-name lookup the clear-hour
+  // confirmation dialog already uses (sessionCustomerName), just
+  // surfaced directly on the grid cell instead of only in that dialog.
+  function cellSubLabel(hour: number): string | undefined {
+    const sessions = conflictingSessionsForHour(hour);
+    if (sessions.length === 0) {
+      return undefined;
+    }
+    return sessions.map(sessionCustomerName).join(", ");
+  }
+
   return (
     <div className="border-border flex flex-col gap-6 border-t pt-6 first:border-t-0 first:pt-0">
       <div className="flex flex-col gap-1.5">
@@ -436,7 +448,12 @@ export function CoachAvailabilityManager({
             The facility has no operating hours configured for this day.
           </p>
         ) : (
-          <HourGrid hours={gridHours} cellState={cellState} onHourClick={handleHourClick} />
+          <HourGrid
+            hours={gridHours}
+            cellState={cellState}
+            cellSubLabel={cellSubLabel}
+            onHourClick={handleHourClick}
+          />
         )}
       </div>
 
