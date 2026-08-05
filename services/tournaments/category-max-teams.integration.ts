@@ -82,6 +82,7 @@ async function main(): Promise<void> {
       name: `MaxTeams Test Tournament ${Date.now()}`,
       startDate: new Date(2031, 8, 1),
       endDate: new Date(2031, 8, 2),
+      collectsPaymentOnSite: true,
     },
     owner.id,
   );

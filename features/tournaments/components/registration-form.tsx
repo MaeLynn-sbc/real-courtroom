@@ -51,6 +51,12 @@ interface RegistrationFormProps {
   tournamentId: string;
   categoryId: string;
   paymentMethods: RegistrationFormPaymentMethod[];
+  // Owner request (2026-08-05): false for an outside event where
+  // entrants already paid the organizers directly — the payment method
+  // and receipt fields don't apply, and registerTeamAction won't
+  // require a shift or record a Sale either (see that action's own
+  // comment).
+  collectsPaymentOnSite: boolean;
 }
 
 // No dropdown (owner, 2026-08-03): tournament entrants are frequently
@@ -58,7 +64,12 @@ interface RegistrationFormProps {
 // directly — registerTeam creates a minimal Player for each name on the
 // spot. Always 2 slots since most categories are doubles; player 2 is
 // left blank for a singles match.
-export function RegistrationForm({ tournamentId, categoryId, paymentMethods }: RegistrationFormProps) {
+export function RegistrationForm({
+  tournamentId,
+  categoryId,
+  paymentMethods,
+  collectsPaymentOnSite,
+}: RegistrationFormProps) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<File | null>(null);
@@ -78,7 +89,7 @@ export function RegistrationForm({ tournamentId, categoryId, paymentMethods }: R
     const parsed = registerTeamSchema.safeParse({
       player1Name: values.player1Name.trim(),
       player2Name: values.player2Name.trim() || undefined,
-      paymentMethodId: values.paymentMethodId,
+      paymentMethodId: collectsPaymentOnSite ? values.paymentMethodId : undefined,
     });
 
     if (!parsed.success) {
@@ -121,57 +132,66 @@ export function RegistrationForm({ tournamentId, categoryId, paymentMethods }: R
         <Input id="player2Name" {...register("player2Name")} />
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="registrationPaymentMethodId">Payment method</Label>
-        <Controller
-          control={control}
-          name="paymentMethodId"
-          render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger id="registrationPaymentMethodId" className="w-full">
-                <SelectValue placeholder="Select a payment method">
-                  {(value: string) =>
-                    paymentMethods.find((method) => method.id === value)?.label ??
-                    "Select a payment method"
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {paymentMethods.map((method) => (
-                  <SelectItem key={method.id} value={method.id}>
-                    {method.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        />
-      </div>
+      {collectsPaymentOnSite ? (
+        <>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="registrationPaymentMethodId">Payment method</Label>
+            <Controller
+              control={control}
+              name="paymentMethodId"
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger id="registrationPaymentMethodId" className="w-full">
+                    <SelectValue placeholder="Select a payment method">
+                      {(value: string) =>
+                        paymentMethods.find((method) => method.id === value)?.label ??
+                        "Select a payment method"
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {paymentMethods.map((method) => (
+                      <SelectItem key={method.id} value={method.id}>
+                        {method.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="registrationReceipt">Payment receipt (optional)</Label>
-        {/* Same fix as expense-entry-form's receipt field — see that
-            component's own comment for why a raw Input type="file"
-            button text could go nearly invisible. */}
-        <div className="flex items-center gap-3">
-          <label
-            htmlFor="registrationReceipt"
-            className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}
-          >
-            Choose file
-          </label>
-          <span className="text-muted-foreground truncate text-sm">
-            {receipt ? receipt.name : "No file selected"}
-          </span>
-        </div>
-        <input
-          id="registrationReceipt"
-          type="file"
-          accept="image/*"
-          className="sr-only"
-          onChange={(event) => setReceipt(event.target.files?.[0] ?? null)}
-        />
-      </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="registrationReceipt">Payment receipt (optional)</Label>
+            {/* Same fix as expense-entry-form's receipt field — see that
+                component's own comment for why a raw Input type="file"
+                button text could go nearly invisible. */}
+            <div className="flex items-center gap-3">
+              <label
+                htmlFor="registrationReceipt"
+                className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}
+              >
+                Choose file
+              </label>
+              <span className="text-muted-foreground truncate text-sm">
+                {receipt ? receipt.name : "No file selected"}
+              </span>
+            </div>
+            <input
+              id="registrationReceipt"
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(event) => setReceipt(event.target.files?.[0] ?? null)}
+            />
+          </div>
+        </>
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          Payment isn&apos;t collected here for this tournament — entrants already paid the
+          organizers directly.
+        </p>
+      )}
 
       {serverError ? <p className="text-destructive text-sm" role="alert">{serverError}</p> : null}
 

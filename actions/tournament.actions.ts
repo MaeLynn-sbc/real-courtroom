@@ -10,6 +10,7 @@ import {
   registerTeamSchema,
   scheduleMatchSchema,
   updateCategoryMaxTeamsSchema,
+  updateTournamentPaymentSettingSchema,
   updateTournamentStatusSchema,
   type CreateCategoryInput,
   type CreateTournamentInput,
@@ -18,9 +19,10 @@ import {
   type RegisterTeamInput,
   type ScheduleMatchInput,
   type UpdateCategoryMaxTeamsInput,
+  type UpdateTournamentPaymentSettingInput,
   type UpdateTournamentStatusInput,
 } from "@/features/tournaments/schemas/tournament.schema";
-import { requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
+import { requireEmployee, requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { matchService } from "@/services/tournaments/match.service";
 import { tournamentService } from "@/services/tournaments/tournament.service";
@@ -100,6 +102,38 @@ export async function updateTournamentAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "updateTournamentAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function updateTournamentPaymentSettingAction(
+  tournamentId: string,
+  input: UpdateTournamentPaymentSettingInput,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = updateTournamentPaymentSettingSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid setting." };
+  }
+
+  try {
+    await tournamentService.updateTournamentPaymentSetting(
+      tournamentId,
+      parsed.data.collectsPaymentOnSite,
+      authz.userId,
+    );
+    revalidateTournament(tournamentId);
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, {
+        action: "updateTournamentPaymentSettingAction",
+        userId: authz.userId,
+      }),
     };
   }
 }
@@ -188,17 +222,30 @@ export async function updateCategoryMaxTeamsAction(
   }
 }
 
+// Owner request (2026-08-05): a tournament that doesn't collect payment
+// on-site (an outside event where entrants already paid the organizers
+// directly — Tournament.collectsPaymentOnSite) must not require an open
+// shift or a payment method at all, since no Sale gets created for it.
+// Which auth path applies depends on that per-tournament setting, so
+// the permission check happens first (deniable regardless of the
+// setting), then the category/tournament is looked up, THEN the
+// employee(+shift) requirement is resolved down whichever branch
+// actually applies — requireEmployeeWithOpenShift when payment is
+// collected (unchanged from before), requireEmployee (no shift) when
+// it isn't.
 export async function registerTeamAction(
   tournamentId: string,
   categoryId: string,
   input: RegisterTeamInput,
 ): Promise<TournamentActionState> {
-  const authz = await requireEmployeeWithOpenShift(
-    PERMISSIONS.TOURNAMENTS_MANAGE,
-    "You don't have permission to manage tournaments.",
-  );
-  if (!authz.ok) {
-    return { error: authz.error };
+  const permissionCheck = await requireTournamentsManage();
+  if (!permissionCheck.ok) {
+    return { error: permissionCheck.error };
+  }
+
+  const category = await tournamentService.getCategoryById(categoryId);
+  if (!category) {
+    return { error: "That category no longer exists." };
   }
 
   const parsed = registerTeamSchema.safeParse(input);
@@ -206,24 +253,55 @@ export async function registerTeamAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid registration details." };
   }
 
-  try {
-    await tournamentService.registerTeam(
-      categoryId,
-      parsed.data,
-      authz.userId,
-      {
-        employeeId: authz.employeeId,
-        shiftId: authz.shiftId,
-        paymentMethodId: parsed.data.paymentMethodId,
-      },
-      parsed.data.receipt
-        ? {
-            fileName: parsed.data.receipt.fileName,
-            contentType: parsed.data.receipt.contentType,
-            data: Buffer.from(parsed.data.receipt.dataBase64, "base64"),
-          }
-        : undefined,
+  const receiptInput = parsed.data.receipt
+    ? {
+        fileName: parsed.data.receipt.fileName,
+        contentType: parsed.data.receipt.contentType,
+        data: Buffer.from(parsed.data.receipt.dataBase64, "base64"),
+      }
+    : undefined;
+
+  if (category.tournament.collectsPaymentOnSite) {
+    if (!parsed.data.paymentMethodId) {
+      return { error: "Select a payment method." };
+    }
+    const authz = await requireEmployeeWithOpenShift(
+      PERMISSIONS.TOURNAMENTS_MANAGE,
+      "You don't have permission to manage tournaments.",
     );
+    if (!authz.ok) {
+      return { error: authz.error };
+    }
+    try {
+      await tournamentService.registerTeam(
+        categoryId,
+        parsed.data,
+        authz.userId,
+        {
+          employeeId: authz.employeeId,
+          shiftId: authz.shiftId,
+          paymentMethodId: parsed.data.paymentMethodId,
+        },
+        receiptInput,
+      );
+      revalidateCategory(tournamentId, categoryId);
+      return { error: null };
+    } catch (error) {
+      return {
+        error: toActionError(error, { action: "registerTeamAction", userId: authz.userId }),
+      };
+    }
+  }
+
+  const authz = await requireEmployee(
+    PERMISSIONS.TOURNAMENTS_MANAGE,
+    "You don't have permission to manage tournaments.",
+  );
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+  try {
+    await tournamentService.registerTeam(categoryId, parsed.data, authz.userId, null, receiptInput);
     revalidateCategory(tournamentId, categoryId);
     return { error: null };
   } catch (error) {

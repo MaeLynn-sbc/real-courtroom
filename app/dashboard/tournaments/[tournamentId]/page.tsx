@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { CategoryForm } from "@/features/tournaments/components/category-form";
 import { CategoryList } from "@/features/tournaments/components/category-list";
+import { TournamentPaymentSettingToggle } from "@/features/tournaments/components/tournament-payment-setting-toggle";
 import { TournamentStatusActions } from "@/features/tournaments/components/tournament-status-actions";
 import { TournamentStatusBadge } from "@/features/tournaments/components/tournament-status-badge";
 import { tournamentService } from "@/services/tournaments/tournament.service";
@@ -46,6 +47,14 @@ export default async function TournamentDetailPage({ params }: TournamentDetailP
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Status</h2>
         <TournamentStatusActions tournamentId={tournament.id} currentStatus={tournament.status} />
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-medium">Payment</h2>
+        <TournamentPaymentSettingToggle
+          tournamentId={tournament.id}
+          collectsPaymentOnSite={tournament.collectsPaymentOnSite}
+        />
       </section>
 
       <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">

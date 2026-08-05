@@ -2,13 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { createTournamentAction } from "@/actions/tournament.actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { createTournamentSchema } from "@/features/tournaments/schemas/tournament.schema";
 
@@ -18,6 +19,7 @@ interface TournamentFormValues {
   venueInfo: string;
   startDate: string;
   endDate: string;
+  collectsPaymentOnSite: boolean;
 }
 
 function toLocalDateValue(date: Date): string {
@@ -33,6 +35,7 @@ export function TournamentForm() {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<TournamentFormValues>({
     defaultValues: {
@@ -41,6 +44,7 @@ export function TournamentForm() {
       venueInfo: "",
       startDate: toLocalDateValue(new Date()),
       endDate: toLocalDateValue(new Date()),
+      collectsPaymentOnSite: true,
     },
   });
 
@@ -53,6 +57,7 @@ export function TournamentForm() {
       venueInfo: values.venueInfo.trim() || undefined,
       startDate: new Date(`${values.startDate}T00:00:00`),
       endDate: new Date(`${values.endDate}T00:00:00`),
+      collectsPaymentOnSite: values.collectsPaymentOnSite,
     });
 
     if (!parsed.success) {
@@ -99,6 +104,27 @@ export function TournamentForm() {
         <Label htmlFor="endDate">End date</Label>
         <Input id="endDate" type="date" {...register("endDate")} />
         {errors.endDate ? <p className="text-destructive text-sm">{errors.endDate.message}</p> : null}
+      </div>
+
+      {/* Owner request (2026-08-05): unchecked for an outside event where
+          entrants already paid the organizers directly — registering a
+          team then won't require an open shift or record a Sale. */}
+      <div className="flex items-center gap-2">
+        <Controller
+          control={control}
+          name="collectsPaymentOnSite"
+          render={({ field }) => (
+            <Switch
+              id="collectsPaymentOnSite"
+              checked={field.value}
+              onCheckedChange={field.onChange}
+              aria-label="Collect payment when registering teams"
+            />
+          )}
+        />
+        <Label htmlFor="collectsPaymentOnSite" className="font-normal">
+          Collect payment here when registering teams
+        </Label>
       </div>
 
       {serverError ? <p className="text-destructive text-sm" role="alert">{serverError}</p> : null}

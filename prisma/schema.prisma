@@ -927,13 +927,13 @@ enum BookingTabLineItemType {
 }
 
 model BookingTabLineItem {
-  id             String                  @id @default(cuid())
-  tabId          String
-  type           BookingTabLineItemType
-  description    String
-  qtyOrGames     Int
-  unitPriceCents Int
-  amountCents    Int
+  id              String                 @id @default(cuid())
+  tabId           String
+  type            BookingTabLineItemType
+  description     String
+  qtyOrGames      Int
+  unitPriceCents  Int
+  amountCents     Int
   // Captured from day one — unlike open play's pre-existing TabLineItem,
   // which lacks this column entirely and is exactly why a PRODUCT-type
   // open-play add-on can't be traced back to a real Product row for the
@@ -944,7 +944,7 @@ model BookingTabLineItem {
   // PRODUCT, which is self-explanatory.
   reason          String?
   createdByUserId String?
-  createdAt       DateTime                @default(now())
+  createdAt       DateTime               @default(now())
 
   // Set only on a void (type=ADJUSTMENT) — points back to the line item
   // it offsets. The original row is never touched, so "never edit or
@@ -2088,19 +2088,25 @@ enum MatchStatus {
 }
 
 model Tournament {
-  id                   String           @id @default(cuid())
-  name                 String
-  description          String?
-  createdById          String
-  status               TournamentStatus @default(DRAFT)
-  startDate            DateTime
-  endDate              DateTime
-  registrationOpensAt  DateTime?
-  registrationClosesAt DateTime?
-  venueInfo            String?
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
-  deletedAt            DateTime?
+  id                    String           @id @default(cuid())
+  name                  String
+  description           String?
+  createdById           String
+  status                TournamentStatus @default(DRAFT)
+  startDate             DateTime
+  endDate               DateTime
+  registrationOpensAt   DateTime?
+  registrationClosesAt  DateTime?
+  venueInfo             String?
+  // Owner request (2026-08-05): some tournaments run as an outside event
+  // where entrants already paid the organizers directly — registering a
+  // team here shouldn't require an open shift or record a Sale at all.
+  // Defaults true so every existing tournament keeps today's behavior
+  // (register a team, require a shift, record a real Sale) unchanged.
+  collectsPaymentOnSite Boolean          @default(true)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  deletedAt             DateTime?
 
   createdBy  User                 @relation(fields: [createdById], references: [id])
   categories TournamentCategory[]

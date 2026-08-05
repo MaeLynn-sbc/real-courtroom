@@ -68,6 +68,7 @@ async function main(): Promise<void> {
       name: `Public Gate Test Tournament ${suffix}`,
       startDate: new Date(2031, 11, 5),
       endDate: new Date(2031, 11, 6),
+      collectsPaymentOnSite: true,
     },
     owner.id,
   );

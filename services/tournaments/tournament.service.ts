@@ -143,6 +143,7 @@ export class TournamentService {
         registrationOpensAt: input.registrationOpensAt,
         registrationClosesAt: input.registrationClosesAt,
         venueInfo: input.venueInfo,
+        collectsPaymentOnSite: input.collectsPaymentOnSite,
       },
     });
 
@@ -174,6 +175,7 @@ export class TournamentService {
         registrationOpensAt: input.registrationOpensAt,
         registrationClosesAt: input.registrationClosesAt,
         venueInfo: input.venueInfo,
+        collectsPaymentOnSite: input.collectsPaymentOnSite,
       },
     });
 
@@ -184,6 +186,34 @@ export class TournamentService {
       entityId: tournament.id,
       oldValues: existing,
       newValues: tournament,
+    });
+
+    return tournament;
+  }
+
+  // Narrow, single-field update — same precedent as
+  // updateCategoryMaxTeams — for the tournament detail page's own
+  // toggle, so flipping this one setting doesn't need the full
+  // create/update form's entire field set round-tripped.
+  async updateTournamentPaymentSetting(
+    tournamentId: string,
+    collectsPaymentOnSite: boolean,
+    actorUserId: string,
+  ): Promise<Tournament> {
+    const existing = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+
+    const tournament = await prisma.tournament.update({
+      where: { id: tournamentId },
+      data: { collectsPaymentOnSite },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.payment_setting_updated",
+      entityType: "Tournament",
+      entityId: tournament.id,
+      oldValues: { collectsPaymentOnSite: existing.collectsPaymentOnSite },
+      newValues: { collectsPaymentOnSite: tournament.collectsPaymentOnSite },
     });
 
     return tournament;
@@ -287,11 +317,19 @@ export class TournamentService {
   // maintenance: Sale's saleNumber now comes from the shared atomic
   // counter (lib/reference-counter.ts) and can no longer collide, so the
   // retry loop this used to need solely for that is gone.
+  // saleContext is null for a tournament that doesn't collect payment
+  // on-site (Tournament.collectsPaymentOnSite === false — an outside
+  // event where entrants already paid the organizers directly). The
+  // registration itself is still recorded exactly as normal (CONFIRMED/
+  // WAITLISTED against maxTeams); only the Sale is skipped, so there's
+  // no employeeId/shiftId/paymentMethodId to require in that case
+  // either — see registerTeamAction's own comment for how it decides
+  // which case it's in before this is ever called.
   async registerTeam(
     categoryId: string,
     input: RegisterTeamInput,
     actorUserId: string,
-    saleContext: RegisterTeamSaleContext,
+    saleContext: RegisterTeamSaleContext | null,
     receipt?: RegisterTeamReceiptInput,
   ): Promise<TournamentRegistration> {
     const category = await prisma.tournamentCategory.findUniqueOrThrow({
@@ -355,18 +393,20 @@ export class TournamentService {
           },
         });
 
-        const createdSale = await saleService.createSale(
-          {
-            category: "TOURNAMENT_REGISTRATION",
-            amountCents: category.feeCents,
-            paymentMethodId: saleContext.paymentMethodId,
-            employeeId: saleContext.employeeId,
-            shiftId: saleContext.shiftId,
-            playerId: player1.id,
-            tournamentRegistrationId: createdRegistration.id,
-          },
-          tx,
-        );
+        const createdSale = saleContext
+          ? await saleService.createSale(
+              {
+                category: "TOURNAMENT_REGISTRATION",
+                amountCents: category.feeCents,
+                paymentMethodId: saleContext.paymentMethodId,
+                employeeId: saleContext.employeeId,
+                shiftId: saleContext.shiftId,
+                playerId: player1.id,
+                tournamentRegistrationId: createdRegistration.id,
+              },
+              tx,
+            )
+          : null;
 
         return { registration: createdRegistration, sale: createdSale };
       });
@@ -378,7 +418,9 @@ export class TournamentService {
         entityId: registration.id,
         newValues: registration,
       });
-      await saleService.logSaleCreated(sale, actorUserId);
+      if (sale) {
+        await saleService.logSaleCreated(sale, actorUserId);
+      }
 
       return registration;
     } catch (error) {

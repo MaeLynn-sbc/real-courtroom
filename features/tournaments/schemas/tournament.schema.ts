@@ -9,6 +9,10 @@ export const createTournamentSchema = z
     registrationOpensAt: z.coerce.date().optional(),
     registrationClosesAt: z.coerce.date().optional(),
     venueInfo: z.string().max(500).optional(),
+    // Owner request (2026-08-05): unchecked for an outside event where
+    // entrants already paid the organizers directly — see the schema
+    // column's own comment for why this defaults true.
+    collectsPaymentOnSite: z.boolean().default(true),
   })
   .refine((data) => data.endDate >= data.startDate, {
     message: "End date must be on or after the start date.",
@@ -16,6 +20,14 @@ export const createTournamentSchema = z
   });
 
 export type CreateTournamentInput = z.infer<typeof createTournamentSchema>;
+
+export const updateTournamentPaymentSettingSchema = z.object({
+  collectsPaymentOnSite: z.boolean(),
+});
+
+export type UpdateTournamentPaymentSettingInput = z.infer<
+  typeof updateTournamentPaymentSettingSchema
+>;
 
 // All 6 schema-level TournamentStatus values are accepted here (matches
 // the frozen Prisma enum exactly) — it's tournament.service.ts's state
@@ -65,10 +77,15 @@ export type UpdateCategoryMaxTeamsInput = z.infer<typeof updateCategoryMaxTeamsS
 // Player picker (owner, 2026-08-03) — tournament entrants are
 // frequently walk-ins with no existing Player record; registerTeam
 // creates a minimal one on the spot for each name.
+// paymentMethodId is optional at the schema level — required only when
+// the tournament actually collects payment on-site (see
+// Tournament.collectsPaymentOnSite); enforced in tournamentService.
+// registerTeam, the one place that already knows the tournament's
+// setting, not duplicated here where it doesn't.
 export const registerTeamSchema = z.object({
   player1Name: z.string().min(1, "Enter player 1's name.").max(200),
   player2Name: z.string().max(200).optional(),
-  paymentMethodId: z.string().min(1, "Select a payment method."),
+  paymentMethodId: z.string().optional(),
   receipt: z
     .object({
       fileName: z.string().min(1),

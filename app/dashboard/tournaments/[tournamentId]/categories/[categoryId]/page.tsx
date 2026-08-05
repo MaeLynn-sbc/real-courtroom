@@ -101,6 +101,7 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
             tournamentId={tournamentId}
             categoryId={categoryId}
             paymentMethods={paymentMethodOptions}
+            collectsPaymentOnSite={category.tournament.collectsPaymentOnSite}
           />
         </div>
       </section>

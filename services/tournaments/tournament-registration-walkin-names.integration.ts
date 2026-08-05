@@ -82,6 +82,7 @@ async function main(): Promise<void> {
       name: `WalkIn Test Tournament ${suffix}`,
       startDate: new Date(2031, 10, 1),
       endDate: new Date(2031, 10, 2),
+      collectsPaymentOnSite: true,
     },
     owner.id,
   );
