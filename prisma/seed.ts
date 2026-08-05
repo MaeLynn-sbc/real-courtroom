@@ -38,14 +38,6 @@ const ROLE_DEFINITIONS: Record<SystemRoleName, RoleDefinition> = {
     label: "Owner",
     description: "Full access to every module and setting.",
   },
-  [SYSTEM_ROLES.MANAGER]: {
-    label: "Manager",
-    description: "Day-to-day facility management and reporting.",
-  },
-  [SYSTEM_ROLES.RECEPTIONIST]: {
-    label: "Receptionist",
-    description: "Front-desk check-in, walk-ins, and payments.",
-  },
   [SYSTEM_ROLES.TOURNAMENT_DIRECTOR]: {
     label: "Tournament Staff",
     description: "Runs tournaments, brackets, and scoring.",
@@ -208,37 +200,6 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.SALES_CREATE_WITHOUT_SHIFT,
     PERMISSIONS.PAYROLL_MANAGE,
   ],
-  [SYSTEM_ROLES.MANAGER]: [
-    PERMISSIONS.DASHBOARD_ACCESS,
-    PERMISSIONS.SYSTEM_ADMIN,
-    PERMISSIONS.COURTS_MANAGE,
-    PERMISSIONS.BOOKINGS_MANAGE,
-    PERMISSIONS.BOOKINGS_PAY_AT_VENUE,
-    PERMISSIONS.OPEN_PLAY_MANAGE,
-    PERMISSIONS.TOURNAMENTS_MANAGE,
-    PERMISSIONS.PLAYERS_MANAGE,
-    PERMISSIONS.EQUIPMENT_MANAGE,
-    PERMISSIONS.REPORTS_MANAGE,
-    PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY,
-    PERMISSIONS.COACHING_MANAGE_RATES,
-    PERMISSIONS.DISPLAY_MANAGE,
-  ],
-  [SYSTEM_ROLES.RECEPTIONIST]: [
-    PERMISSIONS.DASHBOARD_ACCESS,
-    PERMISSIONS.BOOKINGS_MANAGE,
-    PERMISSIONS.BOOKINGS_PAY_AT_VENUE,
-    PERMISSIONS.OPEN_PLAY_MANAGE,
-    PERMISSIONS.PLAYERS_MANAGE,
-    PERMISSIONS.EQUIPMENT_MANAGE,
-    // Reported live: the attendant physically at the display, not the
-    // owner, is the one who can actually test and pick a voice — voices
-    // belong to that machine's browser. Same reasoning extends to repeat
-    // count and flash duration (operational tuning a front-desk shift
-    // is better positioned to judge than the owner is remotely). Does
-    // NOT include SYSTEM_ADMIN, so regenerating the display URL — the
-    // display's own auth token — still requires Owner/Manager.
-    PERMISSIONS.DISPLAY_MANAGE,
-  ],
   [SYSTEM_ROLES.TOURNAMENT_DIRECTOR]: [
     PERMISSIONS.DASHBOARD_ACCESS,
     PERMISSIONS.TOURNAMENTS_MANAGE,
@@ -250,7 +211,7 @@ const OWNER_SEED_EMAIL = "owner@thecourtroom.local";
 const OWNER_SEED_USERNAME = "owner";
 const OWNER_SEED_PASSWORD = "Owner123!";
 
-// A Receptionist-role login for local testing of shift/sales flows
+// A Court Attendant-role login for local testing of shift/sales flows
 // (booking, check-in, rentals) without using the Owner account — the
 // Owner no longer clocks in for a shift day-to-day (see the Operations
 // dashboard), so exercising that flow needs a real staff account.
@@ -522,6 +483,9 @@ async function planSeedCreates(): Promise<string[]> {
       Boolean(await prisma.role.findUnique({ where: { name } })),
     );
   }
+  await check(`Role "COURT_ATTENDANT"`, async () =>
+    Boolean(await prisma.role.findUnique({ where: { name: "COURT_ATTENDANT" } })),
+  );
   for (const key of Object.keys(PERMISSION_DEFINITIONS) as PermissionKey[]) {
     await check(`Permission "${key}"`, async () =>
       Boolean(await prisma.permission.findUnique({ where: { key } })),
@@ -688,6 +652,50 @@ async function main(): Promise<void> {
     }
   }
 
+  // The real, production front-desk/operations role today is "Court
+  // Attendant" — created by the owner directly through the Roles screen
+  // (role.service.ts's createRole, isSystem: false), not a system default
+  // in ROLE_DEFINITIONS/SYSTEM_ROLES above. Mirrored here (same
+  // create-if-missing, update: {} discipline as every other row in this
+  // file) purely so local dev/test seeding has an equivalent non-owner
+  // staff role — this business's actual one, not an invented one — for
+  // the dev-only Test Staff login below and for integration test
+  // fixtures. Matches the real role's permission grants as confirmed
+  // against production 2026-08-05. In production this upsert is already
+  // a no-op (the row exists); this is only load-bearing for a fresh
+  // database.
+  const courtAttendantRole = await prisma.role.upsert({
+    where: { name: "COURT_ATTENDANT" },
+    update: {},
+    create: { name: "COURT_ATTENDANT", label: "Court Attendant", isSystem: false },
+  });
+
+  const COURT_ATTENDANT_PERMISSION_KEYS: PermissionKey[] = [
+    PERMISSIONS.ACCOUNTS_CONFIRM_CASH_RECONCILIATION,
+    PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION,
+    PERMISSIONS.BOOKINGS_MANAGE,
+    PERMISSIONS.BOOKINGS_PAY_AT_VENUE,
+    PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY,
+    PERMISSIONS.COACHING_MANAGE_RATES,
+    PERMISSIONS.COURTS_MANAGE,
+    PERMISSIONS.DASHBOARD_ACCESS,
+    PERMISSIONS.DISPLAY_MANAGE,
+    PERMISSIONS.EQUIPMENT_MANAGE,
+    PERMISSIONS.OPEN_PLAY_MANAGE,
+    PERMISSIONS.PLAYERS_MANAGE,
+  ];
+  for (const permissionKey of COURT_ATTENDANT_PERMISSION_KEYS) {
+    const permission = permissionByKey.get(permissionKey);
+    if (!permission) {
+      continue;
+    }
+    await prisma.rolePermission.upsert({
+      where: { roleId_permissionId: { roleId: courtAttendantRole.id, permissionId: permission.id } },
+      update: {},
+      create: { roleId: courtAttendantRole.id, permissionId: permission.id },
+    });
+  }
+
   const ownerRole = roleByName.get(SYSTEM_ROLES.OWNER);
   if (!ownerRole) {
     throw new Error("Owner role was not seeded.");
@@ -788,26 +796,21 @@ async function main(): Promise<void> {
   // the equivalent of this session's dev-database pairing-history
   // poisoning incident, but for a real credential instead of test data.
   if (env.NODE_ENV !== "production") {
-    const receptionistRole = roleByName.get(SYSTEM_ROLES.RECEPTIONIST);
-    if (!receptionistRole) {
-      throw new Error("Receptionist role was not seeded.");
-    }
-
     const staffPasswordHash = await bcrypt.hash(STAFF_SEED_PASSWORD, 12);
 
     const staffUser = await prisma.user.upsert({
       where: { email: STAFF_SEED_EMAIL },
       update: {
         passwordHash: staffPasswordHash,
-        roleId: receptionistRole.id,
+        roleId: courtAttendantRole.id,
         username: STAFF_SEED_USERNAME,
       },
       create: {
         email: STAFF_SEED_EMAIL,
-        name: "Test Receptionist",
+        name: "Test Court Attendant",
         username: STAFF_SEED_USERNAME,
         passwordHash: staffPasswordHash,
-        roleId: receptionistRole.id,
+        roleId: courtAttendantRole.id,
       },
     });
 
@@ -824,17 +827,17 @@ async function main(): Promise<void> {
           userId: staffUser.id,
           employeeNumber: formatEmployeeNumber(sequence),
           firstName: "Test",
-          lastName: "Receptionist",
+          lastName: "Court Attendant",
         },
       });
     }
 
     logger.info(
       { username: STAFF_SEED_USERNAME, password: STAFF_SEED_PASSWORD },
-      "Seeded Receptionist login for local development — never created in production",
+      "Seeded Court Attendant login for local development — never created in production",
     );
   } else {
-    logger.info("Skipping dev-only Test Receptionist login — NODE_ENV=production");
+    logger.info("Skipping dev-only Test Court Attendant login — NODE_ENV=production");
   }
 
   const websiteUser = await prisma.user.upsert({

@@ -20,7 +20,7 @@
  *      window, not adjacent days.
  *   7. Access control: against real seeded roles, OWNER has
  *      PAYROLL_MANAGE (the permission gating every new scheduling
- *      action) and RECEPTIONIST does not.
+ *      action) and COURT_ATTENDANT (a real non-owner staff role) does not.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -193,19 +193,19 @@ async function main(): Promise<void> {
       where: { name: "OWNER" },
       include: { permissions: { include: { permission: true } } },
     });
-    const receptionistRole = await prisma.role.findFirstOrThrow({
-      where: { name: "RECEPTIONIST" },
+    const courtAttendantRole = await prisma.role.findFirstOrThrow({
+      where: { name: "COURT_ATTENDANT" },
       include: { permissions: { include: { permission: true } } },
     });
     const ownerPermissionKeys = ownerRole.permissions.map((p) => p.permission.key);
-    const receptionistPermissionKeys = receptionistRole.permissions.map((p) => p.permission.key);
+    const receptionistPermissionKeys = courtAttendantRole.permissions.map((p) => p.permission.key);
     assert(
       hasPermission(ownerPermissionKeys, PERMISSIONS.PAYROLL_MANAGE),
       "expected the real, seeded OWNER role to have PAYROLL_MANAGE",
     );
     assert(
       !hasPermission(receptionistPermissionKeys, PERMISSIONS.PAYROLL_MANAGE),
-      "expected the real, seeded RECEPTIONIST role to NOT have PAYROLL_MANAGE — scheduling actions gate on this",
+      "expected the real, seeded COURT_ATTENDANT role to NOT have PAYROLL_MANAGE — scheduling actions gate on this",
     );
     console.log("PASS: scheduling's PAYROLL_MANAGE gate matches OWNER-only, same as every other payroll action.");
 

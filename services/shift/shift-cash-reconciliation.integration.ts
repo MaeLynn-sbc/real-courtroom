@@ -36,7 +36,7 @@ function assert(condition: unknown, message: string): asserts condition {
 const TEST_USERNAME_PREFIX = "shift-recon-test-";
 
 async function createEmployee(username: string): Promise<{ id: string; userId: string }> {
-  const role = await prisma.role.findFirstOrThrow({ where: { name: "RECEPTIONIST" } });
+  const role = await prisma.role.findFirstOrThrow({ where: { name: "COURT_ATTENDANT" } });
   const user = await prisma.user.create({ data: { name: username, username, roleId: role.id } });
   return prisma.employee.create({
     data: { userId: user.id, employeeNumber: `${username}-num`, firstName: "Test", lastName: "ReconEmployee" },

@@ -57,7 +57,7 @@ function screenshot() {
 }
 
 async function makeCoach(username: string, hourlyWindow: [number, number]): Promise<{ id: string }> {
-  const role = await prisma.role.findFirstOrThrow({ where: { name: "RECEPTIONIST" } });
+  const role = await prisma.role.findFirstOrThrow({ where: { name: "COURT_ATTENDANT" } });
   const owner = await prisma.user.findFirstOrThrow({ where: { username: "owner" } });
   const user = await prisma.user.create({ data: { name: username, username, roleId: role.id } });
   const coach = await prisma.employee.create({

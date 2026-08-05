@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   await cleanUp();
 
   try {
-    const role = await prisma.role.findFirstOrThrow({ where: { name: "RECEPTIONIST" } });
+    const role = await prisma.role.findFirstOrThrow({ where: { name: "COURT_ATTENDANT" } });
     const suffix = Date.now();
 
     // Deliberately NO email — the exact real-world shape that triggered

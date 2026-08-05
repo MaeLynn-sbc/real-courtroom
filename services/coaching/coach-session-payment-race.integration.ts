@@ -127,7 +127,7 @@ async function main(): Promise<void> {
   await cleanUp(court.id);
 
   const ts = Date.now();
-  const role = await prisma.role.findFirstOrThrow({ where: { name: "RECEPTIONIST" } });
+  const role = await prisma.role.findFirstOrThrow({ where: { name: "COURT_ATTENDANT" } });
   const coachUser = await prisma.user.create({
     data: { name: `${TEST_USERNAME_PREFIX}${ts}`, username: `${TEST_USERNAME_PREFIX}${ts}`, roleId: role.id },
   });

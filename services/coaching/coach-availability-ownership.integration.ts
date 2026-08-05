@@ -45,7 +45,7 @@ async function cleanUp(): Promise<void> {
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
 }
 
-async function createCoach(username: string, isCoach: boolean, roleName = "RECEPTIONIST"): Promise<{ id: string }> {
+async function createCoach(username: string, isCoach: boolean, roleName = "COURT_ATTENDANT"): Promise<{ id: string }> {
   const role = await prisma.role.findFirstOrThrow({ where: { name: roleName } });
   const user = await prisma.user.create({ data: { name: username, username, roleId: role.id } });
   return prisma.employee.create({

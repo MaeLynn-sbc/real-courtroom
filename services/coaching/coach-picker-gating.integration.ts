@@ -53,7 +53,7 @@ async function cleanUp(courtId: string): Promise<void> {
 }
 
 async function createEmployee(username: string, isCoach: boolean) {
-  const role = await prisma.role.findFirstOrThrow({ where: { name: "RECEPTIONIST" } });
+  const role = await prisma.role.findFirstOrThrow({ where: { name: "COURT_ATTENDANT" } });
   const user = await prisma.user.create({ data: { name: username, username, roleId: role.id } });
   return prisma.employee.create({
     data: { userId: user.id, employeeNumber: `${username}-num`, firstName: "Test", lastName: "Employee", isCoach },

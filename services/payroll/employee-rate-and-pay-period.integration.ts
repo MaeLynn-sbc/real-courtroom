@@ -12,7 +12,7 @@
  *      15th vs the 16th, and month-end for a 28/30/31-day month).
  *   5. getOrCreatePeriodForDate is idempotent under real concurrency (two
  *      simultaneous calls for the same date resolve to exactly one row).
- *   6. Access control: real seeded OWNER has PAYROLL_MANAGE, RECEPTIONIST
+ *   6. Access control: real seeded OWNER has PAYROLL_MANAGE, COURT_ATTENDANT
  *      does not — same gate every payroll action in this batch relies on.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
@@ -163,8 +163,8 @@ async function main(): Promise<void> {
       where: { name: "OWNER" },
       include: { permissions: { include: { permission: true } } },
     });
-    const receptionistRole = await prisma.role.findFirstOrThrow({
-      where: { name: "RECEPTIONIST" },
+    const courtAttendantRole = await prisma.role.findFirstOrThrow({
+      where: { name: "COURT_ATTENDANT" },
       include: { permissions: { include: { permission: true } } },
     });
     assert(
@@ -176,10 +176,10 @@ async function main(): Promise<void> {
     );
     assert(
       !hasPermission(
-        receptionistRole.permissions.map((p) => p.permission.key),
+        courtAttendantRole.permissions.map((p) => p.permission.key),
         PERMISSIONS.PAYROLL_MANAGE,
       ),
-      "expected the real, seeded RECEPTIONIST role to NOT have PAYROLL_MANAGE",
+      "expected the real, seeded COURT_ATTENDANT role to NOT have PAYROLL_MANAGE",
     );
     console.log("PASS: rate/period actions gate on PAYROLL_MANAGE, same as every other payroll action.");
 

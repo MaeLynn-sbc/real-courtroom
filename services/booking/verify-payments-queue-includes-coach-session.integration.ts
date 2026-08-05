@@ -78,7 +78,7 @@ async function cleanUp(courtId: string, coachId?: string): Promise<void> {
 async function main(): Promise<void> {
   const court = await prisma.court.findFirstOrThrow({ where: { deletedAt: null } });
   const owner = await prisma.user.findFirstOrThrow({ where: { username: "owner" } });
-  const role = await prisma.role.findFirstOrThrow({ where: { name: "RECEPTIONIST" } });
+  const role = await prisma.role.findFirstOrThrow({ where: { name: "COURT_ATTENDANT" } });
 
   await cleanUp(court.id);
 

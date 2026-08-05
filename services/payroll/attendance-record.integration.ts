@@ -14,7 +14,7 @@
  *   4. Correcting without a reason is rejected.
  *   5. Access control (Part 3's own requirement — "Include a test
  *      asserting a non-owner session receives 403 on each payroll
- *      endpoint"): against the real, seeded RECEPTIONIST role,
+ *      endpoint"): against the real, seeded COURT_ATTENDANT role,
  *      hasPermission denies PAYROLL_MANAGE; against real, seeded
  *      OWNER, it's granted. Same hasPermission() function every
  *      payroll action's requirePermission() call goes through.
@@ -156,12 +156,12 @@ async function main(): Promise<void> {
       where: { name: "OWNER" },
       include: { permissions: { include: { permission: true } } },
     });
-    const receptionistRole = await prisma.role.findFirstOrThrow({
-      where: { name: "RECEPTIONIST" },
+    const courtAttendantRole = await prisma.role.findFirstOrThrow({
+      where: { name: "COURT_ATTENDANT" },
       include: { permissions: { include: { permission: true } } },
     });
     const ownerPermissionKeys = ownerRole.permissions.map((p) => p.permission.key);
-    const receptionistPermissionKeys = receptionistRole.permissions.map((p) => p.permission.key);
+    const receptionistPermissionKeys = courtAttendantRole.permissions.map((p) => p.permission.key);
 
     assert(
       hasPermission(ownerPermissionKeys, PERMISSIONS.PAYROLL_MANAGE),
@@ -169,10 +169,10 @@ async function main(): Promise<void> {
     );
     assert(
       !hasPermission(receptionistPermissionKeys, PERMISSIONS.PAYROLL_MANAGE),
-      "expected the real, seeded RECEPTIONIST role to NOT have PAYROLL_MANAGE — a non-owner session must be denied",
+      "expected the real, seeded COURT_ATTENDANT role to NOT have PAYROLL_MANAGE — a non-owner session must be denied",
     );
     console.log(
-      "PASS: against real seeded roles, OWNER has PAYROLL_MANAGE and RECEPTIONIST (a non-owner role) does not — the same hasPermission() check every payroll action's requirePermission() uses.",
+      "PASS: against real seeded roles, OWNER has PAYROLL_MANAGE and COURT_ATTENDANT (a non-owner role) does not — the same hasPermission() check every payroll action's requirePermission() uses.",
     );
 
     await cleanUp(employee.id, workDate);

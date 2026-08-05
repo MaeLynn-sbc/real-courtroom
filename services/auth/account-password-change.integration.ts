@@ -37,7 +37,7 @@ async function main(): Promise<void> {
   await cleanUp();
 
   const owner = await prisma.user.findFirstOrThrow({ where: { username: "owner" } });
-  const role = await prisma.role.findFirstOrThrow({ where: { name: "RECEPTIONIST" } });
+  const role = await prisma.role.findFirstOrThrow({ where: { name: "COURT_ATTENDANT" } });
   const username = `${TEST_USERNAME_PREFIX}${Date.now()}`;
 
   const { employee, tempPassword } = await employeeService.createEmployee(

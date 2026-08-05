@@ -21,7 +21,7 @@
  *   9. PayrollMarkedDate: duplicate dates are rejected by the real unique
  *      constraint; listMarkedDatesInRange only returns dates inside the
  *      requested window.
- *   10. Access control: real seeded OWNER has PAYROLL_MANAGE, RECEPTIONIST
+ *   10. Access control: real seeded OWNER has PAYROLL_MANAGE, COURT_ATTENDANT
  *       does not — the gate every new action in this batch relies on.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
@@ -266,8 +266,8 @@ async function main(): Promise<void> {
       where: { name: "OWNER" },
       include: { permissions: { include: { permission: true } } },
     });
-    const receptionistRole = await prisma.role.findFirstOrThrow({
-      where: { name: "RECEPTIONIST" },
+    const courtAttendantRole = await prisma.role.findFirstOrThrow({
+      where: { name: "COURT_ATTENDANT" },
       include: { permissions: { include: { permission: true } } },
     });
     assert(
@@ -279,10 +279,10 @@ async function main(): Promise<void> {
     );
     assert(
       !hasPermission(
-        receptionistRole.permissions.map((p) => p.permission.key),
+        courtAttendantRole.permissions.map((p) => p.permission.key),
         PERMISSIONS.PAYROLL_MANAGE,
       ),
-      "expected the real, seeded RECEPTIONIST role to NOT have PAYROLL_MANAGE",
+      "expected the real, seeded COURT_ATTENDANT role to NOT have PAYROLL_MANAGE",
     );
     console.log("PASS: marked-date and export actions gate on PAYROLL_MANAGE, same as every other payroll action.");
 

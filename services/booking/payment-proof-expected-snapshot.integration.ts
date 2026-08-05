@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   const court = await prisma.court.findFirstOrThrow({ where: { deletedAt: null } });
   const owner = await prisma.user.findFirstOrThrow({ where: { username: "owner" } });
   const ownerEmployee = await prisma.employee.findUniqueOrThrow({ where: { userId: owner.id } });
-  const role = await prisma.role.findFirstOrThrow({ where: { name: "RECEPTIONIST" } });
+  const role = await prisma.role.findFirstOrThrow({ where: { name: "COURT_ATTENDANT" } });
 
   await cleanUp(court.id);
 

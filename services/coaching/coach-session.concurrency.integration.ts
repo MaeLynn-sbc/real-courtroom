@@ -80,7 +80,7 @@ async function main(): Promise<void> {
 
   await cleanUp(courtA.id, courtB.id);
 
-  const role = await prisma.role.findFirstOrThrow({ where: { name: "RECEPTIONIST" } });
+  const role = await prisma.role.findFirstOrThrow({ where: { name: "COURT_ATTENDANT" } });
   const coachUsername = `${TEST_USERNAME_PREFIX}${Date.now()}`;
   const coachUser = await prisma.user.create({ data: { name: "Race Coach", username: coachUsername, roleId: role.id } });
   const coach = await prisma.employee.create({
