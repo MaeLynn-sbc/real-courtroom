@@ -14,3 +14,12 @@ export const deleteEmployeeRateSchema = z.object({
 });
 
 export type DeleteEmployeeRateInput = z.infer<typeof deleteEmployeeRateSchema>;
+
+export const updateEmployeeRateSchema = z.object({
+  rateId: z.string().min(1),
+  dailyRateCents: z.coerce.number().int().positive("Enter a daily rate greater than zero."),
+  effectiveFrom: z.coerce.date(),
+  note: z.string().max(500).optional(),
+});
+
+export type UpdateEmployeeRateInput = z.infer<typeof updateEmployeeRateSchema>;

@@ -4,7 +4,11 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { createEmployeeRateAction, deleteEmployeeRateAction } from "@/actions/employee-rate.actions";
+import {
+  createEmployeeRateAction,
+  deleteEmployeeRateAction,
+  updateEmployeeRateAction,
+} from "@/actions/employee-rate.actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,6 +54,10 @@ export function EmployeeRateManager({ employees, selectedEmployeeId, rates }: Em
   const [dailyRate, setDailyRate] = useState("");
   const [effectiveFrom, setEffectiveFrom] = useState(toDateValue(new Date()));
   const [note, setNote] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDailyRate, setEditDailyRate] = useState("");
+  const [editEffectiveFrom, setEditEffectiveFrom] = useState("");
+  const [editNote, setEditNote] = useState("");
 
   function onSelectEmployee(employeeId: string) {
     router.push(`/dashboard/payroll/rates?employeeId=${employeeId}`);
@@ -95,9 +103,42 @@ export function EmployeeRateManager({ employees, selectedEmployeeId, rates }: Em
     });
   }
 
-  // Only the newest row (rates[0], since the page orders desc by
-  // effectiveFrom) can be deleted — see employee-rate.service.ts's
-  // deleteLatestRate for why an older row is refused server-side too.
+  function startEdit(rate: RateRow) {
+    setEditingId(rate.id);
+    setEditDailyRate((rate.dailyRateCents / 100).toString());
+    setEditEffectiveFrom(toDateValue(rate.effectiveFrom));
+    setEditNote(rate.note ?? "");
+  }
+
+  function onSaveEdit(rateId: string) {
+    const rateCents = Math.round(Number(editDailyRate) * 100);
+    if (!Number.isFinite(rateCents) || rateCents <= 0) {
+      toast.error("Enter a valid daily rate.");
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await updateEmployeeRateAction({
+        rateId,
+        dailyRateCents: rateCents,
+        effectiveFrom: new Date(`${editEffectiveFrom}T00:00:00`),
+        note: editNote.trim() || undefined,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Rate updated.");
+      setEditingId(null);
+      router.refresh();
+    });
+  }
+
+  // Any row's amount/date/note can be corrected — see
+  // employee-rate.service.ts's updateRate for why that's safe today even
+  // for a non-latest row. Only the newest row (rates[0], since the page
+  // orders desc by effectiveFrom) can be DELETED — deleteLatestRate
+  // refuses an older row, since removing it would open a gap.
   const latestRateId = rates[0]?.id;
 
   return (
@@ -176,26 +217,83 @@ export function EmployeeRateManager({ employees, selectedEmployeeId, rates }: Em
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rates.map((rate) => (
-                  <TableRow key={rate.id}>
-                    <TableCell>{formatCurrency(rate.dailyRateCents)}</TableCell>
-                    <TableCell>{dateFormatter.format(rate.effectiveFrom)}</TableCell>
-                    <TableCell className="text-muted-foreground">{rate.note ?? "—"}</TableCell>
-                    <TableCell>
-                      {rate.id === latestRateId ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={isPending}
-                          onClick={() => onDelete(rate.id)}
-                        >
-                          Remove
-                        </Button>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {rates.map((rate) =>
+                  editingId === rate.id ? (
+                    <TableRow key={rate.id}>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={editDailyRate}
+                          onChange={(event) => setEditDailyRate(event.target.value)}
+                          className="h-8 w-28"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="date"
+                          value={editEffectiveFrom}
+                          onChange={(event) => setEditEffectiveFrom(event.target.value)}
+                          className="h-8"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          value={editNote}
+                          onChange={(event) => setEditNote(event.target.value)}
+                          className="h-8"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1.5">
+                          <Button type="button" size="sm" disabled={isPending} onClick={() => onSaveEdit(rate.id)}>
+                            Save
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={isPending}
+                            onClick={() => setEditingId(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    <TableRow key={rate.id}>
+                      <TableCell>{formatCurrency(rate.dailyRateCents)}</TableCell>
+                      <TableCell>{dateFormatter.format(rate.effectiveFrom)}</TableCell>
+                      <TableCell className="text-muted-foreground">{rate.note ?? "—"}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-1.5">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={isPending}
+                            onClick={() => startEdit(rate)}
+                          >
+                            Edit
+                          </Button>
+                          {rate.id === latestRateId ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={isPending}
+                              onClick={() => onDelete(rate.id)}
+                            >
+                              Remove
+                            </Button>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ),
+                )}
               </TableBody>
             </Table>
           )}

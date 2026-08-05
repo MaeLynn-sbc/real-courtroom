@@ -5,8 +5,10 @@ import { revalidatePath } from "next/cache";
 import {
   createEmployeeRateSchema,
   deleteEmployeeRateSchema,
+  updateEmployeeRateSchema,
   type CreateEmployeeRateInput,
   type DeleteEmployeeRateInput,
+  type UpdateEmployeeRateInput,
 } from "@/features/payroll/schemas/employee-rate.schema";
 import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
@@ -47,6 +49,32 @@ export async function createEmployeeRateAction(
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "createEmployeeRateAction", userId: authz.userId }) };
+  }
+}
+
+export async function updateEmployeeRateAction(
+  input: UpdateEmployeeRateInput,
+): Promise<EmployeeRateActionState> {
+  const authz = await requirePayrollManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = updateEmployeeRateSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid rate." };
+  }
+
+  try {
+    await employeeRateService.updateRate(
+      parsed.data.rateId,
+      { dailyRateCents: parsed.data.dailyRateCents, effectiveFrom: parsed.data.effectiveFrom, note: parsed.data.note },
+      authz.userId,
+    );
+    revalidateRates();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "updateEmployeeRateAction", userId: authz.userId }) };
   }
 }
 

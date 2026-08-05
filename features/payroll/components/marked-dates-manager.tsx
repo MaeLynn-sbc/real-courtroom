@@ -4,7 +4,11 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { createMarkedDateAction, deleteMarkedDateAction } from "@/actions/payroll-marked-date.actions";
+import {
+  createMarkedDateAction,
+  deleteMarkedDateAction,
+  updateMarkedDateAction,
+} from "@/actions/payroll-marked-date.actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +33,9 @@ export function MarkedDatesManager({ markedDates }: { markedDates: MarkedDateRow
   const [isPending, startTransition] = useTransition();
   const [date, setDate] = useState(toDateValue(new Date()));
   const [label, setLabel] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [editLabel, setEditLabel] = useState("");
 
   function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -59,6 +66,34 @@ export function MarkedDatesManager({ markedDates }: { markedDates: MarkedDateRow
         return;
       }
       toast.success("Removed.");
+      router.refresh();
+    });
+  }
+
+  function startEdit(row: MarkedDateRow) {
+    setEditingId(row.id);
+    setEditDate(toDateValue(row.date));
+    setEditLabel(row.label);
+  }
+
+  function onSaveEdit(markedDateId: string) {
+    if (!editLabel.trim()) {
+      toast.error("Enter a label.");
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await updateMarkedDateAction({
+        markedDateId,
+        date: new Date(`${editDate}T00:00:00`),
+        label: editLabel,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Updated.");
+      setEditingId(null);
       router.refresh();
     });
   }
@@ -102,23 +137,66 @@ export function MarkedDatesManager({ markedDates }: { markedDates: MarkedDateRow
             </TableRow>
           </TableHeader>
           <TableBody>
-            {markedDates.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell>{dateFormatter.format(row.date)}</TableCell>
-                <TableCell>{row.label}</TableCell>
-                <TableCell>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={isPending}
-                    onClick={() => onDelete(row.id)}
-                  >
-                    Remove
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
+            {markedDates.map((row) =>
+              editingId === row.id ? (
+                <TableRow key={row.id}>
+                  <TableCell>
+                    <Input
+                      type="date"
+                      value={editDate}
+                      onChange={(event) => setEditDate(event.target.value)}
+                      className="h-8"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Input value={editLabel} onChange={(event) => setEditLabel(event.target.value)} className="h-8" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1.5">
+                      <Button type="button" size="sm" disabled={isPending} onClick={() => onSaveEdit(row.id)}>
+                        Save
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={isPending}
+                        onClick={() => setEditingId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                <TableRow key={row.id}>
+                  <TableCell>{dateFormatter.format(row.date)}</TableCell>
+                  <TableCell>{row.label}</TableCell>
+                  <TableCell>
+                    <div className="flex gap-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isPending}
+                        onClick={() => startEdit(row)}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isPending}
+                        onClick={() => onDelete(row.id)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ),
+            )}
           </TableBody>
         </Table>
       )}

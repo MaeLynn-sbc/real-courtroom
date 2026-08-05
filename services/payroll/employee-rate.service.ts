@@ -28,6 +28,12 @@ export interface CreateEmployeeRateInput {
   note?: string;
 }
 
+export interface UpdateEmployeeRateInput {
+  dailyRateCents?: number;
+  effectiveFrom?: Date;
+  note?: string;
+}
+
 // Payroll Batch 2b. Deliberately NOT modeled like CoachRate (flat,
 // overwrite-in-place) — see the schema comment on EmployeeRate for why. A
 // new row is always inserted; an existing row is never edited or
@@ -72,6 +78,41 @@ export class EmployeeRateService {
       actorUserId,
       action: "employee_rate.created",
       entityId: rate.id,
+      newValues: rate,
+    });
+
+    return rate;
+  }
+
+  // Corrects a data-entry mistake on an existing row — any row, not just
+  // the latest. Unlike deleteLatestRate, this doesn't remove a boundary
+  // from the history, it fixes one; and unlike the retroactive-change
+  // rule 2 is protecting against (a NEW rate silently affecting earlier
+  // days, which resolveRateForDate's own logic already prevents), this is
+  // the owner deliberately saying "that value was wrong" — safe today
+  // because computation writes nothing and nothing is locked yet
+  // (Batch 3). Revisit this once PayPeriod locking exists.
+  async updateRate(rateId: string, input: UpdateEmployeeRateInput, actorUserId: string): Promise<EmployeeRate> {
+    const existing = await prisma.employeeRate.findUniqueOrThrow({ where: { id: rateId } });
+
+    if (input.dailyRateCents !== undefined && input.dailyRateCents <= 0) {
+      throw new Error("The daily rate must be greater than zero.");
+    }
+
+    const rate = await prisma.employeeRate.update({
+      where: { id: rateId },
+      data: {
+        dailyRateCents: input.dailyRateCents,
+        effectiveFrom: input.effectiveFrom ? toMidnight(input.effectiveFrom) : undefined,
+        note: input.note !== undefined ? input.note.trim() || null : undefined,
+      },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "employee_rate.updated",
+      entityId: rate.id,
+      oldValues: existing,
       newValues: rate,
     });
 

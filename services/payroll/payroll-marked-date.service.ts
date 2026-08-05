@@ -34,6 +34,23 @@ export class PayrollMarkedDateService {
     });
   }
 
+  async updateMarkedDate(
+    markedDateId: string,
+    input: { date?: Date; label?: string },
+  ): Promise<PayrollMarkedDate> {
+    if (input.label !== undefined && !input.label.trim()) {
+      throw new Error("Enter a label for this date.");
+    }
+
+    return prisma.payrollMarkedDate.update({
+      where: { id: markedDateId },
+      data: {
+        date: input.date ? toMidnight(input.date) : undefined,
+        label: input.label !== undefined ? input.label.trim() : undefined,
+      },
+    });
+  }
+
   async deleteMarkedDate(markedDateId: string): Promise<void> {
     await prisma.payrollMarkedDate.delete({ where: { id: markedDateId } });
   }

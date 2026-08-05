@@ -5,8 +5,10 @@ import { revalidatePath } from "next/cache";
 import {
   createMarkedDateSchema,
   deleteMarkedDateSchema,
+  updateMarkedDateSchema,
   type CreateMarkedDateInput,
   type DeleteMarkedDateInput,
+  type UpdateMarkedDateInput,
 } from "@/features/payroll/schemas/payroll-marked-date.schema";
 import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
@@ -47,6 +49,29 @@ export async function createMarkedDateAction(
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "createMarkedDateAction", userId: authz.userId }) };
+  }
+}
+
+export async function updateMarkedDateAction(input: UpdateMarkedDateInput): Promise<MarkedDateActionState> {
+  const authz = await requirePayrollManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = updateMarkedDateSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid date." };
+  }
+
+  try {
+    await payrollMarkedDateService.updateMarkedDate(parsed.data.markedDateId, {
+      date: parsed.data.date,
+      label: parsed.data.label,
+    });
+    revalidateMarkedDates();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "updateMarkedDateAction", userId: authz.userId }) };
   }
 }
 
