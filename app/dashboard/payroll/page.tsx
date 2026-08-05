@@ -27,8 +27,7 @@ export default async function PayrollPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Payroll</h1>
           <p className="text-muted-foreground text-sm">
-            Attendance records — manual entry and corrections. Batch 2b: rates and pay periods. No
-            computation engine yet.
+            Attendance records — manual entry and corrections. Batch 2c: pay period preview.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -37,6 +36,9 @@ export default async function PayrollPage() {
           </Link>
           <Link href="/dashboard/payroll/rates" className={buttonVariants({ variant: "outline" })}>
             Rates
+          </Link>
+          <Link href="/dashboard/payroll/marked-dates" className={buttonVariants({ variant: "outline" })}>
+            Marked dates
           </Link>
           <Link href="/dashboard/payroll/periods" className={buttonVariants({ variant: "outline" })}>
             Pay periods

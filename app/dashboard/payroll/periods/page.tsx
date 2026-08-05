@@ -23,8 +23,8 @@ export default async function PayPeriodsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Pay periods</h1>
           <p className="text-muted-foreground text-sm">
-            Semi-monthly (1st–15th, 16th–end of month), generated automatically. No computation
-            engine yet — this batch only tracks the periods themselves.
+            Semi-monthly (1st–15th, 16th–end of month), generated automatically. Click a period to
+            preview computed pay — nothing here is saved or locked.
           </p>
         </div>
         <Link href="/dashboard/payroll" className="text-primary text-sm underline underline-offset-2">
@@ -37,14 +37,16 @@ export default async function PayPeriodsPage() {
       ) : (
         <ul className="flex flex-col gap-2">
           {periods.map((period) => (
-            <li
-              key={period.id}
-              className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
-            >
-              <span>
-                {dateFormatter.format(period.startDate)} – {dateFormatter.format(period.endDate)}
-              </span>
-              <span className="text-muted-foreground text-xs uppercase tracking-wide">{period.status}</span>
+            <li key={period.id}>
+              <Link
+                href={`/dashboard/payroll/periods/${period.id}`}
+                className="hover:bg-muted flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
+              >
+                <span>
+                  {dateFormatter.format(period.startDate)} – {dateFormatter.format(period.endDate)}
+                </span>
+                <span className="text-muted-foreground text-xs uppercase tracking-wide">{period.status}</span>
+              </Link>
             </li>
           ))}
         </ul>

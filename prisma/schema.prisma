@@ -133,6 +133,8 @@ model User {
   attendanceRecordsCorrected        AttendanceRecord[]
   // Payroll Batch 2b — who entered a given effective-dated rate.
   employeeRatesCreated              EmployeeRate[]
+  // Payroll Batch 2c — who marked a date as a rest day/holiday.
+  payrollMarkedDatesCreated         PayrollMarkedDate[]
 
   @@index([deletedAt])
 }
@@ -608,6 +610,28 @@ model PayPeriod {
 
   @@unique([startDate, endDate])
   @@index([startDate])
+}
+
+// Payroll Batch 2c. Deliberately the simplest possible shape — a date and
+// a label, nothing else. No recurrence (a yearly holiday must be marked
+// again next year), no regular-vs-special distinction, no multiplier
+// field: this batch does NOT compute rest-day/holiday pay correctly, it
+// only flags a worked day that falls on one of these dates
+// (REST_DAY_OR_HOLIDAY_UNHANDLED, lib/payroll/compute-day.ts) so the owner
+// can see it and adjust pay by hand. Getting the multiplier math right is
+// Batch 3. Deleting a row is safe — computation writes nothing (rule 4 of
+// the payroll plan), so there's no persisted number a deleted marker could
+// retroactively corrupt.
+model PayrollMarkedDate {
+  id              String   @id @default(cuid())
+  date            DateTime
+  label           String
+  createdAt       DateTime @default(now())
+  createdByUserId String
+
+  createdBy User @relation(fields: [createdByUserId], references: [id])
+
+  @@unique([date])
 }
 
 // GCash reconciliation Gate 1. Deliberately date-scoped, NOT shift-
