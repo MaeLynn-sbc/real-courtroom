@@ -25,23 +25,38 @@ const envSchema = z.object({
   SPACES_BUCKET: z.string().min(1).optional(),
   SPACES_REGION: z.string().min(1).optional(),
   SPACES_ENDPOINT: z.string().min(1).optional(),
-  // Open-play online self-registration, Gate 1 — see services/sms/. No
-  // real provider wired this gate (BUILD-SPEC.md §6 names Semaphore for
-  // later); "console" logs instead of sending, same convention as
-  // EMAIL_PROVIDER above.
-  SMS_PROVIDER: z.enum(["console"]).default("console"),
+  // Open-play online self-registration, Gate 1 — see services/sms/.
+  // "console" logs instead of sending, same convention as EMAIL_PROVIDER
+  // above. "semaphore" is the real provider (BUILD-SPEC.md §6) —
+  // services/sms/semaphore-sms.service.ts, requires SEMAPHORE_API_KEY
+  // (enforced below via superRefine, same pattern as UPLOAD_PROVIDER's
+  // SPACES_* requirement).
+  SMS_PROVIDER: z.enum(["console", "semaphore"]).default("console"),
+  // Never required to have real SMS sending working — Semaphore falls
+  // back to the account's own registered sender name when this is empty
+  // (features/cms/schemas/cms.schema.ts's smsSenderName, an owner-
+  // editable CMS setting, not an env var — a custom sender name needs
+  // telco approval and can be pending/rejected indefinitely without
+  // blocking sending at all).
+  SEMAPHORE_API_KEY: z.string().min(1).optional(),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
 }).superRefine((value, ctx) => {
-  if (value.UPLOAD_PROVIDER !== "spaces") {
-    return;
-  }
-  const required = ["SPACES_KEY", "SPACES_SECRET", "SPACES_BUCKET", "SPACES_REGION", "SPACES_ENDPOINT"] as const;
-  for (const key of required) {
-    if (!value[key]) {
-      ctx.addIssue({ code: "custom", path: [key], message: `${key} is required when UPLOAD_PROVIDER=spaces` });
+  if (value.UPLOAD_PROVIDER === "spaces") {
+    const required = ["SPACES_KEY", "SPACES_SECRET", "SPACES_BUCKET", "SPACES_REGION", "SPACES_ENDPOINT"] as const;
+    for (const key of required) {
+      if (!value[key]) {
+        ctx.addIssue({ code: "custom", path: [key], message: `${key} is required when UPLOAD_PROVIDER=spaces` });
+      }
     }
+  }
+  if (value.SMS_PROVIDER === "semaphore" && !value.SEMAPHORE_API_KEY) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["SEMAPHORE_API_KEY"],
+      message: "SEMAPHORE_API_KEY is required when SMS_PROVIDER=semaphore",
+    });
   }
 });
 

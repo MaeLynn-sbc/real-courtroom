@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import { ConsoleSmsService } from "@/services/sms/console-sms.service";
+import { SemaphoreSmsService } from "@/services/sms/semaphore-sms.service";
 import type { SmsService } from "@/services/sms/sms-service.interface";
 
 let cachedService: SmsService | undefined;
@@ -10,13 +11,14 @@ export function getSmsService(): SmsService {
   }
 
   // *** SWAP POINT (deploy) *** — same shape as upload-service.factory.ts
-  // and email-service.factory.ts. When a real provider (Semaphore) is
-  // ready: add it to SMS_PROVIDER's enum in lib/env.ts, add a
-  // SemaphoreSmsService implementing SmsService, and a case here. No
-  // application code outside this file changes.
+  // and email-service.factory.ts. No application code outside this file
+  // needs to change to add a future provider.
   switch (env.SMS_PROVIDER) {
     case "console":
       cachedService = new ConsoleSmsService();
+      break;
+    case "semaphore":
+      cachedService = new SemaphoreSmsService();
       break;
     default:
       throw new Error(`Unsupported SMS_PROVIDER: ${env.SMS_PROVIDER}`);
