@@ -7,7 +7,9 @@ import { CheckInPanel } from "@/features/open-play-capacity/components/checkin-p
 import { ClosedMessageField } from "@/features/open-play-capacity/components/closed-message-field";
 import { CloseSessionButton } from "@/features/open-play-capacity/components/close-session-button";
 import { OnlineRegistrationBlockToggle } from "@/features/open-play-capacity/components/online-registration-block-toggle";
+import { OpenPlayDateNav } from "@/features/open-play-capacity/components/open-play-date-nav";
 import { OpenPlaySessionTabs } from "@/features/open-play-capacity/components/open-play-session-tabs";
+import { OpenTabsCarryoverBanner } from "@/features/open-play-capacity/components/open-tabs-carryover-banner";
 import { RegistrationRosterPanel } from "@/features/open-play-capacity/components/registration-roster-panel";
 import { RotationBoard } from "@/features/open-play-capacity/components/rotation-board";
 import { TabsPanel } from "@/features/open-play-capacity/components/tabs-panel";
@@ -17,6 +19,7 @@ import {
 } from "@/features/open-play-capacity/components/walk-in-registration-form";
 import type { PlayerTab } from "@/lib/generated/prisma/client";
 import { isBeforeFridaySaturdayOpenPlayCutoff } from "@/lib/court-hours";
+import { shouldShowCarryoverBanner } from "@/lib/open-play-carryover";
 import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
 import type {
   GameAssignmentWithParticipants,
@@ -50,6 +53,33 @@ interface OpenPlayNightPageProps {
   params: Promise<{ date: string }>;
 }
 
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+function toDateValue(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+// Decision logic (lib/open-play-carryover.ts) is pure and unit-tested
+// directly — this wrapper only adds the DB fetch, skipped entirely when
+// today already has tabs.
+async function findCarryoverBanner(
+  tabs: (PlayerTab & { totalCents: number })[],
+  previousDate: Date,
+  previousDateValue: string,
+): Promise<{ dateValue: string; label: string } | null> {
+  if (tabs.length > 0) {
+    return null;
+  }
+  const previousTabs = await playerTabService.listTabsForDate(previousDate);
+  if (!shouldShowCarryoverBanner(tabs.length, previousTabs.map((tab) => tab.status))) {
+    return null;
+  }
+  return { dateValue: previousDateValue, label: labelFormatter.format(previousDate) };
+}
+
 function toRegistrablePlayers(
   players: Awaited<ReturnType<typeof playerService.listPlayers>>,
 ): RegistrablePlayer[] {
@@ -71,6 +101,10 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
   if (Number.isNaN(date.getTime())) {
     notFound();
   }
+
+  const previousDate = addDays(date, -1);
+  const previousDateValue = toDateValue(previousDate);
+  const nextDateValue = toDateValue(addDays(date, 1));
 
   const isCapacityNight = [5, 6].includes(date.getDay());
   const [players, openPlaySettings] = await Promise.all([
@@ -119,9 +153,11 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     const now = new Date();
     const occupiedCount = registrations.filter((r) => isRegistrationOccupyingSeat(r, now)).length;
     const waitlistedCount = registrations.filter((r) => r.waitlistPos !== null).length;
+    const carryoverBanner = await findCarryoverBanner(tabs, previousDate, previousDateValue);
 
     return (
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
+        {carryoverBanner ? <OpenTabsCarryoverBanner {...carryoverBanner} /> : null}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <Link
@@ -138,6 +174,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
               {session.status}
             </p>
             <div className="mt-2 flex flex-col gap-3">
+              <OpenPlayDateNav dateValue={dateParam} prevDateValue={previousDateValue} nextDateValue={nextDateValue} />
               <OnlineRegistrationBlockToggle
                 date={dateParam}
                 blocked={session.onlineRegistrationBlocked}
@@ -233,18 +270,23 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     saleService.listPaymentMethods(),
     productService.listActiveProducts(),
   ]);
+  const carryoverBanner = await findCarryoverBanner(tabs, previousDate, previousDateValue);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
+      {carryoverBanner ? <OpenTabsCarryoverBanner {...carryoverBanner} /> : null}
       <div>
         {/* This regular-open-play branch has no list/roster page of its
             own to go "back" to the way Fri/Sat's own branch does
             (below) — it's reached directly from the "Regular Open
-            Play" nav entry, always for today, not from a list of other
-            days. Pointing this at /dashboard/admin/open-play-capacity
-            (now Fri/Sat-only, per the nav split) would be actively
-            wrong, not just stale, so this goes back to the dashboard
-            instead. */}
+            Play" nav entry by default, though OpenPlayDateNav below now
+            reaches any other date without a URL edit (incident, reported
+            live: the nav entry always resolves to the server's current
+            calendar date, which stops pointing at a still-open session
+            right after midnight). Pointing "Back" at
+            /dashboard/admin/open-play-capacity (now Fri/Sat-only, per the
+            nav split) would be actively wrong, not just stale, so this
+            goes back to the dashboard instead. */}
         <Link href="/dashboard" className={buttonVariants({ variant: "ghost", size: "sm" })}>
           ‹ Back to Dashboard
         </Link>
@@ -254,6 +296,9 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
         <p className="text-muted-foreground text-sm">
           Regular drop-in — no capacity, no prepayment.
         </p>
+        <div className="mt-2">
+          <OpenPlayDateNav dateValue={dateParam} prevDateValue={previousDateValue} nextDateValue={nextDateValue} />
+        </div>
       </div>
 
       <WalkInRegistrationForm
