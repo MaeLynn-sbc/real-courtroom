@@ -235,7 +235,7 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue }: Availabil
                             )}
                             aria-label={`Court ${court.name}, ${hourLabel(hour)}, ${
                               isBookedCoach
-                                ? `booked, coach ${cell.coachName ?? "expected"}`
+                                ? `booked, coach: ${cell.coachName ?? "expected"}`
                                 : label.toLowerCase()
                             }`}
                           >
@@ -251,7 +251,11 @@ export function AvailabilityBoard({ courts, hours, cells, dateValue }: Availabil
                                 /coaches), unlike a customer's name. */}
                             {isBookedCoach ? (
                               <span className="text-[9px] font-bold tracking-[0.08em] uppercase opacity-80">
-                                Coach{cell.coachName ? ` ${cell.coachName}` : ""}
+                                {/* Reported live, 2026-08-05: a coach's own
+                                    name can itself start with "Coach" (e.g.
+                                    "Coach Dhudz"), which read as a stuttering
+                                    "Coach Coach Dhudz" without a separator. */}
+                                Coach{cell.coachName ? `: ${cell.coachName}` : ""}
                               </span>
                             ) : null}
                           </div>

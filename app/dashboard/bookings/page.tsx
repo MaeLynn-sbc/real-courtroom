@@ -132,6 +132,9 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
           </p>
         </div>
         <div className="flex gap-2">
+          <Link href="/dashboard/bookings/grid" className={buttonVariants({ variant: "outline" })}>
+            Grid view
+          </Link>
           <Link
             href="/dashboard/bookings/stale-holds"
             className={buttonVariants({ variant: "outline" })}

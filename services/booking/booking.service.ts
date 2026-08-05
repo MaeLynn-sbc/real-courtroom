@@ -88,6 +88,28 @@ export interface PublicCourtDaySchedule {
   maintenanceRanges: { startAt: Date; endAt: Date }[];
 }
 
+// Staff-only twin of PublicCourtDaySchedule — owner request (2026-08-05):
+// "put a name of the person who booked and the coach as well," something
+// the public grid must never show (see getStaffDaySchedule's own
+// comment). Kept as a genuinely separate type/method rather than adding
+// optional fields to the public one, so there's no path by which a
+// customer name could leak into the public route by an oversight.
+export interface StaffCourtDaySchedule {
+  courtId: string;
+  courtName: string;
+  status: CourtStatus;
+  bookedRanges: {
+    bookingId: string;
+    bookingReference: string;
+    startAt: Date;
+    endAt: Date;
+    customerName: string;
+    hasCoach: boolean;
+    coachName?: string;
+  }[];
+  maintenanceRanges: { startAt: Date; endAt: Date }[];
+}
+
 function describeConflict(conflict: AvailabilityConflict): string {
   switch (conflict.type) {
     case "COURT_DISABLED":
@@ -1118,6 +1140,78 @@ export class BookingService {
         .map(({ startAt, endAt, coachSession }) => ({
           startAt,
           endAt,
+          hasCoach: coachSession != null && coachSession.status !== "CANCELLED",
+          coachName: coachSession
+            ? `${coachSession.coach.firstName} ${coachSession.coach.lastName}`
+            : undefined,
+        })),
+      maintenanceRanges: maintenanceWindows
+        .filter((window) => window.courtId === court.id)
+        .map(({ startAt, endAt }) => ({ startAt, endAt })),
+    }));
+  }
+
+  // Owner request (2026-08-05): a staff-facing grid — same shape as
+  // getPublicDaySchedule (courts x booked/maintenance ranges for a day),
+  // but with the customer's real name and the coach's name, neither of
+  // which the PUBLIC grid may ever show (see that method's own
+  // "PUBLIC-FACING" framing). Deliberately a separate query/method, not
+  // a "staff mode" flag on the public one — a flag is one accidental
+  // false->true away from leaking a customer's name onto the public
+  // site; a wholly separate method behind its own dashboard-only route
+  // can't do that by construction.
+  async getStaffDaySchedule(date: Date): Promise<StaffCourtDaySchedule[]> {
+    const courts = await prisma.court.findMany({
+      where: { deletedAt: null },
+      orderBy: { name: "asc" },
+    });
+    const courtIds = courts.map((court) => court.id);
+    const { startOfDay, endOfDay } = dayRange(date);
+
+    const [bookings, maintenanceWindows] = await Promise.all([
+      prisma.booking.findMany({
+        where: {
+          courtId: { in: courtIds },
+          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+          startAt: { lt: endOfDay },
+          endAt: { gt: startOfDay },
+        },
+        select: {
+          id: true,
+          bookingReference: true,
+          courtId: true,
+          startAt: true,
+          endAt: true,
+          guestName: true,
+          player: { select: { user: { select: { name: true, email: true } } } },
+          coachSession: {
+            select: { status: true, coach: { select: { firstName: true, lastName: true } } },
+          },
+        },
+      }),
+      prisma.courtMaintenance.findMany({
+        where: {
+          courtId: { in: courtIds },
+          status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+          startAt: { lt: endOfDay },
+          endAt: { gt: startOfDay },
+        },
+        select: { courtId: true, startAt: true, endAt: true },
+      }),
+    ]);
+
+    return courts.map((court) => ({
+      courtId: court.id,
+      courtName: court.name,
+      status: court.status,
+      bookedRanges: bookings
+        .filter((booking) => booking.courtId === court.id)
+        .map(({ id, bookingReference, startAt, endAt, guestName, player, coachSession }) => ({
+          bookingId: id,
+          bookingReference,
+          startAt,
+          endAt,
+          customerName: player?.user.name ?? player?.user.email ?? guestName ?? "Guest",
           hasCoach: coachSession != null && coachSession.status !== "CANCELLED",
           coachName: coachSession
             ? `${coachSession.coach.firstName} ${coachSession.coach.lastName}`
