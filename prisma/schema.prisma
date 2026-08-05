@@ -452,7 +452,12 @@ model Shift {
 // produce actual scheduledStart/scheduledEnd instants.
 model ShiftTemplate {
   id        String   @id @default(cuid())
-  name      String
+  // Payroll Batch 2a: unique so seeding/admin edits can use a real
+  // prisma.shiftTemplate.upsert() keyed on name, same as every other
+  // owner-managed reference table seeded by stable name
+  // (MembershipPlan.name, ExpenseCategory.name) — without this, an
+  // idempotent seed needs an awkward findFirst-then-create instead.
+  name      String   @unique
   startTime String
   endTime   String
   active    Boolean  @default(true)

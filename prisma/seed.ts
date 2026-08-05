@@ -311,6 +311,14 @@ const EXPENSE_CATEGORY_DEFINITIONS: Array<{ name: string; sortOrder: number }> =
   { name: "Other", sortOrder: 5 },
 ];
 
+// Payroll Batch 2a: the facility's only two daily shifts. startTime/endTime
+// are bare "HH:MM" (see ShiftTemplate's own schema comment) — a repeatable
+// daily window, not a specific date.
+const SHIFT_TEMPLATE_DEFINITIONS: Array<{ name: string; startTime: string; endTime: string }> = [
+  { name: "Opening", startTime: "07:00", endTime: "15:00" },
+  { name: "Closing", startTime: "15:00", endTime: "23:00" },
+];
+
 const MEMBERSHIP_PLAN_DEFINITIONS: Record<string, MembershipPlanDefinition> = {
   Silver: {
     description: "Entry-level membership with standard booking access.",
@@ -920,6 +928,15 @@ async function main(): Promise<void> {
     });
   }
   logger.info({ count: PRODUCT_DEFINITIONS.length }, "Seeded products");
+
+  for (const definition of SHIFT_TEMPLATE_DEFINITIONS) {
+    await prisma.shiftTemplate.upsert({
+      where: { name: definition.name },
+      update: {},
+      create: definition,
+    });
+  }
+  logger.info({ count: SHIFT_TEMPLATE_DEFINITIONS.length }, "Seeded shift templates");
 
   for (let i = 1; i <= COURT_COUNT; i += 1) {
     const name = `Court ${i}`;
