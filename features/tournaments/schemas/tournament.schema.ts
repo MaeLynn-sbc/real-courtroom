@@ -97,6 +97,23 @@ export const registerTeamSchema = z.object({
 
 export type RegisterTeamInput = z.infer<typeof registerTeamSchema>;
 
+// Owner request (2026-08-05): "add option to delete and edit, to those
+// who cancelled or typo errors." Edit only ever corrects the typed
+// name(s) already on the team — it can't add/remove a player2 (singles
+// vs. doubles is a structural change, out of scope for "fix a typo").
+// player2Name is required here (not optional, unlike registerTeamSchema)
+// only when the team already has a player2 — enforced in
+// tournamentService.updateRegistrationPlayerNames, which is the one
+// place that knows whether the team is doubles.
+export const updateRegistrationPlayerNamesSchema = z.object({
+  player1Name: z.string().min(1, "Enter player 1's name.").max(200),
+  player2Name: z.string().max(200).optional(),
+});
+
+export type UpdateRegistrationPlayerNamesInput = z.infer<
+  typeof updateRegistrationPlayerNamesSchema
+>;
+
 export const scheduleMatchSchema = z.object({
   courtId: z.string().optional(),
   scheduledAt: z.coerce.date().optional(),

@@ -10,6 +10,7 @@ import {
   registerTeamSchema,
   scheduleMatchSchema,
   updateCategoryMaxTeamsSchema,
+  updateRegistrationPlayerNamesSchema,
   updateTournamentPaymentSettingSchema,
   updateTournamentStatusSchema,
   type CreateCategoryInput,
@@ -19,6 +20,7 @@ import {
   type RegisterTeamInput,
   type ScheduleMatchInput,
   type UpdateCategoryMaxTeamsInput,
+  type UpdateRegistrationPlayerNamesInput,
   type UpdateTournamentPaymentSettingInput,
   type UpdateTournamentStatusInput,
 } from "@/features/tournaments/schemas/tournament.schema";
@@ -326,6 +328,57 @@ export async function cancelRegistrationAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "cancelRegistrationAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function deleteRegistrationAction(
+  tournamentId: string,
+  categoryId: string,
+  registrationId: string,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  try {
+    await tournamentService.deleteRegistration(registrationId, authz.userId);
+    revalidateCategory(tournamentId, categoryId);
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "deleteRegistrationAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function updateRegistrationPlayerNamesAction(
+  tournamentId: string,
+  categoryId: string,
+  registrationId: string,
+  input: UpdateRegistrationPlayerNamesInput,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = updateRegistrationPlayerNamesSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid name." };
+  }
+
+  try {
+    await tournamentService.updateRegistrationPlayerNames(registrationId, parsed.data, authz.userId);
+    revalidateCategory(tournamentId, categoryId);
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, {
+        action: "updateRegistrationPlayerNamesAction",
+        userId: authz.userId,
+      }),
     };
   }
 }

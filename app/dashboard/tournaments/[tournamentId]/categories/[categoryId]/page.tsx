@@ -93,6 +93,7 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
             tournamentId={tournamentId}
             categoryId={categoryId}
             registrations={category.registrations}
+            bracketGenerated={bracketGenerated}
           />
         </div>
         <div className="flex flex-col gap-3">

@@ -2,6 +2,7 @@ import type {
   CreateCategoryInput,
   CreateTournamentInput,
   RegisterTeamInput,
+  UpdateRegistrationPlayerNamesInput,
 } from "@/features/tournaments/schemas/tournament.schema";
 import type {
   Prisma,
@@ -126,6 +127,10 @@ export class TournamentService {
                 player2: { include: { user: { select: { id: true, name: true, email: true } } } },
               },
             },
+            // Owner request (2026-08-05): the Delete button only shows
+            // when there's no recorded payment to protect — see
+            // deleteRegistration's own comment for why that's enforced.
+            sale: { select: { id: true } },
           },
         },
       },
@@ -467,6 +472,138 @@ export class TournamentService {
     });
 
     return registration;
+  }
+
+  // Owner request (2026-08-05): "add option to delete ... to those who
+  // cancelled or typo errors." Deliberately refuses to touch a
+  // registration with a real recorded Sale (payment already collected)
+  // — that money is real revenue history, and deleting it here would
+  // silently falsify past reports. Withdraw (above) is the correct tool
+  // for a paid registration that needs to go away from the active list;
+  // this is only for a genuine mistake that never had money attached
+  // (e.g. a free tournament, or a registration cancelled before
+  // payment). Same "no bracket yet" guard as withdraw — the team/
+  // player rows this deletes are exclusively this registration's own
+  // (registerTeam always creates fresh ones, never reuses/shares across
+  // registrations — see that method's own comment), so cascading the
+  // delete down to Team/Player/User is safe and doesn't touch anyone
+  // else's data.
+  async deleteRegistration(registrationId: string, actorUserId: string): Promise<void> {
+    const existing = await prisma.tournamentRegistration.findUniqueOrThrow({
+      where: { id: registrationId },
+      include: {
+        sale: { select: { id: true } },
+        team: {
+          select: {
+            id: true,
+            player1Id: true,
+            player2Id: true,
+            player1: { select: { userId: true } },
+            player2: { select: { userId: true } },
+          },
+        },
+      },
+    });
+
+    const matchCount = await prisma.match.count({
+      where: { tournamentCategoryId: existing.tournamentCategoryId },
+    });
+    if (matchCount > 0) {
+      throw new Error("Cannot delete a registration once the bracket has been generated.");
+    }
+    if (existing.sale) {
+      throw new Error(
+        "This registration has a recorded payment and can't be deleted — withdraw it instead so the payment record stays intact.",
+      );
+    }
+
+    const userIds = [existing.team.player1.userId, existing.team.player2?.userId].filter(
+      (id): id is string => id != null,
+    );
+
+    await prisma.$transaction(async (tx) => {
+      await tx.tournamentRegistration.delete({ where: { id: registrationId } });
+      await tx.team.delete({ where: { id: existing.team.id } });
+      await tx.player.deleteMany({
+        where: { id: { in: [existing.team.player1Id, existing.team.player2Id].filter((id): id is string => id != null) } },
+      });
+      await tx.user.deleteMany({ where: { id: { in: userIds } } });
+    });
+
+    if (existing.status === "CONFIRMED") {
+      await this.promoteFromWaitlist(existing.tournamentCategoryId);
+    }
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.registration_deleted",
+      entityType: "TournamentRegistration",
+      entityId: registrationId,
+      oldValues: existing,
+    });
+  }
+
+  // Owner request (2026-08-05): "add option to ... edit, to those who
+  // ... typo errors." Corrects only the typed name(s) already on the
+  // team — never adds/removes a player2 (singles vs. doubles is a
+  // structural change, not a typo fix). Deliberately untouched by the
+  // bracket-generated guard delete/withdraw both use: a display-name
+  // correction can't break a bracket that already exists, so there's no
+  // reason to block it post-bracket.
+  async updateRegistrationPlayerNames(
+    registrationId: string,
+    input: UpdateRegistrationPlayerNamesInput,
+    actorUserId: string,
+  ): Promise<TournamentRegistration> {
+    const existing = await prisma.tournamentRegistration.findUniqueOrThrow({
+      where: { id: registrationId },
+      include: {
+        team: {
+          select: {
+            player1: { select: { userId: true, user: { select: { name: true } } } },
+            player2: { select: { userId: true, user: { select: { name: true } } } },
+          },
+        },
+      },
+    });
+
+    if (existing.team.player2 && !input.player2Name?.trim()) {
+      throw new Error("This is a doubles team — enter player 2's name too.");
+    }
+    if (!existing.team.player2 && input.player2Name?.trim()) {
+      throw new Error(
+        "This is a singles registration — adding a second player isn't a name correction. Withdraw and re-register as doubles instead.",
+      );
+    }
+
+    const oldNames = {
+      player1Name: existing.team.player1.user.name,
+      player2Name: existing.team.player2?.user.name ?? null,
+    };
+
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: existing.team.player1.userId },
+        data: { name: input.player1Name },
+      });
+      if (existing.team.player2 && input.player2Name?.trim()) {
+        await tx.user.update({
+          where: { id: existing.team.player2.userId },
+          data: { name: input.player2Name.trim() },
+        });
+      }
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.registration_names_corrected",
+      entityType: "TournamentRegistration",
+      entityId: registrationId,
+      oldValues: oldNames,
+      newValues: { player1Name: input.player1Name, player2Name: input.player2Name ?? null },
+    });
+
+    return prisma.tournamentRegistration.findUniqueOrThrow({ where: { id: registrationId } });
   }
 
   async generateBracket(categoryId: string, actorUserId: string): Promise<void> {
