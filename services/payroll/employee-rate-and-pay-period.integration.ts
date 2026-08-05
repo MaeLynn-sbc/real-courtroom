@@ -9,7 +9,8 @@
  *      attempting to delete an OLDER row while a newer one exists is
  *      rejected, and BOTH rows are left completely untouched.
  *   4. computeSemiMonthlyPeriodBounds — pure function, boundary dates (the
- *      15th vs the 16th, and month-end for a 28/30/31-day month).
+ *      10th vs the 11th, the 25th vs the 26th, and year rollover for the
+ *      26-10 period crossing December into January).
  *   5. getOrCreatePeriodForDate is idempotent under real concurrency (two
  *      simultaneous calls for the same date resolve to exactly one row).
  *   6. Access control: real seeded OWNER has PAYROLL_MANAGE, COURT_ATTENDANT
@@ -48,8 +49,11 @@ async function cleanupRates(employeeId: string): Promise<void> {
 }
 
 async function cleanupPeriods(): Promise<void> {
+  // Wide enough for every boundary fixture below, including the 26-10
+  // periods that spill into the adjacent month (March 26 / May 10) and
+  // the Dec 2031 -> Jan 2032 year-rollover case.
   await prisma.payPeriod.deleteMany({
-    where: { startDate: { gte: new Date(2031, 3, 1), lte: new Date(2031, 3, 30) } },
+    where: { startDate: { gte: new Date(2031, 2, 1), lte: new Date(2032, 0, 31) } },
   });
 }
 
@@ -126,24 +130,47 @@ async function main(): Promise<void> {
     console.log("PASS: deleteLatestRate succeeds on the newest row.");
 
     // ============== 4. computeSemiMonthlyPeriodBounds boundaries ==============
-    const the15th = computeSemiMonthlyPeriodBounds(new Date(2031, 3, 15));
+    const the10th = computeSemiMonthlyPeriodBounds(new Date(2031, 3, 10));
     assert(
-      the15th.startDate.getTime() === new Date(2031, 3, 1).getTime() &&
-        the15th.endDate.getTime() === new Date(2031, 3, 15).getTime(),
-      "expected the 15th to fall in the 1st-15th period",
+      the10th.startDate.getTime() === new Date(2031, 2, 26).getTime() &&
+        the10th.endDate.getTime() === new Date(2031, 3, 10).getTime(),
+      `expected the 10th to end the March 26 - April 10 period, got start ${the10th.startDate.toDateString()} end ${the10th.endDate.toDateString()}`,
     );
-    const the16th = computeSemiMonthlyPeriodBounds(new Date(2031, 3, 16));
+    const the11th = computeSemiMonthlyPeriodBounds(new Date(2031, 3, 11));
     assert(
-      the16th.startDate.getTime() === new Date(2031, 3, 16).getTime() &&
-        the16th.endDate.getTime() === new Date(2031, 3, 30).getTime(),
-      `expected the 16th to fall in the 16th-end-of-April (30) period, got end ${the16th.endDate.toDateString()}`,
+      the11th.startDate.getTime() === new Date(2031, 3, 11).getTime() &&
+        the11th.endDate.getTime() === new Date(2031, 3, 25).getTime(),
+      "expected the 11th to start the 11th-25th period",
     );
-    const febLeapCheck = computeSemiMonthlyPeriodBounds(new Date(2032, 1, 20)); // 2032 is a leap year
+    const the25th = computeSemiMonthlyPeriodBounds(new Date(2031, 3, 25));
     assert(
-      febLeapCheck.endDate.getDate() === 29,
-      `expected Feb 2032 (leap year) second-half period to end on the 29th, got ${febLeapCheck.endDate.getDate()}`,
+      the25th.startDate.getTime() === new Date(2031, 3, 11).getTime() &&
+        the25th.endDate.getTime() === new Date(2031, 3, 25).getTime(),
+      "expected the 25th to end the 11th-25th period",
     );
-    console.log("PASS: computeSemiMonthlyPeriodBounds handles the 15th/16th boundary and month-end (including leap Feb) correctly.");
+    const the26th = computeSemiMonthlyPeriodBounds(new Date(2031, 3, 26));
+    assert(
+      the26th.startDate.getTime() === new Date(2031, 3, 26).getTime() &&
+        the26th.endDate.getTime() === new Date(2031, 4, 10).getTime(),
+      `expected the 26th to start the April 26 - May 10 period, got end ${the26th.endDate.toDateString()}`,
+    );
+    // Year rollover: Dec 26 -> Jan 10 of the FOLLOWING year.
+    const decRollover = computeSemiMonthlyPeriodBounds(new Date(2031, 11, 28));
+    assert(
+      decRollover.startDate.getTime() === new Date(2031, 11, 26).getTime() &&
+        decRollover.endDate.getTime() === new Date(2032, 0, 10).getTime(),
+      `expected Dec 26 2031 - Jan 10 2032 across the year boundary, got start ${decRollover.startDate.toDateString()} end ${decRollover.endDate.toDateString()}`,
+    );
+    // Early-month date belongs to the PREVIOUS month's 26-10 period.
+    const janEarly = computeSemiMonthlyPeriodBounds(new Date(2032, 0, 3));
+    assert(
+      janEarly.startDate.getTime() === new Date(2031, 11, 26).getTime() &&
+        janEarly.endDate.getTime() === new Date(2032, 0, 10).getTime(),
+      "expected Jan 3 to resolve back into the Dec 26 - Jan 10 period",
+    );
+    console.log(
+      "PASS: computeSemiMonthlyPeriodBounds handles the 10th/11th and 25th/26th boundaries, and year rollover, correctly.",
+    );
 
     // ============== 5. getOrCreatePeriodForDate — concurrent idempotency ==============
     const raceDate = new Date(2031, 3, 8);

@@ -1,13 +1,79 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import {
+  deletePayPeriodSchema,
+  updatePayPeriodSchema,
+  type DeletePayPeriodInput,
+  type UpdatePayPeriodInput,
+} from "@/features/payroll/schemas/pay-period.schema";
 import { toCsv, type CsvColumn } from "@/services/export/export.service";
 import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { payPeriodService } from "@/services/payroll/pay-period.service";
 import { payrollComputationService, type PayPeriodDay } from "@/services/payroll/payroll-computation.service";
 import { PERMISSIONS } from "@/types/permissions";
+
+function requirePayrollManage() {
+  return requirePermission(
+    PERMISSIONS.PAYROLL_MANAGE,
+    "You don't have permission to manage payroll.",
+  );
+}
+
+function revalidatePeriods(): void {
+  revalidatePath("/dashboard/payroll/periods");
+}
+
+export interface PayPeriodActionState {
+  error: string | null;
+}
+
+export async function updatePayPeriodAction(input: UpdatePayPeriodInput): Promise<PayPeriodActionState> {
+  const authz = await requirePayrollManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = updatePayPeriodSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid period." };
+  }
+
+  try {
+    await payPeriodService.updatePeriod(parsed.data.periodId, {
+      startDate: parsed.data.startDate,
+      endDate: parsed.data.endDate,
+    });
+    revalidatePeriods();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "updatePayPeriodAction", userId: authz.userId }) };
+  }
+}
+
+export async function deletePayPeriodAction(input: DeletePayPeriodInput): Promise<PayPeriodActionState> {
+  const authz = await requirePayrollManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = deletePayPeriodSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await payPeriodService.deletePeriod(parsed.data.periodId);
+    revalidatePeriods();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "deletePayPeriodAction", userId: authz.userId }) };
+  }
+}
 
 const EXPORT_RATE_LIMIT = 20;
 const EXPORT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
