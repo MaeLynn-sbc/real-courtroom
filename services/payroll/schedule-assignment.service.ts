@@ -68,8 +68,15 @@ export class ScheduleAssignmentService {
     const end = addDays(start, 7);
 
     const [employees, assignments] = await Promise.all([
+      // Owner request (2026-08-06): this roster is Opening/Closing shift
+      // scheduling specifically — only the 3 real Court Attendants work
+      // those shifts. Scoped to that one real, owner-managed role (not a
+      // SYSTEM_ROLES constant — see types/roles.ts's own comment on why
+      // custom roles like this one aren't part of that fixed set) rather
+      // than every active employee, which previously also listed the
+      // Owner, coaches, and the non-human Website system identity here.
       prisma.employee.findMany({
-        where: { isActive: true, deletedAt: null },
+        where: { isActive: true, deletedAt: null, user: { role: { name: "COURT_ATTENDANT" } } },
         orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
       }),
       prisma.scheduleAssignment.findMany({
