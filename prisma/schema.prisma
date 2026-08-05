@@ -131,6 +131,8 @@ model User {
   lockerMaintenanceLogsPerformed    LockerMaintenanceLog[]
   // Payroll Batch 1 — who corrected an attendance record's clock times.
   attendanceRecordsCorrected        AttendanceRecord[]
+  // Payroll Batch 2b — who entered a given effective-dated rate.
+  employeeRatesCreated              EmployeeRate[]
 
   @@index([deletedAt])
 }
@@ -383,6 +385,9 @@ model Employee {
   // Shift's own spot in the file.
   scheduleAssignments                       ScheduleAssignment[]
   attendanceRecords                         AttendanceRecord[]
+  // Payroll Batch 2b — see EmployeeRate, below AttendanceRecord's own
+  // spot in the file.
+  rates                                     EmployeeRate[]
 
   @@index([deletedAt])
 }
@@ -546,6 +551,63 @@ model AttendanceRecord {
 
   @@unique([employeeId, workDate])
   @@index([workDate])
+}
+
+// Payroll Batch 2b. Deliberately NOT modeled like CoachRate (flat,
+// overwrite-in-place — services/coaching/coach-rate.service.ts) —
+// payroll computation is retroactive/recomputable (an OPEN PayPeriod
+// can be recomputed anytime, and a rate change in March must never
+// alter an already-computed February day), which CoachRate's one-time
+// snapshot-at-booking model has no equivalent need for. A new row is
+// always inserted; an existing row is never edited or overwritten in
+// place. "What rate applied on day Y" is derived at read time —
+// the most recent row with effectiveFrom <= that day — never stored
+// anywhere as a cached/denormalized value.
+model EmployeeRate {
+  id              String   @id @default(cuid())
+  employeeId      String
+  dailyRateCents  Int
+  // Local calendar midnight, same convention as AttendanceRecord.workDate.
+  effectiveFrom   DateTime
+  note            String?
+  createdAt       DateTime @default(now())
+  createdByUserId String
+
+  employee  Employee @relation(fields: [employeeId], references: [id])
+  createdBy User     @relation(fields: [createdByUserId], references: [id])
+
+  @@unique([employeeId, effectiveFrom])
+  @@index([employeeId, effectiveFrom])
+}
+
+enum PayPeriodStatus {
+  OPEN
+  // LOCKED is Batch 3 — deliberately not modeled yet, same "don't add
+  // an unwired field/state" discipline AttendanceRecord's own comment
+  // above already applies to itself. Only OPEN is ever produced or
+  // transitioned to by anything in this batch.
+}
+
+// Semi-monthly (1st-15th, 16th-end of month), owner-confirmed cadence.
+// No employeeId — a period is a shared calendar bucket, not a per-
+// employee row; the computation engine (Batch 2c) joins period +
+// employee at read time. Materialized lazily, on first access, by
+// pay-period.service.ts's getOrCreatePeriodForDate — mirrors
+// gcashReconciliationService.getOrCreateBalanceForDate exactly, except
+// a PayPeriod carries no forward-dependent state (no "starting balance
+// carried from yesterday"), so there's no correctness reason to
+// pre-generate a year of these upfront the way that isn't true there
+// either, just less pressing.
+model PayPeriod {
+  id        String          @id @default(cuid())
+  startDate DateTime
+  endDate   DateTime
+  status    PayPeriodStatus @default(OPEN)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([startDate, endDate])
+  @@index([startDate])
 }
 
 // GCash reconciliation Gate 1. Deliberately date-scoped, NOT shift-

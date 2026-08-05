@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -29,7 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TempPasswordReveal } from "@/features/employees/components/temp-password-reveal";
 import { updateEmployeeSchema } from "@/features/employees/schemas/employee.schema";
 import type { AuditLog } from "@/lib/generated/prisma/client";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { formatAuditLogLabel } from "@/services/notifications/notification-reference";
 import type { employeeService } from "@/services/employee/employee.service";
 
@@ -44,6 +45,9 @@ interface EmployeeDetailPanelProps {
   employee: Employee;
   roles: RoleOption[];
   loginHistory: AuditLog[];
+  // undefined = viewer lacks PAYROLL_MANAGE, don't render the section at
+  // all; null = viewer can manage payroll but no rate has been set yet.
+  payRate?: { dailyRateCents: number; effectiveFrom: Date } | null;
 }
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" });
@@ -396,7 +400,33 @@ function LoginHistorySection({ loginHistory }: { loginHistory: AuditLog[] }) {
   );
 }
 
-export function EmployeeDetailPanel({ employee, roles, loginHistory }: EmployeeDetailPanelProps) {
+function PayRateSection({
+  employeeId,
+  payRate,
+}: {
+  employeeId: string;
+  payRate: { dailyRateCents: number; effectiveFrom: Date } | null;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      {payRate ? (
+        <p className="text-sm">
+          {formatCurrency(payRate.dailyRateCents)}/day, since {dateTimeFormatter.format(payRate.effectiveFrom)}
+        </p>
+      ) : (
+        <p className="text-muted-foreground text-sm">No rate set yet.</p>
+      )}
+      <Link
+        href={`/dashboard/payroll/rates?employeeId=${employeeId}`}
+        className="text-primary text-sm underline underline-offset-2"
+      >
+        Manage
+      </Link>
+    </div>
+  );
+}
+
+export function EmployeeDetailPanel({ employee, roles, loginHistory, payRate }: EmployeeDetailPanelProps) {
   return (
     <div className="flex flex-col gap-6">
       <Card>
@@ -419,6 +449,17 @@ export function EmployeeDetailPanel({ employee, roles, loginHistory }: EmployeeD
           <RoleAndStatusSection employee={employee} roles={roles} />
         </CardContent>
       </Card>
+
+      {payRate !== undefined && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Pay rate</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <PayRateSection employeeId={employee.id} payRate={payRate} />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

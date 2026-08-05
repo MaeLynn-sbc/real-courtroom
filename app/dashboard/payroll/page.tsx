@@ -27,13 +27,21 @@ export default async function PayrollPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Payroll</h1>
           <p className="text-muted-foreground text-sm">
-            Attendance records — manual entry and corrections. Batch 2a: scheduling. No
-            rate/hours computation yet.
+            Attendance records — manual entry and corrections. Batch 2b: rates and pay periods. No
+            computation engine yet.
           </p>
         </div>
-        <Link href="/dashboard/payroll/schedule" className={buttonVariants({ variant: "outline" })}>
-          Schedule
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/dashboard/payroll/schedule" className={buttonVariants({ variant: "outline" })}>
+            Schedule
+          </Link>
+          <Link href="/dashboard/payroll/rates" className={buttonVariants({ variant: "outline" })}>
+            Rates
+          </Link>
+          <Link href="/dashboard/payroll/periods" className={buttonVariants({ variant: "outline" })}>
+            Pay periods
+          </Link>
+        </div>
       </div>
 
       <AttendanceWorkspace
