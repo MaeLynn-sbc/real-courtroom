@@ -318,6 +318,71 @@ export class BookingService {
     });
   }
 
+  // Real incident (2026-08-06): two staff, 58 seconds apart, each approved
+  // a real payment proof for the same guest, same overlapping time, on
+  // different courts — one real GCash payment, two confirmed bookings.
+  // The double-submit fix (idempotency key) stops the DUPLICATE BOOKING
+  // from being created; this stops the SECOND APPROVAL from sailing
+  // through unnoticed — advisory, not a hard block, since a guest
+  // legitimately booking two courts at once (e.g. two separate groups)
+  // is real and must stay possible. Matches on phone OR name (loose,
+  // digits-only / trimmed-lowercase — deliberately not exact-string,
+  // since that's exactly what let the real incident through with
+  // "Freah" vs "Freah "). Scoped to every court, not just one — the
+  // whole point is catching a DIFFERENT court for the same guest.
+  async findOverlappingBookingForGuest(
+    excludeBookingId: string,
+    guestName: string | null,
+    guestPhone: string | null,
+    startAt: Date,
+    endAt: Date,
+    client: Prisma.TransactionClient | typeof prisma = prisma,
+  ): Promise<{ bookingId: string; bookingReference: string; courtName: string; startAt: Date; endAt: Date } | null> {
+    const normalizedPhone = (guestPhone ?? "").replace(/\D/g, "");
+    const normalizedName = (guestName ?? "").trim().toLowerCase();
+    if (!normalizedPhone && !normalizedName) {
+      return null;
+    }
+
+    const candidates = await client.booking.findMany({
+      where: {
+        id: { not: excludeBookingId },
+        status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED", "REFUNDED"] },
+        startAt: { lt: endAt },
+        endAt: { gt: startAt },
+      },
+      select: {
+        id: true,
+        bookingReference: true,
+        startAt: true,
+        endAt: true,
+        guestName: true,
+        guestPhone: true,
+        court: { select: { name: true } },
+      },
+    });
+
+    const match = candidates.find((candidate) => {
+      const candidatePhone = (candidate.guestPhone ?? "").replace(/\D/g, "");
+      const candidateName = (candidate.guestName ?? "").trim().toLowerCase();
+      return (
+        (normalizedPhone && candidatePhone === normalizedPhone) ||
+        (normalizedName && candidateName === normalizedName)
+      );
+    });
+
+    if (!match) {
+      return null;
+    }
+    return {
+      bookingId: match.id,
+      bookingReference: match.bookingReference,
+      courtName: match.court.name,
+      startAt: match.startAt,
+      endAt: match.endAt,
+    };
+  }
+
   async checkAvailability(
     courtId: string,
     startAt: Date,

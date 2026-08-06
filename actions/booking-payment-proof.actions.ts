@@ -33,6 +33,7 @@ async function resolveGcashPaymentMethodId(): Promise<string> {
 export async function approveBookingPaymentProofAction(
   proofId: string,
   overrideReason?: string,
+  duplicateOverrideReason?: string,
 ): Promise<BookingPaymentProofActionState> {
   const authz = await requireEmployeeForPaymentApproval(
     PERMISSIONS.BOOKINGS_MANAGE,
@@ -50,6 +51,7 @@ export async function approveBookingPaymentProofAction(
       paymentMethodId,
       actorUserId: authz.userId,
       overrideReason,
+      duplicateOverrideReason,
     });
 
     revalidatePath("/dashboard/bookings");

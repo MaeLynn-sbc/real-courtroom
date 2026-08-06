@@ -2,6 +2,7 @@ import type { Booking, BookingPaymentProof, Prisma } from "@/lib/generated/prism
 import { getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { bookingService } from "@/services/booking/booking.service";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { recordCoachSessionFeeSale } from "@/services/coaching/coach-session-fee-sale";
 import { getUploadService } from "@/services/upload/upload-service.factory";
@@ -120,6 +121,11 @@ export interface ApproveBookingPaymentProofContext extends ResolveBookingPayment
   // matching payment ignores this entirely and keeps today's
   // one-click approve.
   overrideReason?: string;
+  // Advisory duplicate-guest warning (2026-08-06 incident) — required
+  // only when findOverlappingBookingForGuest actually finds one,
+  // re-checked server-side below, same "never trust the client's own
+  // flag" shape as overrideReason above.
+  duplicateOverrideReason?: string;
 }
 
 export interface ResolveBookingPaymentProofResult {
@@ -339,6 +345,27 @@ export class BookingPaymentProofService {
         throw new BookingNotAwaitingVerificationError();
       }
 
+      // Advisory duplicate-guest check (2026-08-06 incident, Freah): the
+      // client guard + idempotency key stop a duplicate booking being
+      // CREATED, but nothing previously warned staff before they approved
+      // a SECOND booking for the same guest and overlapping slot — exactly
+      // what happened here, approved 58 seconds apart by two different
+      // staff. Advisory, not blocking: a match just requires a real
+      // reason, same shape as the amount-mismatch guard directly below.
+      const duplicate = await bookingService.findOverlappingBookingForGuest(
+        booking.id,
+        booking.guestName,
+        booking.guestPhone,
+        booking.startAt,
+        booking.endAt,
+        tx,
+      );
+      if (duplicate && !context.duplicateOverrideReason?.trim()) {
+        throw new Error(
+          `A reason is required to approve this booking — ${booking.guestName ?? "this guest"} already has another booking (${duplicate.bookingReference}) for an overlapping time on ${duplicate.courtName}.`,
+        );
+      }
+
       // Re-derived server-side from the booking itself, not trusted from
       // whatever mismatch flag the client sent — the same amount the
       // verification screen already shows as "Expected"
@@ -409,11 +436,16 @@ export class BookingPaymentProofService {
         action: "booking_payment_proof.approved",
         entityType: "BookingPaymentProof",
         entityId: result.proof.id,
-        // overrideReason folded into the same JSON blob rather than a
-        // new column on BookingPaymentProof — this audit row is already
-        // the record of who approved this proof and when; the mismatch
-        // reason belongs right next to that, not in a separate table.
-        newValues: { ...result.proof, overrideReason: context.overrideReason?.trim() || null },
+        // overrideReason/duplicateOverrideReason folded into the same
+        // JSON blob rather than new columns on BookingPaymentProof — this
+        // audit row is already the record of who approved this proof and
+        // when; both override reasons belong right next to that, not in
+        // a separate table.
+        newValues: {
+          ...result.proof,
+          overrideReason: context.overrideReason?.trim() || null,
+          duplicateOverrideReason: context.duplicateOverrideReason?.trim() || null,
+        },
       });
       await saleService.logSaleCreated(result.sale, context.actorUserId);
       if (result.coachingSale) {
@@ -584,6 +616,21 @@ export class BookingPaymentProofService {
     });
     const newValues = entry?.newValues as { overrideReason?: string | null } | null | undefined;
     return newValues?.overrideReason ?? null;
+  }
+
+  // Mirrors getApprovalOverrideReason exactly — same audit log row, the
+  // sibling field written alongside overrideReason above.
+  async getDuplicateOverrideReason(proofId: string): Promise<string | null> {
+    const entry = await prisma.auditLog.findFirst({
+      where: {
+        entityType: "BookingPaymentProof",
+        entityId: proofId,
+        action: "booking_payment_proof.approved",
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    const newValues = entry?.newValues as { duplicateOverrideReason?: string | null } | null | undefined;
+    return newValues?.duplicateOverrideReason ?? null;
   }
 
   private async writeBookingHistory(

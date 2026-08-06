@@ -44,6 +44,14 @@ function describeCoachSessionChangeAfter(coachSession: CoachSession, after: Date
   return `Coach session marked ${changed.status} on ${dateTimeFormatter.format(changed.createdAt)}`;
 }
 
+interface DuplicateBooking {
+  bookingId: string;
+  bookingReference: string;
+  courtName: string;
+  startAt: Date;
+  endAt: Date;
+}
+
 interface PaymentVerificationDetailProps {
   proof: Proof;
   // Only ever non-null when this proof was APPROVED despite a mismatch
@@ -51,14 +59,27 @@ interface PaymentVerificationDetailProps {
   // itself wrote (see the service's getApprovalOverrideReason). Not a
   // column on BookingPaymentProof.
   approvalOverrideReason: string | null;
+  // Advisory duplicate-guest warning (2026-08-06 incident, Freah) — the
+  // other non-cancelled booking for this same guest/overlapping slot, if
+  // any. Only computed by the page when this proof is still PENDING.
+  duplicateBooking: DuplicateBooking | null;
+  // Only ever non-null when this proof was APPROVED despite a duplicate
+  // match — same read-back shape as approvalOverrideReason above.
+  duplicateOverrideReason: string | null;
 }
 
-export function PaymentVerificationDetail({ proof, approvalOverrideReason }: PaymentVerificationDetailProps) {
+export function PaymentVerificationDetail({
+  proof,
+  approvalOverrideReason,
+  duplicateBooking,
+  duplicateOverrideReason,
+}: PaymentVerificationDetailProps) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
   const [phoneCopied, setPhoneCopied] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
+  const [duplicateReason, setDuplicateReason] = useState("");
   const [isApproving, startApprove] = useTransition();
   const [isRejecting, startReject] = useTransition();
   // Staff-side replacement for the reference removed from the customer
@@ -134,10 +155,15 @@ export function PaymentVerificationDetail({ proof, approvalOverrideReason }: Pay
       toast.error("Enter a reason for approving a payment that doesn't match the expected amount.");
       return;
     }
+    if (duplicateBooking && !duplicateReason.trim()) {
+      toast.error("Enter a reason for approving this possible duplicate booking.");
+      return;
+    }
     startApprove(async () => {
       const result = await approveBookingPaymentProofAction(
         proof.id,
         amountMismatches ? overrideReason.trim() : undefined,
+        duplicateBooking ? duplicateReason.trim() : undefined,
       );
       if (result.error) {
         toast.error(result.error);
@@ -215,6 +241,21 @@ export function PaymentVerificationDetail({ proof, approvalOverrideReason }: Pay
               Approved despite a mismatch — reason: {approvalOverrideReason}
             </p>
           ) : null}
+          {proof.status === "APPROVED" && duplicateOverrideReason ? (
+            <p className="text-muted-foreground mt-1">
+              Approved despite a possible duplicate booking — reason: {duplicateOverrideReason}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {isPending && duplicateBooking ? (
+        <div className="border-warning bg-warning/15 text-warning-foreground rounded-lg border p-4 text-sm">
+          <p className="font-medium">
+            {proof.booking.guestName ?? "This guest"} already has a booking for this time on{" "}
+            {duplicateBooking.courtName} — booking {duplicateBooking.bookingReference}. Verify this
+            isn&apos;t a duplicate.
+          </p>
         </div>
       ) : null}
 
@@ -398,10 +439,37 @@ export function PaymentVerificationDetail({ proof, approvalOverrideReason }: Pay
             </Card>
           ) : null}
 
+          {duplicateBooking ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Reason for approving a possible duplicate</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                <p className="text-muted-foreground text-xs">
+                  {proof.booking.guestName ?? "This guest"} already has booking{" "}
+                  {duplicateBooking.bookingReference} on {duplicateBooking.courtName} for an overlapping
+                  time. If this is genuinely a second, separate booking, say so — otherwise reject this
+                  payment instead.
+                </p>
+                <Textarea
+                  placeholder="Why approve this? e.g. &quot;Confirmed with customer — two separate courts, two separate payments&quot;"
+                  value={duplicateReason}
+                  onChange={(event) => setDuplicateReason(event.target.value)}
+                  disabled={isApproving || isRejecting}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Button
             type="button"
             onClick={handleApprove}
-            disabled={isApproving || isRejecting || (amountMismatches && !overrideReason.trim())}
+            disabled={
+              isApproving ||
+              isRejecting ||
+              (amountMismatches && !overrideReason.trim()) ||
+              (Boolean(duplicateBooking) && !duplicateReason.trim())
+            }
           >
             {isApproving ? "Approving…" : "Approve — confirm this booking"}
           </Button>
