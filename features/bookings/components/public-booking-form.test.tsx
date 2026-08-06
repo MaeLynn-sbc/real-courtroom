@@ -682,4 +682,61 @@ describe("PublicBookingForm — deep-link reload recovery (2026-08-06 incident)"
     expect(screen.getByText("That slot was just taken")).toBeInTheDocument();
     expect(screen.queryByText("OTHER1")).not.toBeInTheDocument();
   });
+
+  // Real regression (2026-08-06, same day as the fix above): the restore
+  // effect used to run unconditionally off the local record alone, with
+  // no regard for what the SERVER currently says about the slot. A
+  // customer whose earlier booking got rejected by staff (freeing the
+  // slot) clicked that now-available slot again and got stuck looking at
+  // their old, dead confirmation instead of a fresh form — because the
+  // server's own "available" verdict was never consulted. Proven here:
+  // the exact same local record from the passing restore test above,
+  // but with deepLinkedSlotUnavailable=false (what the server sends once
+  // the earlier booking is rejected/expired and the slot is free again)
+  // must NOT restore anything.
+  it("does not restore a stale local record when the server says the slot is available again (e.g. after staff rejects the earlier booking)", async () => {
+    saveBookingConfirmation("court-1", DEEP_LINK_DATE, DEEP_LINK_TIME, "60", {
+      confirmation: {
+        bookingId: "booking-reload-3",
+        bookingReference: "BR-RELOAD-3",
+        shortCode: "STALE1",
+        courtId: "court-1",
+        courtName: "Court 1",
+        date: DEEP_LINK_DATE,
+        time: DEEP_LINK_TIME,
+        durationMinutes: 60,
+        guestName: "Now Rejected Guest",
+        guestPhone: "09171230097",
+        totalAmountCents: 35000,
+        requiresPayment: true,
+        availableCoaches: [],
+        holdExpiresAt: new Date(2026, 6, 29, 9, 30, 0),
+      },
+      hasSubmittedProof: false,
+    });
+
+    render(
+      <PublicBookingForm
+        courts={courts}
+        courtHours={courtHours}
+        gcashInfo={gcashInfo}
+        contactPhone="0917 000 0000"
+        contactFacebookUrl=""
+        initialCourtId="court-1"
+        initialDate={DEEP_LINK_DATE}
+        initialTime={DEEP_LINK_TIME}
+        deepLinkedSlotUnavailable={false}
+        requiresPrepayment
+        pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
+      />,
+    );
+
+    await act(async () => {});
+
+    expect(screen.queryByText("That slot was just taken")).not.toBeInTheDocument();
+    expect(screen.queryByText("STALE1")).not.toBeInTheDocument();
+    expect(screen.queryByText("Now Rejected Guest")).not.toBeInTheDocument();
+    // The real, fresh form — not a restored confirmation.
+    expect(screen.getByRole("button", { name: /^book now$/i })).toBeInTheDocument();
+  });
 });

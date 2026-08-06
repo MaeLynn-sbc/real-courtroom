@@ -72,7 +72,13 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 // ("not_found") still says something a bare no-arg throw wouldn't.
 export class BookingNotAwaitingPaymentError extends Error {
   constructor(reason: "not_found" | "wrong_status") {
-    super("This booking isn't waiting for payment.");
+    // Reworded (2026-08-06, owner feedback: the old wording "isn't
+    // waiting for payment" read as awkward, unclear phrasing) — says
+    // what's actually true and what to do next, instead of a bare
+    // negative statement.
+    super(
+      "We can't accept a payment screenshot for this booking anymore — it's already been confirmed, rejected, or is no longer available. Check your booking status, or make a new booking if you still need a court.",
+    );
     this.name = "BookingNotAwaitingPaymentError";
     void reason;
   }

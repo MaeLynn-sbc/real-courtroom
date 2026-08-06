@@ -393,8 +393,20 @@ export function PublicBookingForm({
   // resolve to — i.e., whatever was actually submitted, assuming nothing
   // was changed before submit), restore straight into that state instead
   // of either a blank form or a false "someone else took it" message.
+  //
+  // Real regression (2026-08-06, same day): this used to run
+  // unconditionally, so a customer clicking a slot the SERVER already
+  // knows is available again (e.g. staff rejected the earlier booking,
+  // freeing it) still got stuck looking at their old, now-invalid
+  // confirmation — because the stale local record never got checked
+  // against current server-side reality. Gated on deepLinkedSlotUnavailable
+  // now: this local cache is trusted ONLY to disambiguate an "unavailable"
+  // verdict the server has ALREADY made (was that really someone else, or
+  // is it my own hold?) — never to override a server verdict of
+  // "available," which always means a fresh form is the right thing to
+  // show, regardless of what this browser did here before.
   useEffect(() => {
-    if (!initialCourtId || !initialDate || !initialTime) {
+    if (!deepLinkedSlotUnavailable || !initialCourtId || !initialDate || !initialTime) {
       return;
     }
     const stored = readBookingConfirmation<{
