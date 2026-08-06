@@ -1,10 +1,10 @@
 import { generateShortCode } from "@/services/booking/booking-short-code";
 
-const SAFE_ALPHABET = /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/;
+const SAFE_ALPHABET = /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{5}$/;
 const AMBIGUOUS_CHARS = ["0", "O", "1", "I", "L"];
 
 describe("generateShortCode", () => {
-  it("is always 6 characters from the safe alphabet", () => {
+  it("is always 5 characters from the safe alphabet", () => {
     for (let i = 0; i < 200; i += 1) {
       expect(generateShortCode()).toMatch(SAFE_ALPHABET);
     }

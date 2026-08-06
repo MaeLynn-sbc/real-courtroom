@@ -1,6 +1,6 @@
 /**
  * Short booking code (2026-08-06, extended to staff bookings same day):
- * a 6-char, unambiguous code (services/booking/booking-short-code.ts) is
+ * a 5-char, unambiguous code (services/booking/booking-short-code.ts) is
  * now generated for every new booking, regardless of source — the
  * prepayment-hold path (createBookingHold), the pay-at-venue immediate-
  * confirm path (createBooking with source WEBSITE), AND a plain staff-
@@ -30,7 +30,7 @@ import { settingsService } from "../settings/settings.service";
 
 const TEST_DATE = new Date(2031, 5, 21); // Saturday, far enough out not to collide with real usage
 
-const SHORT_CODE_PATTERN = /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/;
+const SHORT_CODE_PATTERN = /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{5}$/;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -85,7 +85,7 @@ async function main(): Promise<void> {
     });
     console.log(`Case 1: hold created with shortCode=${holdResult.shortCode}`);
     assert(holdResult.shortCode !== null, "expected a short code on a prepayment hold");
-    assert(SHORT_CODE_PATTERN.test(holdResult.shortCode!), `expected shortCode to match the 6-char safe alphabet, got ${holdResult.shortCode}`);
+    assert(SHORT_CODE_PATTERN.test(holdResult.shortCode!), `expected shortCode to match the 5-char safe alphabet, got ${holdResult.shortCode}`);
     console.log("PASS: a prepayment hold (createBookingHold) gets a valid short code.");
 
     // --- Case 2: prepayment switch OFF -> createBooking (WEBSITE source,
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
     });
     console.log(`Case 2: pay-at-venue booking created with shortCode=${confirmedResult.shortCode}`);
     assert(confirmedResult.shortCode !== null, "expected a short code on an immediately-confirmed public booking");
-    assert(SHORT_CODE_PATTERN.test(confirmedResult.shortCode!), `expected shortCode to match the 6-char safe alphabet, got ${confirmedResult.shortCode}`);
+    assert(SHORT_CODE_PATTERN.test(confirmedResult.shortCode!), `expected shortCode to match the 5-char safe alphabet, got ${confirmedResult.shortCode}`);
     console.log("PASS: an immediately-confirmed public booking (createBooking, WEBSITE) also gets a valid short code.");
 
     // --- Case 3: a STAFF-created booking gets a short code too (owner
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
     );
     console.log(`Case 3: staff booking created with shortCode=${staffBooking.shortCode}`);
     assert(staffBooking.shortCode !== null, "expected a short code on a staff-created booking too");
-    assert(SHORT_CODE_PATTERN.test(staffBooking.shortCode!), `expected shortCode to match the 6-char safe alphabet, got ${staffBooking.shortCode}`);
+    assert(SHORT_CODE_PATTERN.test(staffBooking.shortCode!), `expected shortCode to match the 5-char safe alphabet, got ${staffBooking.shortCode}`);
     console.log("PASS: a staff-created booking also gets a valid short code.");
 
     // --- Case 4: lookup tries shortCode first, falls back to
@@ -162,17 +162,17 @@ async function main(): Promise<void> {
     Math.random = originalRandom;
     await prisma.booking.update({ where: { id: preExisting.id }, data: { shortCode: collidingCode } });
 
-    // Forces the exact colliding code on generateShortCode's first 6
+    // Forces the exact colliding code on generateShortCode's first 5
     // calls (one attempt's worth) — the failing-first proof: this is
     // deliberately arranged to guarantee a real Postgres unique-
     // constraint violation on Booking.shortCode. Every call after that
     // uses REAL randomness again, both for runSerializableWithRetry's
     // own backoff jitter and for the retried attempt's fresh code —
-    // virtually certain not to collide a second time (31^6 combinations).
+    // virtually certain not to collide a second time (31^5 combinations).
     let callIndex = 0;
     Math.random = () => {
       callIndex += 1;
-      return callIndex <= 6 ? 0.42 : originalRandom();
+      return callIndex <= 5 ? 0.42 : originalRandom();
     };
 
     let collisionResult: Awaited<ReturnType<typeof bookingService.createBooking>>;
