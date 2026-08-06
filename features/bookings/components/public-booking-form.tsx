@@ -1508,20 +1508,17 @@ export function PublicBookingForm({
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="bookingScreenshot">Payment screenshot (required)</Label>
-              {/* Owner request (2026-08-06): easier to spot — taller tap
-                  target and a pastel blue that stands out from the rest
-                  of the form. Uses explicit light/dark pairs (not a
-                  hardcoded single color) specifically because a hardcoded
-                  blue was nearly invisible in dark mode the last time
-                  this pattern was tried (see PublicPaymentProofUpload's
-                  own "Choose file" — its comment on that history). Half-
-                  width, filename filling the other half — a follow-up
-                  ask after the first version went full-width and left
-                  the filename awkwardly stranded on its own line below. */}
+              {/* Owner request (2026-08-06): easier to spot — the first
+                  pastel version still read as too washed-out/transparent.
+                  Now the same solid sky-400 the availability grid already
+                  uses for a "booked" cell (availability-board.tsx's own
+                  getSlotClasses "booked" case) — a real, established color
+                  from this app's own palette, not a new one-off pastel.
+                  Half-width, filename filling the other half. */}
               <div className="flex items-center gap-3">
                 <label
                   htmlFor="bookingScreenshot"
-                  className="flex w-1/2 cursor-pointer items-center justify-center rounded-lg border border-blue-300 bg-blue-100 px-4 py-3 text-base font-medium text-blue-900 transition-colors hover:bg-blue-200 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-100 dark:hover:bg-blue-900/50"
+                  className="flex w-1/2 cursor-pointer items-center justify-center rounded-lg border border-sky-500 bg-sky-400 px-4 py-3 text-base font-bold text-navy-900 transition-colors hover:bg-sky-300"
                 >
                   Choose file
                 </label>
