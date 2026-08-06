@@ -348,7 +348,7 @@ export class BookingService {
       prisma.booking.findMany({
         where: {
           courtId,
-          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED", "REFUNDED"] },
           startAt: { lt: dayEnd },
           endAt: { gt: dayStart },
         },
@@ -451,7 +451,7 @@ export class BookingService {
         // doesn't build the refund action that would even produce that
         // status yet — left as future work to decide alongside it, not
         // assumed here.
-        status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+        status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED", "REFUNDED"] },
         ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
       },
       select: { id: true, startAt: true, endAt: true },
@@ -1132,7 +1132,7 @@ export class BookingService {
       prisma.booking.findMany({
         where: {
           courtId: { in: courtIds },
-          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED", "REFUNDED"] },
           startAt: { lt: endOfDay },
           endAt: { gt: startOfDay },
         },
@@ -1207,7 +1207,7 @@ export class BookingService {
       prisma.booking.findMany({
         where: {
           courtId: { in: courtIds },
-          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED", "REFUNDED"] },
           startAt: { lt: endOfDay },
           endAt: { gt: startOfDay },
         },

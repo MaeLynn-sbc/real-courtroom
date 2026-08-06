@@ -29,11 +29,13 @@ import type { BookingStatus } from "@/lib/generated/prisma/enums";
 // reject methods each check the booking's current status inline instead,
 // tightly coupled to the side effect they perform alongside it.
 //
-// REFUNDED stays unreachable (empty in, empty out) for the identical
-// reason — wiring CONFIRMED -> REFUNDED here would make it a bare button
-// with no required Employee/reason, violating the same "no anonymous
-// refunds" rule write-offs already enforce. Needs its own dedicated
-// action; not part of this gate's scope.
+// REFUNDED stays unreachable here (empty in, empty out) for the identical
+// reason — wiring CONFIRMED -> REFUNDED into this table would make it a
+// bare button with no required Employee/reason, violating the same "no
+// anonymous refunds" rule write-offs already enforce. It IS reachable now
+// (2026-08-06), just not through this generic table — see
+// services/booking/booking-refund.service.ts's refundBooking, which
+// requires both and voids the linked Sale atomically with the transition.
 export const BOOKING_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   PENDING: ["CONFIRMED", "CANCELLED"],
   CONFIRMED: ["CHECKED_IN", "CANCELLED", "NO_SHOW"],

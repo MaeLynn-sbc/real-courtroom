@@ -181,7 +181,7 @@ async function fetchRelevantBookings(courtIds: string[], now: Date, windowEnd: D
   return prisma.booking.findMany({
     where: {
       courtId: { in: courtIds },
-      status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+      status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED", "REFUNDED"] },
       startAt: { lt: windowEnd },
       endAt: { gt: now },
     },

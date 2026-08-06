@@ -158,6 +158,53 @@ export class SaleService {
   // call this afterward on the default client, once that transaction has
   // committed — same "audit log after commit" convention every other
   // service in this app follows.
+  // Real incident (2026-08-06): the public booking double-submit bug
+  // produced a duplicate Sale for one real GCash payment. SaleStatus.VOID
+  // has existed in the schema since Phase 4 but nothing ever set it —
+  // this is the first caller. An offsetting entry, not a hard delete: the
+  // row survives with every original field intact (amount, paymentMethod,
+  // shift, employee, createdAt) — only `status` changes, which is exactly
+  // what every reconciliation/revenue query already filters on
+  // (status: "COMPLETED" — getSalesSummary, getGcashSalesForDate,
+  // getCashSalesForDate, getCashSalesForShift, and every report in
+  // reporting.service.ts, confirmed by reading each one directly). A VOID
+  // sale drops out of all of them with no other change needed anywhere.
+  // Accepts a transaction client so a caller (bookingRefundService) can
+  // void the Sale and write its own records atomically. Deliberately
+  // writes no audit log itself when given a transaction client — same
+  // "write the row in the transaction, log the audit AFTER commit, on the
+  // default client" split createSale/logSaleCreated already establish
+  // (see logSaleCreated's own comment); logging here immediately would
+  // commit an audit entry even if the surrounding transaction later rolls
+  // back. Callers running this standalone (default client, no wrapping
+  // transaction) should call logSaleVoided themselves right after.
+  async voidSale(
+    saleId: string,
+    client: Prisma.TransactionClient | typeof prisma = prisma,
+  ): Promise<Sale> {
+    const existing = await client.sale.findUniqueOrThrow({ where: { id: saleId } });
+    if (existing.status !== "COMPLETED") {
+      throw new Error(`Only a COMPLETED sale can be voided (current status: ${existing.status}).`);
+    }
+
+    return client.sale.update({
+      where: { id: saleId },
+      data: { status: "VOID" },
+    });
+  }
+
+  // Companion to logSaleCreated, same "after commit, default client"
+  // convention.
+  async logSaleVoided(sale: Sale, actorUserId: string): Promise<void> {
+    await this.writeAuditLog({
+      actorUserId,
+      action: "sale.voided",
+      entityType: "Sale",
+      entityId: sale.id,
+      newValues: sale,
+    });
+  }
+
   async logSaleCreated(sale: Sale, actorUserId: string): Promise<void> {
     await this.writeAuditLog({
       actorUserId,
