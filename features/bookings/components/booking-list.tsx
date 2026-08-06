@@ -237,9 +237,23 @@ export function BookingList({ bookings }: BookingListProps) {
               </div>
             </TableCell>
             <TableCell>
-              <div className="flex items-center gap-1.5">
-                <BookingStatusBadge status={booking.status} />
-                {booking.isAfterHours ? <Badge variant="warning">After Hours</Badge> : null}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-1.5">
+                  <BookingStatusBadge status={booking.status} />
+                  {booking.isAfterHours ? <Badge variant="warning">After Hours</Badge> : null}
+                </div>
+                {/* Owner request (2026-08-06): "who confirmed," same
+                    precedent as the Source column's "who created" just to
+                    the left. Only ever set on the latest proof once it's
+                    been APPROVED — see listBookings' own comment on
+                    resolvedByEmployee. */}
+                {booking.paymentProofs[0]?.status === "APPROVED" &&
+                booking.paymentProofs[0]?.resolvedByEmployee ? (
+                  <span className="text-muted-foreground text-xs">
+                    Confirmed by {booking.paymentProofs[0].resolvedByEmployee.firstName}{" "}
+                    {booking.paymentProofs[0].resolvedByEmployee.lastName}
+                  </span>
+                ) : null}
               </div>
             </TableCell>
             <TableCell>

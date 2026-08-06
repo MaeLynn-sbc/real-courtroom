@@ -242,7 +242,21 @@ export class BookingService {
         paymentProofs: {
           orderBy: { submittedAt: "desc" },
           take: 1,
-          select: { id: true, status: true, submittedAt: true, resolvedAt: true },
+          select: {
+            id: true,
+            status: true,
+            submittedAt: true,
+            resolvedAt: true,
+            // Owner request (2026-08-06): "who confirmed" this booking,
+            // shown below the Status badge — same "who created" precedent
+            // as bookedBy above, just for the approval step instead of
+            // creation. Only ever set on an APPROVED proof (see
+            // approveBookingPaymentProof); null on a still-PENDING or
+            // REJECTED one, and on every booking with no payment-proof
+            // flow at all (staff/pay-at-venue bookings), which is exactly
+            // when nothing should render.
+            resolvedByEmployee: { select: { firstName: true, lastName: true } },
+          },
         },
         // Reported live (Bea Señeris, BK-20260804-0002): the Payment
         // column read totalAmountCents directly (court hire only) — same
