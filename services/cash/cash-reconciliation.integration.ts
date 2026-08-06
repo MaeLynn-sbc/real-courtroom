@@ -32,6 +32,7 @@ import { prisma } from "../../lib/prisma";
 import {
   cashReconciliationService,
   CashBalanceAlreadyConfirmedError,
+  PriorDayNotClosedError,
 } from "./cash-reconciliation.service";
 import { saleService } from "../sales/sale.service";
 
@@ -243,6 +244,56 @@ async function main(): Promise<void> {
       tomorrowExpected === tomorrowBalance!.startingBalanceCents,
       "expected tomorrow's expected balance to equal its starting balance (no sales dated in the future)",
     );
+
+    // ============== Fix 2: getOrCreateBalanceForDate refuses to skip a
+    // still-open day (real incident, 2026-08-07 — GCash's twin test)
+    // ============== ==============
+    // today is CONFIRMED, tomorrow is still OPEN (deliberately left
+    // unconfirmed here). Before the fix, this would silently skip past
+    // tomorrow and pull today's confirmed ending instead.
+    const dayAfterTomorrow = new Date(tomorrow);
+    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
+
+    let skipRefused = false;
+    try {
+      await cashReconciliationService.getOrCreateBalanceForDate(dayAfterTomorrow);
+    } catch (error) {
+      skipRefused =
+        error instanceof PriorDayNotClosedError && error.priorDate.getTime() === tomorrow.getTime();
+    }
+    assert(skipRefused, "expected getOrCreateBalanceForDate to refuse, naming tomorrow specifically, instead of skipping past it to an older confirmed day");
+    const dayAfterTomorrowNotCreated = await cashReconciliationService.getBalanceForDate(dayAfterTomorrow);
+    assert(dayAfterTomorrowNotCreated === null, "expected no row to have been created for dayAfterTomorrow at all");
+    console.log("PASS: getOrCreateBalanceForDate refuses to skip past an unconfirmed day — the exact live incident's root cause can't happen again.");
+
+    // ============== Fix 1: confirmBalance's own independent guard
+    // ============== ==============
+    // Simulated directly (bypassing the normal create path, same as
+    // GCash's twin test) — proves confirmBalance's OWN guard, which
+    // still matters even with Fix 2 in place: a later row can exist
+    // through reopening an earlier day that had already been confirmed.
+    const staleLaterDay = await prisma.cashDailyBalance.create({
+      data: { date: dayAfterTomorrow, startingBalanceCents: tomorrowBalance!.startingBalanceCents },
+    });
+    assert(staleLaterDay.status === "OPEN", "expected the simulated later row to start OPEN");
+
+    let orderingGuardRejected = false;
+    try {
+      await cashReconciliationService.confirmBalance(
+        dayAfterTomorrow,
+        staleLaterDay.startingBalanceCents,
+        0,
+        undefined,
+        employee.id,
+        owner.id,
+      );
+    } catch (error) {
+      orderingGuardRejected = error instanceof Error && error.message.includes("still open");
+    }
+    assert(orderingGuardRejected, "expected confirming dayAfterTomorrow to be refused while tomorrow is still OPEN — proven failing-first against the exact live incident");
+    const stillOpenDayAfter = await cashReconciliationService.getBalanceForDate(dayAfterTomorrow);
+    assert(stillOpenDayAfter?.status === "OPEN", "expected dayAfterTomorrow to remain OPEN, untouched, after the refused attempt");
+    console.log("PASS: confirmBalance independently refuses a later day while an earlier day is still open — the exact live incident can't happen again, even via a stray existing row.");
 
     // ============== 6. Override starting balance — requires a reason, audited ==============
     let overrideRejectedNoReason = false;

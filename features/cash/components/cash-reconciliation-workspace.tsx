@@ -44,9 +44,30 @@ type RecentBalances = Awaited<ReturnType<typeof cashReconciliationService.listRe
 
 interface CashReconciliationWorkspaceProps {
   needsSeed: boolean;
+  // Real incident (2026-08-07) — GCash workspace's twin prop, see its
+  // own comment. Set only when getOrCreateBalanceForDate threw
+  // PriorDayNotClosedError; mutually exclusive with needsSeed.
+  priorDayError: string | null;
   todayBalance: TodayBalance | null;
   expectedEndingBalanceCents: number | null;
   recentBalances: RecentBalances;
+}
+
+function PriorDayNotClosedWarning({ message }: { message: string }) {
+  return (
+    <Card className="border-warning/40">
+      <CardHeader>
+        <CardTitle className="text-warning-foreground">Earlier day still open</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm">{message}</p>
+        <p className="text-muted-foreground mt-2 text-xs">
+          Closing days out of order can carry a wrong starting balance forward — close the earlier
+          day first, then come back here.
+        </p>
+      </CardContent>
+    </Card>
+  );
 }
 
 function SeedBalanceForm() {
@@ -493,13 +514,16 @@ function AlreadyConfirmedCard({ balance }: { balance: TodayBalance }) {
 
 export function CashReconciliationWorkspace({
   needsSeed,
+  priorDayError,
   todayBalance,
   expectedEndingBalanceCents,
   recentBalances,
 }: CashReconciliationWorkspaceProps) {
   return (
     <div className="flex flex-col gap-6">
-      {needsSeed || !todayBalance ? (
+      {priorDayError ? (
+        <PriorDayNotClosedWarning message={priorDayError} />
+      ) : needsSeed || !todayBalance ? (
         <SeedBalanceForm />
       ) : todayBalance.status === "CONFIRMED" ? (
         <AlreadyConfirmedCard balance={todayBalance} />

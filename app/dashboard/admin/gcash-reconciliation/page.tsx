@@ -4,8 +4,29 @@ import Link from "next/link";
 import { ReconciliationTabs } from "@/components/shared/reconciliation-tabs";
 import { CashReconciliationWorkspace } from "@/features/cash/components/cash-reconciliation-workspace";
 import { GcashReconciliationWorkspace } from "@/features/gcash/components/gcash-reconciliation-workspace";
-import { cashReconciliationService } from "@/services/cash/cash-reconciliation.service";
-import { gcashReconciliationService } from "@/services/gcash/gcash-reconciliation.service";
+import { cashReconciliationService, PriorDayNotClosedError as CashPriorDayNotClosedError } from "@/services/cash/cash-reconciliation.service";
+import { gcashReconciliationService, PriorDayNotClosedError as GcashPriorDayNotClosedError } from "@/services/gcash/gcash-reconciliation.service";
+import type { CashDailyBalance, GcashDailyBalance } from "@/lib/generated/prisma/client";
+
+// Real incident (2026-08-07): getOrCreateBalanceForDate now throws
+// PriorDayNotClosedError instead of silently materializing a day with a
+// stale starting balance when the immediately preceding day is still
+// OPEN — this turns that into a result the page can render around
+// (a warning, not a crash) instead of letting it propagate as an
+// unhandled Server Component error.
+async function loadBalance<T>(
+  load: () => Promise<T | null>,
+  isPriorDayError: (error: unknown) => error is { message: string },
+): Promise<{ balance: T | null; priorDayError: string | null }> {
+  try {
+    return { balance: await load(), priorDayError: null };
+  } catch (error) {
+    if (isPriorDayError(error)) {
+      return { balance: null, priorDayError: error.message };
+    }
+    throw error;
+  }
+}
 
 export const metadata: Metadata = {
   title: "Accounts Reconciliation",
@@ -41,11 +62,22 @@ export default async function ReconciliationPage({ searchParams }: Reconciliatio
   // starting balance forward from the most recent CONFIRMED day) — null
   // means no prior CONFIRMED day exists at all yet, so the workspace
   // offers the one-time seed form instead. GCash and Cash are entirely
-  // independent day-scoped balances, fetched in parallel.
-  const [gcashTodayBalance, cashTodayBalance] = await Promise.all([
-    gcashReconciliationService.getOrCreateBalanceForDate(viewedDate),
-    cashReconciliationService.getOrCreateBalanceForDate(viewedDate),
+  // independent day-scoped balances, fetched in parallel. A thrown
+  // PriorDayNotClosedError (the immediately preceding day is still
+  // OPEN) is caught and turned into a warning the workspace renders
+  // instead — see loadBalance's own comment.
+  const [gcashResult, cashResult] = await Promise.all([
+    loadBalance(
+      () => gcashReconciliationService.getOrCreateBalanceForDate(viewedDate),
+      (error): error is GcashPriorDayNotClosedError => error instanceof GcashPriorDayNotClosedError,
+    ),
+    loadBalance(
+      () => cashReconciliationService.getOrCreateBalanceForDate(viewedDate),
+      (error): error is CashPriorDayNotClosedError => error instanceof CashPriorDayNotClosedError,
+    ),
   ]);
+  const gcashTodayBalance: GcashDailyBalance | null = gcashResult.balance;
+  const cashTodayBalance: CashDailyBalance | null = cashResult.balance;
   const [
     gcashExpectedEndingBalanceCents,
     gcashRecentBalances,
@@ -86,7 +118,8 @@ export default async function ReconciliationPage({ searchParams }: Reconciliatio
       <ReconciliationTabs
         gcash={
           <GcashReconciliationWorkspace
-            needsSeed={gcashTodayBalance === null}
+            needsSeed={gcashTodayBalance === null && gcashResult.priorDayError === null}
+            priorDayError={gcashResult.priorDayError}
             todayBalance={gcashTodayBalance}
             expectedEndingBalanceCents={gcashExpectedEndingBalanceCents}
             recentBalances={gcashRecentBalances}
@@ -94,7 +127,8 @@ export default async function ReconciliationPage({ searchParams }: Reconciliatio
         }
         cash={
           <CashReconciliationWorkspace
-            needsSeed={cashTodayBalance === null}
+            needsSeed={cashTodayBalance === null && cashResult.priorDayError === null}
+            priorDayError={cashResult.priorDayError}
             todayBalance={cashTodayBalance}
             expectedEndingBalanceCents={cashExpectedEndingBalanceCents}
             recentBalances={cashRecentBalances}

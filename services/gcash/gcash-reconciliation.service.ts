@@ -59,6 +59,23 @@ export class GcashBalanceAlreadyConfirmedError extends Error {
   }
 }
 
+// Real incident (2026-08-07): getOrCreateBalanceForDate used to skip
+// PAST an unconfirmed (OPEN) day to find an older CONFIRMED one instead
+// — so a later day could silently materialize with a stale starting
+// balance instead of surfacing that the immediately preceding day needs
+// to close first. Thrown, not returned as null — null already means
+// something different ("no CONFIRMED history at all yet, offer the
+// one-time seed flow"); this is a distinct, real obstacle with a
+// specific date attached, not an empty-history state.
+export class PriorDayNotClosedError extends Error {
+  constructor(public readonly priorDate: Date) {
+    super(
+      `${priorDate.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} must be closed first.`,
+    );
+    this.name = "PriorDayNotClosedError";
+  }
+}
+
 export class GcashReconciliationService {
   async getBalanceForDate(date: Date): Promise<GcashDailyBalance | null> {
     return prisma.gcashDailyBalance.findUnique({ where: { date: toMidnight(date) } });
@@ -122,6 +139,20 @@ export class GcashReconciliationService {
       return existing;
     }
 
+    // Real incident (2026-08-07) — see PriorDayNotClosedError's own
+    // comment. Checked BEFORE the "most recent confirmed" search below,
+    // and scoped to the SPECIFIC immediately-preceding calendar day, not
+    // "any earlier OPEN day" — a genuine gap (no record at all for the
+    // day before, e.g. the business simply wasn't reconciled that day)
+    // is a different, pre-existing situation this isn't meant to block;
+    // only an actual unconfirmed row sitting there is.
+    const previousDate = new Date(targetDate);
+    previousDate.setDate(previousDate.getDate() - 1);
+    const previousDay = await prisma.gcashDailyBalance.findUnique({ where: { date: previousDate } });
+    if (previousDay && previousDay.status !== "CONFIRMED") {
+      throw new PriorDayNotClosedError(previousDate);
+    }
+
     const mostRecentConfirmed = await prisma.gcashDailyBalance.findFirst({
       where: { status: "CONFIRMED", date: { lt: targetDate } },
       orderBy: { date: "desc" },
@@ -168,6 +199,26 @@ export class GcashReconciliationService {
     }
     if (existing.status !== "OPEN") {
       throw new GcashBalanceAlreadyConfirmedError();
+    }
+
+    // Real incident (2026-08-07): nothing here used to check any EARLIER
+    // day's status — Aug 7 got confirmed while Aug 6 was still OPEN.
+    // getOrCreateBalanceForDate's carry-forward looks for the most
+    // recent CONFIRMED day and silently SKIPS PAST an unconfirmed one to
+    // find it, so Aug 7 quietly inherited Aug 5's confirmed figure
+    // instead of Aug 6's — landing on a number that happened to equal
+    // Aug 6's own starting balance, not its real closing one. Closing
+    // days out of order is common here (a shift can run past midnight),
+    // so this is refused outright rather than trusted to staff
+    // discipline — every earlier OPEN day must close first.
+    const earlierOpenDay = await prisma.gcashDailyBalance.findFirst({
+      where: { date: { lt: targetDate }, status: "OPEN" },
+      orderBy: { date: "asc" },
+    });
+    if (earlierOpenDay) {
+      throw new Error(
+        `${earlierOpenDay.date.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} is still open — close it first before confirming a later day.`,
+      );
     }
 
     const expectedEndingBalanceCents = await this.getExpectedEndingBalance(existing);
