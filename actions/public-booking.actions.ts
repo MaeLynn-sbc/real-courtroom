@@ -71,6 +71,10 @@ export interface PublicBookingActionState {
   conflict?: AvailabilityConflict;
   bookingId?: string;
   bookingReference?: string;
+  // Customer-facing short code — see CreatePublicBookingResult's own
+  // comment. Always set alongside bookingReference for a successful
+  // booking.
+  shortCode?: string | null;
   // Phase 8 Gate 2 — only ever true when the owner-controlled prepayment
   // switch is on (settingsService.getBookingRequirePrepayment). Default
   // OFF means this is undefined/false for every booking today, and the
@@ -234,6 +238,7 @@ export async function createPublicBookingAction(
       error: null,
       bookingId: result.bookingId,
       bookingReference: result.bookingReference,
+      shortCode: result.shortCode,
       requiresPayment: result.requiresPayment || undefined,
       holdExpiresAt: result.holdExpiresAt,
       totalAmountCents: result.totalAmountCents,

@@ -18,6 +18,13 @@ export interface CreatePublicBookingInput {
 export interface CreatePublicBookingResult {
   bookingId: string;
   bookingReference: string;
+  // Customer-facing short code (see Booking.shortCode's own schema
+  // comment) — always set here, since both bookingService.createBooking
+  // (WEBSITE source) and createBookingHold generate one for every
+  // public booking. Kept as its own field rather than replacing
+  // bookingReference so nothing here has to guess which one a caller
+  // wants; the confirmation screen shows both.
+  shortCode: string | null;
   requiresPayment: boolean;
   holdExpiresAt?: Date;
   // Already computed and persisted by bookingService.createBooking/
@@ -66,6 +73,7 @@ export async function createPublicBooking(input: CreatePublicBookingInput): Prom
     return {
       bookingId: hold.id,
       bookingReference: hold.bookingReference,
+      shortCode: hold.shortCode,
       requiresPayment: true,
       holdExpiresAt: hold.holdExpiresAt ?? undefined,
       totalAmountCents: hold.totalAmountCents ?? 0,
@@ -97,6 +105,7 @@ export async function createPublicBooking(input: CreatePublicBookingInput): Prom
   return {
     bookingId: booking.id,
     bookingReference: booking.bookingReference,
+    shortCode: booking.shortCode,
     requiresPayment: false,
     totalAmountCents: booking.totalAmountCents ?? 0,
   };

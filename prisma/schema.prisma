@@ -914,6 +914,16 @@ model Booking {
   // prepayment-hold path sets this; staff bookings (createBooking) never
   // do.
   idempotencyKey    String?              @unique
+  // Short booking code (2026-08-06): a 6-char, unambiguous code (no
+  // 0/O, 1/I/L — see services/booking/booking-short-code.ts) shown to
+  // customers instead of the full bookingReference — easier to read
+  // back over the phone or off an SMS. Customer-facing only: every
+  // staff-facing surface (booking detail/list, reports, coaching
+  // report) keeps showing bookingReference, unchanged. Only ever set
+  // for a customer-created (source=PUBLIC) booking, going forward —
+  // nullable so every pre-existing row, and every staff-created
+  // (source=STAFF) booking, is simply null, never backfilled.
+  shortCode         String?              @unique
   // Settle-bill (pay-at-venue gap fix): a staff/pay-at-venue booking is
   // created with NO Sale and no assumed payment method — the customer's
   // actual method isn't known until they actually pay, which may be well

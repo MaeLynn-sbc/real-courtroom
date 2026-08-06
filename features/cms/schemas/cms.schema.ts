@@ -65,10 +65,13 @@ export const bookingCommunicationSettingsSchema = z.object({
   // approval first (services/sms/semaphore-sms.service.ts's own
   // comment). Never required to have real SMS sending working.
   smsSenderName: z.string().max(20).optional(),
-  // {reference}/{court}/{date}/{time}/{duration} placeholders,
-  // substituted by whatever sends this (services/sms/ once wired).
-  // Sender reads "SEMAPHORE" by default, so the body must self-identify
-  // — see the default value's own "The Courtroom Kalibo:" lead-in.
+  // {reference}/{shortCode}/{court}/{date}/{time}/{duration}
+  // placeholders, substituted by whatever sends this (services/sms/ once
+  // wired — confirmed not yet connected to any actual send call, unlike
+  // the 3 hardcoded payment-proof SMS templates in booking-payment-proof.
+  // service.ts, which already use {shortCode}). Sender reads "SEMAPHORE"
+  // by default, so the body must self-identify — see the default
+  // value's own "The Courtroom Kalibo:" lead-in.
   smsConfirmationTemplate: z.string().min(1, "Enter a confirmation message.").max(320),
   // Shown on the booking confirmation page once a screenshot is
   // uploaded — {phone} substituted with the booking's own guestPhone.

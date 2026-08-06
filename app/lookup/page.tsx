@@ -40,13 +40,13 @@ export default async function LookupPage({ searchParams }: LookupPageProps) {
         <div>
           <h1 className="font-heading text-4xl font-semibold tracking-tight">Find My Booking</h1>
           <p className="text-muted-foreground mt-2 text-lg">
-            Enter your booking reference and phone number.
+            Enter your booking code (or reference) and phone number.
           </p>
         </div>
 
         <form className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="reference">Booking reference</Label>
+            <Label htmlFor="reference">Booking code or reference</Label>
             <Input id="reference" name="reference" defaultValue={reference} required />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -62,10 +62,18 @@ export default async function LookupPage({ searchParams }: LookupPageProps) {
           booking ? (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-3">
-                <CardTitle className="font-mono text-base">{booking.bookingReference}</CardTitle>
+                <CardTitle className="font-mono text-base">
+                  {booking.shortCode ?? booking.bookingReference}
+                </CardTitle>
                 <CustomerBookingStatusBadge status={booking.status} />
               </CardHeader>
               <CardContent className="flex flex-col gap-2 text-sm">
+                {booking.shortCode ? (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Reference</span>
+                    <span className="font-mono font-medium">{booking.bookingReference}</span>
+                  </div>
+                ) : null}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Court</span>
                   <span className="font-medium">{booking.court.name}</span>
@@ -82,7 +90,7 @@ export default async function LookupPage({ searchParams }: LookupPageProps) {
             </Card>
           ) : (
             <p className="text-muted-foreground text-sm">
-              No booking found for that reference and phone number.
+              No booking found for that code (or reference) and phone number.
             </p>
           )
         ) : null}

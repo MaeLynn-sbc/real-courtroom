@@ -87,7 +87,13 @@ async function main(): Promise<void> {
     assert(submitCount === 1, `expected exactly 1 SMS sent on submission, got ${submitCount}`);
     assert(submitSent !== undefined, "expected a recorded SMS send");
     assert(submitSent.phone === "09171230010", `expected the SMS to go to the guest's phone, got ${submitSent.phone}`);
-    assert(submitSent.message.includes(holdA.bookingReference), "expected the submission SMS to reference the booking");
+    // Short booking code (2026-08-06): every guest-facing SMS now shows
+    // the short code, not the full bookingReference (see
+    // booking-payment-proof.service.ts's customerFacingCode) — a
+    // WEBSITE-sourced hold always gets one, so this asserts the code,
+    // not the reference.
+    assert(holdA.shortCode !== null, "expected the hold to have a short code assigned");
+    assert(submitSent.message.includes(holdA.shortCode!), "expected the submission SMS to reference the booking's short code");
     console.log("PASS: submitting payment proof sends an acknowledgment SMS before staff ever look at it.");
 
     // --- 2. Approval ---

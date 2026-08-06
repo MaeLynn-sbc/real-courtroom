@@ -20,6 +20,18 @@ import { getSmsService } from "@/services/sms/sms-service.factory";
 // booking path (public-booking.schema.ts requires guestPhone), so it's
 // always present in practice; still checked defensively since the column
 // itself is nullable.
+// Short booking code (2026-08-06) — every guest-facing SMS shows this
+// instead of the full bookingReference, easier to read back over the
+// phone or off the text itself. Falls back to bookingReference for a
+// booking created before the short code existed (shortCode null) or a
+// staff-created one (never assigned one at all — see Booking.shortCode's
+// own schema comment) — this whole payment-proof flow is customer-facing
+// only in practice, so that fallback is a defensive null-guard, not an
+// expected everyday case.
+function customerFacingCode(booking: { shortCode: string | null; bookingReference: string }): string {
+  return booking.shortCode ?? booking.bookingReference;
+}
+
 async function sendBookingProofSms(phone: string | null, message: string): Promise<void> {
   if (!phone) {
     return;
@@ -164,7 +176,7 @@ export class BookingPaymentProofService {
     });
 
     try {
-      const { proof, bookedById, guestPhone, bookingReference } = await prisma.$transaction(
+      const { proof, bookedById, guestPhone, customerCode } = await prisma.$transaction(
         async (tx) => {
           // Atomic conditional UPDATE (§15 pattern 2) — the WHERE clause IS
           // the check: only a booking that is STILL AWAITING_PAYMENT can be
@@ -221,7 +233,7 @@ export class BookingPaymentProofService {
             proof: created,
             bookedById: booking.bookedById,
             guestPhone: booking.guestPhone,
-            bookingReference: booking.bookingReference,
+            customerCode: customerFacingCode(booking),
           };
         },
       );
@@ -250,7 +262,7 @@ export class BookingPaymentProofService {
       // a separate concern from whether the court itself is held.
       await sendBookingProofSms(
         guestPhone,
-        `The Courtroom: Got your payment screenshot for booking ${bookingReference} — your court is reserved. We'll text you once payment is confirmed. Check your booking anytime: thecourtroomkalibo.com/lookup`,
+        `The Courtroom: Got your payment screenshot for booking ${customerCode} — your court is reserved. We'll text you once payment is confirmed. Check your booking anytime: thecourtroomkalibo.com/lookup`,
       );
 
       return proof;
@@ -453,7 +465,7 @@ export class BookingPaymentProofService {
       }
       await sendBookingProofSms(
         result.booking.guestPhone,
-        `The Courtroom: Your booking ${result.booking.bookingReference} is CONFIRMED! See you on the court. Check your booking anytime: thecourtroomkalibo.com/lookup`,
+        `The Courtroom: Your booking ${customerFacingCode(result.booking)} is CONFIRMED! See you on the court. Check your booking anytime: thecourtroomkalibo.com/lookup`,
       );
     }
 
@@ -552,7 +564,7 @@ export class BookingPaymentProofService {
       // exist.
       await sendBookingProofSms(
         result.booking.guestPhone,
-        `The Courtroom: We couldn't verify your GCash payment for booking ${result.booking.bookingReference} — ${reason}. This booking has been cancelled; please make a new booking if you'd still like to play, or contact us for help. Check your booking anytime: thecourtroomkalibo.com/lookup`,
+        `The Courtroom: We couldn't verify your GCash payment for booking ${customerFacingCode(result.booking)} — ${reason}. This booking has been cancelled; please make a new booking if you'd still like to play, or contact us for help. Check your booking anytime: thecourtroomkalibo.com/lookup`,
       );
     }
 

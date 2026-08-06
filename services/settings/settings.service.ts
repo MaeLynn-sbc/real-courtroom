@@ -512,13 +512,13 @@ export class SettingsService {
   // happening — see features/bookings/components/public-booking-form.tsx's
   // own confirmation-screen comment for the full reasoning. Both
   // defaults below are exactly the wording the owner specified live;
-  // {phone}/{reference}/{court}/{date}/{time}/{duration} are the only
-  // placeholders substituted at render/send time.
+  // {phone}/{reference}/{shortCode}/{court}/{date}/{time}/{duration}
+  // are the only placeholders substituted at render/send time.
   async getBookingCommunicationSettings(): Promise<BookingCommunicationSettings> {
     return this.getJsonValue(CMS_KEYS.BOOKING_COMMUNICATION, {
       smsSenderName: "",
       smsConfirmationTemplate:
-        "The Courtroom Kalibo: Booking {reference} CONFIRMED. {court}, {date}, {time}, {duration}. Payment received. See you then!",
+        "The Courtroom Kalibo: Booking {shortCode} CONFIRMED. {court}, {date}, {time}, {duration}. Payment received. See you then!",
       pageConfirmationCopy:
         "Your slot is reserved. We'll text you at {phone} to confirm — usually within an hour during opening hours (7AM–11PM). Bookings made late at night are confirmed the next morning.",
     } as BookingCommunicationSettings);

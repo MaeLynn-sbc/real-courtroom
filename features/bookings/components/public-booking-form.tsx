@@ -1,5 +1,6 @@
 "use client";
 
+import { Check, Copy } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -144,6 +145,11 @@ interface PublicBookingFormValues {
 interface BookingConfirmation {
   bookingId: string;
   bookingReference: string;
+  // Customer-facing short code (2026-08-06) — shown prominently, with
+  // bookingReference smaller beneath it. Null only for the rare case a
+  // booking somehow landed without one (should not happen for a public
+  // booking going forward — see Booking.shortCode's own schema comment).
+  shortCode: string | null;
   courtName: string;
   date: string;
   time: string;
@@ -180,6 +186,56 @@ const holdTimeFormatter = new Intl.DateTimeFormat("en-PH", {
 function toLocalDateValue(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+// SMS is unavailable indefinitely (2026-08-06) — this screen is now the
+// ONLY place a customer ever receives their short code, so it has to be
+// the biggest, hardest-to-miss thing here, not a line in a details list.
+// Rendered on every screen that represents a genuinely finalized booking
+// (pay-at-venue confirmed immediately, or the prepayment path once the
+// screenshot is submitted) — never on the still-awaiting-payment state,
+// where the booking isn't done yet.
+function ShortCodeReveal({ shortCode, bookingReference }: { shortCode: string; bookingReference: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard
+      .writeText(shortCode)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => toast.error("Couldn't copy — write the code down manually."));
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-2 text-center">
+      <span className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+        Your booking code
+      </span>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="border-input hover:bg-accent flex items-center gap-3 rounded-xl border-2 px-6 py-4 transition-colors"
+      >
+        <span className="font-mono text-5xl font-bold tracking-[0.2em]">{shortCode}</span>
+        {copied ? (
+          <Check className="text-success size-6 shrink-0" aria-hidden="true" />
+        ) : (
+          <Copy className="text-muted-foreground size-6 shrink-0" aria-hidden="true" />
+        )}
+      </button>
+      <p className="text-sm font-medium">
+        {copied ? "Copied! " : "Tap to copy. "}Screenshot this — you&apos;ll need it to check your
+        booking.
+      </p>
+      <p className="text-muted-foreground font-mono text-xs">{bookingReference}</p>
+      <p className="text-muted-foreground text-xs">
+        Look up your booking anytime at{" "}
+        <span className="font-medium">thecourtroomkalibo.com/lookup</span>
+      </p>
+    </div>
+  );
 }
 
 interface PublicBookingFormProps {
@@ -648,6 +704,7 @@ export function PublicBookingForm({
     setConfirmation({
       bookingId,
       bookingReference: result.bookingReference,
+      shortCode: result.shortCode ?? null,
       courtName: courts.find((court) => court.id === values.courtId)?.name ?? "",
       date: values.date,
       time: values.time,
@@ -680,10 +737,19 @@ export function PublicBookingForm({
             <CardTitle className="text-success">Booking confirmed</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Reference</span>
-              <span className="font-mono font-medium">{confirmation.bookingReference}</span>
-            </div>
+            {confirmation.shortCode ? (
+              <div className="border-b pb-4">
+                <ShortCodeReveal
+                  shortCode={confirmation.shortCode}
+                  bookingReference={confirmation.bookingReference}
+                />
+              </div>
+            ) : (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Reference</span>
+                <span className="font-mono font-medium">{confirmation.bookingReference}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-muted-foreground">Name</span>
               <span className="font-medium">{confirmation.guestName}</span>
@@ -734,8 +800,7 @@ export function PublicBookingForm({
               </div>
             )}
             <p className="text-muted-foreground pt-2 text-xs">
-              Save your reference and phone number — you can look up this booking anytime from the
-              Booking Lookup page. Payment is collected at the venue.
+              Payment is collected at the venue.
             </p>
             <div className="border-t pt-3">
               <PublicCoachAddOn
@@ -778,19 +843,29 @@ export function PublicBookingForm({
         <div className="mx-auto flex max-w-md flex-col gap-4">
           <div className="flex flex-col gap-1">
             <h2 className="text-success text-lg font-semibold">Booking received ✓</h2>
-            <p className="text-sm">
-              <span className="font-mono font-medium">{confirmation.bookingReference}</span>
-              <br />
-              {confirmation.courtName} · {confirmation.date} · {confirmation.time} ·{" "}
-              {formatDurationLabel(confirmation.durationMinutes)} · {formatCurrency(totalDueCents)}
-            </p>
           </div>
 
-          <p className="text-sm">{confirmationMessage}</p>
+          {/* SMS is unavailable indefinitely — this is the ONLY place the
+              customer ever sees their short code, so it leads, large, with
+              its own tap-to-copy and "screenshot this" instruction. See
+              ShortCodeReveal's own comment. */}
+          {confirmation.shortCode ? (
+            <ShortCodeReveal
+              shortCode={confirmation.shortCode}
+              bookingReference={confirmation.bookingReference}
+            />
+          ) : (
+            <p className="text-sm">
+              <span className="font-mono font-medium">{confirmation.bookingReference}</span>
+            </p>
+          )}
 
-          <p className="text-muted-foreground text-xs">
-            Save your reference number. That&apos;s all you need when you arrive.
+          <p className="text-sm">
+            {confirmation.courtName} · {confirmation.date} · {confirmation.time} ·{" "}
+            {formatDurationLabel(confirmation.durationMinutes)} · {formatCurrency(totalDueCents)}
           </p>
+
+          <p className="text-sm">{confirmationMessage}</p>
 
           {/* Requirement C: a small link, not a sentence leading with
               "haven't heard back" — that plants the idea that they
@@ -863,6 +938,12 @@ export function PublicBookingForm({
         </div>
 
         <div className="flex flex-col gap-1 text-sm">
+          {confirmation.shortCode ? (
+            <p>
+              <span className="text-muted-foreground">Booking code:</span>{" "}
+              <span className="font-mono font-semibold">{confirmation.shortCode}</span>
+            </p>
+          ) : null}
           <p>
             <span className="text-muted-foreground">Reference:</span>{" "}
             {confirmation.bookingReference}

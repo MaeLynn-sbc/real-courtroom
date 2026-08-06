@@ -16,6 +16,7 @@ import { dailyScope, nextSequence } from "@/lib/reference-counter";
 import { runSerializableWithRetry } from "@/lib/serializable-retry";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import { formatBookingReference } from "@/services/booking/booking-reference";
+import { generateShortCode } from "@/services/booking/booking-short-code";
 import { canTransitionBookingStatus } from "@/services/booking/booking-status";
 import { PAY_AT_VENUE_PAYMENT_METHOD_KEY } from "@/lib/system-identities";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
@@ -629,6 +630,13 @@ export class BookingService {
       const source: Prisma.BookingCreateInput["source"] =
         saleContext.source === "WEBSITE" ? "PUBLIC" : "STAFF";
 
+      // Customer-facing only (see Booking.shortCode's own schema
+      // comment) — a staff-created booking never gets one. Generated
+      // HERE, inside the transaction, not before it, so a P2002 retry
+      // (runSerializableWithRetry, above this method) draws a fresh
+      // code each attempt instead of colliding with itself forever.
+      const shortCode = source === "PUBLIC" ? generateShortCode() : null;
+
       const created = await tx.booking.create({
         data: {
           bookingReference,
@@ -646,6 +654,7 @@ export class BookingService {
           totalAmountCents,
           notes: input.notes,
           qrCodeToken,
+          shortCode,
           isAfterHours,
         },
       });
@@ -1048,6 +1057,13 @@ export class BookingService {
         Math.min(now.getTime() + holdMinutes * 60_000, input.startAt.getTime()),
       );
 
+      // Always PUBLIC (source is hardcoded below) — a hold is only ever
+      // created by the customer-facing prepayment path, so a short code
+      // is generated unconditionally here, unlike createBooking's
+      // source-gated version above. Same "inside the transaction, so a
+      // retry draws a fresh code" reasoning.
+      const shortCode = generateShortCode();
+
       const created = await tx.booking.create({
         data: {
           bookingReference,
@@ -1065,6 +1081,7 @@ export class BookingService {
           totalAmountCents,
           notes: input.notes,
           qrCodeToken,
+          shortCode,
           // Already enforced above (enforceOperatingHours: true) — a hold
           // can never land after-hours, unlike a staff booking.
           isAfterHours: false,
@@ -1326,11 +1343,19 @@ export class BookingService {
   // Phase 12: powers the public booking-lookup page. Phone match is a
   // lightweight anti-enumeration check (stops guessing a reference alone
   // from revealing someone else's booking), not real authentication.
+  // Short code first (2026-08-06) — that's what the confirmation screen
+  // and SMS actually show a customer now; bookingReference is still
+  // accepted as a fallback so an older booking (shortCode null, or a
+  // customer who copied the full reference anyway) still looks up fine.
+  // Both sides normalized to uppercase — shortCode is generated
+  // uppercase-only, and bookingReference already is too, so this is
+  // purely forgiving of how the customer typed it in.
   async findByReferenceAndPhone(reference: string, phone: string) {
-    const booking = await prisma.booking.findUnique({
-      where: { bookingReference: reference },
-      include: { court: true, player: { include: { user: true } } },
-    });
+    const normalizedReference = reference.trim().toUpperCase();
+    const include = { court: true, player: { include: { user: true } } } as const;
+    const booking =
+      (await prisma.booking.findUnique({ where: { shortCode: normalizedReference }, include })) ??
+      (await prisma.booking.findUnique({ where: { bookingReference: normalizedReference }, include }));
     if (!booking) {
       return null;
     }

@@ -14,9 +14,10 @@ import type { BookingCommunicationSettings } from "@/features/cms/schemas/cms.sc
 
 // Owner decision (2026-08-03): every customer-facing string mentioning
 // timing, contact channel, or the phone number must be editable here,
-// not hardcoded in a component. {phone}/{reference}/{court}/{date}/
-// {time}/{duration} are the only placeholders substituted — noted in
-// the field hints below so an owner editing this doesn't have to guess.
+// not hardcoded in a component. {phone}/{reference}/{shortCode}/{court}/
+// {date}/{time}/{duration} are the only placeholders substituted — noted
+// in the field hints below so an owner editing this doesn't have to
+// guess.
 export function BookingCommunicationSettingsPanel({
   settings,
 }: {
@@ -83,9 +84,9 @@ export function BookingCommunicationSettingsPanel({
               rows={3}
             />
             <p className="text-muted-foreground text-xs">
-              Placeholders: {"{reference} {court} {date} {time} {duration}"}. Sent once staff mark a
-              payment verified. 160 characters = 1 SMS credit; longer messages cost more. Currently{" "}
-              {smsConfirmationTemplate.length} characters.
+              Placeholders: {"{shortCode} {reference} {court} {date} {time} {duration}"}. Sent once
+              staff mark a payment verified. 160 characters = 1 SMS credit; longer messages cost more.
+              Currently {smsConfirmationTemplate.length} characters.
             </p>
           </div>
           <div className="flex flex-col gap-1.5">
