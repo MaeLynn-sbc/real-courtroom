@@ -8,11 +8,13 @@ import {
 } from "@/features/bookings/schemas/booking-payment-proof.schema";
 import { toActionError } from "@/lib/errors";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { bookingService } from "@/services/booking/booking.service";
 import {
   bookingPaymentProofService,
   BookingNotAwaitingPaymentError,
   DuplicateGcashReferenceError,
 } from "@/services/booking/booking-payment-proof.service";
+import { getWebsiteBookingContext } from "@/services/booking/website-identity";
 
 export interface SubmitBookingPaymentProofActionState {
   error: string | null;
@@ -67,5 +69,60 @@ export async function submitPublicBookingPaymentProofAction(
       return { error: error.message };
     }
     return { error: toActionError(error, { action: "submitPublicBookingPaymentProofAction" }) };
+  }
+}
+
+export interface CancelUnpaidPublicBookingActionState {
+  error: string | null;
+}
+
+// Owner request (2026-08-06): "the booking shouldn't push through if no
+// proof of payment is received" — a customer whose screenshot upload
+// fails at Book Now time (network hiccup, or the body-size-limit
+// incident this same day) used to keep an AWAITING_PAYMENT hold anyway,
+// blocking the court indefinitely with no payment ever actually
+// received. public-booking-form.tsx now calls this immediately when the
+// initial screenshot-attached submission fails, instead of falling back
+// to a separate "upload later" step — the hold is cancelled right away,
+// same court-release/coach-cascade behavior updateBookingStatus already
+// gives every other CANCELLED transition, and the customer sees a clear
+// "this didn't go through, try again" state instead of a confirmation
+// for a booking that silently isn't really confirmed.
+//
+// Same trust model as submitPublicBookingPaymentProofAction above — no
+// session, bookingId alone is the authority (a CUID, not guessable) —
+// and the same backstop: updateBookingStatus's own transition table only
+// allows AWAITING_PAYMENT -> CANCELLED, so this can never touch a
+// booking that's already moved past that state, regardless of what a
+// crafted request sends.
+export async function cancelUnpaidPublicBookingAction(
+  bookingId: string,
+): Promise<CancelUnpaidPublicBookingActionState> {
+  if (!bookingId) {
+    return { error: "Missing booking id." };
+  }
+
+  const rateLimit = checkRateLimit(`cancel-unpaid-public-booking:${bookingId}`, 8, 60 * 60 * 1000);
+  if (!rateLimit.allowed) {
+    return { error: "Too many attempts — please wait a while and try again." };
+  }
+
+  try {
+    const context = await getWebsiteBookingContext();
+    await bookingService.updateBookingStatus(
+      bookingId,
+      "CANCELLED",
+      context.userId,
+      "Payment screenshot could not be processed — booking automatically cancelled, slot released.",
+    );
+    revalidatePath("/dashboard/bookings");
+    revalidatePath("/availability");
+    return { error: null };
+  } catch (error) {
+    // Best-effort — the customer already sees the real error from the
+    // proof-submission attempt itself; a failure here (e.g. the booking
+    // already moved on for some other reason) shouldn't surface a second,
+    // more confusing error on top of that.
+    return { error: toActionError(error, { action: "cancelUnpaidPublicBookingAction" }) };
   }
 }

@@ -14,7 +14,10 @@ import {
   listPublicCourtOccupiedWindowsAction,
   type PublicBookingCoachOption,
 } from "@/actions/public-booking.actions";
-import { submitPublicBookingPaymentProofAction } from "@/actions/public-booking-payment-proof.actions";
+import {
+  cancelUnpaidPublicBookingAction,
+  submitPublicBookingPaymentProofAction,
+} from "@/actions/public-booking-payment-proof.actions";
 import { addPublicCoachToBookingAction } from "@/actions/public-coaching.actions";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +34,7 @@ import {
   PublicCoachAddOn,
   type PublicCoachAddOnConfirmed,
 } from "@/features/coaching/components/public-coach-add-on";
+import { ContactFallbackLinks } from "@/features/bookings/components/contact-fallback-links";
 import { PublicPaymentProofUpload } from "@/features/bookings/components/public-payment-proof-upload";
 import {
   readBookingConfirmation,
@@ -743,7 +747,20 @@ export function PublicBookingForm({
       // component's own state var is still stale by the time this
       // function reaches the storage save just below.
       let proofSubmitted = false;
+      // Owner request (2026-08-06): "the booking shouldn't push through
+      // if no proof of payment is received." Previously, a failed
+      // upload here (network hiccup, or the body-size-limit incident
+      // this same day) still left a real AWAITING_PAYMENT hold blocking
+      // the court indefinitely, with a "your slot is booked, try again
+      // below" fallback into a separate upload step — a customer who
+      // never came back left a real hold with zero payment behind it.
+      // Now a failed upload cancels the hold immediately (see
+      // cancelUnpaidPublicBookingAction's own comment) and this function
+      // returns BEFORE ever calling setConfirmation — the customer sees
+      // the real form again, not a confirmation screen for a booking
+      // that isn't actually confirmed.
       if (requiresPrepayment && result.requiresPayment && bookingScreenshot) {
+        let proofErrorMessage: string | null = null;
         try {
           const dataBase64 = await fileToBase64(bookingScreenshot);
           const proofResult = await submitPublicBookingPaymentProofAction({
@@ -757,17 +774,23 @@ export function PublicBookingForm({
             },
           });
           if (proofResult.error) {
-            toast.error(
-              `Your slot is booked, but the screenshot upload failed: ${proofResult.error} Please try again below.`,
-            );
+            proofErrorMessage = proofResult.error;
           } else {
             setHasSubmittedProof(true);
             proofSubmitted = true;
           }
         } catch {
-          toast.error(
-            "Your slot is booked, but the screenshot upload failed. Please try again below.",
-          );
+          proofErrorMessage = "We couldn't process your payment screenshot.";
+        }
+
+        if (proofErrorMessage !== null) {
+          // Best-effort cleanup — the customer sees the real error
+          // below regardless of whether this cancellation itself
+          // succeeds; it exists to release the court, not to change
+          // what the customer is told.
+          await cancelUnpaidPublicBookingAction(bookingId);
+          toast.error(`${proofErrorMessage} This booking wasn't completed — please try again.`);
+          return;
         }
       }
 
@@ -953,21 +976,18 @@ export function PublicBookingForm({
 
           <p className="text-sm">{confirmationMessage}</p>
 
-          {/* Requirement C: a small link, not a sentence leading with
+          {/* Requirement C: a small line, not a sentence leading with
               "haven't heard back" — that plants the idea that they
-              won't. Built inline (not via ContactFallbackLinks, whose
-              own rendering — raw phone/"Message us on Facebook" text —
-              is reused as-is elsewhere, e.g. PublicCoachAddOn) so this
-              one spot can carry its own short label. */}
+              won't. Owner feedback (2026-08-06): the bare "Uploaded the
+              wrong file?" link gave no hint what clicking it would
+              actually do — now spells out Message us on Facebook / call,
+              same ContactFallbackLinks rendering PublicCoachAddOn already
+              uses, instead of a silent link. */}
           {contactFacebookUrl || contactPhone ? (
-            <a
-              href={contactFacebookUrl || `tel:${contactPhone}`}
-              target={contactFacebookUrl ? "_blank" : undefined}
-              rel={contactFacebookUrl ? "noopener noreferrer" : undefined}
-              className="text-muted-foreground w-fit text-xs underline underline-offset-2"
-            >
-              Uploaded the wrong file?
-            </a>
+            <p className="text-muted-foreground w-fit text-xs">
+              Uploaded the wrong file?{" "}
+              <ContactFallbackLinks phone={contactPhone} facebookUrl={contactFacebookUrl} />.
+            </p>
           ) : null}
 
           {/* Offered regardless of stage — a reserved slot can still have
@@ -1488,20 +1508,22 @@ export function PublicBookingForm({
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="bookingScreenshot">Payment screenshot (required)</Label>
-              <div className="flex items-center gap-3">
-                <label
-                  htmlFor="bookingScreenshot"
-                  className={cn(
-                    buttonVariants({ variant: "secondary", size: "sm" }),
-                    "cursor-pointer",
-                  )}
-                >
-                  Choose file
-                </label>
-                <span className="text-muted-foreground truncate text-sm">
-                  {bookingScreenshot ? bookingScreenshot.name : "No file chosen"}
-                </span>
-              </div>
+              {/* Owner request (2026-08-06): easier to spot — wider, taller
+                  tap target and a pastel blue that stands out from the
+                  rest of the form. Uses explicit light/dark pairs (not a
+                  hardcoded single color) specifically because a hardcoded
+                  blue was nearly invisible in dark mode the last time
+                  this pattern was tried (see PublicPaymentProofUpload's
+                  own "Choose file" — its comment on that history). */}
+              <label
+                htmlFor="bookingScreenshot"
+                className="flex w-full cursor-pointer items-center justify-center rounded-lg border border-blue-300 bg-blue-100 px-4 py-3 text-base font-medium text-blue-900 transition-colors hover:bg-blue-200 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-100 dark:hover:bg-blue-900/50"
+              >
+                Choose file
+              </label>
+              <span className="text-muted-foreground truncate text-sm">
+                {bookingScreenshot ? bookingScreenshot.name : "No file chosen"}
+              </span>
               <input
                 id="bookingScreenshot"
                 type="file"

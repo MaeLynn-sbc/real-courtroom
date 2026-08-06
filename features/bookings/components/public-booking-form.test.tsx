@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { PublicBookingForm } from "./public-booking-form";
 import {
@@ -7,7 +7,10 @@ import {
   listPublicCoachScheduleAction,
   listPublicCourtOccupiedWindowsAction,
 } from "@/actions/public-booking.actions";
-import { submitPublicBookingPaymentProofAction } from "@/actions/public-booking-payment-proof.actions";
+import {
+  cancelUnpaidPublicBookingAction,
+  submitPublicBookingPaymentProofAction,
+} from "@/actions/public-booking-payment-proof.actions";
 import { addPublicCoachToBookingAction } from "@/actions/public-coaching.actions";
 import { saveBookingConfirmation } from "@/features/bookings/lib/booking-confirmation-storage";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
@@ -23,6 +26,7 @@ jest.mock("@/actions/public-coaching.actions", () => ({
 }));
 jest.mock("@/actions/public-booking-payment-proof.actions", () => ({
   submitPublicBookingPaymentProofAction: jest.fn(),
+  cancelUnpaidPublicBookingAction: jest.fn(),
 }));
 
 const mockedCreateBooking = createPublicBookingAction as jest.MockedFunction<
@@ -42,6 +46,9 @@ const mockedListCoachSchedule = listPublicCoachScheduleAction as jest.MockedFunc
 >;
 const mockedSubmitBookingProof = submitPublicBookingPaymentProofAction as jest.MockedFunction<
   typeof submitPublicBookingPaymentProofAction
+>;
+const mockedCancelUnpaidBooking = cancelUnpaidPublicBookingAction as jest.MockedFunction<
+  typeof cancelUnpaidPublicBookingAction
 >;
 
 const courts = [{ id: "court-1", name: "Court 1", hourlyRateCents: 35000 }];
@@ -526,8 +533,18 @@ describe("PublicBookingForm — payment screenshot required when prepayment is o
     );
   });
 
-  it("falls back to the manual retry upload, without losing the booking, if the proof submission itself fails", async () => {
+  // Owner request (2026-08-06): "the booking shouldn't push through if
+  // no proof of payment is received" — this test used to assert the
+  // OPPOSITE (booking kept alive, customer falls back to a manual retry
+  // upload). Real incident: a customer whose screenshot upload failed
+  // (the body-size-limit bug this same day, or any other transient
+  // failure) ended up with a real AWAITING_PAYMENT hold blocking a
+  // court, with zero payment ever received, and no guarantee they'd
+  // ever come back to retry. Now a failed upload cancels the hold
+  // immediately and returns the customer to a fresh form instead.
+  it("cancels the just-created hold and returns to the booking form, not a confirmation screen, when the proof submission fails", async () => {
     mockedSubmitBookingProof.mockResolvedValue({ error: "Upload service unavailable." });
+    mockedCancelUnpaidBooking.mockResolvedValue({ error: null });
 
     renderForm();
     await typeAsync(screen.getByLabelText("Name"), "Test Guest");
@@ -540,10 +557,17 @@ describe("PublicBookingForm — payment screenshot required when prepayment is o
     });
 
     await clickAsync(screen.getByRole("button", { name: /book now/i }));
-
-    await screen.findByText("BR-0001");
-    expect(screen.getByText(/Pay via GCash/i)).toBeInTheDocument();
+    await waitFor(() => expect(mockedCancelUnpaidBooking).toHaveBeenCalledWith("booking-1"));
+    expect(screen.queryByText("BR-0001")).not.toBeInTheDocument();
+    // Exact match — distinct from the plain form's OWN static "Pay via
+    // GCash to confirm your slot" heading, which legitimately IS present
+    // now that we're back on it. This exact string only comes from
+    // PublicPaymentProofUpload (state 1), which must NOT be reachable.
+    expect(screen.queryByText("Pay via GCash", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText("Booking received ✓")).not.toBeInTheDocument();
+    // Back on the real form, not a confirmation screen for a booking
+    // that isn't actually confirmed.
+    expect(screen.getByRole("button", { name: /book now/i })).toBeInTheDocument();
   });
 });
 
