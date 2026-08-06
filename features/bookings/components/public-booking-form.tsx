@@ -1508,22 +1508,27 @@ export function PublicBookingForm({
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="bookingScreenshot">Payment screenshot (required)</Label>
-              {/* Owner request (2026-08-06): easier to spot — wider, taller
-                  tap target and a pastel blue that stands out from the
-                  rest of the form. Uses explicit light/dark pairs (not a
+              {/* Owner request (2026-08-06): easier to spot — taller tap
+                  target and a pastel blue that stands out from the rest
+                  of the form. Uses explicit light/dark pairs (not a
                   hardcoded single color) specifically because a hardcoded
                   blue was nearly invisible in dark mode the last time
                   this pattern was tried (see PublicPaymentProofUpload's
-                  own "Choose file" — its comment on that history). */}
-              <label
-                htmlFor="bookingScreenshot"
-                className="flex w-full cursor-pointer items-center justify-center rounded-lg border border-blue-300 bg-blue-100 px-4 py-3 text-base font-medium text-blue-900 transition-colors hover:bg-blue-200 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-100 dark:hover:bg-blue-900/50"
-              >
-                Choose file
-              </label>
-              <span className="text-muted-foreground truncate text-sm">
-                {bookingScreenshot ? bookingScreenshot.name : "No file chosen"}
-              </span>
+                  own "Choose file" — its comment on that history). Half-
+                  width, filename filling the other half — a follow-up
+                  ask after the first version went full-width and left
+                  the filename awkwardly stranded on its own line below. */}
+              <div className="flex items-center gap-3">
+                <label
+                  htmlFor="bookingScreenshot"
+                  className="flex w-1/2 cursor-pointer items-center justify-center rounded-lg border border-blue-300 bg-blue-100 px-4 py-3 text-base font-medium text-blue-900 transition-colors hover:bg-blue-200 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-100 dark:hover:bg-blue-900/50"
+                >
+                  Choose file
+                </label>
+                <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm">
+                  {bookingScreenshot ? bookingScreenshot.name : "No file chosen"}
+                </span>
+              </div>
               <input
                 id="bookingScreenshot"
                 type="file"
