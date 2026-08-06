@@ -57,6 +57,7 @@ export function SessionStatusActions({ sessionId, currentStatus }: SessionStatus
             title="Cancel this session?"
             description="This cancels the Open Play session for every registered player. This can't be undone."
             confirmLabel={STATUS_ACTION_LABELS[status]}
+            cancelLabel="Keep session"
             disabled={isPending}
             onConfirm={() => handleTransition(status)}
           >

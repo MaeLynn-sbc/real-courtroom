@@ -58,6 +58,7 @@ export function TournamentStatusActions({ tournamentId, currentStatus }: Tournam
             title="Cancel this tournament?"
             description="This cancels the tournament for every registered team. This can't be undone."
             confirmLabel={STATUS_ACTION_LABELS[status]}
+            cancelLabel="Keep tournament"
             disabled={isPending}
             onConfirm={() => handleTransition(status)}
           >

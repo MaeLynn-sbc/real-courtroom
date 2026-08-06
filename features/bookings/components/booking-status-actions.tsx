@@ -71,7 +71,8 @@ export function BookingStatusActions({ bookingId, currentStatus }: BookingStatus
                 ? "This frees up the court for this time slot. This can't be undone."
                 : "This marks the player as having missed their booking. This can't be undone."
             }
-            confirmLabel={STATUS_ACTION_LABELS[status]}
+            confirmLabel={status === "CANCELLED" ? "Cancel booking" : STATUS_ACTION_LABELS[status]}
+            cancelLabel={status === "CANCELLED" ? "Keep booking" : undefined}
             disabled={isPending}
             onConfirm={() => handleTransition(status)}
           >

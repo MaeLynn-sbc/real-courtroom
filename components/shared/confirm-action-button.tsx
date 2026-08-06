@@ -21,6 +21,14 @@ interface ConfirmActionButtonProps {
   title: string;
   description: string;
   confirmLabel?: string;
+  // Real incident (2026-08-06): a booking's "Cancel" trigger, dismissed
+  // with "Cancel," confirmed with "Cancel" — three identical labels in
+  // one flow, staff couldn't tell dismiss from destructive and kept
+  // hitting dismiss by mistake. Defaults to "Cancel" (fine for every
+  // call site whose confirmLabel is a different word — Delete, Remove,
+  // Mark lost); override it whenever confirmLabel itself contains
+  // "Cancel," so the two buttons never share a word.
+  cancelLabel?: string;
   variant?: "default" | "destructive" | "outline" | "secondary" | "ghost";
   size?: "default" | "sm" | "lg" | "icon";
   disabled?: boolean;
@@ -40,6 +48,7 @@ export function ConfirmActionButton({
   title,
   description,
   confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
   variant = "destructive",
   size = "sm",
   disabled,
@@ -60,7 +69,7 @@ export function ConfirmActionButton({
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction
             variant={variant === "destructive" ? "destructive" : "default"}
             onClick={onConfirm}
