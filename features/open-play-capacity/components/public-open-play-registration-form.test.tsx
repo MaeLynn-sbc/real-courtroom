@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { PublicOpenPlayRegistrationForm } from "./public-open-play-registration-form";
+import { cancelPublicOpenPlayRegistrationAction } from "@/actions/public-open-play-registration-cancellation.actions";
 import { createPublicOpenPlayRegistrationAction } from "@/actions/public-open-play-registration.actions";
 import { submitPublicOpenPlayRegistrationPaymentProofAction } from "@/actions/public-open-play-registration-payment-proof.actions";
 import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
@@ -11,12 +12,18 @@ jest.mock("@/actions/public-open-play-registration.actions", () => ({
 jest.mock("@/actions/public-open-play-registration-payment-proof.actions", () => ({
   submitPublicOpenPlayRegistrationPaymentProofAction: jest.fn(),
 }));
+jest.mock("@/actions/public-open-play-registration-cancellation.actions", () => ({
+  cancelPublicOpenPlayRegistrationAction: jest.fn(),
+}));
 
 const mockedCreate = createPublicOpenPlayRegistrationAction as jest.MockedFunction<
   typeof createPublicOpenPlayRegistrationAction
 >;
 const mockedSubmitProof = submitPublicOpenPlayRegistrationPaymentProofAction as jest.MockedFunction<
   typeof submitPublicOpenPlayRegistrationPaymentProofAction
+>;
+const mockedCancelRegistration = cancelPublicOpenPlayRegistrationAction as jest.MockedFunction<
+  typeof cancelPublicOpenPlayRegistrationAction
 >;
 
 const gcashInfo: GcashPaymentInfo = {
@@ -97,7 +104,14 @@ describe("PublicOpenPlayRegistrationForm — screenshot required to register", (
     expect(screen.getByText("Payment submitted")).toBeInTheDocument();
   });
 
-  it("falls back to the manual retry screen, without losing the hold, if the proof upload itself fails", async () => {
+  // Owner request (2026-08-06): "the registration shouldn't push through
+  // if no proof of payment is received" — same fix already shipped for
+  // bookings, applied here after a live customer report of "cannot
+  // upload payment receipt." This test used to assert the OPPOSITE
+  // (hold kept alive, customer falls back to a manual retry screen). A
+  // failed upload now cancels the just-created hold (releasing the
+  // seat) and returns to the plain registration form instead.
+  it("cancels the just-created hold and returns to the registration form, not the retry screen, when the proof upload fails", async () => {
     mockedCreate.mockResolvedValue({
       error: null,
       status: "registered",
@@ -105,6 +119,7 @@ describe("PublicOpenPlayRegistrationForm — screenshot required to register", (
       holdExpiresAt: null,
     });
     mockedSubmitProof.mockResolvedValue({ error: "Upload service unavailable." });
+    mockedCancelRegistration.mockResolvedValue({ error: null });
 
     renderForm();
     fillRequiredFields();
@@ -119,9 +134,16 @@ describe("PublicOpenPlayRegistrationForm — screenshot required to register", (
       fireEvent.click(screen.getByRole("button", { name: /register & submit payment/i }));
     });
 
-    await waitFor(() => expect(screen.getByText(/Slot held/i)).toBeInTheDocument());
-    expect(
-      screen.getByText(/We saved your slot, but the screenshot upload failed/),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockedCancelRegistration).toHaveBeenCalledWith({
+        registrationId: "reg-1",
+        phone: "09171234567",
+      }),
+    );
+    expect(screen.queryByText(/Slot held/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Payment submitted")).not.toBeInTheDocument();
+    // Back on the real form, not the retry screen for a hold that no
+    // longer exists.
+    expect(screen.getByRole("button", { name: /register & submit payment/i })).toBeInTheDocument();
   });
 });

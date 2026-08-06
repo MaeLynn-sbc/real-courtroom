@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 
+import { cancelPublicOpenPlayRegistrationAction } from "@/actions/public-open-play-registration-cancellation.actions";
 import { createPublicOpenPlayRegistrationAction } from "@/actions/public-open-play-registration.actions";
 import { submitPublicOpenPlayRegistrationPaymentProofAction } from "@/actions/public-open-play-registration-payment-proof.actions";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -179,11 +180,20 @@ export function PublicOpenPlayRegistrationForm({
         return;
       }
       if (result.status === "registered" && result.registrationId) {
-        // The hold exists now — from here on, ANY failure must still
-        // land the customer on the awaiting-proof fallback (never back
-        // on the plain form, which would let them re-submit and take a
-        // second seat instead of finishing this one).
+        // Owner request (2026-08-06, same fix already shipped for
+        // bookings): a registration must not "push through" without a
+        // real payment screenshot. This used to fall back to the
+        // awaiting-proof retry step on any failure — with no guarantee
+        // the customer ever came back, that left a real seat held
+        // indefinitely with zero payment behind it (the exact live
+        // incident reported here). A failed upload now cancels the hold
+        // immediately via the SAME customer-cancellation path the
+        // /open-play/cancel page uses (phone-verified, releases the seat
+        // and promotes the waitlist same as any other cancellation) and
+        // returns to the plain form — safe to retry because the seat is
+        // actually free again, not a second seat on top of a dangling one.
         const registrationId = result.registrationId;
+        let proofErrorMessage: string | null = null;
         try {
           const dataBase64 = await fileToBase64(screenshot);
           const proofResult = await submitPublicOpenPlayRegistrationPaymentProofAction({
@@ -197,23 +207,21 @@ export function PublicOpenPlayRegistrationForm({
             },
           });
           if (proofResult.error) {
-            setStep({
-              kind: "awaiting-proof",
-              registrationId,
-              playerName: values.playerName,
-              proofFailedMessage: `We saved your slot, but the screenshot upload failed: ${proofResult.error} Please try again below.`,
-            });
-            return;
+            proofErrorMessage = proofResult.error;
+          } else {
+            setStep({ kind: "proof-submitted" });
           }
-          setStep({ kind: "proof-submitted" });
         } catch {
-          setStep({
-            kind: "awaiting-proof",
-            registrationId,
-            playerName: values.playerName,
-            proofFailedMessage:
-              "We saved your slot, but the screenshot upload failed. Please try again below.",
-          });
+          proofErrorMessage = "We couldn't process your payment screenshot.";
+        }
+
+        if (proofErrorMessage !== null) {
+          // Best-effort cleanup — the customer sees the real error
+          // below regardless of whether this cancellation itself
+          // succeeds; it exists to release the seat, not to change
+          // what the customer is told.
+          await cancelPublicOpenPlayRegistrationAction({ registrationId, phone: values.phone });
+          toast.error(`${proofErrorMessage} This registration wasn't completed — please try again.`);
         }
         return;
       }
