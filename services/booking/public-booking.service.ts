@@ -12,6 +12,7 @@ export interface CreatePublicBookingInput {
   endAt: Date;
   guestName: string;
   guestPhone: string;
+  idempotencyKey?: string;
 }
 
 export interface CreatePublicBookingResult {
@@ -57,6 +58,7 @@ export async function createPublicBooking(input: CreatePublicBookingInput): Prom
       endAt: input.endAt,
       guestName: input.guestName,
       guestPhone: input.guestPhone,
+      idempotencyKey: input.idempotencyKey,
     };
 
     const hold = await bookingService.createBookingHold(holdInput, context.userId);

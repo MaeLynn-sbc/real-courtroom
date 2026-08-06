@@ -900,6 +900,20 @@ model Booking {
   // Always NULL for STAFF bookings and any booking created before this
   // switch existed.
   holdExpiresAt     DateTime?
+  // Real incident (2026-08-06): the public booking form's only
+  // double-submit protection was a React disabled-state that isn't
+  // atomic with the click — a fast double-tap (very plausible right
+  // after switching back from the GCash app) could fire createBookingHold
+  // twice for the same slot; one succeeded, the other legitimately
+  // conflicted with the customer's OWN just-created hold, and whichever
+  // response rendered last decided what the customer saw. One key,
+  // generated once per client form session (features/bookings/
+  // components/public-booking-form.tsx) — a second createBookingHold
+  // call with the same key returns the FIRST call's booking instead of
+  // racing the availability check. Nullable: only the public
+  // prepayment-hold path sets this; staff bookings (createBooking) never
+  // do.
+  idempotencyKey    String?              @unique
   // Settle-bill (pay-at-venue gap fix): a staff/pay-at-venue booking is
   // created with NO Sale and no assumed payment method — the customer's
   // actual method isn't known until they actually pay, which may be well

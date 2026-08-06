@@ -219,6 +219,7 @@ export async function createPublicBookingAction(
       endAt,
       guestName: parsedPublic.data.guestName,
       guestPhone: parsedPublic.data.guestPhone,
+      idempotencyKey: parsedPublic.data.idempotencyKey,
     });
 
     revalidatePath("/dashboard/bookings");

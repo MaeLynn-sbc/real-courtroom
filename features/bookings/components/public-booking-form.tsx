@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -262,6 +262,18 @@ export function PublicBookingForm({
   const [bookingScreenshot, setBookingScreenshot] = useState<File | null>(null);
   const [bookingSubmittedAmount, setBookingSubmittedAmount] = useState("");
   const [hasEditedBookingAmount, setHasEditedBookingAmount] = useState(false);
+  // Real incident (2026-08-06): the ONLY double-submit protection used to
+  // be React's disabled-state on the button below, which isn't atomic
+  // with the click — a fast double-tap (very plausible right after
+  // switching back from the GCash app) could fire onSubmit twice before
+  // React re-renders with disabled=true. A ref is checked and set
+  // SYNCHRONOUSLY, before any async work starts, unlike React state.
+  const isSubmittingRef = useRef(false);
+  // Set the instant a confirmation is achieved, checked before ever
+  // showing an error — a later-resolving error from a losing concurrent
+  // attempt (see idempotencyKey below) must never overwrite an
+  // already-succeeded booking's confirmation screen.
+  const hasConfirmedRef = useRef(false);
 
   const validInitialDuration =
     initialDurationMinutes && DURATIONS_MINUTES.includes(Number(initialDurationMinutes))
@@ -301,6 +313,18 @@ export function PublicBookingForm({
   const watchedDate = useWatch({ control, name: "date" });
   const watchedTime = useWatch({ control, name: "time" });
   const watchedDurationMinutes = useWatch({ control, name: "durationMinutes" });
+  // One key per selected slot, not per component mount — regenerates
+  // whenever the customer changes what they're actually booking, so a
+  // stale key from an earlier selection can never be replayed against a
+  // different slot (createBookingHold rejects that mismatch server-side
+  // too — see its own comment — this is just so a normal slot change
+  // never hits that rejection path at all). A genuine double-tap on the
+  // SAME slot reuses the SAME key, which is the whole point.
+  const idempotencyKey = useMemo(
+    () => crypto.randomUUID(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [watchedCourtId, watchedDate, watchedTime, watchedDurationMinutes],
+  );
   const selectedCourt = courts.find((court) => court.id === watchedCourtId);
   const previewDurationHours = Number(watchedDurationMinutes) / 60;
   const previewCourtTotalCents =
@@ -488,12 +512,23 @@ export function PublicBookingForm({
   }, [previewTotalCents, hasEditedBookingAmount]);
 
   const onSubmit = handleSubmit((values) => {
+    // Synchronous, checked-and-set before anything else — a second
+    // invocation (double-tap outracing the disabled-state re-render)
+    // returns immediately instead of firing a second submission. Reset
+    // in every exit path below, including the early validation returns,
+    // so a genuine failure still lets the customer retry right away.
+    if (isSubmittingRef.current) {
+      return;
+    }
+    isSubmittingRef.current = true;
+
     setServerError(null);
 
     if (requiresPrepayment && !bookingScreenshot) {
       const message = "Please upload your proof of payment to complete your booking.";
       setServerError(message);
       toast.error(message);
+      isSubmittingRef.current = false;
       return;
     }
     const bookingAmountCents = requiresPrepayment
@@ -501,25 +536,44 @@ export function PublicBookingForm({
       : 0;
     if (requiresPrepayment && (!Number.isFinite(bookingAmountCents) || bookingAmountCents <= 0)) {
       setServerError("Enter the amount you sent.");
+      isSubmittingRef.current = false;
       return;
     }
 
     startTransition(async () => {
-      const result = await createPublicBookingAction({
-        guestName: values.guestName,
-        guestPhone: values.guestPhone,
-        courtId: values.courtId,
-        date: values.date,
-        time: values.time,
-        durationMinutes: Number(values.durationMinutes),
-      });
-
-      if (result.error || !result.bookingReference) {
-        setServerError(result.error ?? "Something went wrong. Please try again.");
-        return;
+      try {
+        await submitBooking(values, bookingAmountCents);
+      } finally {
+        isSubmittingRef.current = false;
       }
+    });
+  });
 
-      const bookingId = result.bookingId ?? "";
+  async function submitBooking(
+    values: PublicBookingFormValues,
+    bookingAmountCents: number,
+  ): Promise<void> {
+    const result = await createPublicBookingAction({
+      guestName: values.guestName,
+      guestPhone: values.guestPhone,
+      courtId: values.courtId,
+      date: values.date,
+      time: values.time,
+      durationMinutes: Number(values.durationMinutes),
+      idempotencyKey,
+    });
+
+    if (result.error || !result.bookingReference) {
+      // A later-resolving response from a losing concurrent attempt
+      // must never blank out an already-shown confirmation — see
+      // hasConfirmedRef's own comment above.
+      if (!hasConfirmedRef.current) {
+        setServerError(result.error ?? "Something went wrong. Please try again.");
+      }
+      return;
+    }
+
+    const bookingId = result.bookingId ?? "";
 
       // The coach picked in the form above is only local state until now
       // — attach it right after the booking itself exists, same action
@@ -587,22 +641,25 @@ export function PublicBookingForm({
         }
       }
 
-      setConfirmation({
-        bookingId,
-        bookingReference: result.bookingReference,
-        courtName: courts.find((court) => court.id === values.courtId)?.name ?? "",
-        date: values.date,
-        time: values.time,
-        durationMinutes: Number(values.durationMinutes),
-        guestName: values.guestName,
-        guestPhone: values.guestPhone,
-        totalAmountCents: result.totalAmountCents ?? 0,
-        requiresPayment: result.requiresPayment ?? false,
-        availableCoaches: result.availableCoaches ?? [],
-        holdExpiresAt: result.holdExpiresAt,
-      });
+    // Set before setConfirmation, not after — see hasConfirmedRef's own
+    // comment above; a later-resolving losing attempt checks this ref,
+    // not the (async, not-yet-committed) confirmation state.
+    hasConfirmedRef.current = true;
+    setConfirmation({
+      bookingId,
+      bookingReference: result.bookingReference,
+      courtName: courts.find((court) => court.id === values.courtId)?.name ?? "",
+      date: values.date,
+      time: values.time,
+      durationMinutes: Number(values.durationMinutes),
+      guestName: values.guestName,
+      guestPhone: values.guestPhone,
+      totalAmountCents: result.totalAmountCents ?? 0,
+      requiresPayment: result.requiresPayment ?? false,
+      availableCoaches: result.availableCoaches ?? [],
+      holdExpiresAt: result.holdExpiresAt,
     });
-  });
+  }
 
   if (confirmation) {
     // Same source of truth as the staff verification screens (lib/

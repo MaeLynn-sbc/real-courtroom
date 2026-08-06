@@ -64,7 +64,10 @@ export interface CreateBookingSaleContext {
 // rather than collapsed into CreateBookingInput directly so a future
 // divergence between "what a hold needs" and "what a real booking
 // needs" has somewhere to live without touching every call site.
-export type CreateBookingHoldInput = CreateBookingInput;
+// idempotencyKey (2026-08-06 incident) is exactly that divergence — a
+// real booking (createBooking, staff path) never has one; only a hold
+// does, generated once per client form session (public-booking-form.tsx).
+export type CreateBookingHoldInput = CreateBookingInput & { idempotencyKey?: string };
 
 export type AvailabilityConflictType =
   "COURT_DISABLED" | "OUTSIDE_OPERATING_HOURS" | "MAINTENANCE" | "BOOKING";
@@ -913,7 +916,32 @@ export class BookingService {
   async createBookingHold(input: CreateBookingHoldInput, actorUserId: string): Promise<Booking> {
     const qrCodeToken = randomUUID();
 
-    const booking = await runSerializableWithRetry(async (tx) => {
+    const { booking, isNewHold } = await runSerializableWithRetry(async (tx) => {
+      // Real incident (2026-08-06): checked BEFORE availability, so a
+      // genuine repeat of an already-succeeded attempt (a double-tap
+      // outracing the client's own synchronous guard, or a client retry
+      // after a dropped response) returns the SAME booking instead of
+      // racing the availability check and conflicting with itself. See
+      // Booking.idempotencyKey's own schema comment for the full incident.
+      if (input.idempotencyKey) {
+        const existing = await tx.booking.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
+        if (existing) {
+          const sameSlot =
+            existing.courtId === input.courtId &&
+            existing.startAt.getTime() === input.startAt.getTime() &&
+            existing.endAt.getTime() === input.endAt.getTime();
+          if (!sameSlot) {
+            // The same key now points at a different slot than requested
+            // — the client's key must be stale. Never silently hand back
+            // the wrong booking; this should be unreachable in normal
+            // use (the client generates a fresh key whenever the
+            // selected slot changes).
+            throw new Error("This booking session is out of sync — please refresh and try again.");
+          }
+          return { booking: existing, isNewHold: false };
+        }
+      }
+
       // Public path always enforces operating hours, same as
       // createBooking does for source="WEBSITE" — a hold can't reserve a
       // slot the public site wouldn't otherwise let it book.
@@ -955,7 +983,7 @@ export class BookingService {
         Math.min(now.getTime() + holdMinutes * 60_000, input.startAt.getTime()),
       );
 
-      return tx.booking.create({
+      const created = await tx.booking.create({
         data: {
           bookingReference,
           courtId: input.courtId,
@@ -976,18 +1004,25 @@ export class BookingService {
           // can never land after-hours, unlike a staff booking.
           isAfterHours: false,
           holdExpiresAt,
+          idempotencyKey: input.idempotencyKey,
         },
       });
+      return { booking: created, isNewHold: true };
     });
 
-    await this.writeBookingHistory(booking.id, "AWAITING_PAYMENT", actorUserId);
-    await this.writeAuditLog({
-      actorUserId,
-      action: "booking.hold_created",
-      entityType: "Booking",
-      entityId: booking.id,
-      newValues: booking,
-    });
+    // Only for a genuinely new hold — an idempotent hit returns the
+    // FIRST call's already-recorded booking, and must not write a second
+    // "hold_created" history/audit entry for it.
+    if (isNewHold) {
+      await this.writeBookingHistory(booking.id, "AWAITING_PAYMENT", actorUserId);
+      await this.writeAuditLog({
+        actorUserId,
+        action: "booking.hold_created",
+        entityType: "Booking",
+        entityId: booking.id,
+        newValues: booking,
+      });
+    }
 
     return booking;
   }

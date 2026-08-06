@@ -16,6 +16,11 @@ export const publicBookingSchema = z.object({
   date: z.string().min(1, "Select a date."),
   time: z.string().min(1, "Select a time."),
   durationMinutes: z.coerce.number().int().positive(),
+  // Real incident (2026-08-06) — generated once per slot selection by
+  // public-booking-form.tsx, threaded through to
+  // bookingService.createBookingHold. See Booking.idempotencyKey's own
+  // schema comment for the full incident this closes.
+  idempotencyKey: z.string().min(1).max(100).optional(),
 });
 
 export type PublicBookingInput = z.infer<typeof publicBookingSchema>;
