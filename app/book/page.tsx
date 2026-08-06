@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
-import { buttonVariants } from "@/components/ui/button";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { PublicBookingForm } from "@/features/bookings/components/public-booking-form";
@@ -82,26 +80,18 @@ export default async function BookPage({ searchParams }: BookPageProps) {
     .filter((court) => court.status === "ACTIVE")
     .map((court) => ({ id: court.id, name: court.name, hourlyRateCents: court.hourlyRateCents }));
 
-  if (deepLinkedSlot && slotAvailability && !slotAvailability.available) {
-    return (
-      <div className="flex min-h-svh flex-1 flex-col">
-        <SiteHeader />
-        <main className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center gap-4 px-6 py-24 text-center">
-          <h1 className="font-heading text-3xl font-semibold tracking-tight">
-            That slot was just taken
-          </h1>
-          <p className="text-muted-foreground text-lg">
-            Someone booked this court and time while you were looking at the schedule. Pick another
-            slot below.
-          </p>
-          <Link href="/availability" className={buttonVariants({ size: "lg" })}>
-            Back to availability
-          </Link>
-        </main>
-        <SiteFooter />
-      </div>
-    );
-  }
+  // Real incident (2026-08-06): this used to short-circuit the whole
+  // page with a hard "That slot was just taken" block right here, before
+  // PublicBookingForm ever mounted — which had no way to tell "someone
+  // else took it" from "this is MY OWN hold, and a reload (e.g.
+  // switching to the GCash app and back) just wiped my confirmation
+  // screen." That decision now lives in PublicBookingForm itself, which
+  // can check localStorage for its own just-created hold before
+  // committing to the same message — see its own
+  // deepLinkedSlotUnavailable prop comment and reload-recovery effect.
+  const deepLinkedSlotUnavailable = Boolean(
+    deepLinkedSlot && slotAvailability && !slotAvailability.available,
+  );
 
   return (
     <div className="flex min-h-svh flex-1 flex-col">
@@ -117,6 +107,7 @@ export default async function BookPage({ searchParams }: BookPageProps) {
           initialDate={date}
           initialTime={time}
           initialDurationMinutes={durationMinutes}
+          deepLinkedSlotUnavailable={deepLinkedSlotUnavailable}
           requiresPrepayment={requiresPrepayment}
           pageConfirmationCopy={bookingCommunication.pageConfirmationCopy}
         />

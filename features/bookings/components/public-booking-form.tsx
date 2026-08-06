@@ -32,6 +32,10 @@ import {
   type PublicCoachAddOnConfirmed,
 } from "@/features/coaching/components/public-coach-add-on";
 import { PublicPaymentProofUpload } from "@/features/bookings/components/public-payment-proof-upload";
+import {
+  readBookingConfirmation,
+  saveBookingConfirmation,
+} from "@/features/bookings/lib/booking-confirmation-storage";
 import { useLiveNow } from "@/hooks/use-live-now";
 import { getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
 import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
@@ -142,7 +146,10 @@ interface PublicBookingFormValues {
   durationMinutes: string;
 }
 
-interface BookingConfirmation {
+// Exported so booking-confirmation-storage.ts's callers (the reload-
+// recovery fix, 2026-08-06) can type what gets saved to and restored
+// from localStorage identically.
+export interface BookingConfirmation {
   bookingId: string;
   bookingReference: string;
   // Customer-facing short code (2026-08-06) — shown prominently, with
@@ -150,6 +157,10 @@ interface BookingConfirmation {
   // booking somehow landed without one (should not happen for a public
   // booking going forward — see Booking.shortCode's own schema comment).
   shortCode: string | null;
+  // Reload-recovery (2026-08-06) needs this to re-derive the same
+  // storage key saveBookingConfirmation used at creation — courtName
+  // alone isn't enough (not guaranteed unique/stable the way the id is).
+  courtId: string;
   courtName: string;
   date: string;
   time: string;
@@ -195,7 +206,7 @@ function toLocalDateValue(date: Date): string {
 // (pay-at-venue confirmed immediately, or the prepayment path once the
 // screenshot is submitted) — never on the still-awaiting-payment state,
 // where the booking isn't done yet.
-function ShortCodeReveal({ shortCode, bookingReference }: { shortCode: string; bookingReference: string }) {
+export function ShortCodeReveal({ shortCode, bookingReference }: { shortCode: string; bookingReference: string }) {
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
@@ -248,6 +259,18 @@ interface PublicBookingFormProps {
   initialDate?: string;
   initialTime?: string;
   initialDurationMinutes?: string;
+  // Server's own availability check (bookingService.checkAvailability)
+  // for the deep-linked slot above, computed once at page load. Real
+  // incident (2026-08-06): this used to be a hard server-side block —
+  // app/book/page.tsx returned an entirely separate "That slot was just
+  // taken" page BEFORE this component ever mounted, with no way for a
+  // customer to recover from it even when the "taken" slot was their
+  // OWN just-created hold (e.g., after a reload triggered by switching
+  // to the GCash app and back). Now this component decides what to
+  // render — see the render branch below and the reload-recovery
+  // useEffect above, which can override a true `deepLinkedSlotUnavailable`
+  // once it confirms, client-side, that the hold is this browser's own.
+  deepLinkedSlotUnavailable: boolean;
   // Phase 8's owner-controlled GCash-prepayment switch (settingsService.
   // getBookingRequirePrepayment). When true, the payment screenshot is
   // now required in this same initial form — see onSubmit below — same
@@ -273,6 +296,7 @@ export function PublicBookingForm({
   initialDate,
   initialTime,
   initialDurationMinutes,
+  deepLinkedSlotUnavailable,
   requiresPrepayment,
   pageConfirmationCopy,
 }: PublicBookingFormProps) {
@@ -359,6 +383,38 @@ export function PublicBookingForm({
       durationMinutes: initialDurationResolved,
     },
   });
+
+  // Reload-recovery (2026-08-06 incident) — runs once, after hydration,
+  // never on the server (localStorage doesn't exist there), so the FIRST
+  // render always matches the server's own decision (see
+  // deepLinkedSlotUnavailable's own render-branch comment below) — no
+  // hydration mismatch. If this exact deep-linked slot has a fresh local
+  // record (same court/date/time/duration the form's own defaults above
+  // resolve to — i.e., whatever was actually submitted, assuming nothing
+  // was changed before submit), restore straight into that state instead
+  // of either a blank form or a false "someone else took it" message.
+  useEffect(() => {
+    if (!initialCourtId || !initialDate || !initialTime) {
+      return;
+    }
+    const stored = readBookingConfirmation<{
+      confirmation: BookingConfirmation;
+      hasSubmittedProof: boolean;
+    }>(
+      initialCourtIdResolved,
+      initialDateResolved,
+      validInitialTime ?? initialTimeOptions[0] ?? "",
+      initialDurationResolved,
+    );
+    if (stored) {
+      hasConfirmedRef.current = true;
+      setConfirmation(stored.confirmation);
+      setHasSubmittedProof(stored.hasSubmittedProof);
+    }
+    // Intentionally run once on mount only — these are this render's own
+    // resolved deep-link defaults, not live form state to react to.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Preview-only — mirrors booking.service.ts's own Math.round(hourlyRateCents
   // * durationHours) so the number shown here matches what the server will
@@ -670,6 +726,11 @@ export function PublicBookingForm({
       // booking exists. Submitted right after, using the amount the
       // customer confirmed above — not recomputed here, since that's
       // exactly what they said they sent.
+      // Tracked locally, not read back from hasSubmittedProof state —
+      // setHasSubmittedProof below doesn't apply synchronously, so the
+      // component's own state var is still stale by the time this
+      // function reaches the storage save just below.
+      let proofSubmitted = false;
       if (requiresPrepayment && result.requiresPayment && bookingScreenshot) {
         try {
           const dataBase64 = await fileToBase64(bookingScreenshot);
@@ -689,6 +750,7 @@ export function PublicBookingForm({
             );
           } else {
             setHasSubmittedProof(true);
+            proofSubmitted = true;
           }
         } catch {
           toast.error(
@@ -701,10 +763,11 @@ export function PublicBookingForm({
     // comment above; a later-resolving losing attempt checks this ref,
     // not the (async, not-yet-committed) confirmation state.
     hasConfirmedRef.current = true;
-    setConfirmation({
+    const newConfirmation: BookingConfirmation = {
       bookingId,
       bookingReference: result.bookingReference,
       shortCode: result.shortCode ?? null,
+      courtId: values.courtId,
       courtName: courts.find((court) => court.id === values.courtId)?.name ?? "",
       date: values.date,
       time: values.time,
@@ -715,6 +778,17 @@ export function PublicBookingForm({
       requiresPayment: result.requiresPayment ?? false,
       availableCoaches: result.availableCoaches ?? [],
       holdExpiresAt: result.holdExpiresAt,
+    };
+    setConfirmation(newConfirmation);
+
+    // Reload-recovery (2026-08-06 incident) — see
+    // booking-confirmation-storage.ts's own comment for the full
+    // incident. Keyed by the EXACT slot just booked, not the deep-link
+    // props this component was rendered with, so a customer who changed
+    // court/date/time before submitting still gets a correct key.
+    saveBookingConfirmation(values.courtId, values.date, values.time, values.durationMinutes, {
+      confirmation: newConfirmation,
+      hasSubmittedProof: proofSubmitted,
     });
   }
 
@@ -989,7 +1063,21 @@ export function PublicBookingForm({
           bookingId={confirmation.bookingId}
           amountDueCents={totalDueCents}
           gcashInfo={gcashInfo}
-          onSubmitted={() => setHasSubmittedProof(true)}
+          onSubmitted={() => {
+            setHasSubmittedProof(true);
+            // Keep the reload-recovery record in sync — a reload after
+            // THIS submission (screenshot uploaded from state 1, not
+            // attached to the initial booking submit) must restore
+            // straight to state 2, not back to state 1's "awaiting
+            // screenshot" — see booking-confirmation-storage.ts.
+            saveBookingConfirmation(
+              confirmation.courtId,
+              confirmation.date,
+              confirmation.time,
+              String(confirmation.durationMinutes),
+              { confirmation, hasSubmittedProof: true },
+            );
+          }}
         />
 
         {/* Offered regardless of requiresPayment above — a held slot
@@ -1009,6 +1097,31 @@ export function PublicBookingForm({
             onCoachSessionChange={setCoachSession}
           />
         </div>
+      </div>
+    );
+  }
+
+  // Reached only when confirmation is still null — either a genuine
+  // conflict (someone else really did take this slot before this
+  // customer ever submitted), or the reload-recovery effect above
+  // hasn't run yet (server-rendered first paint, matching what the
+  // server itself decided — see deepLinkedSlotUnavailable's own prop
+  // comment). If this browser's own hold IS found in local storage, that
+  // effect swaps this out for the real confirmation state on the very
+  // next render, client-side, within milliseconds of mount.
+  if (deepLinkedSlotUnavailable) {
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center gap-4 py-16 text-center">
+        <h1 className="font-heading text-3xl font-semibold tracking-tight">
+          That slot was just taken
+        </h1>
+        <p className="text-muted-foreground text-lg">
+          Someone booked this court and time while you were looking at the schedule. Pick another
+          slot below.
+        </p>
+        <Link href="/availability" className={buttonVariants({ size: "lg" })}>
+          Back to availability
+        </Link>
       </div>
     );
   }

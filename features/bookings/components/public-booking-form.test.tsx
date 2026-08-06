@@ -9,6 +9,7 @@ import {
 } from "@/actions/public-booking.actions";
 import { submitPublicBookingPaymentProofAction } from "@/actions/public-booking-payment-proof.actions";
 import { addPublicCoachToBookingAction } from "@/actions/public-coaching.actions";
+import { saveBookingConfirmation } from "@/features/bookings/lib/booking-confirmation-storage";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
 
 jest.mock("@/actions/public-booking.actions", () => ({
@@ -126,6 +127,7 @@ describe("PublicBookingForm — coach add-on payment wiring", () => {
         gcashInfo={gcashInfo}
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
+        deepLinkedSlotUnavailable={false}
         requiresPrepayment={false}
         pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
       />,
@@ -215,6 +217,7 @@ describe("PublicBookingForm — Time dropdown excludes already-booked slots", ()
         gcashInfo={gcashInfo}
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
+        deepLinkedSlotUnavailable={false}
         requiresPrepayment={false}
         pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
       />,
@@ -255,6 +258,7 @@ describe("PublicBookingForm — coach section when no coach is available", () =>
         gcashInfo={gcashInfo}
         contactPhone="0917 000 0000"
         contactFacebookUrl="https://facebook.com/thecourtroom"
+        deepLinkedSlotUnavailable={false}
         requiresPrepayment={false}
         pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
       />,
@@ -332,6 +336,7 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
         gcashInfo={gcashInfo}
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
+        deepLinkedSlotUnavailable={false}
         requiresPrepayment={false}
         pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
       />,
@@ -480,6 +485,7 @@ describe("PublicBookingForm — payment screenshot required when prepayment is o
         gcashInfo={gcashInfo}
         contactPhone="0917 000 0000"
         contactFacebookUrl=""
+        deepLinkedSlotUnavailable={false}
         requiresPrepayment
         pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
       />,
@@ -538,5 +544,142 @@ describe("PublicBookingForm — payment screenshot required when prepayment is o
     await screen.findByText("BR-0001");
     expect(screen.getByText(/Pay via GCash/i)).toBeInTheDocument();
     expect(screen.queryByText("Booking received ✓")).not.toBeInTheDocument();
+  });
+});
+
+// Real incident (2026-08-06): a customer switching to the GCash app to
+// pay and back can trigger a full page reload on /book?courtId=...
+// &date=...&time=..., which used to hard-block on a server-rendered
+// "That slot was just taken" page — even when the "taken" slot was the
+// customer's OWN just-created hold. Proven here by driving
+// PublicBookingForm directly with deepLinkedSlotUnavailable=true (what
+// app/book/page.tsx now always passes when its own availability check
+// finds the slot unavailable) and asserting the two outcomes: a
+// genuine conflict still shows the real message, but a matching local
+// record (this browser's own prior success, saved by saveBookingConfirmation)
+// restores the actual confirmation instead.
+describe("PublicBookingForm — deep-link reload recovery (2026-08-06 incident)", () => {
+  const DEEP_LINK_DATE = "2026-07-29";
+  const DEEP_LINK_TIME = "12:00";
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    window.localStorage.clear();
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 6, 29, 9, 0, 0));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("shows the real 'slot just taken' message when no local record exists for this browser — proven failing-first against the exact bug shape (no silent restore of someone else's slot)", async () => {
+    render(
+      <PublicBookingForm
+        courts={courts}
+        courtHours={courtHours}
+        gcashInfo={gcashInfo}
+        contactPhone="0917 000 0000"
+        contactFacebookUrl=""
+        initialCourtId="court-1"
+        initialDate={DEEP_LINK_DATE}
+        initialTime={DEEP_LINK_TIME}
+        deepLinkedSlotUnavailable
+        requiresPrepayment={false}
+        pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
+      />,
+    );
+
+    await act(async () => {});
+
+    expect(screen.getByText("That slot was just taken")).toBeInTheDocument();
+  });
+
+  it("restores the customer's own confirmation instead of the false 'taken' message, when this exact slot has a fresh local record", async () => {
+    saveBookingConfirmation("court-1", DEEP_LINK_DATE, DEEP_LINK_TIME, "60", {
+      confirmation: {
+        bookingId: "booking-reload-1",
+        bookingReference: "BR-RELOAD-1",
+        shortCode: "REL0AD",
+        courtId: "court-1",
+        courtName: "Court 1",
+        date: DEEP_LINK_DATE,
+        time: DEEP_LINK_TIME,
+        durationMinutes: 60,
+        guestName: "Reload Test Guest",
+        guestPhone: "09171230099",
+        totalAmountCents: 35000,
+        requiresPayment: true,
+        availableCoaches: [],
+        holdExpiresAt: new Date(2026, 6, 29, 9, 30, 0),
+      },
+      hasSubmittedProof: false,
+    });
+
+    render(
+      <PublicBookingForm
+        courts={courts}
+        courtHours={courtHours}
+        gcashInfo={gcashInfo}
+        contactPhone="0917 000 0000"
+        contactFacebookUrl=""
+        initialCourtId="court-1"
+        initialDate={DEEP_LINK_DATE}
+        initialTime={DEEP_LINK_TIME}
+        deepLinkedSlotUnavailable
+        requiresPrepayment
+        pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
+      />,
+    );
+
+    // The restore runs in a useEffect, after mount — flush it.
+    await act(async () => {});
+
+    expect(screen.queryByText("That slot was just taken")).not.toBeInTheDocument();
+    expect(screen.getByText("REL0AD")).toBeInTheDocument();
+    expect(screen.getByText("BR-RELOAD-1")).toBeInTheDocument();
+  });
+
+  it("does not restore a record saved for a DIFFERENT slot — a reload for a genuinely different unavailable slot still shows the real message", async () => {
+    saveBookingConfirmation("court-1", DEEP_LINK_DATE, "14:00", "60", {
+      confirmation: {
+        bookingId: "booking-reload-2",
+        bookingReference: "BR-RELOAD-2",
+        shortCode: "OTHER1",
+        courtId: "court-1",
+        courtName: "Court 1",
+        date: DEEP_LINK_DATE,
+        time: "14:00",
+        durationMinutes: 60,
+        guestName: "Different Slot Guest",
+        guestPhone: "09171230098",
+        totalAmountCents: 35000,
+        requiresPayment: true,
+        availableCoaches: [],
+        holdExpiresAt: new Date(2026, 6, 29, 9, 30, 0),
+      },
+      hasSubmittedProof: false,
+    });
+
+    render(
+      <PublicBookingForm
+        courts={courts}
+        courtHours={courtHours}
+        gcashInfo={gcashInfo}
+        contactPhone="0917 000 0000"
+        contactFacebookUrl=""
+        initialCourtId="court-1"
+        initialDate={DEEP_LINK_DATE}
+        initialTime={DEEP_LINK_TIME}
+        deepLinkedSlotUnavailable
+        requiresPrepayment={false}
+        pageConfirmationCopy="Your slot is reserved. We'll text you at {phone} to confirm."
+      />,
+    );
+
+    await act(async () => {});
+
+    expect(screen.getByText("That slot was just taken")).toBeInTheDocument();
+    expect(screen.queryByText("OTHER1")).not.toBeInTheDocument();
   });
 });
