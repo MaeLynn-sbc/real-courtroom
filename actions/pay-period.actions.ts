@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import {
+  createPayPeriodSchema,
   deletePayPeriodSchema,
   updatePayPeriodSchema,
+  type CreatePayPeriodInput,
   type DeletePayPeriodInput,
   type UpdatePayPeriodInput,
 } from "@/features/payroll/schemas/pay-period.schema";
@@ -30,6 +32,26 @@ function revalidatePeriods(): void {
 
 export interface PayPeriodActionState {
   error: string | null;
+}
+
+export async function createPayPeriodAction(input: CreatePayPeriodInput): Promise<PayPeriodActionState> {
+  const authz = await requirePayrollManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = createPayPeriodSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid period." };
+  }
+
+  try {
+    await payPeriodService.createPeriod(parsed.data.startDate, parsed.data.endDate);
+    revalidatePeriods();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "createPayPeriodAction", userId: authz.userId }) };
+  }
 }
 
 export async function updatePayPeriodAction(input: UpdatePayPeriodInput): Promise<PayPeriodActionState> {

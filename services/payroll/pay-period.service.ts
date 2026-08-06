@@ -70,16 +70,32 @@ export class PayPeriodService {
     }
   }
 
-  // Ensures every period from the earliest requested date through
-  // throughDate exists, so a periods-list page always shows the current +
-  // recent periods with no manual "create period" step anywhere in the UI.
-  async ensurePeriodsThroughDate(throughDate: Date, monthsBack = 2): Promise<void> {
-    const start = new Date(throughDate.getFullYear(), throughDate.getMonth() - monthsBack, 1);
-    let cursor = start;
-    while (cursor <= throughDate) {
-      await this.getOrCreatePeriodForDate(cursor);
-      const { endDate } = computeSemiMonthlyPeriodBounds(cursor);
-      cursor = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() + 1);
+  // Real regression (2026-08-06, same day as the cadence fix): this used
+  // to backfill a rolling 2-month window on every single page load
+  // (ensurePeriodsThroughDate, since removed) — which meant deleting any
+  // RECENT period just resurrected an identical replacement (same dates,
+  // new id) the very next time the page loaded, since getOrCreatePeriodForDate
+  // is a find-or-create keyed on those exact dates. The page now only
+  // ensures the period containing TODAY exists (below) — an explicit
+  // delete of anything else genuinely sticks. Manual createPeriod (below)
+  // is the deliberate replacement for backfilling older history.
+
+  // Manual creation for a date range the automatic "ensure today's
+  // period exists" (above) never reaches — e.g. backfilling an older
+  // period. The @@unique([startDate, endDate]) constraint is the real
+  // guard against a duplicate; this just turns that into a clear message
+  // instead of a raw P2002.
+  async createPeriod(startDate: Date, endDate: Date): Promise<PayPeriod> {
+    if (endDate < startDate) {
+      throw new Error("End date must be on or after the start date.");
+    }
+    try {
+      return await prisma.payPeriod.create({ data: { startDate, endDate } });
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        throw new Error("A period with these exact dates already exists.");
+      }
+      throw error;
     }
   }
 

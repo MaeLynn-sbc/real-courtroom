@@ -13,7 +13,12 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function PayPeriodsPage() {
-  await payPeriodService.ensurePeriodsThroughDate(new Date());
+  // Only today's period is auto-generated — see createPeriod/
+  // getOrCreatePeriodForDate's own comments for why this deliberately
+  // stops short of backfilling a trailing window the way it used to
+  // (that undid a manual delete of anything recent). Older history is
+  // created explicitly via the "Add period" form below.
+  await payPeriodService.getOrCreatePeriodForDate(new Date());
   const periods = await payPeriodService.listPeriods();
 
   return (
