@@ -109,6 +109,17 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{booking.bookingReference}</h1>
+          {/* Owner request (2026-08-06): staff-created bookings get a
+              short code too now, same as public ones — shown here,
+              smaller, since this is where staff would look it up to
+              read back to a customer (e.g. a walk-in/phone booking).
+              The reference above stays primary — this is a convenience
+              for what to GIVE the customer, not a replacement id. */}
+          {booking.shortCode ? (
+            <p className="text-muted-foreground text-sm">
+              Customer code: <span className="font-mono font-medium">{booking.shortCode}</span>
+            </p>
+          ) : null}
           <p className="text-muted-foreground text-sm">
             {booking.court.name} · {dateTimeFormatter.format(booking.startAt)} –{" "}
             {dateTimeFormatter.format(booking.endAt)}

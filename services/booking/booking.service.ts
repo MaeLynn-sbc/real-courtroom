@@ -644,12 +644,14 @@ export class BookingService {
       const source: Prisma.BookingCreateInput["source"] =
         saleContext.source === "WEBSITE" ? "PUBLIC" : "STAFF";
 
-      // Customer-facing only (see Booking.shortCode's own schema
-      // comment) — a staff-created booking never gets one. Generated
-      // HERE, inside the transaction, not before it, so a P2002 retry
+      // Owner request (2026-08-06): staff-created bookings get one too
+      // now, not just PUBLIC ones — a walk-in/phone booking's short code
+      // still has real value (easier for staff to read back to the
+      // customer than the full reference). Generated HERE, inside the
+      // transaction, not before it, so a P2002 retry
       // (runSerializableWithRetry, above this method) draws a fresh
       // code each attempt instead of colliding with itself forever.
-      const shortCode = source === "PUBLIC" ? generateShortCode() : null;
+      const shortCode = generateShortCode();
 
       const created = await tx.booking.create({
         data: {

@@ -1,19 +1,22 @@
 /**
- * Short booking code (2026-08-06): a 6-char, unambiguous code
- * (services/booking/booking-short-code.ts) is now generated for every
- * customer-facing (source=PUBLIC) booking — both the prepayment-hold
- * path (createBookingHold) and the pay-at-venue immediate-confirm path
- * (createBooking with source WEBSITE) — and left null for every
- * staff-created (source=STAFF) booking, since the short code is
- * customer-facing only. bookingService.findByReferenceAndPhone (the
- * public lookup page's query) now tries shortCode first, falling back
- * to the full bookingReference — proven both still work, case-
- * insensitively. Also proves the collision-retry path: generateShortCode
- * is called INSIDE the same Serializable-retry transaction as
- * bookingReference/qrCodeToken, so a real unique-constraint collision on
- * Booking.shortCode causes the whole transaction to retry with a fresh
- * code, exactly like createBooking already does for a genuine
- * bookingReference/qrCodeToken collision.
+ * Short booking code (2026-08-06, extended to staff bookings same day):
+ * a 6-char, unambiguous code (services/booking/booking-short-code.ts) is
+ * now generated for every new booking, regardless of source — the
+ * prepayment-hold path (createBookingHold), the pay-at-venue immediate-
+ * confirm path (createBooking with source WEBSITE), AND a plain staff-
+ * created booking (createBooking with no source override). Every
+ * staff-facing surface still shows bookingReference as the primary id;
+ * the short code is what gets handed TO the customer, including for a
+ * walk-in/phone booking staff create on their behalf.
+ * bookingService.findByReferenceAndPhone (the public lookup page's
+ * query) tries shortCode first, falling back to the full
+ * bookingReference — proven both still work, case-insensitively. Also
+ * proves the collision-retry path: generateShortCode is called INSIDE
+ * the same Serializable-retry transaction as bookingReference/
+ * qrCodeToken, so a real unique-constraint collision on Booking.shortCode
+ * causes the whole transaction to retry with a fresh code, exactly like
+ * createBooking already does for a genuine bookingReference/qrCodeToken
+ * collision.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -101,8 +104,9 @@ async function main(): Promise<void> {
     assert(SHORT_CODE_PATTERN.test(confirmedResult.shortCode!), `expected shortCode to match the 6-char safe alphabet, got ${confirmedResult.shortCode}`);
     console.log("PASS: an immediately-confirmed public booking (createBooking, WEBSITE) also gets a valid short code.");
 
-    // --- Case 3: a STAFF-created booking gets NO short code — customer-
-    // facing only, per Booking.shortCode's own schema comment. ---
+    // --- Case 3: a STAFF-created booking gets a short code too (owner
+    // request, 2026-08-06, extended same day) — useful for a walk-in/
+    // phone booking staff want to read back to the customer. ---
     const staffSlot = slot(13);
     const staffBooking = await bookingService.createBooking(
       { courtId: court.id, type: "HOURLY", startAt: staffSlot.startAt, endAt: staffSlot.endAt, guestName: "Short Code Staff Guest" },
@@ -110,8 +114,9 @@ async function main(): Promise<void> {
       baseSaleContext,
     );
     console.log(`Case 3: staff booking created with shortCode=${staffBooking.shortCode}`);
-    assert(staffBooking.shortCode === null, `expected no short code on a staff-created booking, got ${staffBooking.shortCode}`);
-    console.log("PASS: a staff-created booking gets no short code.");
+    assert(staffBooking.shortCode !== null, "expected a short code on a staff-created booking too");
+    assert(SHORT_CODE_PATTERN.test(staffBooking.shortCode!), `expected shortCode to match the 6-char safe alphabet, got ${staffBooking.shortCode}`);
+    console.log("PASS: a staff-created booking also gets a valid short code.");
 
     // --- Case 4: lookup tries shortCode first, falls back to
     // bookingReference — both work, case-insensitively. ---

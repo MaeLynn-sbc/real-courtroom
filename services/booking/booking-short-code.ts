@@ -9,7 +9,7 @@
 // createBookingHold) — a same-code collision surfaces as a real Postgres
 // unique-constraint violation on Booking.shortCode (@unique), which
 // runSerializableWithRetry already retries the whole transaction on,
-// generating a fresh code every attempt. At 32^6 (~1.07 billion)
+// generating a fresh code every attempt. At 31^6 (~887 million)
 // combinations, a collision is rare but not negligible the way a UUID's
 // is — unlike qrCodeToken, this one genuinely needs the retry.
 const SHORT_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
