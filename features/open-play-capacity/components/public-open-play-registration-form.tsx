@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { cancelPublicOpenPlayRegistrationAction } from "@/actions/public-open-play-registration-cancellation.actions";
 import { createPublicOpenPlayRegistrationAction } from "@/actions/public-open-play-registration.actions";
 import { submitPublicOpenPlayRegistrationPaymentProofAction } from "@/actions/public-open-play-registration-payment-proof.actions";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -432,14 +432,18 @@ export function PublicOpenPlayRegistrationForm({
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="screenshot">Payment screenshot (required)</Label>
+          {/* Same solid sky-400 as the court booking form's screenshot
+              picker (public-booking-form.tsx) — the availability grid's
+              "booked" cell color, half-width with the filename filling the
+              other half. */}
           <div className="flex items-center gap-3">
             <label
               htmlFor="screenshot"
-              className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "cursor-pointer")}
+              className="flex w-1/2 cursor-pointer items-center justify-center rounded-lg border border-sky-500 bg-sky-400 px-4 py-3 text-base font-bold text-navy-900 transition-colors hover:bg-sky-300"
             >
               Choose file
             </label>
-            <span className="text-muted-foreground truncate text-sm">
+            <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm">
               {screenshot ? screenshot.name : "No file chosen"}
             </span>
           </div>
