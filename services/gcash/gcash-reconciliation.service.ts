@@ -178,10 +178,18 @@ export class GcashReconciliationService {
 
   // Live — startingBalanceCents + GCash sales for that same day, as of
   // right now. Shown to staff BEFORE they confirm, same "expected"
-  // pattern shift cash reconciliation already established.
+  // pattern shift cash reconciliation already established. See
+  // CashReconciliationService.getExpectedEndingBalance's own comment —
+  // same real incident (2026-08-08), same fix: a sale that happened
+  // before the PREVIOUS day was physically confirmed was already
+  // captured in that count and must not be counted again here.
   async getExpectedEndingBalance(balance: Pick<GcashDailyBalance, "date" | "startingBalanceCents">): Promise<number> {
+    const previousDate = new Date(balance.date);
+    previousDate.setDate(previousDate.getDate() - 1);
+    const previousDay = await prisma.gcashDailyBalance.findUnique({ where: { date: previousDate } });
+
     const [gcashSalesCents, gcashExpensesCents] = await Promise.all([
-      saleService.getGcashSalesForDate(balance.date),
+      saleService.getGcashSalesForDate(balance.date, previousDay?.confirmedAt ?? undefined),
       expenseService.getGcashExpensesForDate(balance.date),
     ]);
     return balance.startingBalanceCents + gcashSalesCents - gcashExpensesCents;

@@ -435,17 +435,33 @@ export class SaleService {
   // getCashSalesForShift above) — GCash is one shared account balance
   // for the whole business, so this sums every GCash Sale across every
   // shift that fell on the given calendar day, midnight to midnight.
-  async getGcashSalesForDate(date: Date): Promise<number> {
+  //
+  // Real incident (2026-08-08): a shift spanning midnight (started Aug 6
+  // evening, closed 12:32 AM Aug 7) had its physical closing count
+  // confirmed as AUG 6's reconciliation ending balance — at 12:54 AM,
+  // AFTER those last few post-midnight sales already happened. That
+  // confirmed figure already included them. This function, called again
+  // for Aug 7, counted the exact same sales a second time, purely
+  // because their createdAt fell after midnight — inflating Aug 7's
+  // expected balance by real money that was never actually going to be
+  // in Aug 7's drawer. excludeBefore (the previous day's own
+  // confirmedAt, passed by the reconciliation service) closes this: any
+  // sale that happened before the previous day was physically counted
+  // was already captured in that count, and must not be counted again
+  // here. Optional and unused by any other caller — every existing
+  // behavior is unchanged when omitted.
+  async getGcashSalesForDate(date: Date, excludeBefore?: Date): Promise<number> {
     const gcashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "GCASH" } });
     const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const startOfNextDay = new Date(startOfDay);
     startOfNextDay.setDate(startOfNextDay.getDate() + 1);
+    const gte = excludeBefore && excludeBefore > startOfDay ? excludeBefore : startOfDay;
 
     const result = await prisma.sale.aggregate({
       where: {
         status: "COMPLETED",
         paymentMethodId: gcashMethod.id,
-        createdAt: { gte: startOfDay, lt: startOfNextDay },
+        createdAt: { gte, lt: startOfNextDay },
       },
       _sum: { amountCents: true },
     });
@@ -457,18 +473,20 @@ export class SaleService {
   // shift-scoped) shape, for the new day-level Cash reconciliation
   // (services/cash/cash-reconciliation.service.ts). Not the same thing
   // as getCashSalesForShift above, which is per-shift for the drawer
-  // handoff reconciliation that already exists on Shift.
-  async getCashSalesForDate(date: Date): Promise<number> {
+  // handoff reconciliation that already exists on Shift. See
+  // getGcashSalesForDate's own comment for excludeBefore.
+  async getCashSalesForDate(date: Date, excludeBefore?: Date): Promise<number> {
     const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
     const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const startOfNextDay = new Date(startOfDay);
     startOfNextDay.setDate(startOfNextDay.getDate() + 1);
+    const gte = excludeBefore && excludeBefore > startOfDay ? excludeBefore : startOfDay;
 
     const result = await prisma.sale.aggregate({
       where: {
         status: "COMPLETED",
         paymentMethodId: cashMethod.id,
-        createdAt: { gte: startOfDay, lt: startOfNextDay },
+        createdAt: { gte, lt: startOfNextDay },
       },
       _sum: { amountCents: true },
     });
