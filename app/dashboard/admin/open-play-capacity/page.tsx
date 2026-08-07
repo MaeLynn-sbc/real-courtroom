@@ -44,6 +44,7 @@ export default async function OpenPlayCapacityPage() {
     status: night.status,
     registeredCount: night.registeredCount,
     waitlistedCount: night.waitlistedCount,
+    stillRunning: night.stillRunning,
   }));
 
   return (

@@ -20,6 +20,12 @@ interface UpcomingNight {
   status: string | null;
   registeredCount: number;
   waitlistedCount: number;
+  // Owner-reported incident (2026-08-08, ~12am): a night still OPEN past
+  // midnight — real players still on the roster — used to silently fall
+  // off this list once the calendar rolled to a new day. True only for a
+  // date before today that's still genuinely open; see
+  // OpenPlayCapacityService.getUpcomingNights' own comment.
+  stillRunning: boolean;
 }
 
 function NightRow({ night }: { night: UpcomingNight }) {
@@ -40,10 +46,18 @@ function NightRow({ night }: { night: UpcomingNight }) {
   }
 
   return (
-    <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 rounded-lg border px-3 py-2">
+    <div
+      className={
+        night.stillRunning
+          ? "border-destructive/50 bg-destructive/5 grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 rounded-lg border px-3 py-2"
+          : "grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 rounded-lg border px-3 py-2"
+      }
+    >
       <div className="flex items-center gap-2">
         <Label htmlFor={`night-${night.date}`}>{night.label}</Label>
-        {night.isOverride ? (
+        {night.stillRunning ? (
+          <Badge variant="destructive">Still running</Badge>
+        ) : night.isOverride ? (
           <Badge variant="secondary">Override</Badge>
         ) : (
           <span className="text-muted-foreground text-xs">from default</span>

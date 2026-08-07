@@ -92,6 +92,15 @@ export interface UpcomingOpenPlayNight {
   // global default via resolveOpenPlayClosedMessage
   // (lib/open-play-closed-message.ts), never render this raw.
   closedMessage: string | null;
+  // Owner-reported incident (2026-08-08, ~12am): a night still OPEN past
+  // midnight used to fall off this list the instant the calendar rolled
+  // over, even with real players still checked in — the forward-only
+  // date cursor below had no way to know the difference between "hasn't
+  // started yet" and "already ended." True only for a session dated
+  // BEFORE today that's still status OPEN (closeSession refuses to close
+  // one with unsettled tabs, so OPEN here means genuinely still running,
+  // not just forgotten) — every other entry in this list is false.
+  stillRunning: boolean;
 }
 
 export class OpenPlayCapacityService {
@@ -450,8 +459,9 @@ export class OpenPlayCapacityService {
   // distinguishes "already has its own row" from "would inherit today's
   // default if a session were created right now."
   async getUpcomingNights(count: number): Promise<UpcomingOpenPlayNight[]> {
+    const today = toMidnight(new Date());
     const dates: Date[] = [];
-    const cursor = toMidnight(new Date());
+    const cursor = new Date(today);
     while (dates.length < count) {
       if (isOpenPlayDayOfWeek(cursor.getDay())) {
         dates.push(new Date(cursor));
@@ -459,8 +469,16 @@ export class OpenPlayCapacityService {
       cursor.setDate(cursor.getDate() + 1);
     }
 
-    const [sessions, defaults] = await Promise.all([
+    const [sessions, stillOpenPastSessions, defaults] = await Promise.all([
       prisma.openPlayNightSession.findMany({ where: { date: { in: dates } } }),
+      // See stillRunning's own comment on UpcomingOpenPlayNight — the
+      // fix for the midnight-rollover incident. Not scoped to just
+      // "yesterday": if a night was somehow left OPEN even longer (a
+      // forgotten close-out), staff still need a way back to it.
+      prisma.openPlayNightSession.findMany({
+        where: { date: { lt: today }, status: "OPEN" },
+        orderBy: { date: "asc" },
+      }),
       this.getCapacityDefaults(),
     ]);
     const sessionsByDate = new Map(sessions.map((session) => [session.date.getTime(), session]));
@@ -473,7 +491,9 @@ export class OpenPlayCapacityService {
     // (sessionId is required on both models) — sessionIds is often
     // empty (most upcoming nights have no override yet), skip the
     // queries entirely rather than issue an `IN ()` against nothing.
-    const sessionIds = sessions.map((session) => session.id);
+    // Includes stillOpenPastSessions too, so a carried-over night's own
+    // counts are accurate, not stuck at 0.
+    const sessionIds = [...sessions, ...stillOpenPastSessions].map((session) => session.id);
     const now = new Date();
     const [registeredGroups, waitlistedGroups] =
       sessionIds.length > 0
@@ -510,7 +530,20 @@ export class OpenPlayCapacityService {
       waitlistedGroups.map((row) => [row.sessionId, row._count._all]),
     );
 
-    return dates.map((date) => {
+    const stillOpenNights: UpcomingOpenPlayNight[] = stillOpenPastSessions.map((session) => ({
+      date: session.date,
+      dayOfWeek: session.date.getDay() as OpenPlayDayOfWeek,
+      capacity: session.capacity,
+      isOverride: true,
+      status: session.status,
+      registeredCount: registeredBySession.get(session.id) ?? 0,
+      waitlistedCount: waitlistedBySession.get(session.id) ?? 0,
+      onlineRegistrationBlocked: session.onlineRegistrationBlocked,
+      closedMessage: session.closedMessage,
+      stillRunning: true,
+    }));
+
+    const upcomingNights: UpcomingOpenPlayNight[] = dates.map((date) => {
       const dayOfWeek = date.getDay() as OpenPlayDayOfWeek;
       const session = sessionsByDate.get(date.getTime());
       return {
@@ -523,8 +556,11 @@ export class OpenPlayCapacityService {
         waitlistedCount: session ? (waitlistedBySession.get(session.id) ?? 0) : 0,
         onlineRegistrationBlocked: session?.onlineRegistrationBlocked ?? false,
         closedMessage: session?.closedMessage ?? null,
+        stillRunning: false,
       };
     });
+
+    return [...stillOpenNights, ...upcomingNights];
   }
 
   private async writeAuditLog(entry: AuditLogEntry): Promise<void> {

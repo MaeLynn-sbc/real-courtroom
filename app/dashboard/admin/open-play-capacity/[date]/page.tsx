@@ -63,18 +63,16 @@ function toDateValue(date: Date): string {
 }
 
 // Decision logic (lib/open-play-carryover.ts) is pure and unit-tested
-// directly — this wrapper only adds the DB fetch, skipped entirely when
-// today already has tabs.
+// directly — this wrapper only adds the DB fetch. Owner-reported
+// follow-up (2026-08-08): no longer gated on today having zero tabs of
+// its own — see shouldShowCarryoverBanner's own comment for why that
+// used to let the warning go silent too easily.
 async function findCarryoverBanner(
-  tabs: (PlayerTab & { totalCents: number })[],
   previousDate: Date,
   previousDateValue: string,
 ): Promise<{ dateValue: string; label: string } | null> {
-  if (tabs.length > 0) {
-    return null;
-  }
   const previousTabs = await playerTabService.listTabsForDate(previousDate);
-  if (!shouldShowCarryoverBanner(tabs.length, previousTabs.map((tab) => tab.status))) {
+  if (!shouldShowCarryoverBanner(previousTabs.map((tab) => tab.status))) {
     return null;
   }
   return { dateValue: previousDateValue, label: labelFormatter.format(previousDate) };
@@ -153,7 +151,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     const now = new Date();
     const occupiedCount = registrations.filter((r) => isRegistrationOccupyingSeat(r, now)).length;
     const waitlistedCount = registrations.filter((r) => r.waitlistPos !== null).length;
-    const carryoverBanner = await findCarryoverBanner(tabs, previousDate, previousDateValue);
+    const carryoverBanner = await findCarryoverBanner(previousDate, previousDateValue);
 
     return (
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -270,7 +268,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     saleService.listPaymentMethods(),
     productService.listActiveProducts(),
   ]);
-  const carryoverBanner = await findCarryoverBanner(tabs, previousDate, previousDateValue);
+  const carryoverBanner = await findCarryoverBanner(previousDate, previousDateValue);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
