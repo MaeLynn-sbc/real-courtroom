@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useState, useTransition } from "react";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
 import { cancelPublicOpenPlayRegistrationAction } from "@/actions/public-open-play-registration-cancellation.actions";
@@ -108,6 +108,7 @@ export function PublicOpenPlayRegistrationForm({
   gcashInfo,
   contactPhone,
   contactFacebookUrl,
+  waitlistedMessage,
 }: {
   nights: PublicOpenPlayNight[];
   registrationFeeCents: number;
@@ -126,6 +127,10 @@ export function PublicOpenPlayRegistrationForm({
   gcashInfo: GcashPaymentInfo;
   contactPhone: string;
   contactFacebookUrl: string;
+  // Owner-editable (features/open-play-capacity/components/open-play-
+  // settings-panel.tsx) — see its own comment for why this replaced a
+  // hardcoded "we'll text you" promise.
+  waitlistedMessage: string;
 }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -142,19 +147,37 @@ export function PublicOpenPlayRegistrationForm({
     },
   });
 
+  // Reported live (2026-08-07): the GCash QR/payment section used to
+  // render unconditionally regardless of the SELECTED date's capacity —
+  // a customer picking an already-full night still saw "send payment
+  // now." lockedDate is fixed for the whole page lifetime (the QR-deep-
+  // link path), but the plain picker's date can change at any time, so
+  // this has to be a live watch, not a value read once at mount —
+  // that's the specific regression the failing-first test below guards.
+  const watchedDate = useWatch({ control, name: "date" });
+  const selectedNight = lockedDate ?? nights.find((night) => night.date === watchedDate);
+  const isFull = selectedNight ? selectedNight.remainingSeats <= 0 : false;
+
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
 
-    if (!screenshot) {
-      const message = "Please upload your payment screenshot to complete registration.";
-      setServerError(message);
-      toast.error(message);
-      return;
-    }
     const amountCents = Math.round(Number(submittedAmount) * 100);
-    if (!Number.isFinite(amountCents) || amountCents <= 0) {
-      setServerError("Enter the amount you sent.");
-      return;
+
+    // Skipped entirely when the selected date is full — the payment
+    // fields aren't even rendered in that case (see isFull above), so
+    // there's nothing to validate; the server decides waitlist-vs-
+    // registered from its own live count regardless.
+    if (!isFull) {
+      if (!screenshot) {
+        const message = "Please upload your payment screenshot to complete registration.";
+        setServerError(message);
+        toast.error(message);
+        return;
+      }
+      if (!Number.isFinite(amountCents) || amountCents <= 0) {
+        setServerError("Enter the amount you sent.");
+        return;
+      }
     }
 
     startTransition(async () => {
@@ -193,6 +216,21 @@ export function PublicOpenPlayRegistrationForm({
         // returns to the plain form — safe to retry because the seat is
         // actually free again, not a second seat on top of a dangling one.
         const registrationId = result.registrationId;
+
+        if (!screenshot) {
+          // Race: the client thought this date was full (payment fields
+          // hidden, isFull true at render time) but a spot actually
+          // freed up between page load and submit, and the server just
+          // created a real, unpaid hold. Same safe-to-retry cancellation
+          // as a failed upload below, rather than crashing on a null
+          // screenshot or silently leaving an unpaid hold.
+          await cancelPublicOpenPlayRegistrationAction({ registrationId, phone: values.phone });
+          toast.error(
+            "A spot just opened up for this night — please submit the form again to pay and confirm your spot.",
+          );
+          return;
+        }
+
         let proofErrorMessage: string | null = null;
         try {
           const dataBase64 = await fileToBase64(screenshot);
@@ -250,8 +288,7 @@ export function PublicOpenPlayRegistrationForm({
           <CardTitle>You&apos;re on the waitlist</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
-          That night is full right now. We&apos;ll text you the moment a spot opens up — you&apos;ll
-          have a time window to confirm and pay once invited.
+          That night is full right now. {waitlistedMessage}
         </CardContent>
       </Card>
     );
@@ -343,8 +380,9 @@ export function PublicOpenPlayRegistrationForm({
             <span>{lockedDate.label}</span>
             <span
               className={cn(
-                "text-xs font-normal",
-                lockedDate.remainingSeats <= 0 ? "text-destructive" : "text-muted-foreground",
+                lockedDate.remainingSeats <= 0
+                  ? "text-destructive text-sm font-bold"
+                  : "text-muted-foreground text-xs font-normal",
               )}
             >
               {remainingSeatsLabel(lockedDate.remainingSeats)}
@@ -368,7 +406,13 @@ export function PublicOpenPlayRegistrationForm({
                     <SelectItem key={night.date} value={night.date}>
                       <span className="flex w-full items-center justify-between gap-3">
                         <span>{night.label}</span>
-                        <span className="text-muted-foreground text-xs">
+                        <span
+                          className={
+                            night.remainingSeats <= 0
+                              ? "text-destructive text-sm font-bold"
+                              : "text-muted-foreground text-xs"
+                          }
+                        >
                           {remainingSeatsLabel(night.remainingSeats)}
                         </span>
                       </span>
@@ -381,81 +425,96 @@ export function PublicOpenPlayRegistrationForm({
         )}
       </div>
 
-      <div className="flex flex-col gap-3 rounded-lg border p-3">
-        <div>
-          <p className="text-sm font-medium">Pay via GCash to complete your registration</p>
-          <p className="text-muted-foreground text-xs">
-            Send the registration fee to the account below, then attach your payment screenshot —
-            your seat isn&apos;t held until both this form and the screenshot are submitted
-            together.
+      {isFull ? (
+        // Reported live (2026-08-07): this whole panel used to render
+        // regardless of the selected date's capacity, so a customer
+        // picking an already-full night still saw "send payment now"
+        // and a QR code — money nobody should be sending, since
+        // submitting for a full night only ever joins the waitlist,
+        // never creates a paid registration.
+        <div className="border-warning/40 bg-warning/10 flex flex-col gap-1 rounded-lg border p-3 text-sm">
+          <p className="font-medium">This night is full.</p>
+          <p className="text-muted-foreground">
+            Join the waitlist below — don&apos;t send payment yet. {waitlistedMessage}
           </p>
         </div>
-
-        {gcashInfo.qrImageUrl ? (
-          <Image
-            src={gcashInfo.qrImageUrl}
-            alt="GCash QR code"
-            width={140}
-            height={140}
-            unoptimized
-            className="self-center rounded-lg border"
-          />
-        ) : null}
-
-        {gcashInfo.accountName || gcashInfo.accountNumber ? (
-          <div className="rounded-lg border p-2 text-sm">
-            {gcashInfo.accountName ? (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Account name</span>
-                <span className="font-medium">{gcashInfo.accountName}</span>
-              </div>
-            ) : null}
-            {gcashInfo.accountNumber ? (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Account number</span>
-                <span className="font-mono font-medium">{gcashInfo.accountNumber}</span>
-              </div>
-            ) : null}
+      ) : (
+        <div className="flex flex-col gap-3 rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">Pay via GCash to complete your registration</p>
+            <p className="text-muted-foreground text-xs">
+              Send the registration fee to the account below, then attach your payment screenshot —
+              your seat isn&apos;t held until both this form and the screenshot are submitted
+              together.
+            </p>
           </div>
-        ) : null}
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="submittedAmount">Amount sent (₱)</Label>
-          <Input
-            id="submittedAmount"
-            type="number"
-            step="0.01"
-            value={submittedAmount}
-            onChange={(event) => setSubmittedAmount(event.target.value)}
-          />
-        </div>
+          {gcashInfo.qrImageUrl ? (
+            <Image
+              src={gcashInfo.qrImageUrl}
+              alt="GCash QR code"
+              width={140}
+              height={140}
+              unoptimized
+              className="self-center rounded-lg border"
+            />
+          ) : null}
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="screenshot">Payment screenshot (required)</Label>
-          {/* Same solid sky-400 as the court booking form's screenshot
-              picker (public-booking-form.tsx) — the availability grid's
-              "booked" cell color, half-width with the filename filling the
-              other half. */}
-          <div className="flex items-center gap-3">
-            <label
-              htmlFor="screenshot"
-              className="flex w-1/2 cursor-pointer items-center justify-center rounded-lg border border-sky-500 bg-sky-400 px-4 py-3 text-base font-bold text-navy-900 transition-colors hover:bg-sky-300"
-            >
-              Choose file
-            </label>
-            <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm">
-              {screenshot ? screenshot.name : "No file chosen"}
-            </span>
+          {gcashInfo.accountName || gcashInfo.accountNumber ? (
+            <div className="rounded-lg border p-2 text-sm">
+              {gcashInfo.accountName ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Account name</span>
+                  <span className="font-medium">{gcashInfo.accountName}</span>
+                </div>
+              ) : null}
+              {gcashInfo.accountNumber ? (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Account number</span>
+                  <span className="font-mono font-medium">{gcashInfo.accountNumber}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="submittedAmount">Amount sent (₱)</Label>
+            <Input
+              id="submittedAmount"
+              type="number"
+              step="0.01"
+              value={submittedAmount}
+              onChange={(event) => setSubmittedAmount(event.target.value)}
+            />
           </div>
-          <input
-            id="screenshot"
-            type="file"
-            accept="image/*"
-            className="sr-only"
-            onChange={(event) => setScreenshot(event.target.files?.[0] ?? null)}
-          />
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="screenshot">Payment screenshot (required)</Label>
+            {/* Same solid sky-400 as the court booking form's screenshot
+                picker (public-booking-form.tsx) — the availability grid's
+                "booked" cell color, half-width with the filename filling the
+                other half. */}
+            <div className="flex items-center gap-3">
+              <label
+                htmlFor="screenshot"
+                className="flex w-1/2 cursor-pointer items-center justify-center rounded-lg border border-sky-500 bg-sky-400 px-4 py-3 text-base font-bold text-navy-900 transition-colors hover:bg-sky-300"
+              >
+                Choose file
+              </label>
+              <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm">
+                {screenshot ? screenshot.name : "No file chosen"}
+              </span>
+            </div>
+            <input
+              id="screenshot"
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(event) => setScreenshot(event.target.files?.[0] ?? null)}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {serverError ? (
         <p className="text-destructive text-sm" role="alert">
@@ -464,7 +523,13 @@ export function PublicOpenPlayRegistrationForm({
       ) : null}
 
       <Button type="submit" size="lg" disabled={isPending || (!lockedDate && nights.length === 0)}>
-        {isPending ? "Submitting…" : "Register & submit payment"}
+        {isFull
+          ? isPending
+            ? "Joining waitlist…"
+            : "Join waitlist"
+          : isPending
+            ? "Submitting…"
+            : "Register & submit payment"}
       </Button>
     </form>
   );

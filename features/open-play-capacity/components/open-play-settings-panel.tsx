@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 const CLOSED_MESSAGE_MAX_LENGTH = 200;
+const WAITLISTED_MESSAGE_MAX_LENGTH = 200;
 
 export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
   const router = useRouter();
@@ -243,6 +244,28 @@ export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
             />
             <span className="text-muted-foreground text-[11px]">
               {settings.closedRegistrationMessage.length}/{CLOSED_MESSAGE_MAX_LENGTH}
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="waitlistedMessage">Waitlisted message</Label>
+            <p className="text-muted-foreground text-xs">
+              Shown to a customer right after they join the waitlist because a night is full —
+              don&apos;t promise a specific channel (e.g. &quot;text&quot;) unless you&apos;re sure
+              it&apos;ll actually go out.
+            </p>
+            <Textarea
+              id="waitlistedMessage"
+              rows={2}
+              maxLength={WAITLISTED_MESSAGE_MAX_LENGTH}
+              className="max-w-md"
+              value={settings.waitlistedMessage}
+              onChange={(event) =>
+                setSettings((s) => ({ ...s, waitlistedMessage: event.target.value }))
+              }
+            />
+            <span className="text-muted-foreground text-[11px]">
+              {settings.waitlistedMessage.length}/{WAITLISTED_MESSAGE_MAX_LENGTH}
             </span>
           </div>
 

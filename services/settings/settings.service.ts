@@ -276,6 +276,7 @@ const DEFAULT_OPEN_PLAY_SETTINGS: OpenPlaySettings = {
   // 3 minutes" ask.
   forgottenAssignmentNudgeMinutes: 3,
   closedRegistrationMessage: "Unlimited open play isn't open for online registration yet.",
+  waitlistedMessage: "We'll get in touch if a slot opens up, and you can pay then.",
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never

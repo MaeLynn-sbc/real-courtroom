@@ -33,6 +33,19 @@ const gcashInfo: GcashPaymentInfo = {
 };
 const nights = [{ date: "2026-08-01", label: "Fri, Aug 1", remainingSeats: 12 }];
 
+async function clickAsync(element: Element) {
+  await act(async () => {
+    fireEvent.click(element);
+  });
+}
+
+async function selectOptionAsync(element: Element) {
+  await act(async () => {
+    fireEvent.pointerDown(element, { pointerType: "mouse" });
+    fireEvent.click(element);
+  });
+}
+
 function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Jane Guest" } });
   fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "09171234567" } });
@@ -46,6 +59,7 @@ function renderForm() {
       gcashInfo={gcashInfo}
       contactPhone="09171234567"
       contactFacebookUrl="https://facebook.com/thecourtroom"
+      waitlistedMessage="We'll get in touch if a slot opens up, and you can pay then."
     />,
   );
 }
@@ -145,5 +159,52 @@ describe("PublicOpenPlayRegistrationForm — screenshot required to register", (
     // Back on the real form, not the retry screen for a hold that no
     // longer exists.
     expect(screen.getByRole("button", { name: /register & submit payment/i })).toBeInTheDocument();
+  });
+});
+
+// Owner request (2026-08-07): the GCash QR/payment panel used to render
+// unconditionally regardless of the selected date's capacity, so a
+// customer picking an already-full night still saw "send payment now."
+// The full/not-full check must react to the customer CHANGING the
+// selected date in the picker, not only to whatever date the form
+// happened to default to at mount — that's the specific regression risk
+// this test targets, since a value read once at mount would look correct
+// on first render and only break the moment someone actually changes the
+// dropdown.
+describe("PublicOpenPlayRegistrationForm — full/not-full state reacts live to changing the selected date", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("hides the GCash QR/payment fields and switches the button to 'Join waitlist' the instant the customer picks a FULL night", async () => {
+    const openAndFullNights = [
+      { date: "2026-08-01", label: "Fri, Aug 1", remainingSeats: 5 },
+      { date: "2026-08-02", label: "Sat, Aug 2", remainingSeats: 0 },
+    ];
+
+    render(
+      <PublicOpenPlayRegistrationForm
+        nights={openAndFullNights}
+        registrationFeeCents={15000}
+        gcashInfo={gcashInfo}
+        contactPhone="09171234567"
+        contactFacebookUrl="https://facebook.com/thecourtroom"
+        waitlistedMessage="We'll get in touch if a slot opens up, and you can pay then."
+      />,
+    );
+
+    // Defaults to the first (open) night — payment fields visible, normal
+    // "Register & submit payment" button.
+    expect(screen.getByText("Pay via GCash to complete your registration")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /register & submit payment/i })).toBeInTheDocument();
+
+    await clickAsync(screen.getByRole("combobox", { name: /night/i }));
+    await selectOptionAsync(await screen.findByRole("option", { name: /sat, aug 2/i }));
+
+    expect(screen.queryByText("Pay via GCash to complete your registration")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Payment screenshot (required)")).not.toBeInTheDocument();
+    expect(screen.getByText("This night is full.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /join waitlist/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /register & submit payment/i })).not.toBeInTheDocument();
   });
 });

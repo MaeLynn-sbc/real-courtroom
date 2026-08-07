@@ -155,6 +155,7 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
             gcashInfo={gcashInfo}
             contactPhone={businessInfo.phone}
             contactFacebookUrl={businessInfo.facebookUrl}
+            waitlistedMessage={openPlaySettings.waitlistedMessage}
           />
         </main>
         <SiteFooter />
@@ -206,6 +207,7 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
             gcashInfo={gcashInfo}
             contactPhone={businessInfo.phone}
             contactFacebookUrl={businessInfo.facebookUrl}
+            waitlistedMessage={openPlaySettings.waitlistedMessage}
           />
         )}
       </main>

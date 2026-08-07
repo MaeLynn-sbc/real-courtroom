@@ -166,6 +166,12 @@ export const openPlaySettingsSchema = z.object({
   // (OpenPlayNightSession.closedMessage). Resolved by
   // resolveOpenPlayClosedMessage (lib/open-play-closed-message.ts).
   closedRegistrationMessage: z.string().max(200),
+  // Owner request (2026-08-07): the registration form's waitlisted-result
+  // message used to hardcode "we'll text you the moment a spot opens
+  // up" — a promise the app can't always keep if SMS delivery is down,
+  // and not owner-editable at all. Shown on
+  // PublicOpenPlayRegistrationForm's "waitlisted" step.
+  waitlistedMessage: z.string().max(200),
 });
 
 export type OpenPlaySettings = z.infer<typeof openPlaySettingsSchema>;
