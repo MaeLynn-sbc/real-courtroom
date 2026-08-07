@@ -44,19 +44,13 @@ export type ExpenseWithRelations = Expense & {
   recordedByEmployee: { firstName: string; lastName: string };
 };
 
-// GCash reconciliation dependency (spec point 6, not built here): GCash
-// reconciliation's formula (services/gcash/gcash-reconciliation.service.ts,
-// on the separate feature/gcash-reconciliation-gate1 branch as of this
-// writing) currently has no subtraction term, because nothing in the app
-// paid via GCash was ever tracked as money leaving the business — that
-// service's own top comment documents this explicitly. Expense.
-// paymentMethodId changes that: once an Expense is recorded against the
-// GCash PaymentMethod row, it becomes a real, queryable GCash outflow. If
-// GCash reconciliation is revisited after this branch merges, its expected-
-// balance formula should subtract same-day GCash-paid expenses (a
-// getGcashExpensesForDate(date), mirroring saleService.getGcashSalesForDate,
-// is the natural shape) — not built now, since only the dependency itself
-// was in scope for this gate, per the instruction that created it.
+// GCash reconciliation dependency (spec point 6): Expense.paymentMethodId
+// makes an expense a real, queryable outflow per payment method —
+// getGcashExpensesForDate/getCashExpensesForDate below are read by
+// GcashReconciliationService/CashReconciliationService's own
+// getExpectedEndingBalance, so a same-day expense against the matching
+// payment method now actually reduces the expected balance instead of
+// only ever showing up as an unexplained variance note.
 export class ExpenseService {
   // Receipt is optional, but when present the upload-then-write-then-
   // cleanup-on-failure shape mirrors bookingPaymentProofService's own
@@ -126,6 +120,42 @@ export class ExpenseService {
   async getExpensesTotalForRange(range: DateRange): Promise<number> {
     const result = await prisma.expense.aggregate({
       where: { date: { gte: range.from, lte: range.to } },
+      _sum: { amountCents: true },
+    });
+    return result._sum.amountCents ?? 0;
+  }
+
+  // The dependency this file's own top comment flagged, now wired up:
+  // same date-scoped shape as saleService.getGcashSalesForDate/
+  // getCashSalesForDate, but for money OUT instead of in — subtracted
+  // from each reconciliation's expected ending balance so a real expense
+  // (rent, supplies, a bank fee paid from the drawer) explains a deficit
+  // instead of just being an unexplained variance note. Filters on
+  // Expense.date (the business date, local-midnight-normalized at
+  // creation — actions/expense.actions.ts), not createdAt, matching how
+  // the reconciliation balances themselves are date-keyed.
+  async getGcashExpensesForDate(date: Date): Promise<number> {
+    const gcashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "GCASH" } });
+    const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const startOfNextDay = new Date(startOfDay);
+    startOfNextDay.setDate(startOfNextDay.getDate() + 1);
+
+    const result = await prisma.expense.aggregate({
+      where: { paymentMethodId: gcashMethod.id, date: { gte: startOfDay, lt: startOfNextDay } },
+      _sum: { amountCents: true },
+    });
+    return result._sum.amountCents ?? 0;
+  }
+
+  // Cash's twin of getGcashExpensesForDate above.
+  async getCashExpensesForDate(date: Date): Promise<number> {
+    const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
+    const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const startOfNextDay = new Date(startOfDay);
+    startOfNextDay.setDate(startOfNextDay.getDate() + 1);
+
+    const result = await prisma.expense.aggregate({
+      where: { paymentMethodId: cashMethod.id, date: { gte: startOfDay, lt: startOfNextDay } },
       _sum: { amountCents: true },
     });
     return result._sum.amountCents ?? 0;

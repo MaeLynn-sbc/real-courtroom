@@ -19,6 +19,10 @@
  *   5. overrideStartingBalance requires a reason, writes an audit-log
  *      entry with the old and new value, and is refused once the day
  *      is already CONFIRMED.
+ *   8. A GCash-paid expense subtracts exactly its own amount from
+ *      getExpectedEndingBalance (owner request, 2026-08-07) — same
+ *      delta-based proof as the known-sale check above, immune to
+ *      whatever else already happened today.
  *
  * Uses real "today"/"tomorrow" dates (seedFirstBalance always targets
  * today internally, by design — there's no "first ever day" concept
@@ -32,6 +36,7 @@
 import "dotenv/config";
 
 import { prisma } from "../../lib/prisma";
+import { expenseService } from "../expenses/expense.service";
 import { gcashReconciliationService, GcashBalanceAlreadyConfirmedError, PriorDayNotClosedError } from "./gcash-reconciliation.service";
 import { saleService } from "../sales/sale.service";
 
@@ -61,6 +66,7 @@ async function cleanUp(employeeId?: string): Promise<void> {
 
   if (employeeId) {
     await prisma.sale.deleteMany({ where: { employeeId } });
+    await prisma.expense.deleteMany({ where: { recordedByEmployeeId: employeeId } });
   }
 
   const users = await prisma.user.findMany({ where: { username: { startsWith: TEST_USERNAME_PREFIX } }, select: { id: true } });
@@ -325,6 +331,27 @@ async function main(): Promise<void> {
     );
     assert(reconfirmed.status === "CONFIRMED", "expected the reopened day to be confirmable again");
     console.log("PASS: a reopened day can be confirmed again with the corrected numbers.");
+
+    // ============== 8. A GCash-paid expense subtracts from the expected balance ==============
+    const category = await prisma.expenseCategory.findFirstOrThrow();
+    const expectedBeforeExpense = await gcashReconciliationService.getExpectedEndingBalance(seeded);
+    await expenseService.createExpense(
+      {
+        amountCents: 45000, // ₱450 known GCash-paid expense
+        date: today,
+        description: "GCash recon test expense",
+        categoryId: category.id,
+        paymentMethodId: gcashMethod.id,
+        recordedByEmployeeId: employee.id,
+      },
+      owner.id,
+    );
+    const expectedAfterExpense = await gcashReconciliationService.getExpectedEndingBalance(seeded);
+    assert(
+      expectedBeforeExpense - expectedAfterExpense === 45000,
+      `expected the known GCash expense to subtract exactly 45000 from the expected balance, got a delta of ${expectedBeforeExpense - expectedAfterExpense}`,
+    );
+    console.log(`PASS: a GCash-paid expense subtracts exactly its own amount from the expected balance (${expectedBeforeExpense} -> ${expectedAfterExpense}).`);
 
     await cleanUp(employeeId);
     console.log("\nPASS: GCash reconciliation proven against real rows.");

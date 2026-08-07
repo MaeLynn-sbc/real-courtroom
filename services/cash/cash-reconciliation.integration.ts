@@ -23,6 +23,9 @@
  *   6. overrideStartingBalance requires a reason, writes an audit-log
  *      entry with the old and new value, and is refused once the day
  *      is already CONFIRMED.
+ *   7. A cash-paid expense subtracts exactly its own amount from
+ *      getExpectedEndingBalance (owner request, 2026-08-07) — same
+ *      delta-based proof as the known-sale check above.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -34,6 +37,7 @@ import {
   CashBalanceAlreadyConfirmedError,
   PriorDayNotClosedError,
 } from "./cash-reconciliation.service";
+import { expenseService } from "../expenses/expense.service";
 import { saleService } from "../sales/sale.service";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -67,6 +71,7 @@ async function cleanUp(employeeId?: string): Promise<void> {
 
   if (employeeId) {
     await prisma.sale.deleteMany({ where: { employeeId } });
+    await prisma.expense.deleteMany({ where: { recordedByEmployeeId: employeeId } });
   }
 
   const users = await prisma.user.findMany({
@@ -445,6 +450,27 @@ async function main(): Promise<void> {
     );
     assert(reconfirmed.status === "CONFIRMED", "expected the reopened day to be confirmable again");
     console.log("PASS: a reopened day can be confirmed again with the corrected numbers.");
+
+    // ============== 7. A cash-paid expense subtracts from the expected balance ==============
+    const category = await prisma.expenseCategory.findFirstOrThrow();
+    const expectedBeforeExpense = await cashReconciliationService.getExpectedEndingBalance(seeded);
+    await expenseService.createExpense(
+      {
+        amountCents: 32500, // ₱325 known cash-paid expense
+        date: today,
+        description: "Cash recon test expense",
+        categoryId: category.id,
+        paymentMethodId: cashMethod.id,
+        recordedByEmployeeId: employee.id,
+      },
+      owner.id,
+    );
+    const expectedAfterExpense = await cashReconciliationService.getExpectedEndingBalance(seeded);
+    assert(
+      expectedBeforeExpense - expectedAfterExpense === 32500,
+      `expected the known cash expense to subtract exactly 32500 from the expected balance, got a delta of ${expectedBeforeExpense - expectedAfterExpense}`,
+    );
+    console.log(`PASS: a cash-paid expense subtracts exactly its own amount from the expected balance (${expectedBeforeExpense} -> ${expectedAfterExpense}).`);
 
     await cleanUp(employeeId);
     console.log("\nPASS: Cash reconciliation proven against real rows.");

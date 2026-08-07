@@ -1,6 +1,7 @@
 import type { GcashDailyBalance, Prisma } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { expenseService } from "@/services/expenses/expense.service";
 import { saleService } from "@/services/sales/sale.service";
 
 // GCash reconciliation Gate 1 (BUILD-SPEC.md-adjacent — same discipline
@@ -11,20 +12,22 @@ import { saleService } from "@/services/sales/sale.service";
 // day's record.
 //
 // The formula (BUILD-SPEC's own framing): starting balance + today's
-// GCash sales − today's GCash-paid write-offs/refunds = expected
-// ending balance. The subtraction term is deliberately absent below —
-// confirmed by reading the actual code, not assumed: BookingRefund has
-// no paymentMethodId at all (refunds aren't attributed to a payment
-// method), and it's never even created anywhere in this codebase today
-// (zero non-schema references — the model is dormant plumbing). A
-// PlayerTab write-off, by construction, creates no Sale row at all
-// ("No Sale row is created, so this can never count as revenue" — its
-// own existing comment) — nothing was ever collected via any payment
-// method for a written-off amount, so there is nothing to subtract
-// from GCash specifically. Both terms are structurally zero given how
-// this codebase actually works today. If BookingRefund is ever wired
-// up with payment-method attribution in the future, this formula would
-// need to incorporate it then — flagged here, not silently ignored.
+// GCash sales − today's GCash-paid write-offs/refunds/expenses =
+// expected ending balance. Owner request (2026-08-07): expenses paid
+// via GCash now subtract via expenseService.getGcashExpensesForDate,
+// see that method's own comment. The refund/write-off terms remain
+// structurally absent, still confirmed by reading the actual code:
+// BookingRefund has no paymentMethodId at all (refunds aren't
+// attributed to a payment method), and it's never even created anywhere
+// in this codebase today (zero non-schema references — the model is
+// dormant plumbing). A PlayerTab write-off, by construction, creates no
+// Sale row at all ("No Sale row is created, so this can never count as
+// revenue" — its own existing comment) — nothing was ever collected via
+// any payment method for a written-off amount, so there is nothing to
+// subtract from GCash specifically for either of those two. If
+// BookingRefund is ever wired up with payment-method attribution in the
+// future, this formula would need to incorporate it then — flagged
+// here, not silently ignored.
 
 function toMidnight(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -177,8 +180,11 @@ export class GcashReconciliationService {
   // right now. Shown to staff BEFORE they confirm, same "expected"
   // pattern shift cash reconciliation already established.
   async getExpectedEndingBalance(balance: Pick<GcashDailyBalance, "date" | "startingBalanceCents">): Promise<number> {
-    const gcashSalesCents = await saleService.getGcashSalesForDate(balance.date);
-    return balance.startingBalanceCents + gcashSalesCents;
+    const [gcashSalesCents, gcashExpensesCents] = await Promise.all([
+      saleService.getGcashSalesForDate(balance.date),
+      expenseService.getGcashExpensesForDate(balance.date),
+    ]);
+    return balance.startingBalanceCents + gcashSalesCents - gcashExpensesCents;
   }
 
   // varianceCents is now actually computed and written on confirm —

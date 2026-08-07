@@ -27,6 +27,14 @@ interface ExpenseEntryPaymentMethod {
 interface ExpenseEntryFormProps {
   categories: ExpenseEntryCategory[];
   paymentMethods: ExpenseEntryPaymentMethod[];
+  // Reconciliation-workspace embedding (owner request, 2026-08-07): the
+  // plain /dashboard/admin/expenses page omits both, keeping today +
+  // the first payment method exactly as before. Embedded in a specific
+  // day's cash/GCash reconciliation, these default the form to that
+  // same date and payment method instead, so recording the expense that
+  // explains today's deficit doesn't require re-picking either.
+  defaultDate?: string;
+  defaultPaymentMethodId?: string;
 }
 
 interface ExpenseEntryFormValues {

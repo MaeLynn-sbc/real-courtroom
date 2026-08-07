@@ -1,6 +1,7 @@
 import type { CashDailyBalance, Prisma } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { expenseService } from "@/services/expenses/expense.service";
 import { saleService } from "@/services/sales/sale.service";
 
 // Cash's twin of GcashReconciliationService (services/gcash/gcash-
@@ -12,13 +13,16 @@ import { saleService } from "@/services/sales/sale.service";
 // per-drawer opening/closing cash, which exists separately and is
 // unaffected by this feature.
 //
-// The formula: starting balance + today's Cash sales = expected ending
-// balance. Same as GCash, deliberately no refund/write-off subtraction
-// term — a PlayerTab write-off creates no Sale row at all, and
-// BookingRefund has no paymentMethodId and is never created anywhere in
-// this codebase today, so there is nothing to subtract from cash
-// specifically. If either of those changes, this formula needs
-// revisiting then — flagged here, not silently ignored.
+// The formula: starting balance + today's Cash sales − today's
+// cash-paid expenses = expected ending balance. Owner request
+// (2026-08-07): same expenseService.getCashExpensesForDate wiring as
+// GCash's twin — see that method's own comment. Still deliberately no
+// refund/write-off subtraction term — a PlayerTab write-off creates no
+// Sale row at all, and BookingRefund has no paymentMethodId and is
+// never created anywhere in this codebase today, so there is nothing to
+// subtract from cash specifically for either of those. If either of
+// those changes, this formula needs revisiting then — flagged here, not
+// silently ignored.
 
 function toMidnight(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -186,8 +190,11 @@ export class CashReconciliationService {
   async getExpectedEndingBalance(
     balance: Pick<CashDailyBalance, "date" | "startingBalanceCents">,
   ): Promise<number> {
-    const cashSalesCents = await saleService.getCashSalesForDate(balance.date);
-    return balance.startingBalanceCents + cashSalesCents;
+    const [cashSalesCents, cashExpensesCents] = await Promise.all([
+      saleService.getCashSalesForDate(balance.date),
+      expenseService.getCashExpensesForDate(balance.date),
+    ]);
+    return balance.startingBalanceCents + cashSalesCents - cashExpensesCents;
   }
 
   // varianceCents is computed and written on confirm — same "written

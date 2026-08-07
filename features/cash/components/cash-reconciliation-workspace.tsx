@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { CashDenominationInput } from "@/features/cash/components/cash-denomination-input";
+import { ExpenseEntryForm } from "@/features/expenses/components/expense-entry-form";
 import { formatCurrency, formatVariance } from "@/lib/utils";
 import type { cashReconciliationService } from "@/services/cash/cash-reconciliation.service";
 
@@ -42,6 +43,16 @@ type TodayBalance = NonNullable<
 >;
 type RecentBalances = Awaited<ReturnType<typeof cashReconciliationService.listRecentBalances>>;
 
+interface ExpenseFormCategory {
+  id: string;
+  name: string;
+}
+
+interface ExpenseFormPaymentMethod {
+  id: string;
+  label: string;
+}
+
 interface CashReconciliationWorkspaceProps {
   needsSeed: boolean;
   // Real incident (2026-08-07) — GCash workspace's twin prop, see its
@@ -50,7 +61,16 @@ interface CashReconciliationWorkspaceProps {
   priorDayError: string | null;
   todayBalance: TodayBalance | null;
   expectedEndingBalanceCents: number | null;
+  // Owner request (2026-08-07): today's cash-paid expenses, already
+  // subtracted into expectedEndingBalanceCents by
+  // CashReconciliationService.getExpectedEndingBalance — shown
+  // separately here too so a deficit reads as "expected − expenses",
+  // not just a smaller number with no explanation.
+  expensesCents: number;
   recentBalances: RecentBalances;
+  expenseCategories: ExpenseFormCategory[];
+  expensePaymentMethods: ExpenseFormPaymentMethod[];
+  cashPaymentMethodId: string;
 }
 
 function PriorDayNotClosedWarning({ message }: { message: string }) {
@@ -236,9 +256,17 @@ function OverrideStartingBalanceForm({ balance }: { balance: TodayBalance }) {
 function ConfirmBalanceCard({
   balance,
   expectedEndingBalanceCents,
+  expensesCents,
+  expenseCategories,
+  expensePaymentMethods,
+  cashPaymentMethodId,
 }: {
   balance: TodayBalance;
   expectedEndingBalanceCents: number;
+  expensesCents: number;
+  expenseCategories: ExpenseFormCategory[];
+  expensePaymentMethods: ExpenseFormPaymentMethod[];
+  cashPaymentMethodId: string;
 }) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
@@ -308,10 +336,32 @@ function ConfirmBalanceCard({
             GCash reconciliation's own "Expected balance." */}
         <div className="bg-muted/40 flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
           <span className="text-muted-foreground">
-            Expected balance (starting + today&apos;s cash sales)
+            Expected balance (starting + today&apos;s cash sales − today&apos;s cash expenses)
           </span>
           <span className="font-semibold">{formatCurrency(expectedEndingBalanceCents)}</span>
         </div>
+        {expensesCents > 0 ? (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Cash expenses recorded today</span>
+            <span className="text-destructive font-medium">
+              -{formatCurrency(expensesCents)}
+            </span>
+          </div>
+        ) : null}
+
+        <details className="rounded-lg border">
+          <summary className="text-muted-foreground cursor-pointer px-3 py-2 text-sm font-medium">
+            Record an expense to explain a deficit
+          </summary>
+          <div className="border-t p-3">
+            <ExpenseEntryForm
+              categories={expenseCategories}
+              paymentMethods={expensePaymentMethods}
+              defaultDate={toDateValue(balance.date)}
+              defaultPaymentMethodId={cashPaymentMethodId}
+            />
+          </div>
+        </details>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 border-t pt-4">
           <div className="flex flex-col gap-1.5">
@@ -459,7 +509,13 @@ function ReopenBalanceForm({ balance }: { balance: TodayBalance }) {
   );
 }
 
-function AlreadyConfirmedCard({ balance }: { balance: TodayBalance }) {
+function AlreadyConfirmedCard({
+  balance,
+  expensesCents,
+}: {
+  balance: TodayBalance;
+  expensesCents: number;
+}) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -471,6 +527,12 @@ function AlreadyConfirmedCard({ balance }: { balance: TodayBalance }) {
           <span className="text-muted-foreground">Starting balance</span>
           <span className="font-medium">{formatCurrency(balance.startingBalanceCents)}</span>
         </div>
+        {expensesCents > 0 ? (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Cash expenses that day</span>
+            <span className="font-medium">-{formatCurrency(expensesCents)}</span>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Confirmed ending balance</span>
           <span className="font-medium">
@@ -517,7 +579,11 @@ export function CashReconciliationWorkspace({
   priorDayError,
   todayBalance,
   expectedEndingBalanceCents,
+  expensesCents,
   recentBalances,
+  expenseCategories,
+  expensePaymentMethods,
+  cashPaymentMethodId,
 }: CashReconciliationWorkspaceProps) {
   return (
     <div className="flex flex-col gap-6">
@@ -526,13 +592,17 @@ export function CashReconciliationWorkspace({
       ) : needsSeed || !todayBalance ? (
         <SeedBalanceForm />
       ) : todayBalance.status === "CONFIRMED" ? (
-        <AlreadyConfirmedCard balance={todayBalance} />
+        <AlreadyConfirmedCard balance={todayBalance} expensesCents={expensesCents} />
       ) : (
         <ConfirmBalanceCard
           balance={todayBalance}
           expectedEndingBalanceCents={
             expectedEndingBalanceCents ?? todayBalance.startingBalanceCents
           }
+          expensesCents={expensesCents}
+          expenseCategories={expenseCategories}
+          expensePaymentMethods={expensePaymentMethods}
+          cashPaymentMethodId={cashPaymentMethodId}
         />
       )}
 

@@ -5,7 +5,10 @@ import { ReconciliationTabs } from "@/components/shared/reconciliation-tabs";
 import { CashReconciliationWorkspace } from "@/features/cash/components/cash-reconciliation-workspace";
 import { GcashReconciliationWorkspace } from "@/features/gcash/components/gcash-reconciliation-workspace";
 import { cashReconciliationService, PriorDayNotClosedError as CashPriorDayNotClosedError } from "@/services/cash/cash-reconciliation.service";
+import { expenseCategoryService } from "@/services/expenses/expense-category.service";
+import { expenseService } from "@/services/expenses/expense.service";
 import { gcashReconciliationService, PriorDayNotClosedError as GcashPriorDayNotClosedError } from "@/services/gcash/gcash-reconciliation.service";
+import { saleService } from "@/services/sales/sale.service";
 import type { CashDailyBalance, GcashDailyBalance } from "@/lib/generated/prisma/client";
 
 // Real incident (2026-08-07): getOrCreateBalanceForDate now throws
@@ -83,6 +86,10 @@ export default async function ReconciliationPage({ searchParams }: Reconciliatio
     gcashRecentBalances,
     cashExpectedEndingBalanceCents,
     cashRecentBalances,
+    gcashExpensesCents,
+    cashExpensesCents,
+    expenseCategories,
+    paymentMethods,
   ] = await Promise.all([
     gcashTodayBalance && gcashTodayBalance.status === "OPEN"
       ? gcashReconciliationService.getExpectedEndingBalance(gcashTodayBalance)
@@ -92,7 +99,16 @@ export default async function ReconciliationPage({ searchParams }: Reconciliatio
       ? cashReconciliationService.getExpectedEndingBalance(cashTodayBalance)
       : Promise.resolve(null),
     cashReconciliationService.listRecentBalances(14),
+    // Owner request (2026-08-07): shown in both workspaces regardless of
+    // OPEN/CONFIRMED status — "explains the deficit" applies to a day
+    // already closed just as much as one still open.
+    expenseService.getGcashExpensesForDate(viewedDate),
+    expenseService.getCashExpensesForDate(viewedDate),
+    expenseCategoryService.listCategories(false),
+    saleService.listPaymentMethods(),
   ]);
+  const cashPaymentMethodId = paymentMethods.find((method) => method.key === "CASH")?.id ?? "";
+  const gcashPaymentMethodId = paymentMethods.find((method) => method.key === "GCASH")?.id ?? "";
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
@@ -122,7 +138,11 @@ export default async function ReconciliationPage({ searchParams }: Reconciliatio
             priorDayError={gcashResult.priorDayError}
             todayBalance={gcashTodayBalance}
             expectedEndingBalanceCents={gcashExpectedEndingBalanceCents}
+            expensesCents={gcashExpensesCents}
             recentBalances={gcashRecentBalances}
+            expenseCategories={expenseCategories}
+            expensePaymentMethods={paymentMethods}
+            gcashPaymentMethodId={gcashPaymentMethodId}
           />
         }
         cash={
@@ -131,7 +151,11 @@ export default async function ReconciliationPage({ searchParams }: Reconciliatio
             priorDayError={cashResult.priorDayError}
             todayBalance={cashTodayBalance}
             expectedEndingBalanceCents={cashExpectedEndingBalanceCents}
+            expensesCents={cashExpensesCents}
             recentBalances={cashRecentBalances}
+            expenseCategories={expenseCategories}
+            expensePaymentMethods={paymentMethods}
+            cashPaymentMethodId={cashPaymentMethodId}
           />
         }
       />

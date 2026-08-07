@@ -128,7 +128,9 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
   },
   // Expenses tracking Gate 1: same fix, same reasoning as
   // ACCOUNTS_CONFIRM_GCASH_RECONCILIATION directly above — granted to
-  // OWNER below, still absent from every other role.
+  // OWNER below, and (2026-08-07 owner request) to COURT_ATTENDANT below
+  // too, so an attendant recording a cash/GCash-reconciliation deficit
+  // can explain it with a real expense instead of a free-text note.
   [PERMISSIONS.ACCOUNTS_RECORD_EXPENSE]: {
     label: "Record Expenses",
     description: "Record business expenses and manage expense categories.",
@@ -673,6 +675,7 @@ async function main(): Promise<void> {
   const COURT_ATTENDANT_PERMISSION_KEYS: PermissionKey[] = [
     PERMISSIONS.ACCOUNTS_CONFIRM_CASH_RECONCILIATION,
     PERMISSIONS.ACCOUNTS_CONFIRM_GCASH_RECONCILIATION,
+    PERMISSIONS.ACCOUNTS_RECORD_EXPENSE,
     PERMISSIONS.BOOKINGS_MANAGE,
     PERMISSIONS.BOOKINGS_PAY_AT_VENUE,
     PERMISSIONS.COACHING_MANAGE_OWN_AVAILABILITY,

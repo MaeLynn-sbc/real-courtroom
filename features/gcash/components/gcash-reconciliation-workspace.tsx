@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { ExpenseEntryForm } from "@/features/expenses/components/expense-entry-form";
 import { formatCurrency, formatVariance } from "@/lib/utils";
 import type { gcashReconciliationService } from "@/services/gcash/gcash-reconciliation.service";
 
@@ -41,6 +42,16 @@ type TodayBalance = NonNullable<
 >;
 type RecentBalances = Awaited<ReturnType<typeof gcashReconciliationService.listRecentBalances>>;
 
+interface ExpenseFormCategory {
+  id: string;
+  name: string;
+}
+
+interface ExpenseFormPaymentMethod {
+  id: string;
+  label: string;
+}
+
 interface GcashReconciliationWorkspaceProps {
   needsSeed: boolean;
   // Real incident (2026-08-07) — set only when getOrCreateBalanceForDate
@@ -51,7 +62,13 @@ interface GcashReconciliationWorkspaceProps {
   priorDayError: string | null;
   todayBalance: TodayBalance | null;
   expectedEndingBalanceCents: number | null;
+  // Owner request (2026-08-07): cash workspace's twin prop — see its own
+  // comment.
+  expensesCents: number;
   recentBalances: RecentBalances;
+  expenseCategories: ExpenseFormCategory[];
+  expensePaymentMethods: ExpenseFormPaymentMethod[];
+  gcashPaymentMethodId: string;
 }
 
 function PriorDayNotClosedWarning({ message }: { message: string }) {
@@ -244,9 +261,17 @@ function OverrideStartingBalanceForm({ balance }: { balance: TodayBalance }) {
 function ConfirmBalanceCard({
   balance,
   expectedEndingBalanceCents,
+  expensesCents,
+  expenseCategories,
+  expensePaymentMethods,
+  gcashPaymentMethodId,
 }: {
   balance: TodayBalance;
   expectedEndingBalanceCents: number;
+  expensesCents: number;
+  expenseCategories: ExpenseFormCategory[];
+  expensePaymentMethods: ExpenseFormPaymentMethod[];
+  gcashPaymentMethodId: string;
 }) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
@@ -308,10 +333,32 @@ function ConfirmBalanceCard({
             shift cash reconciliation's "Expected cash." */}
         <div className="bg-muted/40 flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
           <span className="text-muted-foreground">
-            Expected balance (starting + today&apos;s GCash sales)
+            Expected balance (starting + today&apos;s GCash sales − today&apos;s GCash expenses)
           </span>
           <span className="font-semibold">{formatCurrency(expectedEndingBalanceCents)}</span>
         </div>
+        {expensesCents > 0 ? (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">GCash expenses recorded today</span>
+            <span className="text-destructive font-medium">
+              -{formatCurrency(expensesCents)}
+            </span>
+          </div>
+        ) : null}
+
+        <details className="rounded-lg border">
+          <summary className="text-muted-foreground cursor-pointer px-3 py-2 text-sm font-medium">
+            Record an expense to explain a deficit
+          </summary>
+          <div className="border-t p-3">
+            <ExpenseEntryForm
+              categories={expenseCategories}
+              paymentMethods={expensePaymentMethods}
+              defaultDate={toDateValue(balance.date)}
+              defaultPaymentMethodId={gcashPaymentMethodId}
+            />
+          </div>
+        </details>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 border-t pt-4">
           <div className="flex flex-col gap-1.5">
@@ -441,7 +488,13 @@ function ReopenBalanceForm({ balance }: { balance: TodayBalance }) {
   );
 }
 
-function AlreadyConfirmedCard({ balance }: { balance: TodayBalance }) {
+function AlreadyConfirmedCard({
+  balance,
+  expensesCents,
+}: {
+  balance: TodayBalance;
+  expensesCents: number;
+}) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -453,6 +506,12 @@ function AlreadyConfirmedCard({ balance }: { balance: TodayBalance }) {
           <span className="text-muted-foreground">Starting balance</span>
           <span className="font-medium">{formatCurrency(balance.startingBalanceCents)}</span>
         </div>
+        {expensesCents > 0 ? (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">GCash expenses that day</span>
+            <span className="font-medium">-{formatCurrency(expensesCents)}</span>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Confirmed ending balance</span>
           <span className="font-medium">
@@ -487,7 +546,11 @@ export function GcashReconciliationWorkspace({
   priorDayError,
   todayBalance,
   expectedEndingBalanceCents,
+  expensesCents,
   recentBalances,
+  expenseCategories,
+  expensePaymentMethods,
+  gcashPaymentMethodId,
 }: GcashReconciliationWorkspaceProps) {
   return (
     <div className="flex flex-col gap-6">
@@ -496,13 +559,17 @@ export function GcashReconciliationWorkspace({
       ) : needsSeed || !todayBalance ? (
         <SeedBalanceForm />
       ) : todayBalance.status === "CONFIRMED" ? (
-        <AlreadyConfirmedCard balance={todayBalance} />
+        <AlreadyConfirmedCard balance={todayBalance} expensesCents={expensesCents} />
       ) : (
         <ConfirmBalanceCard
           balance={todayBalance}
           expectedEndingBalanceCents={
             expectedEndingBalanceCents ?? todayBalance.startingBalanceCents
           }
+          expensesCents={expensesCents}
+          expenseCategories={expenseCategories}
+          expensePaymentMethods={expensePaymentMethods}
+          gcashPaymentMethodId={gcashPaymentMethodId}
         />
       )}
 
