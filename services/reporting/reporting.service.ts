@@ -1,3 +1,4 @@
+import type { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { DateRange } from "@/services/analytics/date-range";
 
@@ -597,14 +598,26 @@ export class ReportingService {
   // sessionId fork — null means regular (weeknight, uncapped), set
   // means unli (Fri/Sat, capacity-gated) — so tracing either link back
   // to its sessionId is enough to classify every OPEN_PLAY sale.
+  // Owner-reported incident (2026-08-08): scoped by createdAt here used
+  // to count a tab settled just after midnight for the PREVIOUS night's
+  // session as part of the wrong day — same bug already fixed on the
+  // dashboard's Today's Revenue panel (saleService.getSalesSummary), not
+  // yet applied to this separate, duplicate implementation. Scoped by
+  // the linked session's own date (PlayerTab.date /
+  // OpenPlayNightRegistration.date) instead, same reasoning as that
+  // fix's own comment.
   private async getOpenPlaySplit(
     range: DateRange,
   ): Promise<{ regularCents: number; unliCents: number }> {
+    const inRange = { gte: range.from, lte: range.to };
     const sales = await prisma.sale.findMany({
       where: {
         category: "OPEN_PLAY",
         status: "COMPLETED",
-        createdAt: { gte: range.from, lte: range.to },
+        OR: [
+          { playerTabId: { not: null }, playerTab: { date: inRange } },
+          { openPlayNightRegistrationId: { not: null }, openPlayNightRegistration: { date: inRange } },
+        ],
       },
       select: {
         amountCents: true,
@@ -628,6 +641,28 @@ export class ReportingService {
   }
 
   async getRevenueReport(range: DateRange): Promise<RevenueReportResult> {
+    const inRange = { gte: range.from, lte: range.to };
+    // Owner-reported incident (2026-08-08): "Cash collected"/"GCash
+    // collected" used to sum every Sale by raw createdAt, including an
+    // Open Play tab settled just after midnight for the PREVIOUS night's
+    // session — the same money getOpenPlaySplit above now correctly
+    // attributes to that earlier day. Without this, the two figures on
+    // this same report would disagree with each other. Non-Open-Play
+    // sales have no session-date concept, so they keep using createdAt
+    // unchanged.
+    const dateAwareWhere: Prisma.SaleWhereInput = {
+      status: "COMPLETED",
+      OR: [
+        { category: { not: "OPEN_PLAY" }, createdAt: inRange },
+        { category: "OPEN_PLAY", playerTabId: { not: null }, playerTab: { date: inRange } },
+        {
+          category: "OPEN_PLAY",
+          openPlayNightRegistrationId: { not: null },
+          openPlayNightRegistration: { date: inRange },
+        },
+      ],
+    };
+
     const [saleCategoryTotals, openPlaySplit, paymentMethodTotals, paymentMethods] =
       await Promise.all([
         // Same COMPLETED-in-range predicate as getSalesByCategoryReport
@@ -637,11 +672,7 @@ export class ReportingService {
         // below instead of a flat groupBy sum.
         prisma.sale.groupBy({
           by: ["category"],
-          where: {
-            category: { in: ["BOOKING", "PRODUCT", "COACHING"] },
-            status: "COMPLETED",
-            createdAt: { gte: range.from, lte: range.to },
-          },
+          where: { category: { in: ["BOOKING", "PRODUCT", "COACHING"] }, ...dateAwareWhere },
           _sum: { amountCents: true },
         }),
         this.getOpenPlaySplit(range),
@@ -651,7 +682,7 @@ export class ReportingService {
         // physical drawer and the GCash balance directly.
         prisma.sale.groupBy({
           by: ["paymentMethodId"],
-          where: { status: "COMPLETED", createdAt: { gte: range.from, lte: range.to } },
+          where: dateAwareWhere,
           _sum: { amountCents: true },
         }),
         prisma.paymentMethod.findMany({ where: { key: { in: ["CASH", "GCASH"] } } }),
