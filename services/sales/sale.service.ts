@@ -245,9 +245,27 @@ export class SaleService {
   ];
 
   async getSalesSummary(range: DateRange): Promise<SalesSummary> {
+    // Reported live (2026-08-07): an Open Play tab settled just after
+    // midnight (closing out the PREVIOUS night's session) was showing up in
+    // TODAY's revenue, even though it was already accounted for as part of
+    // last night's count. Sale.createdAt is when the settlement was rung
+    // up, not which night's session it was for — PlayerTab.date and
+    // OpenPlayNightRegistration.date hold that already. So Open Play sales
+    // are scoped by their linked session date instead of createdAt; every
+    // other category (no such "which night" concept) keeps using
+    // createdAt exactly as before.
+    const inRange = { gte: range.from, lte: range.to };
     const where: Prisma.SaleWhereInput = {
-      createdAt: { gte: range.from, lte: range.to },
       status: "COMPLETED",
+      OR: [
+        { category: { not: "OPEN_PLAY" }, createdAt: inRange },
+        { category: "OPEN_PLAY", playerTabId: { not: null }, playerTab: { date: inRange } },
+        {
+          category: "OPEN_PLAY",
+          openPlayNightRegistrationId: { not: null },
+          openPlayNightRegistration: { date: inRange },
+        },
+      ],
     };
 
     const [
@@ -277,14 +295,25 @@ export class SaleService {
       prisma.paymentMethod.findMany(),
       prisma.employee.findMany(),
       // "Regular" (pay-per-game/tab) vs "Unli" (flat Fri/Sat access fee) —
-      // see OpenPlaySummaryCategory's own comment above.
+      // see OpenPlaySummaryCategory's own comment above. Scoped by session
+      // date, same reasoning as `where` above.
       prisma.sale.aggregate({
-        where: { ...where, category: "OPEN_PLAY", playerTabId: { not: null } },
+        where: {
+          status: "COMPLETED",
+          category: "OPEN_PLAY",
+          playerTabId: { not: null },
+          playerTab: { date: inRange },
+        },
         _sum: { amountCents: true },
         _count: true,
       }),
       prisma.sale.aggregate({
-        where: { ...where, category: "OPEN_PLAY", openPlayNightRegistrationId: { not: null } },
+        where: {
+          status: "COMPLETED",
+          category: "OPEN_PLAY",
+          openPlayNightRegistrationId: { not: null },
+          openPlayNightRegistration: { date: inRange },
+        },
         _sum: { amountCents: true },
         _count: true,
       }),
