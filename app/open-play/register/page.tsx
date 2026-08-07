@@ -176,9 +176,16 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
         </div>
 
         {blockedNights.length > 0 ? (
-          <div className="border-warning/40 bg-warning/10 flex flex-col gap-1 rounded-lg border px-3 py-2 text-sm">
+          // Owner request (2026-08-07): a blocked night used to show as a
+          // banner ABOVE a still-fully-working form for whichever other
+          // night was open — including the GCash QR/account details,
+          // reachable even while registration was supposed to be off. Now
+          // any blocked night takes the whole page to a plain "not
+          // available" state — no form, no QR, nothing to submit — rather
+          // than partially opening the page around it.
+          <div className="flex flex-col gap-1 text-sm">
             {blockedNights.map((night) => (
-              <p key={toLocalDateValue(night.date)}>
+              <p key={toLocalDateValue(night.date)} className="text-muted-foreground">
                 <span className="font-medium">{labelFormatter.format(night.date)}</span> —{" "}
                 {resolveOpenPlayClosedMessage(
                   night.closedMessage,
@@ -187,9 +194,7 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
               </p>
             ))}
           </div>
-        ) : null}
-
-        {eligibleNights.length === 0 ? (
+        ) : eligibleNights.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             No nights are open for online registration right now. Please check back later or visit
             the front desk.
