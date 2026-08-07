@@ -49,20 +49,23 @@ export class ShiftService {
     });
   }
 
-  // Real open shift if the employee has one — the Sale attributes to
-  // their actual working shift, unchanged, correct for cash
-  // reconciliation. Otherwise, a per-employee perpetual CLOSED shift,
-  // reused across calls (found by its own marker note) rather than
-  // creating a new throwaway row every approval. Deliberately CLOSED,
-  // not OPEN, so approving a payment can never make someone show up as
-  // "on duty" — every "who's on duty" query in this app filters on
-  // status = OPEN.
+  // Always a per-employee perpetual CLOSED shift, reused across calls
+  // (found by its own marker note) rather than creating a new throwaway
+  // row every approval — never the approver's real open shift, even when
+  // they have one. Reported live (2026-08-07): a customer's online GCash
+  // payment could sit unapproved across a shift change, then land in
+  // whichever employee's shift happened to be OPEN at approval time —
+  // sometimes a different employee than whoever was on duty when the
+  // booking was actually made, hours or days earlier — inflating that
+  // employee's "My Shift" total with money they never handled. This path
+  // is GCash-only (see resolveGcashPaymentMethodId), so it never touches
+  // a physical drawer either way; there's no cash-reconciliation reason
+  // to prefer a real shift when one happens to be open.
+  // Sale.employeeId still records who approved, independent of shiftId —
+  // audit trail is unaffected. Deliberately CLOSED, not OPEN, so
+  // approving a payment can never make someone show up as "on duty" —
+  // every "who's on duty" query in this app filters on status = OPEN.
   async resolveShiftForSaleAttribution(employeeId: string): Promise<Shift> {
-    const openShift = await this.getCurrentShift(employeeId);
-    if (openShift) {
-      return openShift;
-    }
-
     const existingExemptShift = await prisma.shift.findFirst({
       where: { employeeId, status: "CLOSED", openingNotes: { startsWith: NOT_A_CASH_DRAWER_MARKER } },
     });

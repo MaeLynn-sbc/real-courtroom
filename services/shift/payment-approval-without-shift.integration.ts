@@ -7,6 +7,15 @@
  * shift" option here — Sale.shiftId is a required column, since
  * approving creates a real Sale immediately.
  *
+ * Reported live again (2026-08-07): even WITH the synthetic-shift
+ * fallback above, an approver who happened to have a real open shift
+ * still got the Sale attributed to it — so a customer's online booking,
+ * approved hours or days after a shift change, could land on a
+ * completely different employee's real shift than whoever was on duty
+ * when the customer actually booked, inflating that employee's "My
+ * Shift" total with money they never handled. Fixed by always using the
+ * synthetic bucket for this path, never the approver's real open shift.
+ *
  * Proves, against real rows:
  *   1. An employee with NO open shift can still approve — a real Sale
  *      is created, attributed to a synthetic, CLOSED "not a real cash
@@ -16,9 +25,10 @@
  *   3. The synthetic shift never appears in listOpenShiftsWithEmployee
  *      (the "who's on duty" query) — approving a payment can never
  *      make someone show up as on duty.
- *   4. Regression: an employee who DOES have a real open shift still
- *      gets their Sale attributed to that real shift, unchanged —
- *      correct for cash reconciliation.
+ *   4. An employee who DOES have a real open shift still gets the Sale
+ *      attributed to the SYNTHETIC bucket, not their real shift — the
+ *      real shift's own sales total (what "My Shift" shows) stays at
+ *      zero, and its cash reconciliation is untouched.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -28,6 +38,7 @@ import { prisma } from "../../lib/prisma";
 import { openPlayCapacityService } from "../open-play/open-play-capacity.service";
 import { openPlayRegistrationPaymentProofService } from "../open-play/open-play-registration-payment-proof.service";
 import { openPlayRegistrationService } from "../open-play/open-play-registration.service";
+import { saleService } from "../sales/sale.service";
 import { shiftService } from "./shift.service";
 
 const TEST_USERNAME_PREFIX = "it-payapproval-";
@@ -148,7 +159,7 @@ async function main(): Promise<void> {
     );
     console.log("PASS: approving payments never makes the employee show up as on duty.");
 
-    // ============== 4. Regression: a real open shift is used unchanged ==============
+    // ============== 4. An employee WITH a real open shift still goes to the synthetic bucket ==============
     const withShiftUser = await prisma.user.create({
       data: { name: `${TEST_USERNAME_PREFIX}withshift-${suffix}`, username: `${TEST_USERNAME_PREFIX}withshift-${suffix}`, roleId: role.id },
     });
@@ -164,7 +175,11 @@ async function main(): Promise<void> {
 
     const proofC = await registerAndSubmitProof(session.id, "With Shift Approval C", "09171270003");
     const resolvedShift = await shiftService.resolveShiftForSaleAttribution(withShiftEmployee.id);
-    assert(resolvedShift.id === realShift.id, "expected an employee with a real open shift to resolve to that same real shift");
+    assert(
+      resolvedShift.id !== realShift.id,
+      "expected an employee with a real open shift to STILL resolve to the synthetic bucket, not their real shift",
+    );
+    assert(resolvedShift.status === "CLOSED", `expected the synthetic bucket to be CLOSED, got ${resolvedShift.status}`);
 
     await openPlayRegistrationPaymentProofService.approveOpenPlayRegistrationPaymentProof(proofC.id, {
       employeeId: withShiftEmployee.id,
@@ -173,8 +188,22 @@ async function main(): Promise<void> {
       actorUserId: owner.id,
     });
     const saleC = await prisma.sale.findFirstOrThrow({ where: { employeeId: withShiftEmployee.id } });
-    assert(saleC.shiftId === realShift.id, "expected the Sale to attribute to the employee's real open shift, unchanged");
-    console.log("PASS: an employee with a real open shift still gets their Sale attributed to it, unchanged.");
+    assert(saleC.shiftId === resolvedShift.id, "expected the Sale to attribute to the synthetic bucket");
+    assert(saleC.shiftId !== realShift.id, "expected the Sale to NOT attribute to the employee's real open shift");
+    console.log("PASS: an employee with a real open shift gets a payment-proof Sale attributed to the synthetic bucket, not their real shift.");
+
+    // ============== 5. The real open shift's own totals stay untouched — "My Shift" isn't inflated ==============
+    const realShiftSales = await saleService.getSalesForShift(realShift.id);
+    assert(
+      realShiftSales.totalAmountCents === 0 && realShiftSales.transactionCount === 0,
+      `expected the real open shift's sales total to stay at zero, got ${realShiftSales.totalAmountCents} cents / ${realShiftSales.transactionCount} transactions`,
+    );
+    const realShiftCashSales = await saleService.getCashSalesForShift(realShift.id);
+    assert(
+      realShiftCashSales.totalAmountCents === 0,
+      `expected the real open shift's cash reconciliation to stay untouched, got ${realShiftCashSales.totalAmountCents} cents`,
+    );
+    console.log("PASS: the real open shift's own sales total and cash reconciliation are untouched — 'My Shift' doesn't show the approval.");
 
     await cleanUp();
     console.log("\nPASS: approving a payment verification without an open shift proven against real rows.");

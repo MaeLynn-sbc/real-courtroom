@@ -97,13 +97,15 @@ export async function requireEmployeeWithOpenShift(
 // Sale immediately) — there's no such thing as "skip the shift" the way
 // requireEmployeeForBookingCreation gets to, since Booking has no
 // shiftId column to skip. shiftService.resolveShiftForSaleAttribution
-// does the actual work: a real open shift if the approver has one
-// (unchanged from requireEmployeeWithOpenShift above — correct for cash
-// reconciliation), otherwise a per-employee perpetual CLOSED shift
-// instead of denying (see that method's own comment for why CLOSED, not
-// OPEN). "Approved by (name)" already works regardless of which shift
-// this resolves to — Sale.employeeId is set independently, from the
-// approver, not derived from the shift.
+// always resolves to a per-employee perpetual CLOSED "not a real cash
+// drawer" shift, never the approver's real open shift even when they
+// have one (see that method's own comment — this path is GCash-only, so
+// there's no cash-reconciliation reason to prefer a real shift, and
+// doing so used to let a customer's late-approved payment land on
+// whichever unrelated employee's shift happened to be open). "Approved
+// by (name)" already works regardless of which shift this resolves to —
+// Sale.employeeId is set independently, from the approver, not derived
+// from the shift.
 export async function requireEmployeeForPaymentApproval(
   permission: PermissionKey,
   deniedMessage: string,
