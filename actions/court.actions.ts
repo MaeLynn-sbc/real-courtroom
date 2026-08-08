@@ -7,9 +7,11 @@ import {
   courtStatusSchema,
   createCourtSchema,
   maintenanceStatusSchema,
+  specialEventSchema,
   updateCourtSchema,
   type CourtMaintenanceInput,
   type CreateCourtInput,
+  type SpecialEventInput,
   type UpdateCourtInput,
 } from "@/features/courts/schemas/court.schema";
 import { requirePermission } from "@/lib/action-auth";
@@ -120,6 +122,53 @@ export async function scheduleMaintenanceAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "scheduleMaintenanceAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function scheduleSpecialEventAction(
+  input: SpecialEventInput,
+): Promise<CourtActionState> {
+  const authz = await requireCourtsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = specialEventSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid special event details." };
+  }
+
+  try {
+    await courtService.scheduleSpecialEvent(parsed.data, authz.userId);
+    revalidatePath("/dashboard/admin/special-events");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "scheduleSpecialEventAction", userId: authz.userId }),
+    };
+  }
+}
+
+// Reuses updateMaintenanceStatus (already generic across MAINTENANCE and
+// SPECIAL_EVENT kinds) — a thin, page-scoped wrapper so the special-
+// events admin page doesn't need to know about a courtId-scoped revalidate
+// path the way the per-court maintenance action does.
+export async function cancelSpecialEventAction(
+  maintenanceId: string,
+): Promise<CourtActionState> {
+  const authz = await requireCourtsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  try {
+    await courtService.updateMaintenanceStatus(maintenanceId, "CANCELLED", authz.userId);
+    revalidatePath("/dashboard/admin/special-events");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "cancelSpecialEventAction", userId: authz.userId }),
     };
   }
 }

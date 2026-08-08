@@ -1,0 +1,135 @@
+/**
+ * Owner request (2026-08-08): "block courts for a special event, shown
+ * publicly as 'Booked for special events' instead of the generic
+ * maintenance label." Extends CourtMaintenance (kind: SPECIAL_EVENT)
+ * rather than a new model — reuses every existing conflict-detection
+ * path.
+ *
+ * Proves, against real rows:
+ *   1. scheduleSpecialEvent creates one CourtMaintenance row per
+ *      selected court, kind SPECIAL_EVENT, sharing the same reason/
+ *      window.
+ *   2. checkAvailability rejects a booking attempt overlapping a
+ *      special event block, with conflict.type === "SPECIAL_EVENT" —
+ *      not the generic "MAINTENANCE" a customer/staff would otherwise
+ *      see.
+ *   3. Regular maintenance (kind MAINTENANCE, unchanged) still rejects
+ *      with conflict.type === "MAINTENANCE" — this feature didn't touch
+ *      the existing behavior.
+ *   4. getPublicDaySchedule's maintenanceRanges marks the special
+ *      event's window isSpecialEvent: true, and a plain maintenance
+ *      window isSpecialEvent: false.
+ *
+ * Run via `npm run test:integration`. Requires the dev database up.
+ */
+import "dotenv/config";
+
+import { prisma } from "../../lib/prisma";
+import { bookingService } from "../booking/booking.service";
+import { courtService } from "./court.service";
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(`FAIL: ${message}`);
+  }
+}
+
+const MARKER = `special-events-test-${Date.now()}`;
+
+async function main(): Promise<void> {
+  const owner = await prisma.user.findFirstOrThrow({ where: { username: "owner" } });
+  const courts = await prisma.court.findMany({ where: { deletedAt: null }, take: 2 });
+  assert(courts.length >= 2, "expected at least 2 real courts to exist for this test");
+  const [courtA, courtB] = courts;
+
+  // A fixed, far-future date/time window, isolated from any real business
+  // activity — Sunday (never Fri/Sat capacity night, never a maintenance
+  // fixture another test might collide with).
+  const startAt = new Date(2031, 5, 1, 10, 0); // Sunday, June 1 2031, 10am
+  const endAt = new Date(2031, 5, 1, 12, 0);
+
+  const maintenanceIdsToClean: string[] = [];
+
+  try {
+    // ============== 1. scheduleSpecialEvent creates one row per court ==============
+    const records = await courtService.scheduleSpecialEvent(
+      { courtIds: [courtA!.id, courtB!.id], reason: `${MARKER} tournament`, notes: "test", startAt, endAt },
+      owner.id,
+    );
+    maintenanceIdsToClean.push(...records.map((r) => r.id));
+    assert(records.length === 2, `expected 2 CourtMaintenance rows (one per court), got ${records.length}`);
+    assert(
+      records.every((r) => r.kind === "SPECIAL_EVENT"),
+      "expected every created row to have kind SPECIAL_EVENT",
+    );
+    assert(
+      records.every((r) => r.reason === `${MARKER} tournament`),
+      "expected both rows to share the same reason",
+    );
+    console.log("PASS: scheduleSpecialEvent creates one CourtMaintenance row per selected court, kind SPECIAL_EVENT.");
+
+    // ============== 2. checkAvailability rejects with SPECIAL_EVENT, not MAINTENANCE ==============
+    const resultA = await bookingService.checkAvailability(courtA!.id, startAt, endAt);
+    assert(resultA.available === false, "expected the special-event-blocked court to be unavailable");
+    assert(
+      resultA.conflict?.type === "SPECIAL_EVENT",
+      `expected conflict.type SPECIAL_EVENT, got ${resultA.conflict?.type}`,
+    );
+    console.log("PASS: checkAvailability rejects a booking attempt overlapping a special event, with conflict.type SPECIAL_EVENT.");
+
+    // A court NOT included in the special event stays unaffected.
+    const [, , courtC] = await prisma.court.findMany({ where: { deletedAt: null }, take: 3 });
+    if (courtC) {
+      const resultC = await bookingService.checkAvailability(courtC.id, startAt, endAt);
+      assert(resultC.available === true, "expected a court not part of the special event to remain available");
+      console.log("PASS: a court not included in the special event is unaffected.");
+    }
+
+    // ============== 3. Regular maintenance (unchanged) still reports MAINTENANCE ==============
+    const plainMaintenance = await courtService.scheduleMaintenance(
+      courtA!.id,
+      { reason: `${MARKER} plain maintenance`, notes: undefined, startAt: new Date(2031, 5, 2, 10, 0), endAt: new Date(2031, 5, 2, 12, 0) },
+      owner.id,
+    );
+    maintenanceIdsToClean.push(plainMaintenance.id);
+    const resultPlain = await bookingService.checkAvailability(
+      courtA!.id,
+      new Date(2031, 5, 2, 10, 0),
+      new Date(2031, 5, 2, 12, 0),
+    );
+    assert(
+      resultPlain.conflict?.type === "MAINTENANCE",
+      `expected plain maintenance to still report conflict.type MAINTENANCE (unchanged), got ${resultPlain.conflict?.type}`,
+    );
+    console.log("PASS: regular maintenance (kind MAINTENANCE, unchanged) still reports conflict.type MAINTENANCE.");
+
+    // ============== 4. getPublicDaySchedule marks isSpecialEvent correctly ==============
+    const publicSchedule = await bookingService.getPublicDaySchedule(startAt);
+    const courtASchedule = publicSchedule.find((s) => s.courtId === courtA!.id);
+    const eventRange = courtASchedule?.maintenanceRanges.find(
+      (r) => r.startAt.getTime() === startAt.getTime(),
+    );
+    assert(eventRange, "expected the special event window to appear in getPublicDaySchedule's maintenanceRanges");
+    assert(eventRange!.isSpecialEvent === true, "expected the special event range to be marked isSpecialEvent: true");
+
+    const plainSchedule = await bookingService.getPublicDaySchedule(new Date(2031, 5, 2, 0, 0));
+    const courtAPlainSchedule = plainSchedule.find((s) => s.courtId === courtA!.id);
+    const plainRange = courtAPlainSchedule?.maintenanceRanges.find(
+      (r) => r.startAt.getTime() === new Date(2031, 5, 2, 10, 0).getTime(),
+    );
+    assert(plainRange, "expected the plain maintenance window to appear in getPublicDaySchedule's maintenanceRanges");
+    assert(plainRange!.isSpecialEvent === false, "expected the plain maintenance range to be marked isSpecialEvent: false");
+    console.log("PASS: getPublicDaySchedule correctly marks isSpecialEvent per range — special event true, plain maintenance false.");
+
+    console.log("\nPASS: special events block courts and are distinguishable from plain maintenance, proven against real rows.");
+  } finally {
+    await prisma.courtMaintenance.deleteMany({ where: { id: { in: maintenanceIdsToClean } } });
+  }
+
+  process.exit(0);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

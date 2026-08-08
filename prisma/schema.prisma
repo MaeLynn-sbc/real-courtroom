@@ -740,6 +740,20 @@ enum MaintenanceStatus {
   CANCELLED
 }
 
+// Owner request (2026-08-08): "block courts for a special event, shown
+// publicly as 'Booked for special events' instead of the generic
+// maintenance label." Extends CourtMaintenance rather than a new model
+// — see CourtMaintenance's own comment for why: it's already exactly
+// "a time window that occupies a court for a non-customer reason,"
+// already wired into every conflict-detection path (create-time
+// Serializable transaction, live preview, public grid, staff grid,
+// open-play assignment). Default MAINTENANCE keeps every existing row
+// unchanged.
+enum CourtBlockKind {
+  MAINTENANCE
+  SPECIAL_EVENT
+}
+
 model Court {
   id                     String      @id @default(cuid())
   name                   String      @unique
@@ -786,6 +800,11 @@ model CourtMaintenance {
   startAt     DateTime
   endAt       DateTime
   status      MaintenanceStatus @default(SCHEDULED)
+  // See CourtBlockKind's own comment. One row per court — a special
+  // event blocking 3 courts is 3 rows sharing the same reason/window,
+  // independently cancellable, same as if 3 separate maintenance
+  // windows happened to be scheduled together.
+  kind        CourtBlockKind    @default(MAINTENANCE)
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
@@ -794,6 +813,7 @@ model CourtMaintenance {
 
   @@index([courtId, startAt, endAt])
   @@index([status])
+  @@index([kind, startAt])
 }
 
 // --- Booking System ---------------------------------------------------------

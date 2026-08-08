@@ -1,6 +1,7 @@
 import type {
   CreateCourtInput,
   CourtMaintenanceInput,
+  SpecialEventInput,
   UpdateCourtInput,
 } from "@/features/courts/schemas/court.schema";
 import { logger } from "@/lib/logger";
@@ -155,6 +156,63 @@ export class CourtService {
     });
 
     return maintenance;
+  }
+
+  // Owner request (2026-08-08): "block courts for a special event" —
+  // one CourtMaintenance row per selected court, kind: SPECIAL_EVENT,
+  // sharing the same reason/notes/window. Reuses every existing
+  // conflict-detection path (checkAvailabilityWithClient,
+  // listOccupiedWindows, getPublicDaySchedule, getStaffDaySchedule) —
+  // see CourtBlockKind's own schema comment for why this is an
+  // extension of maintenance, not a new model. $transaction so a
+  // failure partway through (e.g. a bad courtId) leaves zero rows
+  // behind, not a partially-blocked event.
+  async scheduleSpecialEvent(
+    input: SpecialEventInput,
+    actorUserId: string,
+  ): Promise<CourtMaintenance[]> {
+    const records = await prisma.$transaction(
+      input.courtIds.map((courtId) =>
+        prisma.courtMaintenance.create({
+          data: {
+            courtId,
+            createdById: actorUserId,
+            reason: input.reason,
+            notes: input.notes,
+            startAt: input.startAt,
+            endAt: input.endAt,
+            kind: "SPECIAL_EVENT",
+          },
+        }),
+      ),
+    );
+
+    await Promise.all(
+      records.map((record) =>
+        this.writeAuditLog({
+          actorUserId,
+          action: "court.special_event_scheduled",
+          entityType: "CourtMaintenance",
+          entityId: record.id,
+          newValues: record,
+        }),
+      ),
+    );
+
+    return records;
+  }
+
+  // Global list across every court — unlike maintenance, which is only
+  // ever browsed per-court from that court's own detail page, special
+  // events need their own dedicated admin page (multiple courts, one
+  // event) with a full upcoming/past list.
+  async listSpecialEvents(limit = 50): Promise<(CourtMaintenance & { court: { name: string } })[]> {
+    return prisma.courtMaintenance.findMany({
+      where: { kind: "SPECIAL_EVENT" },
+      include: { court: { select: { name: true } } },
+      orderBy: { startAt: "desc" },
+      take: limit,
+    });
   }
 
   async updateMaintenanceStatus(

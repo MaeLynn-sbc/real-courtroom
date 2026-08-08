@@ -12,7 +12,14 @@ export interface BoardCourt {
 }
 
 export interface BoardCell {
-  state: "unavailable" | "openPlay" | "past" | "booked" | "bookedCoach" | "available";
+  state:
+    | "unavailable"
+    | "specialEvent"
+    | "openPlay"
+    | "past"
+    | "booked"
+    | "bookedCoach"
+    | "available";
   // Only ever set (and only ever read) when state === "bookedCoach" —
   // see the "Coach" sub-label in the render below.
   coachName?: string;
@@ -78,6 +85,12 @@ function cellClasses(state: BoardCell["state"]): string {
       return "bg-sky-400 border-sky-500 text-navy-900 font-bold cursor-not-allowed after:bg-sky-600 after:opacity-70";
     case "bookedCoach":
       return "bg-rose-300 border-rose-400 text-navy-900 font-bold cursor-not-allowed after:bg-rose-500 after:opacity-70";
+    case "specialEvent":
+      // Owner request (2026-08-08): deliberately its own color, not
+      // folded into the generic muted "unavailable" (maintenance) look
+      // — a special event is worth standing out on the grid the same
+      // way booked/open-play do, not blending into "just unavailable."
+      return "bg-amber-400 border-amber-500 text-navy-900 font-bold cursor-not-allowed after:bg-amber-600 after:opacity-70";
     default:
       // unavailable (maintenance)
       return "bg-navy-700/40 border-transparent text-slate/50 cursor-not-allowed after:bg-slate after:opacity-20";
@@ -98,6 +111,8 @@ function cellLabel(state: BoardCell["state"]): string {
       return "Past";
     case "unavailable":
       return "Unavailable";
+    case "specialEvent":
+      return "Booked for special events";
     case "bookedCoach":
     default:
       return "Booked";

@@ -71,7 +71,7 @@ export interface CreateBookingSaleContext {
 export type CreateBookingHoldInput = CreateBookingInput & { idempotencyKey?: string };
 
 export type AvailabilityConflictType =
-  "COURT_DISABLED" | "OUTSIDE_OPERATING_HOURS" | "MAINTENANCE" | "BOOKING";
+  "COURT_DISABLED" | "OUTSIDE_OPERATING_HOURS" | "MAINTENANCE" | "SPECIAL_EVENT" | "BOOKING";
 
 export interface AvailabilityConflict {
   type: AvailabilityConflictType;
@@ -89,7 +89,7 @@ export interface PublicCourtDaySchedule {
   courtName: string;
   status: CourtStatus;
   bookedRanges: { startAt: Date; endAt: Date; hasCoach: boolean; coachName?: string }[];
-  maintenanceRanges: { startAt: Date; endAt: Date }[];
+  maintenanceRanges: { startAt: Date; endAt: Date; isSpecialEvent: boolean }[];
 }
 
 // Staff-only twin of PublicCourtDaySchedule — owner request (2026-08-05):
@@ -111,7 +111,7 @@ export interface StaffCourtDaySchedule {
     hasCoach: boolean;
     coachName?: string;
   }[];
-  maintenanceRanges: { startAt: Date; endAt: Date }[];
+  maintenanceRanges: { startAt: Date; endAt: Date; isSpecialEvent: boolean }[];
 }
 
 function describeConflict(conflict: AvailabilityConflict): string {
@@ -122,6 +122,8 @@ function describeConflict(conflict: AvailabilityConflict): string {
       return "This court isn't bookable at the selected time — it's Open Play hours.";
     case "MAINTENANCE":
       return "This court has scheduled maintenance during the selected time.";
+    case "SPECIAL_EVENT":
+      return "This court is reserved for a special event during the selected time.";
     case "BOOKING":
       return "This court is already booked during the selected time.";
   }
@@ -476,7 +478,7 @@ export class BookingService {
 
     const maintenanceWindows = await client.courtMaintenance.findMany({
       where: { courtId, status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
-      select: { startAt: true, endAt: true },
+      select: { startAt: true, endAt: true, kind: true },
     });
 
     const conflictingMaintenance = maintenanceWindows.find((window) =>
@@ -487,7 +489,7 @@ export class BookingService {
       return {
         available: false,
         conflict: {
-          type: "MAINTENANCE",
+          type: conflictingMaintenance.kind === "SPECIAL_EVENT" ? "SPECIAL_EVENT" : "MAINTENANCE",
           conflictingTimeRange: {
             startAt: conflictingMaintenance.startAt,
             endAt: conflictingMaintenance.endAt,
@@ -1260,7 +1262,7 @@ export class BookingService {
           startAt: { lt: endOfDay },
           endAt: { gt: startOfDay },
         },
-        select: { courtId: true, startAt: true, endAt: true },
+        select: { courtId: true, startAt: true, endAt: true, kind: true },
       }),
     ]);
 
@@ -1280,7 +1282,7 @@ export class BookingService {
         })),
       maintenanceRanges: maintenanceWindows
         .filter((window) => window.courtId === court.id)
-        .map(({ startAt, endAt }) => ({ startAt, endAt })),
+        .map(({ startAt, endAt, kind }) => ({ startAt, endAt, isSpecialEvent: kind === "SPECIAL_EVENT" })),
     }));
   }
 
@@ -1329,7 +1331,7 @@ export class BookingService {
           startAt: { lt: endOfDay },
           endAt: { gt: startOfDay },
         },
-        select: { courtId: true, startAt: true, endAt: true },
+        select: { courtId: true, startAt: true, endAt: true, kind: true },
       }),
     ]);
 
@@ -1352,7 +1354,7 @@ export class BookingService {
         })),
       maintenanceRanges: maintenanceWindows
         .filter((window) => window.courtId === court.id)
-        .map(({ startAt, endAt }) => ({ startAt, endAt })),
+        .map(({ startAt, endAt, kind }) => ({ startAt, endAt, isSpecialEvent: kind === "SPECIAL_EVENT" })),
     }));
   }
 

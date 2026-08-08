@@ -88,6 +88,12 @@ const PROTECTED_ROUTES: RouteRule[] = [
   // configuration (same category as Court Hours)... not by the
   // OPEN_PLAY_MANAGE permission the (separate) rotation feature uses."
   { prefix: "/dashboard/admin/open-play-capacity/", permission: PERMISSIONS.OPEN_PLAY_MANAGE },
+  // Special events (owner request, 2026-08-08): overrides the
+  // /dashboard/admin parent's SYSTEM_ADMIN default with the same
+  // permission that already gates the sibling per-court maintenance
+  // feature (scheduleMaintenanceAction, actions/court.actions.ts) —
+  // this is that same mechanism, just multi-court and reason-typed.
+  { prefix: "/dashboard/admin/special-events", permission: PERMISSIONS.COURTS_MANAGE },
 ];
 
 export type RouteAccessDecision = "allowed" | "unauthenticated" | "forbidden";

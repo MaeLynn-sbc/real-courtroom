@@ -13,7 +13,8 @@ export type StaffBoardCellState =
   | "bookedCoach"
   | "openPlay"
   | "past"
-  | "unavailable";
+  | "unavailable"
+  | "specialEvent";
 
 export interface StaffBoardCell {
   state: StaffBoardCellState;
@@ -57,6 +58,8 @@ function cellClasses(state: StaffBoardCellState): string {
       return "bg-sky-400 border-sky-500 text-navy-900 font-bold after:bg-sky-600 after:opacity-70";
     case "bookedCoach":
       return "bg-rose-300 border-rose-400 text-navy-900 font-bold after:bg-rose-500 after:opacity-70";
+    case "specialEvent":
+      return "bg-amber-400 border-amber-500 text-navy-900 font-bold after:bg-amber-600 after:opacity-70";
     case "unavailable":
     default:
       return "bg-navy-700/40 border-transparent text-slate/50 after:bg-slate after:opacity-20";
@@ -73,6 +76,8 @@ function cellLabel(state: StaffBoardCellState): string {
       return "Past";
     case "unavailable":
       return "Unavailable";
+    case "specialEvent":
+      return "Booked for special events";
     case "booked":
     case "bookedCoach":
     default:

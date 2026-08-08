@@ -157,6 +157,43 @@ describe("classifyCourtSlot", () => {
     ).toBe("unavailable");
   });
 
+  // Owner request (2026-08-08): a maintenance window created for a
+  // special event gets its own distinct state, not the generic
+  // "unavailable" every other maintenance reason reads as.
+  it("reads SPECIAL_EVENT for a maintenance range with isSpecialEvent: true", () => {
+    const now = new Date(2026, 6, 20, 9, 40).getTime();
+    expect(
+      classifyCourtSlot({
+        ...slot(8),
+        now,
+        maintenanceRanges: [
+          {
+            startAt: new Date(2026, 6, 20, 8, 0),
+            endAt: new Date(2026, 6, 20, 9, 0),
+            isSpecialEvent: true,
+          },
+        ],
+      }),
+    ).toBe("specialEvent");
+  });
+
+  it("reads plain UNAVAILABLE when isSpecialEvent is explicitly false", () => {
+    const now = new Date(2026, 6, 20, 9, 40).getTime();
+    expect(
+      classifyCourtSlot({
+        ...slot(8),
+        now,
+        maintenanceRanges: [
+          {
+            startAt: new Date(2026, 6, 20, 8, 0),
+            endAt: new Date(2026, 6, 20, 9, 0),
+            isSpecialEvent: false,
+          },
+        ],
+      }),
+    ).toBe("unavailable");
+  });
+
   // Owner request (2026-08-02): a booking with a coach gets its own
   // cell state. hasCoach is optional on CourtSlotRange precisely so the
   // fixture above (no hasCoach at all) keeps reading as plain "booked" —

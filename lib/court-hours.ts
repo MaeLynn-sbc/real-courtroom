@@ -141,7 +141,7 @@ export function isWithinCourtBookingWindow(
 // behavior, only the cell's own colour/label distinguish it from a
 // plain booking. See classifyCourtSlot below.
 export type CourtSlotState =
-  "unavailable" | "openPlay" | "past" | "booked" | "bookedCoach" | "available";
+  "unavailable" | "specialEvent" | "openPlay" | "past" | "booked" | "bookedCoach" | "available";
 
 export interface CourtSlotRange {
   startAt: Date;
@@ -154,6 +154,13 @@ export interface CourtSlotRange {
   // public figures (photo/bio on /coaches) — unlike a customer's name,
   // there's no privacy reason to withhold this on the public grid.
   coachName?: string;
+  // Owner request (2026-08-08): a maintenanceRanges entry created for a
+  // special event (CourtMaintenance.kind === "SPECIAL_EVENT") needs its
+  // own distinct public label ("Booked for special events") instead of
+  // the generic "Unavailable" every other maintenance reason gets. Only
+  // ever set on maintenanceRanges entries — bookedRanges never sets
+  // this.
+  isSpecialEvent?: boolean;
 }
 
 function rangesOverlap(slotStart: Date, slotEnd: Date, ranges: CourtSlotRange[]): boolean {
@@ -167,6 +174,16 @@ function overlappingRangeHasCoach(
 ): boolean {
   return ranges.some(
     (range) => slotStart < range.endAt && slotEnd > range.startAt && range.hasCoach,
+  );
+}
+
+function overlappingRangeIsSpecialEvent(
+  slotStart: Date,
+  slotEnd: Date,
+  ranges: CourtSlotRange[],
+): boolean {
+  return ranges.some(
+    (range) => slotStart < range.endAt && slotEnd > range.startAt && range.isSpecialEvent,
   );
 }
 
@@ -219,7 +236,9 @@ export function classifyCourtSlot(params: {
 }): CourtSlotState {
   const { hour, slotStart, slotEnd, now, window, maintenanceRanges, bookedRanges } = params;
   if (rangesOverlap(slotStart, slotEnd, maintenanceRanges)) {
-    return "unavailable";
+    return overlappingRangeIsSpecialEvent(slotStart, slotEnd, maintenanceRanges)
+      ? "specialEvent"
+      : "unavailable";
   }
   if (hour * 60 < window.openMinutes || (hour + 1) * 60 > window.closeMinutes) {
     return "openPlay";
