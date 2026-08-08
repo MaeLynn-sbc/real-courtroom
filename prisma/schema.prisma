@@ -1572,6 +1572,21 @@ model OpenPlayNightSession {
   date                      DateTime
   startAt                   DateTime
   endAt                     DateTime
+  // Owner request (2026-08-08): "sometimes we want open play at earlier
+  // times." False for every date until staff explicitly edit this
+  // date's start time — startAt is otherwise just a snapshot of the
+  // live fridaySaturdayCloseTime setting at session-creation time, same
+  // as before this field existed. Only once true does
+  // getCourtBookingWindow treat THIS date's startAt as the real,
+  // enforced court-booking cutoff instead of recomputing from the
+  // global setting — deliberately opt-in per date, not "any existing
+  // session row is an override" (unlike capacity, which already works
+  // that way): a session row already gets auto-created just from staff
+  // visiting the admin capacity page, long before this field existed,
+  // and silently freezing THOSE rows' cutoff at whatever the global
+  // setting happened to be that day would be a real, surprising
+  // regression the moment the global setting is later changed.
+  startAtOverridden         Boolean             @default(false)
   capacity                  Int
   status                    OpenPlayNightStatus @default(OPEN)
   // Date-specific override, independent of both the feature-wide switch

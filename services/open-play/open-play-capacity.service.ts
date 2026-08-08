@@ -240,6 +240,92 @@ export class OpenPlayCapacityService {
     return updated;
   }
 
+  // Owner request (2026-08-08): "sometimes we want open play at earlier
+  // times" — a real, ENFORCED override of when courts stop being
+  // bookable for that specific date, not just a display change. See
+  // startAtOverridden's own schema comment for why this is a deliberate
+  // opt-in per date rather than "any existing session row is an
+  // override" the way capacity already works. startTime is a "HH:MM"
+  // string, same convention as CourtHoursSettings.fridaySaturdayCloseTime
+  // — parsed and validated against this date's own facility close time
+  // (getEffectiveFridaySaturdayEndMinutes below reads the SAME endAt,
+  // never overridden by this method) so an override can never be set
+  // past when the building itself closes.
+  async overrideSessionStartTime(
+    date: Date,
+    startTime: string,
+    actorUserId: string,
+  ): Promise<OpenPlayNightSession> {
+    const session = await this.getOrCreateSessionForDate(date);
+    const startMinutes = parseTimeToMinutes(startTime);
+    const endMinutes = session.endAt.getHours() * 60 + session.endAt.getMinutes();
+    if (startMinutes >= (endMinutes === 0 ? 24 * 60 : endMinutes)) {
+      throw new Error("Start time must be before the facility closes that night.");
+    }
+
+    const newStartAt = atMinutesOfDay(session.date, startMinutes);
+    const updated = await prisma.openPlayNightSession.update({
+      where: { id: session.id },
+      data: { startAt: newStartAt, startAtOverridden: true },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_session.start_time_overridden",
+      entityType: "OpenPlayNightSession",
+      entityId: session.id,
+      oldValues: { startAt: session.startAt, startAtOverridden: session.startAtOverridden },
+      newValues: { startAt: newStartAt, startAtOverridden: true },
+    });
+
+    return updated;
+  }
+
+  // Reverts to the live-computed default (same formula
+  // getOrCreateSessionForDate itself uses) — for when staff want this
+  // date to stop being a special case and just follow the normal
+  // fridaySaturdayCloseTime setting again, including picking up any
+  // change to that setting made since the override was set.
+  async resetSessionStartTime(date: Date, actorUserId: string): Promise<OpenPlayNightSession> {
+    const session = await this.getOrCreateSessionForDate(date);
+    const courtHours = await settingsService.getCourtHours();
+    const newStartAt = atMinutesOfDay(session.date, parseTimeToMinutes(courtHours.fridaySaturdayCloseTime));
+
+    const updated = await prisma.openPlayNightSession.update({
+      where: { id: session.id },
+      data: { startAt: newStartAt, startAtOverridden: false },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_session.start_time_reset",
+      entityType: "OpenPlayNightSession",
+      entityId: session.id,
+      oldValues: { startAt: session.startAt, startAtOverridden: session.startAtOverridden },
+      newValues: { startAt: newStartAt, startAtOverridden: false },
+    });
+
+    return updated;
+  }
+
+  // The resolver every court-booking-cutoff call site consults, ONCE per
+  // page load/request (never per grid cell — see getCourtBookingWindow's
+  // own "no query per cell" comment) — undefined means "no override,
+  // use the live global setting," exactly like every other caller
+  // already does today. Non-Fri/Sat dates always return undefined: this
+  // override only ever exists for Open Play nights.
+  async getStartTimeOverrideMinutes(date: Date): Promise<number | undefined> {
+    const dayOfWeek = date.getDay();
+    if (!isOpenPlayDayOfWeek(dayOfWeek)) {
+      return undefined;
+    }
+    const session = await prisma.openPlayNightSession.findUnique({ where: { date: toMidnight(date) } });
+    if (!session?.startAtOverridden) {
+      return undefined;
+    }
+    return session.startAt.getHours() * 60 + session.startAt.getMinutes();
+  }
+
   // "One per date. Created on demand from the weekday default" — nothing
   // pre-populates future Friday/Saturday rows; this is the sole entry
   // point that materializes one, called either by an owner setting a

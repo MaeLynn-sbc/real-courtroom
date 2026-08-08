@@ -57,17 +57,37 @@ export function getFacilityCloseMinutes(settings: CourtHoursSettings, date: Date
 // cutoff (or the Fri/Sat all-courts cutoff) can only make the window
 // narrower, never wider — see BUILD-SPEC.md §0 "Facility close is a
 // PUBLIC limit, not a data limit."
+//
+// Owner request (2026-08-08): "sometimes we want open play at earlier
+// times" — startTimeOverrideMinutes lets a SPECIFIC Fri/Sat date's cutoff
+// win over the live fridaySaturdayCloseTime setting, real enforcement
+// (not just display) since every caller of this function — the public/
+// staff grids, both booking forms, and the Serializable-transaction
+// gate inside createBooking — feeds straight into whether a court
+// actually accepts a booking. Deliberately still a PURE function, no DB
+// access here: callers resolve the override ONCE per page load/request
+// via openPlayCapacityService.getStartTimeOverrideMinutes, same
+// discipline this function's own top comment already establishes for
+// `settings` itself (fetch once, reuse across every cell). Undefined
+// (the default) means "no override, behave exactly as before this
+// parameter existed" — every existing call site that doesn't pass it
+// is completely unaffected.
 export function getCourtBookingWindow(
   settings: CourtHoursSettings,
   courtName: string,
   date: Date,
+  startTimeOverrideMinutes?: number,
 ): CourtBookingWindow {
   const facilityCloseMinutes = getFacilityCloseMinutes(settings, date);
 
-  const courtCutoffTime = isFridayOrSaturday(date)
-    ? settings.fridaySaturdayCloseTime
-    : (settings.courtCloseTimes[courtName] ?? "00:00");
-  const courtCutoffMinutes = parseCourtCutoffMinutes(courtCutoffTime);
+  let courtCutoffMinutes: number | null;
+  if (startTimeOverrideMinutes !== undefined) {
+    courtCutoffMinutes = startTimeOverrideMinutes;
+  } else if (isFridayOrSaturday(date)) {
+    courtCutoffMinutes = parseCourtCutoffMinutes(settings.fridaySaturdayCloseTime);
+  } else {
+    courtCutoffMinutes = parseCourtCutoffMinutes(settings.courtCloseTimes[courtName] ?? "00:00");
+  }
 
   const closeMinutes =
     courtCutoffMinutes === null
@@ -94,15 +114,21 @@ export function getCourtBookingWindow(
 // courtCutoffTime's "no cutoff at all" sentinel — disabling the early
 // Fri/Sat court-booking cutoff must not also silently disable Fri/Sat
 // unlimited capacity mode for the whole night.
+// startTimeOverrideMinutes: same per-date override as
+// getCourtBookingWindow — if Open Play genuinely starts earlier on this
+// specific night, walk-in registration must switch to unlimited mode at
+// that same earlier moment, not the (now stale) global default.
 export function isBeforeFridaySaturdayOpenPlayCutoff(
   settings: CourtHoursSettings,
   date: Date,
   now: Date,
+  startTimeOverrideMinutes?: number,
 ): boolean {
   if (!isFridayOrSaturday(date)) {
     return true;
   }
-  const cutoffMinutes = parseFacilityCloseMinutes(settings.fridaySaturdayCloseTime);
+  const cutoffMinutes =
+    startTimeOverrideMinutes ?? parseFacilityCloseMinutes(settings.fridaySaturdayCloseTime);
   const cutoff = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   cutoff.setHours(0, cutoffMinutes, 0, 0);
   return now.getTime() < cutoff.getTime();
@@ -122,8 +148,9 @@ export function isWithinCourtBookingWindow(
   courtName: string,
   startAt: Date,
   endAt: Date,
+  startTimeOverrideMinutes?: number,
 ): boolean {
-  const window = getCourtBookingWindow(settings, courtName, startAt);
+  const window = getCourtBookingWindow(settings, courtName, startAt, startTimeOverrideMinutes);
 
   const startMinutes = minutesSinceMidnight(startAt);
   const endsAtNextMidnight =

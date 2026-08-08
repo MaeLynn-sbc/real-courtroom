@@ -7,12 +7,16 @@ import {
   closedMessageForDateInputSchema,
   onlineRegistrationBlockedForDateInputSchema,
   onlineRegistrationEnabledInputSchema,
+  resetStartTimeInputSchema,
   sessionCapacityOverrideInputSchema,
+  startTimeOverrideInputSchema,
   type CapacityDefaultInput,
   type ClosedMessageForDateInput,
   type OnlineRegistrationBlockedForDateInput,
   type OnlineRegistrationEnabledInput,
+  type ResetStartTimeInput,
   type SessionCapacityOverrideInput,
+  type StartTimeOverrideInput,
 } from "@/features/open-play-capacity/schemas/open-play-capacity.schema";
 import { requireSystemAdmin } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
@@ -161,6 +165,72 @@ export async function setClosedMessageForDateAction(
         action: "setClosedMessageForDateAction",
         userId: authz.userId,
       }),
+    };
+  }
+}
+
+// Owner request (2026-08-08): "sometimes we want to have open play at
+// earlier times" — real enforcement (lib/court-hours.ts's
+// startTimeOverrideMinutes parameter), not display-only, so this is gated
+// the same as every other business-policy toggle on this page.
+export async function overrideSessionStartTimeAction(
+  input: StartTimeOverrideInput,
+): Promise<OpenPlayCapacityActionState> {
+  const authz = await requireOpenPlayCapacityAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = startTimeOverrideInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const date = new Date(`${parsed.data.date}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return { error: "Enter a valid date." };
+  }
+
+  try {
+    await openPlayCapacityService.overrideSessionStartTime(date, parsed.data.startTime, authz.userId);
+    revalidateOpenPlayCapacity();
+    revalidatePath("/open-play/register");
+    revalidatePath("/");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "overrideSessionStartTimeAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function resetSessionStartTimeAction(
+  input: ResetStartTimeInput,
+): Promise<OpenPlayCapacityActionState> {
+  const authz = await requireOpenPlayCapacityAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = resetStartTimeInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const date = new Date(`${parsed.data.date}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return { error: "Enter a valid date." };
+  }
+
+  try {
+    await openPlayCapacityService.resetSessionStartTime(date, authz.userId);
+    revalidateOpenPlayCapacity();
+    revalidatePath("/open-play/register");
+    revalidatePath("/");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "resetSessionStartTimeAction", userId: authz.userId }),
     };
   }
 }

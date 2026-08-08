@@ -54,3 +54,25 @@ export const closedMessageForDateInputSchema = z.object({
 });
 
 export type ClosedMessageForDateInput = z.infer<typeof closedMessageForDateInputSchema>;
+
+// Owner request (2026-08-08): "sometimes we want to have open play at
+// earlier times" — a per-date override of when a specific Fri/Sat night's
+// court-booking cutoff (and walk-in registration mode switch) kicks in.
+// "HH:MM" (24h), same format every other time-of-day setting in this file's
+// sibling schema (CourtHoursSettings) already uses — validated as a real
+// time, not just any string, since it flows straight into
+// parseTimeToMinutes.
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export const startTimeOverrideInputSchema = z.object({
+  date: z.string().min(1, "Choose a date."),
+  startTime: z.string().regex(TIME_PATTERN, "Enter a valid time (HH:MM)."),
+});
+
+export type StartTimeOverrideInput = z.infer<typeof startTimeOverrideInputSchema>;
+
+export const resetStartTimeInputSchema = z.object({
+  date: z.string().min(1, "Choose a date."),
+});
+
+export type ResetStartTimeInput = z.infer<typeof resetStartTimeInputSchema>;

@@ -8,6 +8,7 @@ import {
 import { classifyCourtSlot, getCourtBookingWindow } from "@/lib/court-hours";
 import { bookingService } from "@/services/booking/booking.service";
 import { courtService } from "@/services/court/court.service";
+import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
@@ -54,10 +55,11 @@ export default async function BookingsGridPage({ searchParams }: BookingsGridPag
   const { date: dateParam } = await searchParams;
   const date = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();
 
-  const [courts, schedule, courtHours] = await Promise.all([
+  const [courts, schedule, courtHours, startTimeOverrideMinutes] = await Promise.all([
     courtService.listCourts(),
     bookingService.getStaffDaySchedule(date),
     settingsService.getCourtHours(),
+    openPlayCapacityService.getStartTimeOverrideMinutes(date),
   ]);
 
   const activeCourts = courts.filter((court) => court.status === "ACTIVE");
@@ -76,7 +78,7 @@ export default async function BookingsGridPage({ searchParams }: BookingsGridPag
 
     for (const court of activeCourts) {
       const courtSchedule = scheduleByCourtId.get(court.id);
-      const window = getCourtBookingWindow(courtHours, court.name, date);
+      const window = getCourtBookingWindow(courtHours, court.name, date, startTimeOverrideMinutes);
       const bookedRanges = courtSchedule?.bookedRanges ?? [];
 
       const state = classifyCourtSlot({

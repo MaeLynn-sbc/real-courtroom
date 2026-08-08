@@ -12,6 +12,7 @@ import { OpenPlaySessionTabs } from "@/features/open-play-capacity/components/op
 import { OpenTabsCarryoverBanner } from "@/features/open-play-capacity/components/open-tabs-carryover-banner";
 import { RegistrationRosterPanel } from "@/features/open-play-capacity/components/registration-roster-panel";
 import { RotationBoard } from "@/features/open-play-capacity/components/rotation-board";
+import { StartTimeOverrideField } from "@/features/open-play-capacity/components/start-time-override-field";
 import { TabsPanel } from "@/features/open-play-capacity/components/tabs-panel";
 import {
   WalkInRegistrationForm,
@@ -60,6 +61,11 @@ function addDays(date: Date, days: number): Date {
 function toDateValue(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function toTimeValue(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 // Decision logic (lib/open-play-carryover.ts) is pure and unit-tested
@@ -122,12 +128,24 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     // cutoff getCourtBookingWindow already uses for Fri/Sat court
     // bookings, not a second guess at it.
     const courtHours = await settingsService.getCourtHours();
-    const walkInRegularMode = isBeforeFridaySaturdayOpenPlayCutoff(courtHours, date, new Date());
 
     // Viewing the page materializes the session (if it doesn't already
     // exist) the same way an owner setting a per-date override does —
     // "one per date, created on demand" (BUILD-SPEC.md §5).
     const session = await openPlayCapacityService.getOrCreateSessionForDate(date);
+    // Owner request (2026-08-08): a per-date start-time override must move
+    // this same cutoff, not just the court-booking window — otherwise
+    // walk-in registration would keep routing to the regular (per-game)
+    // form for an hour Open Play has already taken over.
+    const startTimeOverrideMinutes = session.startAtOverridden
+      ? session.startAt.getHours() * 60 + session.startAt.getMinutes()
+      : undefined;
+    const walkInRegularMode = isBeforeFridaySaturdayOpenPlayCutoff(
+      courtHours,
+      date,
+      new Date(),
+      startTimeOverrideMinutes,
+    );
     const [
       { registrations, skillBreakdown },
       { expected, checkedIn },
@@ -178,6 +196,11 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
                 blocked={session.onlineRegistrationBlocked}
               />
               <ClosedMessageField date={dateParam} message={session.closedMessage} />
+              <StartTimeOverrideField
+                date={dateParam}
+                startTime={toTimeValue(session.startAt)}
+                overridden={session.startAtOverridden}
+              />
             </div>
           </div>
           {session.status === "OPEN" ? (

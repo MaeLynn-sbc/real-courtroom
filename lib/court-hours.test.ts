@@ -65,6 +65,36 @@ describe("getCourtBookingWindow", () => {
     };
     expect(getCourtBookingWindow(midnightClose, "Court 3", MONDAY).closeMinutes).toBe(24 * 60);
   });
+
+  // Owner request (2026-08-08): a per-date start-time override wins over
+  // BOTH the live Fri/Sat global setting and a court's own weeknight
+  // cutoff — it's a real, narrower cutoff for that one night, not a
+  // display-only hint.
+  it("lets a startTimeOverrideMinutes win over the Fri/Sat global cutoff", () => {
+    const earlierOverride = 16 * 60; // 4:00 PM, earlier than the 6PM default
+    expect(getCourtBookingWindow(SETTINGS, "Court 3", FRIDAY, earlierOverride).closeMinutes).toBe(
+      earlierOverride,
+    );
+  });
+
+  it("still caps an override at facility close if the override is later", () => {
+    const lateOverride = 23 * 60 + 30; // 11:30 PM — past the 11PM facility close
+    expect(getCourtBookingWindow(SETTINGS, "Court 3", FRIDAY, lateOverride).closeMinutes).toBe(
+      23 * 60,
+    );
+  });
+
+  // The function itself is a pure, unconditional "if defined, it wins" —
+  // it's the CALLER (openPlayCapacityService.getStartTimeOverrideMinutes)
+  // that only ever resolves a defined value for Fri/Sat dates, so this
+  // never fires in practice on a weeknight. Documented here so that
+  // invariant stays visible at the one place it could silently break.
+  it("applies an override unconditionally when passed, even off Fri/Sat", () => {
+    const override = 12 * 60;
+    expect(getCourtBookingWindow(SETTINGS, "Court 1", MONDAY, override).closeMinutes).toBe(
+      override,
+    );
+  });
 });
 
 describe("isWithinCourtBookingWindow", () => {
@@ -285,5 +315,20 @@ describe("isBeforeFridaySaturdayOpenPlayCutoff", () => {
     expect(isBeforeFridaySaturdayOpenPlayCutoff(midnightCutoffSettings, FRIDAY, lateEvening)).toBe(
       true,
     );
+  });
+
+  // Owner request (2026-08-08): if Open Play genuinely starts earlier on
+  // a specific night, walk-in registration must switch to unlimited mode
+  // at that same earlier moment, not the (now stale) global 6PM default.
+  it("uses an earlier override cutoff instead of the global default", () => {
+    const earlierOverride = 14 * 60; // 2:00 PM
+    const beforeOverride = new Date(2026, 6, 24, 13, 0); // 1pm — still before 2pm
+    const afterOverride = new Date(2026, 6, 24, 15, 0); // 3pm — past 2pm, before the old 6pm default
+    expect(
+      isBeforeFridaySaturdayOpenPlayCutoff(SETTINGS, FRIDAY, beforeOverride, earlierOverride),
+    ).toBe(true);
+    expect(
+      isBeforeFridaySaturdayOpenPlayCutoff(SETTINGS, FRIDAY, afterOverride, earlierOverride),
+    ).toBe(false);
   });
 });

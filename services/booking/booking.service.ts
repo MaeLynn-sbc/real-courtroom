@@ -21,6 +21,7 @@ import { canTransitionBookingStatus } from "@/services/booking/booking-status";
 import { PAY_AT_VENUE_PAYMENT_METHOD_KEY } from "@/lib/system-identities";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { recordCoachSessionFeeSale } from "@/services/coaching/coach-session-fee-sale";
+import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { saleService } from "@/services/sales/sale.service";
 import { settingsService } from "@/services/settings/settings.service";
 import { getUploadService } from "@/services/upload/upload-service.factory";
@@ -470,8 +471,16 @@ export class BookingService {
     }
 
     if (enforceOperatingHours) {
-      const courtHours = await settingsService.getCourtHours();
-      if (!isWithinCourtBookingWindow(courtHours, court.name, startAt, endAt)) {
+      const [courtHours, startTimeOverrideMinutes] = await Promise.all([
+        settingsService.getCourtHours(),
+        // Owner request (2026-08-08): the REAL enforcement point, inside
+        // the same Serializable transaction createBooking already runs
+        // its whole conflict check in — a per-date Open Play start-time
+        // override must reject a booking here, not just visually grey
+        // out the grid. See getCourtBookingWindow's own comment.
+        openPlayCapacityService.getStartTimeOverrideMinutes(startAt),
+      ]);
+      if (!isWithinCourtBookingWindow(courtHours, court.name, startAt, endAt, startTimeOverrideMinutes)) {
         return { available: false, conflict: { type: "OUTSIDE_OPERATING_HOURS" } };
       }
     }
