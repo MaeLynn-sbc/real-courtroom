@@ -154,7 +154,16 @@ async function countOccupiedSeats(
 // (still reachable by anyone who already has that older proofId, e.g.
 // from Audit Logs).
 export type SessionRegistrationWithLatestProof = OpenPlayNightRegistration & {
-  paymentProofs: { id: string; status: OpenPlayRegistrationPaymentProofStatus }[];
+  paymentProofs: {
+    id: string;
+    status: OpenPlayRegistrationPaymentProofStatus;
+    // Owner request (2026-08-08): the roster's proof badge said
+    // "Approved" with no way to tell WHO approved it short of clicking
+    // through to the proof detail page. Rides along in the same query,
+    // same "JOIN, not a second round trip" reasoning as every other
+    // roster field.
+    resolvedByEmployee: { firstName: string; lastName: string } | null;
+  }[];
 };
 
 export interface SessionRegistrations {
@@ -1321,7 +1330,11 @@ export class OpenPlayRegistrationService {
         paymentProofs: {
           orderBy: { submittedAt: "desc" },
           take: 1,
-          select: { id: true, status: true },
+          select: {
+            id: true,
+            status: true,
+            resolvedByEmployee: { select: { firstName: true, lastName: true } },
+          },
         },
       },
     });

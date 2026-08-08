@@ -57,7 +57,11 @@ interface RosterRegistration {
   // — the detail page itself already handles every status, so this is
   // just wiring a link to it. At most one row (getSessionRegistrations'
   // own take: 1, most recent submission first).
-  paymentProofs: { id: string; status: string }[];
+  paymentProofs: {
+    id: string;
+    status: string;
+    resolvedByEmployee: { firstName: string; lastName: string } | null;
+  }[];
 }
 
 const PROOF_STATUS_BADGE_VARIANT: Record<string, "status" | "warning" | "destructive"> = {
@@ -66,24 +70,39 @@ const PROOF_STATUS_BADGE_VARIANT: Record<string, "status" | "warning" | "destruc
   REJECTED: "destructive",
 };
 
-function ProofLink({ proof }: { proof: { id: string; status: string } }) {
+function ProofLink({
+  proof,
+}: {
+  proof: {
+    id: string;
+    status: string;
+    resolvedByEmployee: { firstName: string; lastName: string } | null;
+  };
+}) {
   return (
-    <Link
-      href={`/dashboard/admin/open-play-capacity/verify-payments/${proof.id}`}
-      className="inline-flex"
-    >
-      <Badge
-        variant={PROOF_STATUS_BADGE_VARIANT[proof.status] ?? "status"}
-        className="cursor-pointer"
+    <div className="flex flex-col items-start gap-0.5">
+      <Link
+        href={`/dashboard/admin/open-play-capacity/verify-payments/${proof.id}`}
+        className="inline-flex"
       >
-        Proof ·{" "}
-        {proof.status === "APPROVED"
-          ? "Approved"
-          : proof.status === "REJECTED"
-            ? "Rejected"
-            : "Pending"}
-      </Badge>
-    </Link>
+        <Badge
+          variant={PROOF_STATUS_BADGE_VARIANT[proof.status] ?? "status"}
+          className="cursor-pointer"
+        >
+          Proof ·{" "}
+          {proof.status === "APPROVED"
+            ? "Approved"
+            : proof.status === "REJECTED"
+              ? "Rejected"
+              : "Pending"}
+        </Badge>
+      </Link>
+      {proof.resolvedByEmployee ? (
+        <span className="text-muted-foreground text-xs">
+          by {proof.resolvedByEmployee.firstName} {proof.resolvedByEmployee.lastName}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
