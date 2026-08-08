@@ -71,9 +71,10 @@ interface ReportsPageProps {
 export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const params = await searchParams;
   const range = resolveDateRangeFromSearchParams(params);
-  const [revenue, totalExpensesCents] = await Promise.all([
+  const [revenue, totalExpensesCents, cashPosition] = await Promise.all([
     reportingService.getRevenueReport(range),
     expenseService.getExpensesTotalForRange(range),
+    reportingService.getCashPositionSummary(range),
   ]);
   const netCents = revenue.totalAmountCents - totalExpensesCents;
 
@@ -143,6 +144,28 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
             <span className="text-muted-foreground text-xs">GCash collected</span>
             <span className="font-semibold tabular-nums">
               {formatCurrency(revenue.gcashAmountCents)}
+            </span>
+          </div>
+          <div className="flex flex-col gap-1 border-t pt-3">
+            <span className="text-muted-foreground text-xs">Cash starting balance</span>
+            <span className="font-semibold tabular-nums">
+              {cashPosition.cashStartingBalanceCents === null
+                ? "—"
+                : formatCurrency(cashPosition.cashStartingBalanceCents)}
+            </span>
+          </div>
+          <div className="flex flex-col gap-1 border-t pt-3">
+            <span className="text-muted-foreground text-xs">Cash deposited</span>
+            <span className="font-semibold tabular-nums">
+              {formatCurrency(cashPosition.cashDepositedCents)}
+            </span>
+          </div>
+          <div className="flex flex-col gap-1 border-t pt-3">
+            <span className="text-muted-foreground text-xs">GCash starting balance</span>
+            <span className="font-semibold tabular-nums">
+              {cashPosition.gcashStartingBalanceCents === null
+                ? "—"
+                : formatCurrency(cashPosition.gcashStartingBalanceCents)}
             </span>
           </div>
           <div className="flex flex-col gap-1 border-t pt-3 sm:col-span-2">

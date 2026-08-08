@@ -207,6 +207,15 @@ export interface RevenueReportResult {
   totalAmountCents: number;
 }
 
+// See getCashPositionSummary's own comment for why starting balances are
+// nullable (no daily-balance row yet) while cashDepositedCents is a plain
+// number (a range with no rows sums to a real, correct 0).
+export interface CashPositionSummaryResult {
+  cashStartingBalanceCents: number | null;
+  cashDepositedCents: number;
+  gcashStartingBalanceCents: number | null;
+}
+
 export class ReportingService {
   async getBookingReport(range: DateRange): Promise<BookingReportResult> {
     const bookings = await prisma.booking.findMany({
@@ -663,6 +672,47 @@ export class ReportingService {
           openPlayNightRegistration: { date: inRange },
         },
       ],
+    };
+  }
+
+  // Owner request (2026-08-08): "add in the account reports the amount of
+  // money for deposit and the starting money" — the Reports page only
+  // ever showed Sale-sourced revenue (Cash/GCash collected); it never
+  // surfaced the drawer/float state itself, which lives on
+  // CashDailyBalance/GcashDailyBalance instead (see those models' own
+  // schema comments). "Starting balance" is the range's OPENING float —
+  // the earliest daily-balance row on or after range.from, not a sum
+  // across the range (summing floats across days would double-count the
+  // same money as it carries forward night to night). "Deposited" is
+  // Cash-only (withdrawnCents — cash physically pulled for the bank/safe,
+  // see CashDailyBalance.withdrawnCents' own comment); GCash has no
+  // physical-pull equivalent, so it only gets a starting balance. Both
+  // starting-balance fields are null (not 0) when no daily-balance row
+  // exists yet in range — a day nobody has opened the reconciliation page
+  // for yet is genuinely "no data," not a real zero float.
+  async getCashPositionSummary(range: DateRange): Promise<CashPositionSummaryResult> {
+    const dateInRange = { gte: range.from, lte: range.to };
+    const [firstCashBalance, cashWithdrawn, firstGcashBalance] = await Promise.all([
+      prisma.cashDailyBalance.findFirst({
+        where: { date: dateInRange },
+        orderBy: { date: "asc" },
+        select: { startingBalanceCents: true },
+      }),
+      prisma.cashDailyBalance.aggregate({
+        where: { date: dateInRange },
+        _sum: { withdrawnCents: true },
+      }),
+      prisma.gcashDailyBalance.findFirst({
+        where: { date: dateInRange },
+        orderBy: { date: "asc" },
+        select: { startingBalanceCents: true },
+      }),
+    ]);
+
+    return {
+      cashStartingBalanceCents: firstCashBalance?.startingBalanceCents ?? null,
+      cashDepositedCents: cashWithdrawn._sum.withdrawnCents ?? 0,
+      gcashStartingBalanceCents: firstGcashBalance?.startingBalanceCents ?? null,
     };
   }
 
