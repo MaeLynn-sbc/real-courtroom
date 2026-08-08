@@ -26,24 +26,19 @@ async function clickAsync(element: Element) {
   });
 }
 
-async function selectOptionAsync(element: Element) {
-  await act(async () => {
-    fireEvent.pointerDown(element, { pointerType: "mouse" });
-    fireEvent.click(element);
-  });
-}
-
-// Was two dropdowns ("Paid via" + "Payment method") asking the same
-// question — collapsed to one, with settledVia's CASH/GCASH value now
-// derived from the selected PaymentMethod row's key rather than asked
-// for separately. These prove the single control actually drives the
-// derived value the settle action receives, not just that it renders.
-describe("SettleBookingForm — single payment control, derived method", () => {
+// Owner request (2026-08-08), root-cause fix for attendants recording a
+// Cash payment as GCash (or the reverse): the dropdown that silently
+// defaulted to Cash is gone — two equal buttons, neither selected until
+// tapped, and Confirm stays disabled until one is. These prove the new
+// control actually drives the derived value the settle action receives
+// (not just that it renders), that nothing is pre-selected, and that the
+// confirmation echo reflects whichever was actually chosen.
+describe("SettleBookingForm — two-button payment picker, no default selection", () => {
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  it("renders exactly one payment-method control, defaulting to the first option", () => {
+  it("renders both Cash and GCash buttons with neither selected, and Confirm disabled", () => {
     render(
       <SettleBookingForm
         bookingId="booking-1"
@@ -51,11 +46,15 @@ describe("SettleBookingForm — single payment control, derived method", () => {
         paymentMethods={paymentMethods}
       />,
     );
-    expect(screen.getAllByRole("combobox")).toHaveLength(1);
-    expect(screen.getByText("Cash")).toBeInTheDocument();
+    const cashButton = screen.getByRole("button", { name: "Cash" });
+    const gcashButton = screen.getByRole("button", { name: "GCash" });
+    expect(cashButton).toHaveAttribute("aria-pressed", "false");
+    expect(gcashButton).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /confirm/i })).toBeDisabled();
+    expect(screen.queryByText(/settling/i)).not.toBeInTheDocument();
   });
 
-  it("submits with method derived from the selected Cash row, no separate 'Paid via' field", async () => {
+  it("submits with method derived from clicking Cash, and echoes the choice before commit", async () => {
     mockedSettleBookingAction.mockResolvedValue({ error: null });
     render(
       <SettleBookingForm
@@ -64,6 +63,10 @@ describe("SettleBookingForm — single payment control, derived method", () => {
         paymentMethods={paymentMethods}
       />,
     );
+
+    await clickAsync(screen.getByRole("button", { name: "Cash" }));
+    expect(screen.getByRole("button", { name: "Cash" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/settling.*as cash/i)).toBeInTheDocument();
 
     await clickAsync(screen.getByRole("button", { name: /confirm/i }));
 
@@ -76,7 +79,7 @@ describe("SettleBookingForm — single payment control, derived method", () => {
     });
   });
 
-  it("switching to GCash reveals the reference field and derives method GCASH", async () => {
+  it("clicking GCash reveals the reference field, blocks submit until it's filled, and derives method GCASH", async () => {
     mockedSettleBookingAction.mockResolvedValue({ error: null });
     render(
       <SettleBookingForm
@@ -88,10 +91,13 @@ describe("SettleBookingForm — single payment control, derived method", () => {
 
     expect(screen.queryByLabelText(/gcash reference/i)).not.toBeInTheDocument();
 
-    await clickAsync(screen.getByRole("combobox"));
-    await selectOptionAsync(await screen.findByRole("option", { name: "GCash" }));
+    await clickAsync(screen.getByRole("button", { name: "GCash" }));
 
     expect(screen.getByLabelText(/gcash reference/i)).toBeInTheDocument();
+    expect(screen.getByText(/settling.*as gcash/i)).toBeInTheDocument();
+    // Confirm is enabled the moment a method is chosen — the reference
+    // requirement is checked on submit, not by disabling the button.
+    expect(screen.getByRole("button", { name: /confirm/i })).toBeEnabled();
 
     await clickAsync(screen.getByRole("button", { name: /confirm/i }));
     expect(screen.getByText(/enter a gcash reference/i)).toBeInTheDocument();

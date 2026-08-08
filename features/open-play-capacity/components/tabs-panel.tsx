@@ -63,7 +63,10 @@ export function TabsPanel({
   const [isPending, startTransition] = useTransition();
   const [openTabId, setOpenTabId] = useState<string | null>(null);
   const [gcashReference, setGcashReference] = useState("");
-  const [paymentMethodId, setPaymentMethodId] = useState(paymentMethods[0]?.id ?? "");
+  // Owner request (2026-08-08), root-cause fix: no default selection — an
+  // attendant must actively pick CASH or GCASH for every settlement, see
+  // settlement-payment-fields.tsx's own top comment.
+  const [paymentMethodId, setPaymentMethodId] = useState("");
   const [adjustDescription, setAdjustDescription] = useState("");
   const [adjustAmount, setAdjustAmount] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
@@ -86,6 +89,9 @@ export function TabsPanel({
   function resetSettleForm() {
     setOpenTabId(null);
     setGcashReference("");
+    // Reset back to no selection — every settlement starts unchosen, not
+    // just the first one (see paymentMethodId's own comment above).
+    setPaymentMethodId("");
     setAdjustDescription("");
     setAdjustAmount("");
     setAdjustReason("");
@@ -285,7 +291,14 @@ export function TabsPanel({
                           size="sm"
                           variant="ghost"
                           disabled={isPending}
-                          onClick={() => setOpenTabId(isSettling ? null : tab.id)}
+                          onClick={() => {
+                            // Opening a DIFFERENT tab's settle panel must
+                            // start unchosen too, not carry over whichever
+                            // method was last picked for another tab.
+                            setPaymentMethodId("");
+                            setGcashReference("");
+                            setOpenTabId(isSettling ? null : tab.id);
+                          }}
                         >
                           {isSettling ? "Cancel" : "Settle"}
                         </Button>
@@ -374,11 +387,12 @@ export function TabsPanel({
                             gcashReference={gcashReference}
                             onGcashReferenceChange={setGcashReference}
                             idPrefix={`tabSettlePaymentMethod-${tab.id}`}
+                            amountCents={tab.totalCents}
                           />
                           <Button
                             type="button"
                             size="sm"
-                            disabled={isPending}
+                            disabled={isPending || !paymentMethodId}
                             onClick={() => handleSettle(tab.id)}
                           >
                             Confirm {formatCurrency(tab.totalCents)} settled

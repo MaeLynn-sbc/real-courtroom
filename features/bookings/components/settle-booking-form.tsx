@@ -43,7 +43,10 @@ export function SettleBookingForm({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [gcashReference, setGcashReference] = useState("");
-  const [paymentMethodId, setPaymentMethodId] = useState(paymentMethods[0]?.id ?? "");
+  // Owner request (2026-08-08), root-cause fix: no default selection — an
+  // attendant must actively pick CASH or GCASH, see
+  // settlement-payment-fields.tsx's own top comment.
+  const [paymentMethodId, setPaymentMethodId] = useState("");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -102,8 +105,9 @@ export function SettleBookingForm({
             gcashReference={gcashReference}
             onGcashReferenceChange={setGcashReference}
             idPrefix="settleBookingPaymentMethod"
+            amountCents={amountCents}
           />
-          <Button type="button" disabled={isPending} onClick={handleSettle}>
+          <Button type="button" disabled={isPending || !paymentMethodId} onClick={handleSettle}>
             Confirm {formatCurrency(amountCents)} settled
           </Button>
         </div>

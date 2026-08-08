@@ -108,7 +108,10 @@ export function WalkInRegistrationForm({
   const [skillLevel, setSkillLevel] = useState<OpenPlaySkillLevel>("BEGINNER");
   const [matchedPlayerId, setMatchedPlayerId] = useState<string | undefined>(undefined);
   const [gcashReference, setGcashReference] = useState("");
-  const [paymentMethodId, setPaymentMethodId] = useState(paymentMethods[0]?.id ?? "");
+  // Owner request (2026-08-08), root-cause fix: no default selection — an
+  // attendant must actively pick CASH or GCASH, see
+  // settlement-payment-fields.tsx's own top comment.
+  const [paymentMethodId, setPaymentMethodId] = useState("");
   const [isPending, startTransition] = useTransition();
 
   const isCapacityNight = "sessionId" in target;
@@ -146,6 +149,9 @@ export function WalkInRegistrationForm({
     setSkillLevel("BEGINNER");
     setMatchedPlayerId(undefined);
     setGcashReference("");
+    // Every registration starts unchosen, not just the first (see
+    // paymentMethodId's own comment above).
+    setPaymentMethodId("");
   }
 
   function submit(action: "register" | "walkin") {
@@ -294,18 +300,23 @@ export function WalkInRegistrationForm({
               gcashReference={gcashReference}
               onGcashReferenceChange={setGcashReference}
               idPrefix={`${formId}PaymentMethod`}
+              amountCents={friSatRegistrationFeeCents}
             />
           </div>
         ) : null}
         <div className="flex gap-2">
-          <Button type="button" disabled={isPending} onClick={() => submit("walkin")}>
+          <Button
+            type="button"
+            disabled={isPending || (isCapacityNight && !paymentMethodId)}
+            onClick={() => submit("walkin")}
+          >
             {isPending ? "Working…" : "Walk-in (register & check in)"}
           </Button>
           {showRegisterOnly && "sessionId" in target ? (
             <Button
               type="button"
               variant="outline"
-              disabled={isPending}
+              disabled={isPending || (isCapacityNight && !paymentMethodId)}
               onClick={() => submit("register")}
             >
               Register only (arriving later)

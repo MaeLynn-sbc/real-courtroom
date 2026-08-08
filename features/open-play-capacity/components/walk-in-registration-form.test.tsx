@@ -91,6 +91,15 @@ describe("WalkInRegistrationForm — two instances rendered together (pre-cutoff
       fireEvent.change(unlimitedPhone, { target: { value: "09171234567" } });
     });
 
+    // Owner request (2026-08-08), root-cause fix: no default payment
+    // method anymore — the attendant must actively pick one before
+    // Register only/Walk-in even become clickable.
+    const unlimitedCashButton = container.querySelector<HTMLButtonElement>(
+      "#unlimitedWalkInPaymentMethod-CASH",
+    )!;
+    expect(unlimitedCashButton).toBeTruthy();
+    await clickAsync(unlimitedCashButton);
+
     const registerOnlyButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Register only (arriving later)",
     )!;
@@ -128,5 +137,52 @@ describe("WalkInRegistrationForm — two instances rendered together (pre-cutoff
       (button) => button.textContent === "Register only (arriving later)",
     );
     expect(registerOnlyButtons).toHaveLength(1);
+  });
+});
+
+// Owner request (2026-08-08), root-cause fix for attendants recording a
+// Cash payment as GCash (or the reverse): a capacity-night walk-in can no
+// longer be submitted with a silently-defaulted payment method — neither
+// button starts selected, and both submit buttons stay disabled until one
+// is actively chosen.
+describe("WalkInRegistrationForm — capacity night requires an explicit payment choice", () => {
+  const twoMethods = [
+    { id: "pm-cash", key: "CASH" as const, label: "Cash" },
+    { id: "pm-gcash", key: "GCASH" as const, label: "GCash" },
+  ];
+
+  it("neither payment button starts selected, and Walk-in/Register only start disabled", () => {
+    const { getByRole } = render(
+      <WalkInRegistrationForm
+        target={{ sessionId: "session-1" }}
+        players={players}
+        paymentMethods={twoMethods}
+      />,
+    );
+    expect(getByRole("button", { name: "Cash" })).toHaveAttribute("aria-pressed", "false");
+    expect(getByRole("button", { name: "GCash" })).toHaveAttribute("aria-pressed", "false");
+    expect(getByRole("button", { name: /walk-in/i })).toBeDisabled();
+    expect(getByRole("button", { name: /register only/i })).toBeDisabled();
+  });
+
+  it("choosing Cash enables both submit buttons", async () => {
+    const { getByRole } = render(
+      <WalkInRegistrationForm
+        target={{ sessionId: "session-1" }}
+        players={players}
+        paymentMethods={twoMethods}
+      />,
+    );
+    await clickAsync(getByRole("button", { name: "Cash" }));
+    expect(getByRole("button", { name: /walk-in/i })).toBeEnabled();
+    expect(getByRole("button", { name: /register only/i })).toBeEnabled();
+  });
+
+  it("a weeknight (non-capacity) form is never gated on a payment choice — it has no payment picker at all", () => {
+    const { getByRole, queryByRole } = render(
+      <WalkInRegistrationForm target={{ date: "2026-08-01" }} players={players} />,
+    );
+    expect(queryByRole("button", { name: "Cash" })).not.toBeInTheDocument();
+    expect(getByRole("button", { name: /walk-in/i })).toBeEnabled();
   });
 });
