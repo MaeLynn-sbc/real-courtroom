@@ -5,14 +5,16 @@ import { revalidatePath } from "next/cache";
 import {
   copyWeekAvailabilitySchema,
   createCoachSessionSchema,
+  markCoachSessionCollectedSchema,
   setDayAvailabilitySchema,
   upsertCoachRateSchema,
   type CopyWeekAvailabilityInput,
   type CreateCoachSessionInput,
+  type MarkCoachSessionCollectedInput,
   type SetDayAvailabilityInput,
   type UpsertCoachRateInput,
 } from "@/features/coaching/schemas/coaching.schema";
-import { requireEmployee, requirePermission } from "@/lib/action-auth";
+import { requireEmployee, requireEmployeeForSaleWithShiftBypass, requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
 import { coachRateService } from "@/services/coaching/coach-rate.service";
@@ -207,5 +209,44 @@ export async function createCoachSessionAction(
       return { error: error.message };
     }
     return { error: toActionError(error, { action: "createCoachSessionAction", userId: authz.userId }) };
+  }
+}
+
+// Owner request (2026-08-09): manually record a coach session's fee as
+// collected — see coachSessionService.markSessionCollected's own comment.
+// requireEmployeeForSaleWithShiftBypass, not requireEmployee: this
+// creates a real Sale, and the Coaching report is exactly the "Owner at
+// home, no open shift" scenario that helper exists for — a real open
+// shift still wins whenever one exists.
+export async function markCoachSessionCollectedAction(
+  input: MarkCoachSessionCollectedInput,
+): Promise<CoachingActionState> {
+  const authz = await requireEmployeeForSaleWithShiftBypass(
+    PERMISSIONS.COACHING_RECORD_SESSION_PAYMENT,
+    "You don't have permission to record a coaching session payment.",
+  );
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = markCoachSessionCollectedSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await coachSessionService.markSessionCollected(
+      parsed.data.coachSessionId,
+      parsed.data.paymentMethodId,
+      authz.employeeId,
+      authz.shiftId,
+      authz.userId,
+    );
+    revalidatePath("/dashboard/reports/coaching");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "markCoachSessionCollectedAction", userId: authz.userId }),
+    };
   }
 }

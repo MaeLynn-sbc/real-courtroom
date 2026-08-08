@@ -52,3 +52,15 @@ export const createCoachSessionSchema = z.object({
   isOutsideAvailability: z.boolean().optional(),
 });
 export type CreateCoachSessionInput = z.infer<typeof createCoachSessionSchema>;
+
+// Owner request (2026-08-09): manually record a coach session's fee as
+// collected, for a session that never got a Sale through the normal
+// booking-settlement path — see coachSessionService.markSessionCollected's
+// own comment. The fee itself is never re-typed here (uses the session's
+// own snapshotted rateCents) — only which payment method it came in
+// through.
+export const markCoachSessionCollectedSchema = z.object({
+  coachSessionId: z.string().min(1),
+  paymentMethodId: z.string().min(1, "Choose a payment method."),
+});
+export type MarkCoachSessionCollectedInput = z.infer<typeof markCoachSessionCollectedSchema>;

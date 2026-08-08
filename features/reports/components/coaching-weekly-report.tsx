@@ -1,10 +1,17 @@
 import Link from "next/link";
 
 import { ExportCsvButton } from "@/features/reports/components/export-csv-button";
+import { UncollectedCoachSessions } from "@/features/reports/components/uncollected-coach-sessions";
+import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
 import { formatCurrency } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
-import { reportingService, type CoachingReportRow } from "@/services/reporting/reporting.service";
+import {
+  reportingService,
+  type CoachingReportRow,
+  type UncollectedCoachSessionRow,
+} from "@/services/reporting/reporting.service";
+import { saleService } from "@/services/sales/sale.service";
 
 // Owner request (2026-08-04): "separate their tables since theres only 2
 // of them" (same "own tables, not a dropdown" preference already applied
@@ -93,12 +100,15 @@ export async function CoachingWeeklyReport({ searchParams }: CoachingWeeklyRepor
 
   const selectedWeekEnd = new Date(addDays(selectedWeekStart, 7).getTime() - 1);
 
-  const [coaches, { rows }, collectedByCoach] = await Promise.all([
+  const [coaches, { rows }, collectedByCoach, uncollectedRows, paymentMethods] = await Promise.all([
     coachAvailabilityService.listCoaches(),
     reportingService.getCoachingReport({ from: selectedWeekStart, to: selectedWeekEnd }),
     reportingService.getCoachingFeesByCoachReport({ from: selectedWeekStart, to: selectedWeekEnd }),
+    reportingService.getUncollectedCoachSessionsReport({ from: selectedWeekStart, to: selectedWeekEnd }),
+    saleService.listPaymentMethods(),
   ]);
   const collectedByCoachId = new Map(collectedByCoach.map((row) => [row.coachId, row.amountCents]));
+  const settlementPaymentMethods = toSettlementPaymentMethodOptions(paymentMethods);
 
   const rowsByCoachId = new Map<string, CoachingReportRow[]>();
   for (const row of rows) {
@@ -107,6 +117,16 @@ export async function CoachingWeeklyReport({ searchParams }: CoachingWeeklyRepor
       existing.push(row);
     } else {
       rowsByCoachId.set(row.coachId, [row]);
+    }
+  }
+
+  const uncollectedByCoachId = new Map<string, UncollectedCoachSessionRow[]>();
+  for (const row of uncollectedRows) {
+    const existing = uncollectedByCoachId.get(row.coachId);
+    if (existing) {
+      existing.push(row);
+    } else {
+      uncollectedByCoachId.set(row.coachId, [row]);
     }
   }
 
@@ -224,6 +244,14 @@ export async function CoachingWeeklyReport({ searchParams }: CoachingWeeklyRepor
             .filter((row) => row.status !== "CANCELLED")
             .reduce((sum, row) => sum + row.rateCents, 0);
           const collectedCents = collectedByCoachId.get(coach.id) ?? 0;
+          const uncollectedSessions = (uncollectedByCoachId.get(coach.id) ?? []).map((row) => ({
+            id: row.id,
+            sessionReference: row.sessionReference,
+            playerName: row.playerName,
+            bookingReference: row.bookingReference,
+            startAt: row.startAt.toISOString(),
+            rateCents: row.rateCents,
+          }));
 
           return (
             <div key={coach.id} className="flex flex-col gap-3 rounded-xl border p-4">
@@ -275,10 +303,17 @@ export async function CoachingWeeklyReport({ searchParams }: CoachingWeeklyRepor
                   </table>
                 </div>
               )}
+
+              <UncollectedCoachSessions
+                sessions={uncollectedSessions}
+                paymentMethods={settlementPaymentMethods}
+              />
+
               <p className="text-muted-foreground text-xs">
                 &quot;Collected&quot; is real, recorded revenue (money actually received). &quot;Sessions
-                worked&quot; only shows when it differs — a session that happened but hasn&apos;t
-                been paid/verified yet.
+                worked&quot; only shows when it differs from Collected (e.g. a voided payment).
+                &quot;Not yet collected&quot; above lists sessions with no payment recorded at all —
+                mark one collected there once you know which method it came in through.
               </p>
             </div>
           );

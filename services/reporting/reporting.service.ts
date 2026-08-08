@@ -104,6 +104,21 @@ export interface CoachingReportRow {
   rateCents: number;
 }
 
+// See getUncollectedCoachSessionsReport's own comment — the mirror image
+// of CoachingReportRow's row set (sessions with NO Sale, not WITH one),
+// so no courtName/status here: every row is implicitly non-cancelled and
+// unpaid by construction.
+export interface UncollectedCoachSessionRow {
+  id: string;
+  sessionReference: string;
+  coachId: string;
+  coachName: string;
+  playerName: string | null;
+  bookingReference: string;
+  startAt: Date;
+  rateCents: number;
+}
+
 export interface CoachingReportResult {
   rows: CoachingReportRow[];
   totalSessions: number;
@@ -454,6 +469,41 @@ export class ReportingService {
     }
 
     return Array.from(byCoach.values()).sort((a, b) => b.amountCents - a.amountCents);
+  }
+
+  // Owner request (2026-08-09), from this same Coaching report: "we
+  // should be the one to put the collected." getCoachingReport above
+  // deliberately only shows sessions that already have a Sale
+  // (sale: isNot: null) — the mirror image of that filter, sale: null,
+  // is exactly the set of non-cancelled sessions with no payment record
+  // at all: the ones a manual "mark collected" action
+  // (coachSessionService.markSessionCollected) actually exists for.
+  async getUncollectedCoachSessionsReport(range: DateRange): Promise<UncollectedCoachSessionRow[]> {
+    const sessions = await prisma.coachSession.findMany({
+      where: {
+        booking: { startAt: { gte: range.from, lte: range.to } },
+        status: { not: "CANCELLED" },
+        sale: null,
+      },
+      include: {
+        coach: true,
+        player: { include: { user: { select: { name: true, email: true } } } },
+        booking: { select: { bookingReference: true, startAt: true } },
+      },
+      orderBy: { booking: { startAt: "desc" } },
+      take: 500,
+    });
+
+    return sessions.map((session) => ({
+      id: session.id,
+      sessionReference: session.sessionReference,
+      coachId: session.coachId,
+      coachName: `${session.coach.firstName} ${session.coach.lastName}`,
+      playerName: playerDisplayName(session.player, session.guestName),
+      bookingReference: session.booking.bookingReference,
+      startAt: session.booking.startAt,
+      rateCents: session.rateCents,
+    }));
   }
 
   async getEquipmentRentalReport(range: DateRange): Promise<EquipmentRentalReportRow[]> {
