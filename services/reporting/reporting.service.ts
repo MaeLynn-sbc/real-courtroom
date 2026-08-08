@@ -507,7 +507,7 @@ export class ReportingService {
   async getSalesByCategoryReport(range: DateRange): Promise<SalesByCategoryRow[]> {
     const rows = await prisma.sale.groupBy({
       by: ["category"],
-      where: { createdAt: { gte: range.from, lte: range.to }, status: "COMPLETED" },
+      where: this.dateAwareSaleWhere(range),
       _sum: { amountCents: true },
       _count: true,
       orderBy: { category: "asc" },
@@ -524,7 +524,7 @@ export class ReportingService {
     const [rows, paymentMethods] = await Promise.all([
       prisma.sale.groupBy({
         by: ["paymentMethodId"],
-        where: { createdAt: { gte: range.from, lte: range.to }, status: "COMPLETED" },
+        where: this.dateAwareSaleWhere(range),
         _sum: { amountCents: true },
         _count: true,
       }),
@@ -640,17 +640,19 @@ export class ReportingService {
     return { regularCents, unliCents };
   }
 
-  async getRevenueReport(range: DateRange): Promise<RevenueReportResult> {
+  // Owner-reported incident (2026-08-08): every report below used to sum
+  // Sale rows by raw createdAt, including an Open Play tab settled just
+  // after midnight for the PREVIOUS night's session — the same money
+  // getOpenPlaySplit already attributes correctly to that earlier day.
+  // Shared here (not re-typed per report) specifically so the category
+  // report, the payment-method report, and the revenue summary can never
+  // drift apart from each other on this, the same reasoning
+  // getRevenueReport's own now-removed private copy documented. Non-
+  // Open-Play sales have no session-date concept, so they keep using
+  // createdAt unchanged.
+  private dateAwareSaleWhere(range: DateRange): Prisma.SaleWhereInput {
     const inRange = { gte: range.from, lte: range.to };
-    // Owner-reported incident (2026-08-08): "Cash collected"/"GCash
-    // collected" used to sum every Sale by raw createdAt, including an
-    // Open Play tab settled just after midnight for the PREVIOUS night's
-    // session — the same money getOpenPlaySplit above now correctly
-    // attributes to that earlier day. Without this, the two figures on
-    // this same report would disagree with each other. Non-Open-Play
-    // sales have no session-date concept, so they keep using createdAt
-    // unchanged.
-    const dateAwareWhere: Prisma.SaleWhereInput = {
+    return {
       status: "COMPLETED",
       OR: [
         { category: { not: "OPEN_PLAY" }, createdAt: inRange },
@@ -662,6 +664,10 @@ export class ReportingService {
         },
       ],
     };
+  }
+
+  async getRevenueReport(range: DateRange): Promise<RevenueReportResult> {
+    const dateAwareWhere = this.dateAwareSaleWhere(range);
 
     const [saleCategoryTotals, openPlaySplit, paymentMethodTotals, paymentMethods] =
       await Promise.all([
