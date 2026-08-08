@@ -120,6 +120,16 @@ export const PERMISSIONS = {
   // middleware.ts's canAccessRoute + requirePermission on every action
   // are.
   PAYROLL_MANAGE: "payroll:manage",
+  // Owner request (2026-08-08): a real correction path for when an
+  // attendant records a Cash payment as GCash (or the reverse) — see
+  // saleService.correctPaymentMethod's own comment. Its own dedicated
+  // permission, same "granted to nobody by default except OWNER directly"
+  // shape as ACCOUNTS_CONFIRM_CASH_RECONCILIATION/
+  // ACCOUNTS_CONFIRM_GCASH_RECONCILIATION right above — this can silently
+  // change which of those two reconciliations a sale counts toward, so
+  // it's deliberately no broader than the trust already required to
+  // confirm/reopen either one.
+  ACCOUNTS_CORRECT_SALE_PAYMENT_METHOD: "accounts:correct_sale_payment_method",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

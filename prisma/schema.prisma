@@ -366,6 +366,9 @@ model Employee {
   sales                                     Sale[]
   writtenOffTabs                            PlayerTab[]
   writtenOffBookingTabs                     BookingTab[]
+  // Owner request (2026-08-08) — see Sale.paymentMethodCorrectedByEmployeeId
+  // below, and saleService.correctPaymentMethod's own comment.
+  paymentMethodCorrectedSales               Sale[]                             @relation("SalePaymentMethodCorrectedBy")
   // Phase 8 plumbing — see BookingPaymentProof/BookingRefund, below Sale.
   resolvedBookingPaymentProofs              BookingPaymentProof[]
   issuedBookingRefunds                      BookingRefund[]
@@ -2834,6 +2837,17 @@ model Sale {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Owner request (2026-08-08): a real, audit-logged correction path for
+  // when an attendant records a Cash payment as GCash (or the reverse) —
+  // see saleService.correctPaymentMethod's own comment. Same "columns on
+  // the row + a single audit log entry" shape as PlayerTab's
+  // writeOffReason/writeOffEmployeeId (no separate child table) — the
+  // BEFORE payment method lives in the audit log's oldValues, not
+  // duplicated here. Null on every sale that's never been corrected.
+  paymentMethodCorrectedAt           DateTime?
+  paymentMethodCorrectionReason      String?
+  paymentMethodCorrectedByEmployeeId String?
+
   paymentMethod             PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
   employee                  Employee                   @relation(fields: [employeeId], references: [id])
   shift                     Shift                      @relation(fields: [shiftId], references: [id])
@@ -2848,6 +2862,7 @@ model Sale {
   playerTab                 PlayerTab?                 @relation(fields: [playerTabId], references: [id])
   openPlayNightRegistration OpenPlayNightRegistration? @relation(fields: [openPlayNightRegistrationId], references: [id])
   bookingTab                BookingTab?                @relation(fields: [bookingTabId], references: [id])
+  paymentMethodCorrectedByEmployee Employee?            @relation("SalePaymentMethodCorrectedBy", fields: [paymentMethodCorrectedByEmployeeId], references: [id])
 
   @@index([category])
   @@index([createdAt])

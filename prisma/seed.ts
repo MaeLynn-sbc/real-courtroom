@@ -163,6 +163,15 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     description:
       "View and edit attendance records, schedule assignments, and shift templates. Owner-only by default.",
   },
+  // Same "OWNER needs self-service access" fix as
+  // ACCOUNTS_CONFIRM_GCASH_RECONCILIATION/ACCOUNTS_CONFIRM_CASH_RECONCILIATION
+  // above — granted to OWNER below, absent from every other role by
+  // default.
+  [PERMISSIONS.ACCOUNTS_CORRECT_SALE_PAYMENT_METHOD]: {
+    label: "Correct Sale Payment Method",
+    description:
+      "Correct a completed sale's Cash/GCash payment method after the fact, with a required reason — blocked once that day's reconciliation is already confirmed.",
+  },
 };
 
 const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
@@ -201,6 +210,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.SALES_RECORD_MANUAL,
     PERMISSIONS.SALES_CREATE_WITHOUT_SHIFT,
     PERMISSIONS.PAYROLL_MANAGE,
+    PERMISSIONS.ACCOUNTS_CORRECT_SALE_PAYMENT_METHOD,
   ],
   [SYSTEM_ROLES.TOURNAMENT_DIRECTOR]: [
     PERMISSIONS.DASHBOARD_ACCESS,

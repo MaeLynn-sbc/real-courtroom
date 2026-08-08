@@ -193,6 +193,129 @@ export class SaleService {
     });
   }
 
+  // Owner request (2026-08-08): an attendant sometimes records a Cash
+  // payment as GCash (or the reverse) — leaves cash short and GCash over
+  // by the same amount. Investigated first (report-only) and confirmed no
+  // correction path existed; the only post-creation Sale mutation was
+  // voidSale, an all-or-nothing offsetting entry, not a correction. This
+  // is the real fix: the underlying Sale is corrected so the variance
+  // disappears legitimately, not an override that hides it.
+  //
+  // Follows playerTabService.writeOffTab's pattern exactly, per the
+  // owner's own explicit instruction — same "no anonymous adjustments"
+  // shape: a required, non-empty reason; a real employeeId (who made the
+  // correction) alongside actorUserId (for the audit log); an atomic
+  // claim-check update (not check-then-act) scoped to the CALLER-SUPPLIED
+  // expected current paymentMethodId, so a stale UI or a double-submit
+  // can't silently apply on top of a sale that already changed; and a
+  // single audit log entry with oldValues/newValues, not a separate child
+  // table (mirrors PlayerTab.writeOffReason/writeOffEmployeeId's "columns
+  // on the row" shape, not BookingRefund's durable child row).
+  //
+  // Owner decision (2026-08-08, after investigation): BLOCK the
+  // correction if either the FROM or TO payment method is CASH/GCASH and
+  // that calendar day's reconciliation is already CONFIRMED — "a
+  // confirmed day is a number someone signed off on; if a correction can
+  // silently change it afterwards, the confirmation means nothing."
+  // Reopening first (cashReconciliationService/gcashReconciliationService
+  // .reopenBalance, already reason-required and already granted to OWNER)
+  // is the deliberate extra step and the visible trail — this method does
+  // NOT reopen anything on the caller's behalf.
+  async correctPaymentMethod(
+    saleId: string,
+    fromPaymentMethodId: string,
+    toPaymentMethodId: string,
+    reason: string,
+    employeeId: string,
+    actorUserId: string,
+  ): Promise<Sale> {
+    if (!reason.trim()) {
+      throw new Error("A reason is required to correct a sale's payment method.");
+    }
+    if (!employeeId) {
+      throw new Error("An employee must be attributed to a payment-method correction.");
+    }
+    if (fromPaymentMethodId === toPaymentMethodId) {
+      throw new Error("The new payment method must be different from the current one.");
+    }
+
+    const sale = await prisma.sale.findUniqueOrThrow({ where: { id: saleId } });
+    if (sale.status !== "COMPLETED") {
+      throw new Error(
+        `Only a COMPLETED sale can have its payment method corrected (current status: ${sale.status}).`,
+      );
+    }
+
+    const [fromMethod, toMethod] = await Promise.all([
+      prisma.paymentMethod.findUniqueOrThrow({ where: { id: fromPaymentMethodId } }),
+      prisma.paymentMethod.findUniqueOrThrow({ where: { id: toPaymentMethodId } }),
+    ]);
+
+    await this.assertReconciliationDayNotConfirmed(sale.createdAt, fromMethod.key);
+    await this.assertReconciliationDayNotConfirmed(sale.createdAt, toMethod.key);
+
+    const claim = await prisma.sale.updateMany({
+      where: { id: saleId, status: "COMPLETED", paymentMethodId: fromPaymentMethodId },
+      data: {
+        paymentMethodId: toPaymentMethodId,
+        paymentMethodCorrectedAt: new Date(),
+        paymentMethodCorrectionReason: reason,
+        paymentMethodCorrectedByEmployeeId: employeeId,
+      },
+    });
+    if (claim.count === 0) {
+      throw new Error(
+        "This sale's payment method has already changed since you loaded it — refresh and try again.",
+      );
+    }
+
+    const updated = await prisma.sale.findUniqueOrThrow({ where: { id: saleId } });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "sale.payment_method_corrected",
+      entityType: "Sale",
+      entityId: saleId,
+      oldValues: { paymentMethodId: fromPaymentMethodId },
+      newValues: { paymentMethodId: toPaymentMethodId, reason, employeeId },
+    });
+
+    return updated;
+  }
+
+  // Cash/GCash daily reconciliation is keyed by calendar date
+  // (CashDailyBalance/GcashDailyBalance.date, midnight-normalized) — a
+  // payment method with no daily-balance concept (Bank Transfer, Card,
+  // Pay at Venue) has nothing to check here and is always allowed through.
+  private async assertReconciliationDayNotConfirmed(
+    saleCreatedAt: Date,
+    paymentMethodKey: string,
+  ): Promise<void> {
+    if (paymentMethodKey !== "CASH" && paymentMethodKey !== "GCASH") {
+      return;
+    }
+    const date = new Date(
+      saleCreatedAt.getFullYear(),
+      saleCreatedAt.getMonth(),
+      saleCreatedAt.getDate(),
+    );
+    if (paymentMethodKey === "CASH") {
+      const balance = await prisma.cashDailyBalance.findUnique({ where: { date } });
+      if (balance?.status === "CONFIRMED") {
+        throw new Error(
+          `The cash reconciliation for ${date.toDateString()} is already confirmed — reopen it first before correcting this sale.`,
+        );
+      }
+    } else {
+      const balance = await prisma.gcashDailyBalance.findUnique({ where: { date } });
+      if (balance?.status === "CONFIRMED") {
+        throw new Error(
+          `The GCash reconciliation for ${date.toDateString()} is already confirmed — reopen it first before correcting this sale.`,
+        );
+      }
+    }
+  }
+
   // Companion to logSaleCreated, same "after commit, default client"
   // convention.
   async logSaleVoided(sale: Sale, actorUserId: string): Promise<void> {
