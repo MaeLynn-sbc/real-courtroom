@@ -14,6 +14,7 @@ import {
   clearSpecialStagedSlotAction,
   completeSpecialCourtGameAction,
   stageSpecialGroupAction,
+  startSpecialCourtTimerAction,
 } from "@/actions/special-open-play.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,11 @@ const STAGED_SLOT_LABELS: Record<StagedSlot, string> = {
 // auto-happens at zero, recomputed at render (no client-side ticking
 // clock), same as the real rotation board's own staff-screen timer.
 const GAME_TARGET_MINUTES = 20;
+// Owner request (2026-08-09): "dont auto start the time. create a
+// button for it but after 3 minutes when the button is not clicked.
+// make it on auto start." Must match
+// special-open-play-tv-client.tsx's own copy of this constant.
+const TIMER_AUTO_START_GRACE_MINUTES = 3;
 
 const SKILL_LABELS: Record<SkillLevel, string> = {
   BEGINNER: "Beginner",
@@ -58,6 +64,7 @@ export interface SpecialCheckIn {
   status: "WAITING" | "PLAYING" | "DONE";
   courtLabel: string | null;
   startedAt: string | null;
+  timerStartedAt: string | null;
   stagedSlot: StagedSlot | null;
 }
 
@@ -65,10 +72,28 @@ function formatStartedAt(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
+// Owner request (2026-08-09): "dont auto start the time. create a
+// button for it but after 3 minutes when the button is not clicked.
+// make it on auto start" — resolves the timer's real start moment:
+// timerStartedAt if staff pressed Start, else startedAt+3min once that
+// grace period has elapsed with no button press, else null (still
+// within the grace window). Same logic as
+// special-open-play-tv-client.tsx's own copy.
+function getEffectiveTimerStart(
+  startedAt: string | null,
+  timerStartedAt: string | null,
+  now: number,
+): string | null {
+  if (timerStartedAt) return timerStartedAt;
+  if (!startedAt) return null;
+  const autoStartAtMs = new Date(startedAt).getTime() + TIMER_AUTO_START_GRACE_MINUTES * 60_000;
+  return now >= autoStartAtMs ? new Date(autoStartAtMs).toISOString() : null;
+}
+
 // Owner request (2026-08-09): "i want it to appear like minute with
 // seconds. like 03.04" — MM:SS instead of a rounded "Xm left".
-function formatGameTimeRemaining(startedAtIso: string, now: number): { text: string; overtime: boolean } {
-  const endAtMs = new Date(startedAtIso).getTime() + GAME_TARGET_MINUTES * 60_000;
+function formatGameTimeRemaining(timerStartIso: string, now: number): { text: string; overtime: boolean } {
+  const endAtMs = new Date(timerStartIso).getTime() + GAME_TARGET_MINUTES * 60_000;
   const msLeft = endAtMs - now;
   const totalSeconds = Math.floor(Math.abs(msLeft) / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -305,6 +330,18 @@ export function SpecialOpenPlayBoard({
     });
   }
 
+  function handleStartTimer(courtLabel: string) {
+    startTransition(async () => {
+      const result = await startSpecialCourtTimerAction({ date: dateValue, courtLabel });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`Timer started for ${courtLabel}.`);
+      refresh();
+    });
+  }
+
   function handleAnnounce(courtLabel: string) {
     startTransition(async () => {
       const result = await announceSpecialCourtAction({ date: dateValue, courtLabel });
@@ -408,6 +445,13 @@ export function SpecialOpenPlayBoard({
             .map((o) => o.startedAt)
             .filter((value): value is string => value !== null)
             .sort()[0];
+          const earliestTimerStart = occupants
+            .map((o) => o.timerStartedAt)
+            .filter((value): value is string => value !== null)
+            .sort()[0];
+          const effectiveTimerStart = earliestStart
+            ? getEffectiveTimerStart(earliestStart, earliestTimerStart ?? null, now)
+            : null;
           return (
             <Card key={courtLabel}>
               <CardHeader>
@@ -432,18 +476,29 @@ export function SpecialOpenPlayBoard({
                       ))}
                     </ul>
                     {earliestStart ? (
-                      <>
-                        <p className="text-muted-foreground text-xs">
-                          Manual group · started {formatStartedAt(earliestStart)}
-                        </p>
-                        <Badge
-                          variant={formatGameTimeRemaining(earliestStart, now).overtime ? "warning" : "outline"}
-                          className="w-fit"
-                        >
-                          {formatGameTimeRemaining(earliestStart, now).text}
-                        </Badge>
-                      </>
+                      <p className="text-muted-foreground text-xs">
+                        Manual group · started {formatStartedAt(earliestStart)}
+                      </p>
                     ) : null}
+                    {effectiveTimerStart ? (
+                      <Badge
+                        variant={formatGameTimeRemaining(effectiveTimerStart, now).overtime ? "warning" : "outline"}
+                        className="w-fit"
+                      >
+                        {formatGameTimeRemaining(effectiveTimerStart, now).text}
+                      </Badge>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="w-fit"
+                        disabled={isPending}
+                        onClick={() => handleStartTimer(courtLabel)}
+                      >
+                        Start timer
+                      </Button>
+                    )}
                     <div className="flex flex-wrap gap-2 pt-1">
                       <Button
                         type="button"

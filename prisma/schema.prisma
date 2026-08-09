@@ -3330,6 +3330,20 @@ model SpecialOpenPlayCheckIn {
   stagedSlot              SpecialStagedSlot?
   checkedInAt             DateTime              @default(now())
   startedAt               DateTime?
+  // Owner request (2026-08-09): "dont auto start the time. create a
+  // button for it but after 3 minutes when the button is not clicked.
+  // make it on auto start" — the 20-minute game timer no longer starts
+  // the instant a group is assigned to a court (startedAt still marks
+  // that moment, for "Manual group · started X" and occupancy). The
+  // timer itself only starts when timerStartedAt is set: either staff
+  // press Start, or — if they never do — the client derives an
+  // effective start of startedAt+3min once that grace period has
+  // passed (see getEffectiveTimerStart in
+  // special-open-play-tv-client.tsx / the board component's own copy).
+  // Deliberately NOT written by any auto-start path — purely derived
+  // at render/poll time, same "no server cron" shape as every other
+  // soft-target timer here.
+  timerStartedAt          DateTime?
   doneAt                  DateTime?
   // Owner request (2026-08-09): a manual "Announce" button on the admin
   // board, watched by the isolated /specialtv display (see

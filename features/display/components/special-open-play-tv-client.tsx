@@ -27,6 +27,11 @@ const ANNOUNCEMENT_REPEAT_GAP_MS = 6_000;
 // .service.ts / the board component, each with their own copy).
 const GAME_TARGET_MINUTES = 20;
 const ONE_MINUTE_WARNING_MINUTES = GAME_TARGET_MINUTES - 1;
+// Owner request (2026-08-09): "dont auto start the time. create a
+// button for it but after 3 minutes when the button is not clicked.
+// make it on auto start." Must match the admin board's own copy of
+// this constant.
+const TIMER_AUTO_START_GRACE_MINUTES = 3;
 
 function courtAnnouncementToken(court: SpecialDisplayCourt): string | null {
   return court.announcementRequestedAt;
@@ -64,15 +69,33 @@ export function formatSpecialOneMinuteWarning(court: SpecialDisplayCourt): strin
 }
 
 // Automatic — "its gonna be automatic" — fires once per game the moment
-// elapsed time crosses the (target - 1)-minute mark, purely from
-// startedAt, no staff button. The upper bound keeps it from firing late
-// (e.g. after a slow poll) once the game's already fully over, when
-// "1 minute remaining" would read as wrong rather than just late.
-export function isOneMinuteWarningDue(startedAtIso: string, now: number): boolean {
-  const startedAtMs = new Date(startedAtIso).getTime();
+// elapsed time crosses the (target - 1)-minute mark, purely from the
+// timer's effective start (see getEffectiveTimerStart below), no staff
+// button. The upper bound keeps it from firing late (e.g. after a slow
+// poll) once the game's already fully over, when "1 minute remaining"
+// would read as wrong rather than just late.
+export function isOneMinuteWarningDue(timerStartIso: string, now: number): boolean {
+  const startedAtMs = new Date(timerStartIso).getTime();
   const warnAtMs = startedAtMs + ONE_MINUTE_WARNING_MINUTES * 60_000;
   const endAtMs = startedAtMs + GAME_TARGET_MINUTES * 60_000;
   return now >= warnAtMs && now < endAtMs;
+}
+
+// Owner request (2026-08-09): "dont auto start the time. create a
+// button for it but after 3 minutes when the button is not clicked.
+// make it on auto start" — resolves the timer's real start moment:
+// timerStartedAt if staff pressed Start, else startedAt+3min once that
+// grace period has elapsed with no button press, else null (still
+// within the grace window — timer hasn't effectively started yet).
+export function getEffectiveTimerStart(
+  startedAt: string | null,
+  timerStartedAt: string | null,
+  now: number,
+): string | null {
+  if (timerStartedAt) return timerStartedAt;
+  if (!startedAt) return null;
+  const autoStartAtMs = new Date(startedAt).getTime() + TIMER_AUTO_START_GRACE_MINUTES * 60_000;
+  return now >= autoStartAtMs ? new Date(autoStartAtMs).toISOString() : null;
 }
 
 export function SpecialOpenPlayTvClient({
@@ -242,11 +265,13 @@ export function SpecialOpenPlayTvClient({
             delete previousTimesUpTokensRef.current[court.courtLabel];
           }
 
-          if (court.startedAt) {
-            const alreadyWarned = oneMinuteWarnedStartedAtRef.current[court.courtLabel] === court.startedAt;
-            if (!alreadyWarned && isOneMinuteWarningDue(court.startedAt, Date.now())) {
+          const effectiveTimerStart = getEffectiveTimerStart(court.startedAt, court.timerStartedAt, Date.now());
+          if (effectiveTimerStart) {
+            const alreadyWarned =
+              oneMinuteWarnedStartedAtRef.current[court.courtLabel] === effectiveTimerStart;
+            if (!alreadyWarned && isOneMinuteWarningDue(effectiveTimerStart, Date.now())) {
               scheduleOneMinuteWarning(court);
-              oneMinuteWarnedStartedAtRef.current[court.courtLabel] = court.startedAt;
+              oneMinuteWarnedStartedAtRef.current[court.courtLabel] = effectiveTimerStart;
             }
           } else {
             delete oneMinuteWarnedStartedAtRef.current[court.courtLabel];

@@ -38,6 +38,7 @@ export default async function OpenPlaySpecialPage() {
         status: checkIn.status,
         courtLabel: checkIn.courtLabel,
         startedAt: checkIn.startedAt ? checkIn.startedAt.toISOString() : null,
+        timerStartedAt: checkIn.timerStartedAt ? checkIn.timerStartedAt.toISOString() : null,
         stagedSlot: checkIn.stagedSlot,
       }))}
     />

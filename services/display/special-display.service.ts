@@ -23,6 +23,14 @@ export interface SpecialDisplayCourt {
   // same as every other "recomputed at render/poll, no server flag"
   // soft-target timer in this app.
   startedAt: string | null;
+  // Owner request (2026-08-09): "dont auto start the time. create a
+  // button for it but after 3 minutes when the button is not clicked.
+  // make it on auto start" — non-null once staff press Start (or once
+  // the client derives an auto-start after startedAt+3min with no
+  // button press — see getEffectiveTimerStart in
+  // special-open-play-tv-client.tsx). Distinct from startedAt, which
+  // only marks when the group was assigned to the court.
+  timerStartedAt: string | null;
 }
 
 export interface SpecialDisplayData {
@@ -58,6 +66,10 @@ export class SpecialDisplayService {
         .map((o) => o.startedAt)
         .filter((value): value is Date => value !== null)
         .sort((a, b) => a.getTime() - b.getTime())[0];
+      const earliestTimerStart = occupants
+        .map((o) => o.timerStartedAt)
+        .filter((value): value is Date => value !== null)
+        .sort((a, b) => a.getTime() - b.getTime())[0];
       return {
         courtLabel,
         playerNames: occupants.map((o) => shortDisplayName(o.playerName)),
@@ -67,6 +79,7 @@ export class SpecialDisplayService {
         announcementRequestedAt: occupants[0]?.announcementRequestedAt?.toISOString() ?? null,
         timesUpRequestedAt: occupants[0]?.timesUpRequestedAt?.toISOString() ?? null,
         startedAt: earliestStart?.toISOString() ?? null,
+        timerStartedAt: earliestTimerStart?.toISOString() ?? null,
       };
     });
 

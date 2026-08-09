@@ -12,13 +12,16 @@
  * Proves, against real rows:
  *   1. checkIn creates a WAITING row.
  *   2. assignGroupToCourt claims a GROUP of players onto one court at
- *      once (WAITING -> PLAYING), stamping the court and startedAt.
+ *      once (WAITING -> PLAYING), stamping the court and startedAt —
+ *      but NOT auto-starting the game timer (timerStartedAt stays
+ *      null); startCourtTimer is the only thing that sets it.
  *   3. assignGroupToCourt rejects a group that would push a court over
  *      4 players — no silent over-booking.
  *   4. announceCourt stamps announcementRequestedAt on every current
  *      occupant of that court together.
- *   5. completeCourtGame frees the whole court and returns every
- *      occupant to WAITING ("mark a game done, repeat").
+ *   5. completeCourtGame frees the whole court, returns every occupant
+ *      to WAITING ("mark a game done, repeat"), and clears
+ *      timerStartedAt so a fresh game doesn't inherit the old timer.
  *   6. checkOut removes a single player from the active board (DONE),
  *      freeing their seat without ending the rest of the group's game.
  *   7. listForDate excludes DONE check-ins — only WAITING/PLAYING show.
@@ -86,7 +89,21 @@ async function main(): Promise<void> {
       court1Occupants.every((c) => c.status === "PLAYING" && c.startedAt !== null),
       "expected both grouped players to be PLAYING with startedAt stamped",
     );
-    console.log("PASS: assignGroupToCourt groups multiple players onto one court at once.");
+    assert(
+      court1Occupants.every((c) => c.timerStartedAt === null),
+      "expected timerStartedAt to stay null on assignment — the game timer must not auto-start",
+    );
+    console.log("PASS: assignGroupToCourt groups multiple players onto one court at once, timer not auto-started.");
+
+    // ============== 2b. startCourtTimer is the only thing that sets timerStartedAt ==============
+    await specialOpenPlayService.startCourtTimer(TEST_DATE, "Court 1");
+    const boardTimer = await specialOpenPlayService.listForDate(TEST_DATE);
+    const court1Timed = boardTimer.filter((c) => c.courtLabel === "Court 1");
+    assert(
+      court1Timed.every((c) => c.timerStartedAt !== null),
+      "expected startCourtTimer to stamp timerStartedAt on every current occupant of the court",
+    );
+    console.log("PASS: startCourtTimer stamps timerStartedAt on every current occupant of the court.");
 
     // ============== 3. Rejects a group that would push a court over capacity ==============
     const dan = await specialOpenPlayService.checkIn(TEST_DATE, { playerName: "Dan Special" }, owner.id);
@@ -140,7 +157,13 @@ async function main(): Promise<void> {
       backToWaiting.every((c) => c.status === "WAITING"),
       "expected every former Court 1 occupant to be back in Waiting",
     );
-    console.log("PASS: completeCourtGame frees the whole court and returns every occupant to Waiting.");
+    assert(
+      backToWaiting.every((c) => c.timerStartedAt === null),
+      "expected completeCourtGame to clear timerStartedAt — a fresh game must not inherit the old timer",
+    );
+    console.log(
+      "PASS: completeCourtGame frees the whole court, returns every occupant to Waiting, clears timerStartedAt.",
+    );
 
     // ============== 6. checkOut removes a single player without ending the group's game ==============
     await specialOpenPlayService.assignGroupToCourt([alice.id, ben.id], "Court 2");

@@ -114,10 +114,33 @@ export class SpecialOpenPlayService {
       // already null) is what makes "send a staged Next up/After
       // that/Then group straight to a court" work for free: the admin
       // board just calls this same method with that slot's member ids.
-      data: { status: "PLAYING", courtLabel, startedAt: new Date(), stagedSlot: null },
+      // startedAt marks the ASSIGNMENT moment only ("Manual group ·
+      // started X") — the 20-minute game timer does NOT start here (see
+      // this model's own timerStartedAt comment); timerStartedAt is
+      // explicitly reset to null (defensive — should already be null on
+      // a WAITING row, but a fresh game must never inherit a stale
+      // timer start).
+      data: { status: "PLAYING", courtLabel, startedAt: new Date(), stagedSlot: null, timerStartedAt: null },
     });
     if (claim.count !== checkInIds.length) {
       throw new Error("Some of these players were already assigned by someone else — refresh and try again.");
+    }
+  }
+
+  // Owner request (2026-08-09): "dont auto start the time. create a
+  // button for it" — the one way timerStartedAt gets set explicitly by
+  // staff. Freely re-triggerable (restarts the timer), same shape as
+  // announceCourt/announceTimesUp.
+  async startCourtTimer(date: Date, courtLabel: string): Promise<void> {
+    if (!isSpecialCourtLabel(courtLabel)) {
+      throw new Error(`Unknown court "${courtLabel}".`);
+    }
+    const claim = await prisma.specialOpenPlayCheckIn.updateMany({
+      where: { date, courtLabel, status: "PLAYING" },
+      data: { timerStartedAt: new Date() },
+    });
+    if (claim.count === 0) {
+      throw new Error(`${courtLabel} has nobody currently playing to start a timer for.`);
     }
   }
 
@@ -206,7 +229,7 @@ export class SpecialOpenPlayService {
   async completeCourtGame(date: Date, courtLabel: string): Promise<void> {
     const claim = await prisma.specialOpenPlayCheckIn.updateMany({
       where: { date, courtLabel, status: "PLAYING" },
-      data: { status: "WAITING", courtLabel: null },
+      data: { status: "WAITING", courtLabel: null, timerStartedAt: null },
     });
     if (claim.count === 0) {
       throw new Error(`${courtLabel} has nobody currently playing.`);
@@ -253,7 +276,7 @@ export class SpecialOpenPlayService {
   async checkOut(checkInId: string): Promise<SpecialOpenPlayCheckIn> {
     const claim = await prisma.specialOpenPlayCheckIn.updateMany({
       where: { id: checkInId, status: { in: ["WAITING", "PLAYING"] } },
-      data: { status: "DONE", courtLabel: null, stagedSlot: null, doneAt: new Date() },
+      data: { status: "DONE", courtLabel: null, stagedSlot: null, timerStartedAt: null, doneAt: new Date() },
     });
     if (claim.count === 0) {
       throw new Error("This check-in has already left.");

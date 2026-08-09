@@ -2,12 +2,20 @@ import {
   formatSpecialAnnouncement,
   formatSpecialOneMinuteWarning,
   formatSpecialTimesUpAnnouncement,
+  getEffectiveTimerStart,
   isOneMinuteWarningDue,
 } from "./special-open-play-tv-client";
 import type { SpecialDisplayCourt } from "@/services/display/special-display.service";
 
 function court(playerNames: string[], courtLabel = "Court 2", startedAt: string | null = null): SpecialDisplayCourt {
-  return { courtLabel, playerNames, announcementRequestedAt: null, timesUpRequestedAt: null, startedAt };
+  return {
+    courtLabel,
+    playerNames,
+    announcementRequestedAt: null,
+    timesUpRequestedAt: null,
+    startedAt,
+    timerStartedAt: null,
+  };
 }
 
 describe("formatSpecialAnnouncement", () => {
@@ -81,5 +89,30 @@ describe("isOneMinuteWarningDue", () => {
   it("stops being due once the full 20-minute target has passed", () => {
     const at20 = new Date("2026-08-09T10:20:00.000Z").getTime();
     expect(isOneMinuteWarningDue(START, at20)).toBe(false);
+  });
+});
+
+describe("getEffectiveTimerStart", () => {
+  const ASSIGNED_AT = "2026-08-09T10:00:00.000Z";
+  const MANUAL_START = "2026-08-09T10:00:30.000Z";
+
+  it("prefers timerStartedAt (staff pressed Start) over auto-start", () => {
+    const now = new Date("2026-08-09T10:15:00.000Z").getTime();
+    expect(getEffectiveTimerStart(ASSIGNED_AT, MANUAL_START, now)).toBe(MANUAL_START);
+  });
+
+  it("returns null within the 3-minute grace period when Start was never pressed", () => {
+    const justBefore = new Date("2026-08-09T10:02:59.999Z").getTime();
+    expect(getEffectiveTimerStart(ASSIGNED_AT, null, justBefore)).toBeNull();
+  });
+
+  it("auto-starts at exactly startedAt+3min when the button was never pressed", () => {
+    const at3min = new Date("2026-08-09T10:03:00.000Z").getTime();
+    expect(getEffectiveTimerStart(ASSIGNED_AT, null, at3min)).toBe("2026-08-09T10:03:00.000Z");
+  });
+
+  it("returns null when there's no group on the court at all", () => {
+    const now = new Date("2026-08-09T10:15:00.000Z").getTime();
+    expect(getEffectiveTimerStart(null, null, now)).toBeNull();
   });
 });
