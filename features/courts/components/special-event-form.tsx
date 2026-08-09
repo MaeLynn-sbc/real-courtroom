@@ -1,8 +1,6 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect, useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { scheduleSpecialEventAction } from "@/actions/court.actions";
@@ -20,6 +18,14 @@ interface SpecialEventFormCourt {
 
 interface SpecialEventFormProps {
   courts: SpecialEventFormCourt[];
+}
+
+interface EventSlot {
+  id: string;
+  startDate: string;
+  startTime: string;
+  endDate: string;
+  endTime: string;
 }
 
 function pad(value: number): string {
@@ -45,55 +51,43 @@ function roundUpToNextHalfHour(date: Date): Date {
   return rounded;
 }
 
+function makeDefaultSlot(): EventSlot {
+  const start = roundUpToNextHalfHour(new Date());
+  const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+  return {
+    id: crypto.randomUUID(),
+    startDate: toDateInputValue(start),
+    startTime: toTimeInputValue(start),
+    endDate: toDateInputValue(end),
+    endTime: toTimeInputValue(end),
+  };
+}
+
+// "i want to add more day and time" — a new slot defaults to the day
+// after the last one, same times, since that's the common case (a
+// weekend tournament blocking the same hours Saturday and Sunday).
+function makeNextSlot(previous: EventSlot): EventSlot {
+  const nextStartDate = new Date(`${previous.startDate}T00:00:00`);
+  nextStartDate.setDate(nextStartDate.getDate() + 1);
+  const nextEndDate = new Date(`${previous.endDate}T00:00:00`);
+  nextEndDate.setDate(nextEndDate.getDate() + 1);
+  return {
+    id: crypto.randomUUID(),
+    startDate: toDateInputValue(nextStartDate),
+    startTime: previous.startTime,
+    endDate: toDateInputValue(nextEndDate),
+    endTime: previous.endTime,
+  };
+}
+
 export function SpecialEventForm({ courts }: SpecialEventFormProps) {
-  const [serverError, setServerError] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [notes, setNotes] = useState("");
   const [courtIds, setCourtIds] = useState<string[]>([]);
+  const [slots, setSlots] = useState<EventSlot[]>(() => [makeDefaultSlot()]);
+  const [slotErrors, setSlotErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  // Owner report (2026-08-09): "why does it say invalid? can u make the
-  // ui user friendly and includes time?" — a single datetime-local
-  // input silently left "Invalid input" (the browser's own native
-  // warning) whenever staff filled in the date but never touched the
-  // time segment. Split into separate, clearly-labeled Date/Time pairs
-  // — each with its own explicit purpose — plus sensible defaults
-  // (starts rounded up to the next half hour, ends 2 hours later) so
-  // the common case needs no typing at all.
-  const [startDate, setStartDate] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [endTime, setEndTime] = useState("");
-
-  useEffect(() => {
-    const start = roundUpToNextHalfHour(new Date());
-    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
-    setStartDate(toDateInputValue(start));
-    setStartTime(toTimeInputValue(start));
-    setEndDate(toDateInputValue(end));
-    setEndTime(toTimeInputValue(end));
-  }, []);
-
-  const {
-    register,
-    handleSubmit,
-    reset,
-    setValue,
-    formState: { errors },
-  } = useForm({
-    resolver: zodResolver(specialEventSchema),
-    defaultValues: { reason: "", notes: undefined, courtIds: [] as string[] },
-  });
-
-  useEffect(() => {
-    if (startDate && startTime) {
-      setValue("startAt", `${startDate}T${startTime}` as unknown as Date, { shouldValidate: true });
-    }
-  }, [startDate, startTime, setValue]);
-
-  useEffect(() => {
-    if (endDate && endTime) {
-      setValue("endAt", `${endDate}T${endTime}` as unknown as Date, { shouldValidate: true });
-    }
-  }, [endDate, endTime, setValue]);
 
   function toggleCourt(courtId: string, checked: boolean) {
     setCourtIds((current) =>
@@ -101,39 +95,123 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
     );
   }
 
-  const onSubmit = handleSubmit((values) => {
-    setServerError(null);
+  function updateSlot(id: string, patch: Partial<EventSlot>) {
+    setSlots((current) => current.map((slot) => (slot.id === id ? { ...slot, ...patch } : slot)));
+  }
+
+  function addSlot() {
+    setSlots((current) => [...current, makeNextSlot(current[current.length - 1])]);
+  }
+
+  function removeSlot(id: string) {
+    setSlots((current) => (current.length > 1 ? current.filter((slot) => slot.id !== id) : current));
+  }
+
+  function resetForm() {
+    setReason("");
+    setNotes("");
+    setCourtIds([]);
+    setSlots([makeDefaultSlot()]);
+    setSlotErrors({});
+    setFormError(null);
+  }
+
+  // Owner report (2026-08-09): "it doesnt say anything after i click on
+  // block courts for this event" — the previous react-hook-form +
+  // zodResolver + setValue wiring for the split date/time fields could
+  // silently leave the form in an unsubmittable state with no visible
+  // error. Rewritten with plain state and an explicit validate-then-
+  // submit path: every failure (missing field, bad date, server error)
+  // always produces either a toast or an inline message — nothing fails
+  // silently.
+  function handleSubmit() {
+    setFormError(null);
+    setSlotErrors({});
+
+    if (!reason.trim()) {
+      setFormError("A name is required.");
+      toast.error("A name is required.");
+      return;
+    }
 
     if (courtIds.length === 0) {
-      setServerError("Select at least one court.");
+      setFormError("Select at least one court.");
+      toast.error("Select at least one court.");
+      return;
+    }
+
+    const parsedSlots: { slot: EventSlot; startAt: Date; endAt: Date }[] = [];
+    const newSlotErrors: Record<string, string> = {};
+
+    for (const slot of slots) {
+      if (!slot.startDate || !slot.startTime || !slot.endDate || !slot.endTime) {
+        newSlotErrors[slot.id] = "Pick a date and time for both Starts and Ends.";
+        continue;
+      }
+      const parsed = specialEventSchema.safeParse({
+        reason,
+        notes: notes || undefined,
+        courtIds,
+        startAt: `${slot.startDate}T${slot.startTime}`,
+        endAt: `${slot.endDate}T${slot.endTime}`,
+      });
+      if (!parsed.success) {
+        newSlotErrors[slot.id] = parsed.error.issues[0]?.message ?? "Invalid date or time.";
+        continue;
+      }
+      parsedSlots.push({ slot, startAt: parsed.data.startAt, endAt: parsed.data.endAt });
+    }
+
+    if (Object.keys(newSlotErrors).length > 0) {
+      setSlotErrors(newSlotErrors);
+      toast.error("Fix the highlighted date/time before blocking.");
       return;
     }
 
     startTransition(async () => {
-      const result = await scheduleSpecialEventAction({ ...values, courtIds });
-      if (result.error) {
-        setServerError(result.error);
-        toast.error(result.error);
+      const results = await Promise.all(
+        parsedSlots.map(({ slot, startAt, endAt }) =>
+          scheduleSpecialEventAction({ reason, notes: notes || undefined, courtIds, startAt, endAt }).then(
+            (result) => ({ slot, result }),
+          ),
+        ),
+      );
+
+      const failed = results.filter(({ result }) => result.error);
+      if (failed.length === 0) {
+        toast.success(
+          `Blocked ${courtIds.length} court${courtIds.length === 1 ? "" : "s"} across ${results.length} day${
+            results.length === 1 ? "" : "s"
+          }.`,
+        );
+        resetForm();
         return;
       }
-      toast.success(`Blocked ${courtIds.length} court${courtIds.length === 1 ? "" : "s"} for the event.`);
-      reset();
-      setCourtIds([]);
-      const start = roundUpToNextHalfHour(new Date());
-      const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
-      setStartDate(toDateInputValue(start));
-      setStartTime(toTimeInputValue(start));
-      setEndDate(toDateInputValue(end));
-      setEndTime(toTimeInputValue(end));
+
+      const nextSlotErrors: Record<string, string> = {};
+      for (const { slot, result } of failed) {
+        if (result.error) nextSlotErrors[slot.id] = result.error;
+      }
+      setSlotErrors(nextSlotErrors);
+      const succeeded = results.length - failed.length;
+      toast.error(
+        succeeded > 0
+          ? `Blocked ${succeeded} of ${results.length} day(s) — see the highlighted error below.`
+          : (failed[0].result.error ?? "Failed to block the courts."),
+      );
     });
-  });
+  }
 
   return (
-    <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="reason">Event name</Label>
-        <Input id="reason" placeholder="e.g. Private tournament" {...register("reason")} />
-        {errors.reason ? <p className="text-destructive text-sm">{errors.reason.message}</p> : null}
+        <Input
+          id="reason"
+          placeholder="e.g. Private tournament"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -154,78 +232,81 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label>Starts</Label>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="startDate" className="text-muted-foreground text-xs font-normal">
-              Date
-            </Label>
-            <Input
-              id="startDate"
-              type="date"
-              value={startDate}
-              onChange={(event) => setStartDate(event.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="startTime" className="text-muted-foreground text-xs font-normal">
-              Time
-            </Label>
-            <Input
-              id="startTime"
-              type="time"
-              value={startTime}
-              onChange={(event) => setStartTime(event.target.value)}
-            />
-          </div>
-        </div>
-        {errors.startAt ? <p className="text-destructive text-sm">{errors.startAt.message}</p> : null}
-      </div>
+      <div className="flex flex-col gap-4">
+        {slots.map((slot, index) => (
+          <div key={slot.id} className="flex flex-col gap-3 rounded-lg border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Day {index + 1}</span>
+              {slots.length > 1 ? (
+                <Button type="button" size="sm" variant="ghost" onClick={() => removeSlot(slot.id)}>
+                  Remove
+                </Button>
+              ) : null}
+            </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label>Ends</Label>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="endDate" className="text-muted-foreground text-xs font-normal">
-              Date
-            </Label>
-            <Input
-              id="endDate"
-              type="date"
-              value={endDate}
-              onChange={(event) => setEndDate(event.target.value)}
-            />
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-muted-foreground text-xs font-normal">Starts</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  type="date"
+                  aria-label="Start date"
+                  value={slot.startDate}
+                  onChange={(event) => updateSlot(slot.id, { startDate: event.target.value })}
+                />
+                <Input
+                  type="time"
+                  aria-label="Start time"
+                  value={slot.startTime}
+                  onChange={(event) => updateSlot(slot.id, { startTime: event.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-muted-foreground text-xs font-normal">Ends</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  type="date"
+                  aria-label="End date"
+                  value={slot.endDate}
+                  onChange={(event) => updateSlot(slot.id, { endDate: event.target.value })}
+                />
+                <Input
+                  type="time"
+                  aria-label="End time"
+                  value={slot.endTime}
+                  onChange={(event) => updateSlot(slot.id, { endTime: event.target.value })}
+                />
+              </div>
+            </div>
+
+            {slotErrors[slot.id] ? (
+              <p className="text-destructive text-sm" role="alert">
+                {slotErrors[slot.id]}
+              </p>
+            ) : null}
           </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="endTime" className="text-muted-foreground text-xs font-normal">
-              Time
-            </Label>
-            <Input
-              id="endTime"
-              type="time"
-              value={endTime}
-              onChange={(event) => setEndTime(event.target.value)}
-            />
-          </div>
-        </div>
-        {errors.endAt ? <p className="text-destructive text-sm">{errors.endAt.message}</p> : null}
+        ))}
+
+        <Button type="button" variant="outline" onClick={addSlot}>
+          Add another day/time
+        </Button>
       </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="notes">Notes (internal, not shown publicly)</Label>
-        <Textarea id="notes" rows={3} {...register("notes")} />
+        <Textarea id="notes" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </div>
 
-      {serverError ? (
+      {formError ? (
         <p className="text-destructive text-sm" role="alert">
-          {serverError}
+          {formError}
         </p>
       ) : null}
 
-      <Button type="submit" disabled={isPending}>
+      <Button type="button" disabled={isPending} onClick={handleSubmit}>
         {isPending ? "Blocking…" : "Block courts for this event"}
       </Button>
-    </form>
+    </div>
   );
 }
