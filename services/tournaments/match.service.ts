@@ -78,7 +78,18 @@ export class MatchService {
   async scheduleMatch(matchId: string, input: ScheduleMatchInput, actorUserId: string): Promise<Match> {
     const match = await prisma.match.update({
       where: { id: matchId },
-      data: { courtId: input.courtId, scheduledAt: input.scheduledAt },
+      data: {
+        courtId: input.courtId,
+        scheduledAt: input.scheduledAt,
+        // Owner request (2026-08-09): the tournament TV (/tourtv) auto-
+        // announces the moment a match is assigned a real court — see
+        // Match.announcementRequestedAt's own schema comment. Bumped
+        // whenever this call carries a courtId (freely re-triggerable,
+        // same "no already-announced guard" shape as Open Play's manual
+        // Announce button) — a call that only updates scheduledAt
+        // without a courtId doesn't re-announce.
+        ...(input.courtId ? { announcementRequestedAt: new Date() } : {}),
+      },
     });
 
     await this.writeAuditLog({

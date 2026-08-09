@@ -2315,20 +2315,30 @@ model TournamentRegistration {
 }
 
 model Match {
-  id                   String      @id @default(cuid())
-  tournamentCategoryId String?
-  courtId              String?
-  round                Int?
-  bracketPosition      Int?
-  team1Id              String
-  team2Id              String?
-  winnerTeamId         String?
-  status               MatchStatus @default(SCHEDULED)
-  scheduledAt          DateTime?
-  startedAt            DateTime?
-  completedAt          DateTime?
-  createdAt            DateTime    @default(now())
-  updatedAt            DateTime    @updatedAt
+  id                      String      @id @default(cuid())
+  tournamentCategoryId    String?
+  courtId                 String?
+  round                   Int?
+  bracketPosition         Int?
+  team1Id                 String
+  team2Id                 String?
+  winnerTeamId            String?
+  status                  MatchStatus @default(SCHEDULED)
+  scheduledAt             DateTime?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  // Owner request (2026-08-09): the tournament TV display (/tourtv)
+  // auto-announces a match the instant staff assign it a real court —
+  // same "watch a timestamp, not a state transition" shape as
+  // GameAssignment.announcementRequestedAt (see that field's own
+  // comment). Bumped by matchService.scheduleMatch whenever a courtId is
+  // set; freely re-triggerable (re-assigning, even to the same court,
+  // re-announces) — there's no separate manual "Announce" button for
+  // tournaments the way Open Play has one, since assigning the court IS
+  // the staff action that already exists.
+  announcementRequestedAt DateTime?
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
 
   tournamentCategory TournamentCategory? @relation(fields: [tournamentCategoryId], references: [id])
   court              Court?              @relation(fields: [courtId], references: [id])
@@ -2848,21 +2858,21 @@ model Sale {
   paymentMethodCorrectionReason      String?
   paymentMethodCorrectedByEmployeeId String?
 
-  paymentMethod             PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
-  employee                  Employee                   @relation(fields: [employeeId], references: [id])
-  shift                     Shift                      @relation(fields: [shiftId], references: [id])
-  player                    Player?                    @relation(fields: [playerId], references: [id])
-  booking                   Booking?                   @relation(fields: [bookingId], references: [id])
-  coachSession              CoachSession?              @relation(fields: [coachSessionId], references: [id])
-  membership                Membership?                @relation(fields: [membershipId], references: [id])
-  equipmentRental           EquipmentRental?           @relation(fields: [equipmentRentalId], references: [id])
-  lockerRental              LockerRental?              @relation(fields: [lockerRentalId], references: [id])
-  tournamentRegistration    TournamentRegistration?    @relation(fields: [tournamentRegistrationId], references: [id])
-  product                   Product?                   @relation(fields: [productId], references: [id])
-  playerTab                 PlayerTab?                 @relation(fields: [playerTabId], references: [id])
-  openPlayNightRegistration OpenPlayNightRegistration? @relation(fields: [openPlayNightRegistrationId], references: [id])
-  bookingTab                BookingTab?                @relation(fields: [bookingTabId], references: [id])
-  paymentMethodCorrectedByEmployee Employee?            @relation("SalePaymentMethodCorrectedBy", fields: [paymentMethodCorrectedByEmployeeId], references: [id])
+  paymentMethod                    PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
+  employee                         Employee                   @relation(fields: [employeeId], references: [id])
+  shift                            Shift                      @relation(fields: [shiftId], references: [id])
+  player                           Player?                    @relation(fields: [playerId], references: [id])
+  booking                          Booking?                   @relation(fields: [bookingId], references: [id])
+  coachSession                     CoachSession?              @relation(fields: [coachSessionId], references: [id])
+  membership                       Membership?                @relation(fields: [membershipId], references: [id])
+  equipmentRental                  EquipmentRental?           @relation(fields: [equipmentRentalId], references: [id])
+  lockerRental                     LockerRental?              @relation(fields: [lockerRentalId], references: [id])
+  tournamentRegistration           TournamentRegistration?    @relation(fields: [tournamentRegistrationId], references: [id])
+  product                          Product?                   @relation(fields: [productId], references: [id])
+  playerTab                        PlayerTab?                 @relation(fields: [playerTabId], references: [id])
+  openPlayNightRegistration        OpenPlayNightRegistration? @relation(fields: [openPlayNightRegistrationId], references: [id])
+  bookingTab                       BookingTab?                @relation(fields: [bookingTabId], references: [id])
+  paymentMethodCorrectedByEmployee Employee?                  @relation("SalePaymentMethodCorrectedBy", fields: [paymentMethodCorrectedByEmployeeId], references: [id])
 
   @@index([category])
   @@index([createdAt])
