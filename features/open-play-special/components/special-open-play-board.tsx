@@ -103,6 +103,12 @@ export function SpecialOpenPlayBoard({
     AFTER_THAT: "",
     THEN: "",
   });
+  // Owner request (2026-08-09): "the add player option should have
+  // searchable option from the waiting list" — typing filters the
+  // existing Waiting list; picking a result stages that player directly
+  // instead of creating a duplicate check-in. Only one slot's dropdown
+  // is open at a time.
+  const [quickAddOpenSlot, setQuickAddOpenSlot] = useState<StagedSlot | null>(null);
   const [isPending, startTransition] = useTransition();
   // Live MM:SS display for the game timer — ticks every second on the
   // client only; nothing server-side polls or refreshes from this.
@@ -249,6 +255,23 @@ export function SpecialOpenPlayBoard({
       }
       toast.success(`${name} added to ${STAGED_SLOT_LABELS[slot]}.`);
       setQuickAddNames((current) => ({ ...current, [slot]: "" }));
+      setQuickAddOpenSlot(null);
+      refresh();
+    });
+  }
+
+  // Staging an EXISTING waiting player found via search, instead of
+  // checking in a duplicate.
+  function handleQuickAddExisting(checkInId: string, playerName: string, slot: StagedSlot) {
+    startTransition(async () => {
+      const result = await stageSpecialGroupAction({ checkInIds: [checkInId], slot });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${playerName} added to ${STAGED_SLOT_LABELS[slot]}.`);
+      setQuickAddNames((current) => ({ ...current, [slot]: "" }));
+      setQuickAddOpenSlot(null);
       refresh();
     });
   }
@@ -543,15 +566,47 @@ export function SpecialOpenPlayBoard({
                 )}
 
                 <div className="flex gap-2 pt-1">
-                  <Input
-                    placeholder="Add player…"
-                    value={quickAddNames[slot]}
-                    onChange={(event) =>
-                      setQuickAddNames((current) => ({ ...current, [slot]: event.target.value }))
-                    }
-                    disabled={isPending || slotFull}
-                    className="h-8 text-sm"
-                  />
+                  <div className="relative flex-1">
+                    <Input
+                      placeholder="Add player…"
+                      value={quickAddNames[slot]}
+                      onChange={(event) => {
+                        setQuickAddNames((current) => ({ ...current, [slot]: event.target.value }));
+                        setQuickAddOpenSlot(slot);
+                      }}
+                      onFocus={() => setQuickAddOpenSlot(slot)}
+                      onBlur={() =>
+                        setQuickAddOpenSlot((current) => (current === slot ? null : current))
+                      }
+                      disabled={isPending || slotFull}
+                      className="h-8 text-sm"
+                    />
+                    {quickAddOpenSlot === slot && quickAddNames[slot].trim()
+                      ? (() => {
+                          const query = quickAddNames[slot].trim().toLowerCase();
+                          const matches = waiting.filter((w) => w.playerName.toLowerCase().includes(query));
+                          if (matches.length === 0) return null;
+                          return (
+                            <ul className="bg-popover absolute z-10 mt-1 w-full rounded-md border shadow-md">
+                              {matches.slice(0, 6).map((match) => (
+                                <li key={match.id}>
+                                  <button
+                                    type="button"
+                                    className="hover:bg-accent w-full px-2 py-1.5 text-left text-sm"
+                                    onMouseDown={(event) => {
+                                      event.preventDefault();
+                                      handleQuickAddExisting(match.id, match.playerName, slot);
+                                    }}
+                                  >
+                                    {match.playerName}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          );
+                        })()
+                      : null}
+                  </div>
                   <Button
                     type="button"
                     size="sm"
