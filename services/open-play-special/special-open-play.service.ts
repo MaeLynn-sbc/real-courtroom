@@ -5,12 +5,18 @@ import { prisma } from "@/lib/prisma";
 // Owner request (2026-08-09): "an outside special court" — see
 // prisma/schema.prisma's own comment on SpecialOpenPlayCheckIn for the
 // full isolation rationale. Explicitly temporary and simple: check in,
-// manually assign to one of three court slots, mark a game done, repeat.
-// No auto-pairing, no staging pipeline, no nudge timers, no Sale, no
-// PlayerTab, no add-ons, no TV/announce connection — none of that
-// machinery is imported here, on purpose.
-export const SPECIAL_COURT_LABELS = ["Court A", "Court B", "Court C"] as const;
+// manually group up to 4 players onto one of three court slots, mark a
+// game done, repeat. No auto-pairing, no staging pipeline, no nudge
+// timers, no Sale, no PlayerTab, no add-ons — none of that machinery is
+// imported here. The one addition (2026-08-09, same day): a manual
+// "Announce" button per court, watched by the isolated /specialtv
+// display (services/display/special-display.service.ts) — its own
+// display, its own URL, no connection to the real Open Play TV.
+export const SPECIAL_COURT_LABELS = ["Court 1", "Court 2", "Court 3"] as const;
 export type SpecialCourtLabel = (typeof SPECIAL_COURT_LABELS)[number];
+
+// A real foursome — same cap Open Play itself uses for a group.
+const MAX_PLAYERS_PER_COURT = 4;
 
 function isSpecialCourtLabel(value: string): value is SpecialCourtLabel {
   return (SPECIAL_COURT_LABELS as readonly string[]).includes(value);
@@ -52,55 +58,91 @@ export class SpecialOpenPlayService {
     });
   }
 
-  // Claims the target row atomically (WAITING -> PLAYING, no separate
-  // read-then-write on the row itself), after confirming the requested
-  // court isn't already occupied for this date — a temporary tool for a
-  // human clicking one button at a time, not a high-throughput system;
-  // this is a reasonable, honest level of race protection for that, not
-  // a full row-locked transaction the way the real booking/rotation
-  // engines need.
-  async assignToCourt(checkInId: string, courtLabel: string): Promise<SpecialOpenPlayCheckIn> {
+  // Groups 1-4 waiting players onto one court at once ("form a group and
+  // put it to Court 1") — claims every row in the same atomic UPDATE
+  // (id IN checkInIds AND status = WAITING), so a partial claim can only
+  // ever mean some of the requested players were already taken by a
+  // different assignment between the capacity check and this call, not
+  // a half-applied group; that's reported as a clear error, not silently
+  // left ambiguous. A temporary tool for a human clicking one button at
+  // a time, not a high-throughput system — this is a reasonable, honest
+  // level of race protection for that, not a full row-locked transaction
+  // the way the real booking/rotation engines need.
+  async assignGroupToCourt(checkInIds: string[], courtLabel: string): Promise<void> {
     if (!isSpecialCourtLabel(courtLabel)) {
       throw new Error(`Unknown court "${courtLabel}".`);
     }
-
-    const target = await prisma.specialOpenPlayCheckIn.findUniqueOrThrow({ where: { id: checkInId } });
-    if (target.status !== "WAITING") {
-      throw new Error(`Can't assign a check-in that's currently ${target.status.toLowerCase()}.`);
+    if (checkInIds.length === 0) {
+      throw new Error("Select at least one player.");
+    }
+    if (checkInIds.length > MAX_PLAYERS_PER_COURT) {
+      throw new Error(`A court can only hold ${MAX_PLAYERS_PER_COURT} players.`);
     }
 
-    const occupied = await prisma.specialOpenPlayCheckIn.findFirst({
-      where: { date: target.date, status: "PLAYING", courtLabel },
+    const targets = await prisma.specialOpenPlayCheckIn.findMany({
+      where: { id: { in: checkInIds } },
     });
-    if (occupied) {
-      throw new Error(`${courtLabel} is already occupied by ${occupied.playerName}.`);
+    if (targets.length !== checkInIds.length) {
+      throw new Error("One of the selected players no longer exists — refresh and try again.");
+    }
+    if (targets.some((t) => t.status !== "WAITING")) {
+      throw new Error("One of the selected players is no longer waiting — refresh and try again.");
+    }
+    const date = targets[0].date;
+    if (targets.some((t) => t.date.getTime() !== date.getTime())) {
+      throw new Error("Selected players must all be checked in for the same date.");
+    }
+
+    const occupantCount = await prisma.specialOpenPlayCheckIn.count({
+      where: { date, status: "PLAYING", courtLabel },
+    });
+    if (occupantCount + checkInIds.length > MAX_PLAYERS_PER_COURT) {
+      throw new Error(
+        `${courtLabel} only has room for ${MAX_PLAYERS_PER_COURT - occupantCount} more player(s).`,
+      );
     }
 
     const claim = await prisma.specialOpenPlayCheckIn.updateMany({
-      where: { id: checkInId, status: "WAITING" },
+      where: { id: { in: checkInIds }, status: "WAITING" },
       data: { status: "PLAYING", courtLabel, startedAt: new Date() },
     });
-    if (claim.count === 0) {
-      throw new Error("This check-in was already assigned by someone else — refresh and try again.");
+    if (claim.count !== checkInIds.length) {
+      throw new Error("Some of these players were already assigned by someone else — refresh and try again.");
     }
-
-    return prisma.specialOpenPlayCheckIn.findUniqueOrThrow({ where: { id: checkInId } });
   }
 
-  // Frees the court and returns the player to Waiting for another round
-  // — "mark a game done, repeat."
-  async completeGame(checkInId: string): Promise<SpecialOpenPlayCheckIn> {
+  // Frees the whole court and returns every occupant to Waiting for
+  // another round — "mark a game done, repeat."
+  async completeCourtGame(date: Date, courtLabel: string): Promise<void> {
     const claim = await prisma.specialOpenPlayCheckIn.updateMany({
-      where: { id: checkInId, status: "PLAYING" },
+      where: { date, courtLabel, status: "PLAYING" },
       data: { status: "WAITING", courtLabel: null },
     });
     if (claim.count === 0) {
-      throw new Error("This check-in isn't currently playing.");
+      throw new Error(`${courtLabel} has nobody currently playing.`);
     }
-    return prisma.specialOpenPlayCheckIn.findUniqueOrThrow({ where: { id: checkInId } });
   }
 
-  // Leaving entirely — from Waiting or Playing (freeing the court too).
+  // Manual "Announce" — stamps every current occupant of the court with
+  // the same fresh timestamp; the /specialtv display diffs this per
+  // court to decide when to speak. Freely re-triggerable (no
+  // "already announced" guard), same shape as Open Play's own manual
+  // Announce button.
+  async announceCourt(date: Date, courtLabel: string): Promise<void> {
+    if (!isSpecialCourtLabel(courtLabel)) {
+      throw new Error(`Unknown court "${courtLabel}".`);
+    }
+    const claim = await prisma.specialOpenPlayCheckIn.updateMany({
+      where: { date, courtLabel, status: "PLAYING" },
+      data: { announcementRequestedAt: new Date() },
+    });
+    if (claim.count === 0) {
+      throw new Error(`${courtLabel} has nobody currently playing to announce.`);
+    }
+  }
+
+  // Leaving entirely — from Waiting or Playing (freeing their court seat
+  // too, without necessarily ending the rest of the group's game).
   async checkOut(checkInId: string): Promise<SpecialOpenPlayCheckIn> {
     const claim = await prisma.specialOpenPlayCheckIn.updateMany({
       where: { id: checkInId, status: { in: ["WAITING", "PLAYING"] } },

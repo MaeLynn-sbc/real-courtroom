@@ -3,12 +3,14 @@
 import { revalidatePath } from "next/cache";
 
 import {
-  assignSpecialPlayerToCourtSchema,
+  assignSpecialGroupToCourtSchema,
   checkInSpecialPlayerSchema,
   specialCheckInIdSchema,
-  type AssignSpecialPlayerToCourtInput,
+  specialCourtActionSchema,
+  type AssignSpecialGroupToCourtInput,
   type CheckInSpecialPlayerInput,
   type SpecialCheckInIdInput,
+  type SpecialCourtActionInput,
 } from "@/features/open-play-special/schemas/special-open-play.schema";
 import { requireSystemAdmin } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
@@ -57,50 +59,77 @@ export async function checkInSpecialPlayerAction(
   }
 }
 
-export async function assignSpecialPlayerToCourtAction(
-  input: AssignSpecialPlayerToCourtInput,
+export async function assignSpecialGroupToCourtAction(
+  input: AssignSpecialGroupToCourtInput,
 ): Promise<SpecialOpenPlayActionState> {
   const authz = await requireSpecialOpenPlayAdmin();
   if (!authz.ok) {
     return { error: authz.error };
   }
 
-  const parsed = assignSpecialPlayerToCourtSchema.safeParse(input);
+  const parsed = assignSpecialGroupToCourtSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
   }
 
   try {
-    await specialOpenPlayService.assignToCourt(parsed.data.checkInId, parsed.data.courtLabel);
+    await specialOpenPlayService.assignGroupToCourt(parsed.data.checkInIds, parsed.data.courtLabel);
     revalidateSpecialOpenPlay();
     return { error: null };
   } catch (error) {
     return {
-      error: toActionError(error, { action: "assignSpecialPlayerToCourtAction", userId: authz.userId }),
+      error: toActionError(error, { action: "assignSpecialGroupToCourtAction", userId: authz.userId }),
     };
   }
 }
 
-export async function completeSpecialGameAction(
-  input: SpecialCheckInIdInput,
+export async function completeSpecialCourtGameAction(
+  input: SpecialCourtActionInput,
 ): Promise<SpecialOpenPlayActionState> {
   const authz = await requireSpecialOpenPlayAdmin();
   if (!authz.ok) {
     return { error: authz.error };
   }
 
-  const parsed = specialCheckInIdSchema.safeParse(input);
+  const parsed = specialCourtActionSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
   }
 
   try {
-    await specialOpenPlayService.completeGame(parsed.data.checkInId);
+    await specialOpenPlayService.completeCourtGame(
+      new Date(`${parsed.data.date}T00:00:00`),
+      parsed.data.courtLabel,
+    );
     revalidateSpecialOpenPlay();
     return { error: null };
   } catch (error) {
     return {
-      error: toActionError(error, { action: "completeSpecialGameAction", userId: authz.userId }),
+      error: toActionError(error, { action: "completeSpecialCourtGameAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function announceSpecialCourtAction(
+  input: SpecialCourtActionInput,
+): Promise<SpecialOpenPlayActionState> {
+  const authz = await requireSpecialOpenPlayAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = specialCourtActionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await specialOpenPlayService.announceCourt(new Date(`${parsed.data.date}T00:00:00`), parsed.data.courtLabel);
+    revalidateSpecialOpenPlay();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "announceSpecialCourtAction", userId: authz.userId }),
     };
   }
 }

@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import {
-  assignSpecialPlayerToCourtAction,
+  announceSpecialCourtAction,
+  assignSpecialGroupToCourtAction,
   checkInSpecialPlayerAction,
   checkOutSpecialPlayerAction,
-  completeSpecialGameAction,
+  completeSpecialCourtGameAction,
 } from "@/actions/special-open-play.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +18,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { SkillLevel } from "@/lib/generated/prisma/enums";
 
-const COURT_LABELS = ["Court A", "Court B", "Court C"] as const;
+const COURT_LABELS = ["Court 1", "Court 2", "Court 3"] as const;
+const MAX_PLAYERS_PER_COURT = 4;
 
 const SKILL_LABELS: Record<SkillLevel, string> = {
   BEGINNER: "Beginner",
@@ -35,11 +37,11 @@ export interface SpecialCheckIn {
   courtLabel: string | null;
 }
 
-// Owner request (2026-08-09): "an outside special court" — check-in +
-// manual court assignment only, no auto-pairing, no Sale, no PlayerTab,
-// no TV connection. See SpecialOpenPlayCheckIn's own schema comment for
-// the full isolation rationale, and special-open-play.service.ts's own
-// comment for why this stays deliberately simple.
+// Owner request (2026-08-09): "an outside special court... like i can
+// form a group and put it to court a." Check-in + manual GROUP court
+// assignment (up to 4 at once), a manual Announce button per court
+// (watched by the isolated /specialtv display), no auto-pairing, no
+// Sale, no PlayerTab, no connection to the real Open Play system.
 export function SpecialOpenPlayBoard({
   dateValue,
   checkIns,
@@ -51,15 +53,30 @@ export function SpecialOpenPlayBoard({
   const [playerName, setPlayerName] = useState("");
   const [phone, setPhone] = useState("");
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
 
   const waiting = checkIns.filter((c) => c.status === "WAITING");
-  const playingByCourt = new Map(
-    checkIns.filter((c) => c.status === "PLAYING" && c.courtLabel).map((c) => [c.courtLabel!, c]),
-  );
+  const playingByCourt = new Map<string, SpecialCheckIn[]>();
+  for (const checkIn of checkIns) {
+    if (checkIn.status === "PLAYING" && checkIn.courtLabel) {
+      const existing = playingByCourt.get(checkIn.courtLabel);
+      if (existing) {
+        existing.push(checkIn);
+      } else {
+        playingByCourt.set(checkIn.courtLabel, [checkIn]);
+      }
+    }
+  }
 
   function refresh() {
     router.refresh();
+  }
+
+  function toggleSelected(checkInId: string) {
+    setSelectedIds((current) =>
+      current.includes(checkInId) ? current.filter((id) => id !== checkInId) : [...current, checkInId],
+    );
   }
 
   function handleCheckIn() {
@@ -86,26 +103,43 @@ export function SpecialOpenPlayBoard({
     });
   }
 
-  function handleAssign(checkInId: string, courtLabel: string) {
+  function handleAssignGroup(courtLabel: string) {
+    if (selectedIds.length === 0) {
+      toast.error("Select at least one player first.");
+      return;
+    }
     startTransition(async () => {
-      const result = await assignSpecialPlayerToCourtAction({ checkInId, courtLabel });
+      const result = await assignSpecialGroupToCourtAction({ checkInIds: selectedIds, courtLabel });
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      toast.success(`Assigned to ${courtLabel}.`);
+      toast.success(`${selectedIds.length} player(s) assigned to ${courtLabel}.`);
+      setSelectedIds([]);
       refresh();
     });
   }
 
-  function handleCompleteGame(checkInId: string) {
+  function handleCompleteGame(courtLabel: string) {
     startTransition(async () => {
-      const result = await completeSpecialGameAction({ checkInId });
+      const result = await completeSpecialCourtGameAction({ date: dateValue, courtLabel });
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      toast.success("Game marked done — back to Waiting.");
+      toast.success(`${courtLabel} game marked done — back to Waiting.`);
+      refresh();
+    });
+  }
+
+  function handleAnnounce(courtLabel: string) {
+    startTransition(async () => {
+      const result = await announceSpecialCourtAction({ date: dateValue, courtLabel });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`Announced ${courtLabel}.`);
       refresh();
     });
   }
@@ -118,6 +152,7 @@ export function SpecialOpenPlayBoard({
         return;
       }
       toast.success("Checked out.");
+      setSelectedIds((current) => current.filter((id) => id !== checkInId));
       refresh();
     });
   }
@@ -127,8 +162,8 @@ export function SpecialOpenPlayBoard({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Special Open Play</h1>
         <p className="text-muted-foreground text-sm">
-          Private, temporary board for the outside special court. No fees, no Sale — check in, assign
-          to a court, mark done.
+          Private, temporary board for the outside special court. No fees, no Sale — check in, select a
+          group, assign to a court, mark done.
         </p>
       </div>
 
@@ -183,43 +218,69 @@ export function SpecialOpenPlayBoard({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {COURT_LABELS.map((courtLabel) => {
-          const occupant = playingByCourt.get(courtLabel);
+          const occupants = playingByCourt.get(courtLabel) ?? [];
+          const remaining = MAX_PLAYERS_PER_COURT - occupants.length;
           return (
             <Card key={courtLabel}>
               <CardHeader>
-                <CardTitle className="text-base">{courtLabel}</CardTitle>
+                <CardTitle className="flex items-center justify-between text-base">
+                  <span>{courtLabel}</span>
+                  <span className="text-muted-foreground text-xs font-normal">
+                    {occupants.length}/{MAX_PLAYERS_PER_COURT}
+                  </span>
+                </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-2">
-                {occupant ? (
-                  <>
-                    <p className="font-medium">{occupant.playerName}</p>
-                    {occupant.skillLevel ? (
-                      <p className="text-muted-foreground text-xs">{SKILL_LABELS[occupant.skillLevel]}</p>
-                    ) : null}
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={isPending}
-                        onClick={() => handleCompleteGame(occupant.id)}
-                      >
-                        Mark done
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={isPending}
-                        onClick={() => handleCheckOut(occupant.id)}
-                      >
-                        Check out
-                      </Button>
-                    </div>
-                  </>
+                {occupants.length > 0 ? (
+                  <ul className="flex flex-col gap-1">
+                    {occupants.map((occupant) => (
+                      <li key={occupant.id} className="text-sm">
+                        {occupant.playerName}
+                        {occupant.skillLevel ? (
+                          <span className="text-muted-foreground ml-1 text-xs">
+                            ({SKILL_LABELS[occupant.skillLevel]})
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
                   <p className="text-muted-foreground text-sm">Empty</p>
                 )}
+
+                {selectedIds.length > 0 && remaining > 0 ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isPending || selectedIds.length > remaining}
+                    onClick={() => handleAssignGroup(courtLabel)}
+                  >
+                    Assign selected ({selectedIds.length}) here
+                  </Button>
+                ) : null}
+
+                {occupants.length > 0 ? (
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isPending}
+                      onClick={() => handleAnnounce(courtLabel)}
+                    >
+                      Announce
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={isPending}
+                      onClick={() => handleCompleteGame(courtLabel)}
+                    >
+                      Mark done
+                    </Button>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           );
@@ -228,7 +289,14 @@ export function SpecialOpenPlayBoard({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Waiting ({waiting.length})</CardTitle>
+          <CardTitle className="text-base">
+            Waiting ({waiting.length})
+            {selectedIds.length > 0 ? (
+              <span className="text-muted-foreground ml-2 text-xs font-normal">
+                {selectedIds.length} selected
+              </span>
+            ) : null}
+          </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           {waiting.length === 0 ? (
@@ -239,37 +307,27 @@ export function SpecialOpenPlayBoard({
                 key={checkIn.id}
                 className="flex flex-wrap items-center justify-between gap-2 border-b py-2 last:border-0"
               >
-                <div>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(checkIn.id)}
+                    onChange={() => toggleSelected(checkIn.id)}
+                    disabled={isPending}
+                  />
                   <span className="font-medium">{checkIn.playerName}</span>
                   {checkIn.skillLevel ? (
-                    <span className="text-muted-foreground ml-2 text-xs">
-                      {SKILL_LABELS[checkIn.skillLevel]}
-                    </span>
+                    <span className="text-muted-foreground text-xs">{SKILL_LABELS[checkIn.skillLevel]}</span>
                   ) : null}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {COURT_LABELS.map((courtLabel) => (
-                    <Button
-                      key={courtLabel}
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={isPending || playingByCourt.has(courtLabel)}
-                      onClick={() => handleAssign(checkIn.id, courtLabel)}
-                    >
-                      → {courtLabel}
-                    </Button>
-                  ))}
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={isPending}
-                    onClick={() => handleCheckOut(checkIn.id)}
-                  >
-                    Remove
-                  </Button>
-                </div>
+                </label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={isPending}
+                  onClick={() => handleCheckOut(checkIn.id)}
+                >
+                  Remove
+                </Button>
               </div>
             ))
           )}

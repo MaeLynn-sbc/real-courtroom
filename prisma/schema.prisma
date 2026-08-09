@@ -3298,20 +3298,28 @@ enum SpecialOpenPlayStatus {
 }
 
 model SpecialOpenPlayCheckIn {
-  id              String                @id @default(cuid())
-  date            DateTime
-  playerName      String
-  phone           String?
-  skillLevel      SkillLevel?
-  status          SpecialOpenPlayStatus @default(WAITING)
+  id                      String                @id @default(cuid())
+  date                    DateTime
+  playerName              String
+  phone                   String?
+  skillLevel              SkillLevel?
+  status                  SpecialOpenPlayStatus @default(WAITING)
   // Set only while PLAYING; cleared when the game is marked done (the
   // player returns to WAITING for another round) or when they check out
-  // (DONE).
-  courtLabel      String?
-  checkedInAt     DateTime              @default(now())
-  startedAt       DateTime?
-  doneAt          DateTime?
-  createdByUserId String
+  // (DONE). Up to 4 rows may share the same date+courtLabel at once (a
+  // real foursome) — see special-open-play.service.ts's assignToCourt.
+  courtLabel              String?
+  checkedInAt             DateTime              @default(now())
+  startedAt               DateTime?
+  doneAt                  DateTime?
+  // Owner request (2026-08-09): a manual "Announce" button on the admin
+  // board, watched by the isolated /specialtv display (see
+  // special-display.service.ts) — same "watch a timestamp, not a state
+  // transition" shape as GameAssignment.announcementRequestedAt, but on
+  // its own isolated table. Set on every occupant of a court together
+  // (same timestamp) when staff press Announce for that court.
+  announcementRequestedAt DateTime?
+  createdByUserId         String
 
   createdBy User @relation(fields: [createdByUserId], references: [id])
 

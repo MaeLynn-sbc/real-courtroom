@@ -1,32 +1,40 @@
 import type { Metadata } from "next";
 
-import { TournamentTvDisplayClient } from "@/features/display/components/tournament-tv-display-client";
+import { SpecialOpenPlayTvClient } from "@/features/display/components/special-open-play-tv-client";
 import { settingsService } from "@/services/settings/settings.service";
-import { tournamentDisplayService } from "@/services/display/tournament-display.service";
+import { specialDisplayService } from "@/services/display/special-display.service";
 
 export const metadata: Metadata = {
-  title: "Tournament — Now Playing",
+  title: "Special Open Play — Now Playing",
   robots: { index: false, follow: false },
 };
 
 export const dynamic = "force-dynamic";
 
-// Fixed, memorable public URL, same shape as app/tv/page.tsx — no gate,
-// for typing on a TV's on-screen remote keyboard. Reuses the same
-// announcement voice/repeat-count/refresh-interval settings as the Open
-// Play TV — one shared "how the venue's TV sounds" configuration, not a
-// second one to keep in sync.
+// Owner request (2026-08-09): "ill use the /tourtv url and reuse it
+// after" — this route is TEMPORARILY repurposed to show the Special
+// Open Play display instead of the tournament one, for as long as the
+// outside special court is running. The real tournament display code
+// (tournamentDisplayService, TournamentTvDisplayClient,
+// /api/tournament-display) is untouched and still fully working — only
+// THIS page's own render target changed. To switch back: swap the
+// import/JSX below back to tournamentDisplayService +
+// TournamentTvDisplayClient (see git history for the exact prior
+// version of this file), and revert the metadata title.
 export default async function TourTvPage() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   const [initialData, announcementRepeatCount, announcementVoice, refreshIntervalSeconds] =
     await Promise.all([
-      tournamentDisplayService.getDisplayData(),
+      specialDisplayService.getDisplayData(today),
       settingsService.getAnnouncementRepeatCount(),
       settingsService.getAnnouncementVoice(),
       settingsService.getDisplayRefreshIntervalSeconds(),
     ]);
 
   return (
-    <TournamentTvDisplayClient
+    <SpecialOpenPlayTvClient
       initialData={initialData}
       announcementRepeatCount={announcementRepeatCount}
       announcementVoice={announcementVoice}

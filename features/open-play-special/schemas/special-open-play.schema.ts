@@ -10,11 +10,20 @@ export const checkInSpecialPlayerSchema = z.object({
 });
 export type CheckInSpecialPlayerInput = z.infer<typeof checkInSpecialPlayerSchema>;
 
-export const assignSpecialPlayerToCourtSchema = z.object({
-  checkInId: z.string().min(1),
+// Owner request (2026-08-09): "like i can form a group and put it to
+// court a" — up to 4 waiting players assigned to one court together, in
+// one action.
+export const assignSpecialGroupToCourtSchema = z.object({
+  checkInIds: z.array(z.string().min(1)).min(1, "Select at least one player.").max(4),
   courtLabel: z.string().min(1, "Choose a court."),
 });
-export type AssignSpecialPlayerToCourtInput = z.infer<typeof assignSpecialPlayerToCourtSchema>;
+export type AssignSpecialGroupToCourtInput = z.infer<typeof assignSpecialGroupToCourtSchema>;
+
+export const specialCourtActionSchema = z.object({
+  date: z.string().min(1),
+  courtLabel: z.string().min(1),
+});
+export type SpecialCourtActionInput = z.infer<typeof specialCourtActionSchema>;
 
 export const specialCheckInIdSchema = z.object({
   checkInId: z.string().min(1),
