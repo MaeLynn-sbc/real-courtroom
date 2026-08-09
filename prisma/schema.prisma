@@ -124,6 +124,7 @@ model User {
   auditLogs                         AuditLog[]
   settingsUpdated                   Setting[]
   eventsCreated                     Event[]
+  specialOpenPlayCheckInsCreated    SpecialOpenPlayCheckIn[]
   openPlayMatchesCompleted          OpenPlayMatch[]
   gameAssignmentsCreated            GameAssignment[]
   membershipHistoryChanges          MembershipHistory[]
@@ -3276,4 +3277,43 @@ model Event {
 
   @@index([status])
   @@index([startDateTime, endDateTime])
+}
+
+// --- Special Open Play (2026-08-09) -----------------------------------------
+// Owner request: "an outside special court" — a second, physically separate
+// open-play setup, run by staff for free (no Sale, no PlayerTab, no add-ons),
+// with no connection to the real Open Play rotation engine, TV display, or
+// the regular admin page's Tabs/history. Explicitly temporary and simple —
+// "we will create new queuing system, a different one for this" — later.
+// Deliberately its own, fully isolated model: no FK to Court, Sale,
+// PlayerTab, GameAssignment, or QueueEntry, so there is no code path by
+// which a special (free) check-in could ever be pulled into the real
+// rotation engine's auto-pairing pool or reach a real Sale. courtLabel is a
+// bare string ("Court A"/"Court B"/"Court C"), not a Court FK — these
+// aren't real, bookable facility courts.
+enum SpecialOpenPlayStatus {
+  WAITING
+  PLAYING
+  DONE
+}
+
+model SpecialOpenPlayCheckIn {
+  id              String                @id @default(cuid())
+  date            DateTime
+  playerName      String
+  phone           String?
+  skillLevel      SkillLevel?
+  status          SpecialOpenPlayStatus @default(WAITING)
+  // Set only while PLAYING; cleared when the game is marked done (the
+  // player returns to WAITING for another round) or when they check out
+  // (DONE).
+  courtLabel      String?
+  checkedInAt     DateTime              @default(now())
+  startedAt       DateTime?
+  doneAt          DateTime?
+  createdByUserId String
+
+  createdBy User @relation(fields: [createdByUserId], references: [id])
+
+  @@index([date, status])
 }
