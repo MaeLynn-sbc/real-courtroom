@@ -23,6 +23,7 @@ import {
   ShoppingBag,
   TrendingDown,
   Trophy,
+  Tv,
   UserCog,
   Users,
   Wallet,
@@ -62,7 +63,23 @@ const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
   "/dashboard/admin/settings": Settings,
   "/dashboard/admin/diagnostics": Activity,
   "/dashboard/admin/gcash-reconciliation": Landmark,
+  "/dashboard/admin/openplayspecial": Tv,
 };
+
+// Owner request (2026-08-09): "visible only to me" — the one deliberate
+// exception to this file's own "not visually permission-filtered" rule
+// below. A private, dashboard-only copy of the Open Play TV with a
+// manual Announce button built into it (see
+// features/display/components/open-play-special-display-client.tsx),
+// not meant to appear in every staff member's nav. Kept OUT of
+// lib/config.ts's dashboardNavGroups (which every item below still
+// reads from, unfiltered) so it can't leak into that shared, always-
+// rendered list — conditionally appended to the Administration group
+// below instead, based on a permission check threaded in from
+// app/dashboard/layout.tsx (the same SYSTEM_ADMIN check that page's own
+// route access already requires — see lib/rbac.ts's /dashboard/admin
+// default).
+const OPEN_PLAY_SPECIAL_ITEM = { title: "Special Open Play", href: "/dashboard/admin/openplayspecial" };
 
 // Picks the longest href that matches the current path (exact or as a
 // parent segment), so a nested route like /dashboard/courts/abc123
@@ -133,14 +150,20 @@ function resolveOpenPlayCapacityActiveHref(pathname: string): string | undefined
 // per-role would need session/permission data threaded into this client
 // component, which doesn't happen anywhere else in this file today —
 // out of scope for adding one more link.
-export function DashboardSidebar() {
+export function DashboardSidebar({
+  canViewOpenPlaySpecial = false,
+}: {
+  // Owner-only ("visible only to me") — see OPEN_PLAY_SPECIAL_ITEM's own
+  // comment. Defaults false so every other existing call site (there are
+  // none today, but a default keeps this a non-breaking prop addition)
+  // stays exactly as it was.
+  canViewOpenPlaySpecial?: boolean;
+}) {
   const pathname = usePathname();
-  const activeHref =
-    resolveOpenPlayCapacityActiveHref(pathname) ??
-    getActiveHref(
-      pathname,
-      dashboardNavItems.map((item) => item.href),
-    );
+  const allHrefs = canViewOpenPlaySpecial
+    ? [...dashboardNavItems.map((item) => item.href), OPEN_PLAY_SPECIAL_ITEM.href]
+    : dashboardNavItems.map((item) => item.href);
+  const activeHref = resolveOpenPlayCapacityActiveHref(pathname) ?? getActiveHref(pathname, allHrefs);
 
   return (
     <aside className="border-border/60 bg-sidebar text-sidebar-foreground hidden w-56 shrink-0 border-r md:flex md:flex-col md:overflow-y-auto">
@@ -155,7 +178,10 @@ export function DashboardSidebar() {
             <h2 className="text-sidebar-foreground/60 px-3 pb-1 text-xs font-semibold tracking-wide uppercase">
               {group.label}
             </h2>
-            {group.items.map((item) => {
+            {(group.label === "Administration" && canViewOpenPlaySpecial
+              ? [...group.items, OPEN_PLAY_SPECIAL_ITEM]
+              : group.items
+            ).map((item) => {
               const Icon = NAV_ICONS[item.href];
               const isActive = item.href === activeHref;
 
