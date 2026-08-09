@@ -181,6 +181,23 @@ export async function updateSpecialEventTimingAction(
   }
 }
 
+export async function deleteSpecialEventAction(maintenanceId: string): Promise<CourtActionState> {
+  const authz = await requireCourtsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  try {
+    await courtService.deleteSpecialEvent(maintenanceId, authz.userId);
+    revalidatePath("/dashboard/admin/special-events");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "deleteSpecialEventAction", userId: authz.userId }),
+    };
+  }
+}
+
 // Reuses updateMaintenanceStatus (already generic across MAINTENANCE and
 // SPECIAL_EVENT kinds) — a thin, page-scoped wrapper so the special-
 // events admin page doesn't need to know about a courtId-scoped revalidate

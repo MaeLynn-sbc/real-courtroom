@@ -247,6 +247,32 @@ export class CourtService {
     return updated;
   }
 
+  // Owner request (2026-08-09): "i want an option to delete cancelled
+  // events" — a real delete, not another status. Guarded to CANCELLED
+  // rows only: an active/scheduled block still enforces real
+  // availability checks (checkAvailabilityWithClient), so deleting one
+  // of those out from under a live block would silently reopen a court
+  // someone thinks is closed. A cancelled row already blocks nothing —
+  // deleting it is pure cleanup.
+  async deleteSpecialEvent(maintenanceId: string, actorUserId: string): Promise<void> {
+    const existing = await prisma.courtMaintenance.findUniqueOrThrow({
+      where: { id: maintenanceId },
+    });
+    if (existing.status !== "CANCELLED") {
+      throw new Error("Only a cancelled event can be deleted — cancel it first.");
+    }
+
+    await prisma.courtMaintenance.delete({ where: { id: maintenanceId } });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "court.special_event_deleted",
+      entityType: "CourtMaintenance",
+      entityId: maintenanceId,
+      oldValues: existing,
+    });
+  }
+
   async updateMaintenanceStatus(
     maintenanceId: string,
     status: MaintenanceStatus,

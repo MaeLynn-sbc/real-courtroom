@@ -4,7 +4,21 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { cancelSpecialEventAction, updateSpecialEventTimingAction } from "@/actions/court.actions";
+import {
+  cancelSpecialEventAction,
+  deleteSpecialEventAction,
+  updateSpecialEventTimingAction,
+} from "@/actions/court.actions";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,6 +84,58 @@ function CancelButton({ maintenanceId }: { maintenanceId: string }) {
     >
       {isPending ? "Cancelling…" : "Cancel"}
     </Button>
+  );
+}
+
+// Owner request (2026-08-09): "i want an option to delete cancelled
+// events" — real delete, confirmed first since it's irreversible
+// (unlike Cancel, which just flips a status). Only ever rendered for
+// CANCELLED rows — see deleteSpecialEvent's own guard.
+function DeleteButton({ maintenanceId }: { maintenanceId: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [isPending, startTransition] = useTransition();
+
+  function handleDelete() {
+    startTransition(async () => {
+      const result = await deleteSpecialEventAction(maintenanceId);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Event deleted.");
+      setOpen(false);
+      router.refresh();
+    });
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="text-destructive hover:text-destructive"
+        onClick={() => setOpen(true)}
+      >
+        Delete
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this cancelled event?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This removes it from the list permanently. It&apos;s already cancelled and blocking nothing, so
+            this is just cleanup — there&apos;s no undo.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isPending}>Keep it</AlertDialogCancel>
+          <AlertDialogAction disabled={isPending} onClick={handleDelete}>
+            {isPending ? "Deleting…" : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -220,6 +286,8 @@ export function SpecialEventList({ events }: SpecialEventListProps) {
                     </Button>
                     <CancelButton maintenanceId={event.id} />
                   </div>
+                ) : event.status === "CANCELLED" ? (
+                  <DeleteButton maintenanceId={event.id} />
                 ) : null}
               </TableCell>
             </TableRow>

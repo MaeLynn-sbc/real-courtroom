@@ -23,6 +23,8 @@
  *      (reason/courtId/kind untouched), and the new window is what
  *      actually gets enforced by checkAvailability — the old window no
  *      longer conflicts.
+ *   6. deleteSpecialEvent refuses to delete a non-cancelled row, but
+ *      succeeds (real row gone) once it's CANCELLED.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -150,6 +152,28 @@ async function main(): Promise<void> {
     );
     console.log(
       "PASS: updateSpecialEventTiming edits one row's window in place, and the new window is what's actually enforced.",
+    );
+
+    // ============== 6. deleteSpecialEvent refuses a non-cancelled row, succeeds once cancelled ==============
+    let rejectedDeleteOfActive = false;
+    try {
+      await courtService.deleteSpecialEvent(records[0]!.id, owner.id);
+    } catch (error) {
+      rejectedDeleteOfActive = true;
+      assert(
+        String(error).includes("cancelled"),
+        `expected a "must be cancelled first" error, got ${error}`,
+      );
+    }
+    assert(rejectedDeleteOfActive, "expected deleteSpecialEvent to refuse deleting a non-cancelled row");
+
+    await courtService.updateMaintenanceStatus(records[0]!.id, "CANCELLED", owner.id);
+    await courtService.deleteSpecialEvent(records[0]!.id, owner.id);
+    const deletedRow = await prisma.courtMaintenance.findUnique({ where: { id: records[0]!.id } });
+    assert(deletedRow === null, "expected the row to be actually gone after deleteSpecialEvent");
+    maintenanceIdsToClean.splice(maintenanceIdsToClean.indexOf(records[0]!.id), 1);
+    console.log(
+      "PASS: deleteSpecialEvent refuses to delete a non-cancelled row, but really deletes once it's CANCELLED.",
     );
 
     console.log("\nPASS: special events block courts and are distinguishable from plain maintenance, proven against real rows.");
