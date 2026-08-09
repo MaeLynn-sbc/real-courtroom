@@ -112,6 +112,17 @@ export function SpecialOpenPlayBoard({
     return () => clearInterval(id);
   }, []);
 
+  // Owner request (2026-08-09): "make sure it updates every 10 seconds.
+  // the page and the /tourtv as well" — this admin board only refreshed
+  // on the current user's own actions before; now it also polls the
+  // server every 10s, same interval /tourtv already uses (see
+  // settingsService.getDisplayRefreshIntervalSeconds, default 10s), so
+  // check-ins/assignments made from another device show up here too.
+  useEffect(() => {
+    const id = setInterval(() => router.refresh(), 10_000);
+    return () => clearInterval(id);
+  }, [router]);
+
   const waiting = checkIns.filter((c) => c.status === "WAITING" && c.stagedSlot === null);
   const playingByCourt = new Map<string, SpecialCheckIn[]>();
   const stagedBySlot = new Map<StagedSlot, SpecialCheckIn[]>();
