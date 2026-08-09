@@ -215,6 +215,38 @@ export class CourtService {
     });
   }
 
+  // Owner request (2026-08-09): "u can edit the time and date if the
+  // organizers change their minds" — edits ONE row's window (courtId,
+  // reason, notes, kind untouched). A multi-court event that needs its
+  // whole window moved means one edit per court's row, same as
+  // cancelling is already per-row.
+  async updateSpecialEventTiming(
+    maintenanceId: string,
+    startAt: Date,
+    endAt: Date,
+    actorUserId: string,
+  ): Promise<CourtMaintenance> {
+    const existing = await prisma.courtMaintenance.findUniqueOrThrow({
+      where: { id: maintenanceId },
+    });
+
+    const updated = await prisma.courtMaintenance.update({
+      where: { id: maintenanceId },
+      data: { startAt, endAt },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "court.special_event_timing_updated",
+      entityType: "CourtMaintenance",
+      entityId: updated.id,
+      oldValues: { startAt: existing.startAt, endAt: existing.endAt },
+      newValues: { startAt: updated.startAt, endAt: updated.endAt },
+    });
+
+    return updated;
+  }
+
   async updateMaintenanceStatus(
     maintenanceId: string,
     status: MaintenanceStatus,

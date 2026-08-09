@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -81,6 +82,7 @@ function makeNextSlot(previous: EventSlot): EventSlot {
 }
 
 export function SpecialEventForm({ courts }: SpecialEventFormProps) {
+  const router = useRouter();
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const [courtIds, setCourtIds] = useState<string[]>([]);
@@ -185,6 +187,7 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
           }.`,
         );
         resetForm();
+        router.refresh();
         return;
       }
 
@@ -199,6 +202,14 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
           ? `Blocked ${succeeded} of ${results.length} day(s) — see the highlighted error below.`
           : (failed[0].result.error ?? "Failed to block the courts."),
       );
+      // Owner report (2026-08-09): "everytime i click on block court it
+      // doesnt appear" — the Cancel button already called router.refresh()
+      // after its own action; this form never did, so newly created
+      // blocks (partial or full success) never showed up in "Upcoming
+      // and past events" until an unrelated navigation happened to
+      // refetch the page. Refresh on the partial-success path too, since
+      // some rows really were created.
+      if (succeeded > 0) router.refresh();
     });
   }
 

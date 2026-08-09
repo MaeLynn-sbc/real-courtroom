@@ -19,6 +19,10 @@
  *   4. getPublicDaySchedule's maintenanceRanges marks the special
  *      event's window isSpecialEvent: true, and a plain maintenance
  *      window isSpecialEvent: false.
+ *   5. updateSpecialEventTiming edits one row's window in place
+ *      (reason/courtId/kind untouched), and the new window is what
+ *      actually gets enforced by checkAvailability — the old window no
+ *      longer conflicts.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -120,6 +124,33 @@ async function main(): Promise<void> {
     assert(plainRange, "expected the plain maintenance window to appear in getPublicDaySchedule's maintenanceRanges");
     assert(plainRange!.isSpecialEvent === false, "expected the plain maintenance range to be marked isSpecialEvent: false");
     console.log("PASS: getPublicDaySchedule correctly marks isSpecialEvent per range — special event true, plain maintenance false.");
+
+    // ============== 5. updateSpecialEventTiming edits the window in place ==============
+    const newStartAt = new Date(2031, 5, 1, 14, 0);
+    const newEndAt = new Date(2031, 5, 1, 16, 0);
+    const updated = await courtService.updateSpecialEventTiming(records[0]!.id, newStartAt, newEndAt, owner.id);
+    assert(
+      updated.startAt.getTime() === newStartAt.getTime() && updated.endAt.getTime() === newEndAt.getTime(),
+      "expected updateSpecialEventTiming to persist the new window",
+    );
+    assert(
+      updated.courtId === records[0]!.courtId && updated.reason === records[0]!.reason,
+      "expected updateSpecialEventTiming to leave courtId/reason untouched",
+    );
+
+    const oldWindowNowFree = await bookingService.checkAvailability(courtA!.id, startAt, endAt);
+    assert(
+      oldWindowNowFree.available === true,
+      "expected the ORIGINAL window to no longer conflict after the timing moved away from it",
+    );
+    const newWindowBlocked = await bookingService.checkAvailability(courtA!.id, newStartAt, newEndAt);
+    assert(
+      newWindowBlocked.available === false && newWindowBlocked.conflict?.type === "SPECIAL_EVENT",
+      "expected the NEW window to now be the one that conflicts",
+    );
+    console.log(
+      "PASS: updateSpecialEventTiming edits one row's window in place, and the new window is what's actually enforced.",
+    );
 
     console.log("\nPASS: special events block courts and are distinguishable from plain maintenance, proven against real rows.");
   } finally {

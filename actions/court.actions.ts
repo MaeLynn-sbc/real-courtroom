@@ -9,10 +9,12 @@ import {
   maintenanceStatusSchema,
   specialEventSchema,
   updateCourtSchema,
+  updateSpecialEventTimingSchema,
   type CourtMaintenanceInput,
   type CreateCourtInput,
   type SpecialEventInput,
   type UpdateCourtInput,
+  type UpdateSpecialEventTimingInput,
 } from "@/features/courts/schemas/court.schema";
 import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
@@ -146,6 +148,35 @@ export async function scheduleSpecialEventAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "scheduleSpecialEventAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function updateSpecialEventTimingAction(
+  input: UpdateSpecialEventTimingInput,
+): Promise<CourtActionState> {
+  const authz = await requireCourtsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = updateSpecialEventTimingSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid date or time." };
+  }
+
+  try {
+    await courtService.updateSpecialEventTiming(
+      parsed.data.maintenanceId,
+      parsed.data.startAt,
+      parsed.data.endAt,
+      authz.userId,
+    );
+    revalidatePath("/dashboard/admin/special-events");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "updateSpecialEventTimingAction", userId: authz.userId }),
     };
   }
 }

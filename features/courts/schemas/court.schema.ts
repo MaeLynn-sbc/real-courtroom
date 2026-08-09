@@ -63,6 +63,24 @@ export const specialEventSchema = z
 
 export type SpecialEventInput = z.infer<typeof specialEventSchema>;
 
+// Owner request (2026-08-09): "u can edit the time and date if the
+// organizers change their minds" — edits ONE existing CourtMaintenance
+// row's window in place (not reason/notes/courts). Matches the model's
+// own "one row per court, independently editable/cancellable" shape —
+// editing a multi-court event's timing means editing each court's row.
+export const updateSpecialEventTimingSchema = z
+  .object({
+    maintenanceId: z.string().min(1),
+    startAt: z.coerce.date(),
+    endAt: z.coerce.date(),
+  })
+  .refine((data) => data.endAt > data.startAt, {
+    message: "End time must be after the start time.",
+    path: ["endAt"],
+  });
+
+export type UpdateSpecialEventTimingInput = z.infer<typeof updateSpecialEventTimingSchema>;
+
 export const courtStatusSchema = z.object({
   status: z.enum(["ACTIVE", "MAINTENANCE", "DISABLED"]),
 });
