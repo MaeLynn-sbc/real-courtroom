@@ -551,6 +551,7 @@ export function SpecialOpenPlayBoard({
                     checked={selectedIds.includes(checkIn.id)}
                     onChange={() => toggleSelected(checkIn.id)}
                     disabled={isPending}
+                    className="border-input checked:border-court-blue checked:bg-court-blue size-3.5 shrink-0 cursor-pointer appearance-none rounded border bg-white"
                   />
                   <span className="font-medium">{checkIn.playerName}</span>
                   {checkIn.skillLevel ? (
