@@ -280,8 +280,15 @@ const EXPENSE_CATEGORY_DEFINITIONS: Array<{ name: string; sortOrder: number }> =
   { name: "Utilities", sortOrder: 1 },
   { name: "Supplies", sortOrder: 2 },
   { name: "Salaries/Payroll", sortOrder: 3 },
-  { name: "Maintenance", sortOrder: 4 },
-  { name: "Other", sortOrder: 5 },
+  // Owner request (2026-08-09), from the Coaching report: a coach
+  // collects their session fee directly (cash/GCash never touches the
+  // register), and the owner separately pays the coach out afterward —
+  // that payout is a real cash/GCash outflow, same shape as every other
+  // expense, distinct enough from regular staff Salaries/Payroll to get
+  // its own category.
+  { name: "Coach Payouts", sortOrder: 4 },
+  { name: "Maintenance", sortOrder: 5 },
+  { name: "Other", sortOrder: 6 },
 ];
 
 // Payroll Batch 2a: the facility's only two daily shifts. startTime/endTime

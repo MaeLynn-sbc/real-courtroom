@@ -1,10 +1,14 @@
 import Link from "next/link";
 
+import { CoachPayoutForm } from "@/features/reports/components/coach-payout-form";
 import { ExportCsvButton } from "@/features/reports/components/export-csv-button";
+import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
 import { formatCurrency } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
+import { expenseCategoryService } from "@/services/expenses/expense-category.service";
 import { reportingService, type CoachingReportRow } from "@/services/reporting/reporting.service";
+import { saleService } from "@/services/sales/sale.service";
 
 // Owner request (2026-08-04): "separate their tables since theres only 2
 // of them" (same "own tables, not a dropdown" preference already applied
@@ -93,12 +97,16 @@ export async function CoachingWeeklyReport({ searchParams }: CoachingWeeklyRepor
 
   const selectedWeekEnd = new Date(addDays(selectedWeekStart, 7).getTime() - 1);
 
-  const [coaches, { rows }, collectedByCoach] = await Promise.all([
+  const [coaches, { rows }, collectedByCoach, paymentMethods, expenseCategories] = await Promise.all([
     coachAvailabilityService.listCoaches(),
     reportingService.getCoachingReport({ from: selectedWeekStart, to: selectedWeekEnd }),
     reportingService.getCoachingFeesByCoachReport({ from: selectedWeekStart, to: selectedWeekEnd }),
+    saleService.listPaymentMethods(),
+    expenseCategoryService.listCategories(),
   ]);
   const collectedByCoachId = new Map(collectedByCoach.map((row) => [row.coachId, row.amountCents]));
+  const settlementPaymentMethods = toSettlementPaymentMethodOptions(paymentMethods);
+  const coachPayoutCategoryId = expenseCategories.find((category) => category.name === "Coach Payouts")?.id;
 
   const rowsByCoachId = new Map<string, CoachingReportRow[]>();
   for (const row of rows) {
@@ -229,7 +237,7 @@ export async function CoachingWeeklyReport({ searchParams }: CoachingWeeklyRepor
             <div key={coach.id} className="flex flex-col gap-3 rounded-xl border p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="font-medium">{coach.user.name ?? coach.user.email}</h2>
-                <div className="flex flex-col items-end gap-0.5">
+                <div className="flex flex-col items-end gap-1">
                   <p className="font-semibold tabular-nums">
                     Collected: {formatCurrency(collectedCents)}
                   </p>
@@ -238,6 +246,13 @@ export async function CoachingWeeklyReport({ searchParams }: CoachingWeeklyRepor
                       Sessions worked: {formatCurrency(workedCents)}
                     </p>
                   ) : null}
+                  <CoachPayoutForm
+                    coachName={coach.user.name ?? coach.user.email ?? "Coach"}
+                    defaultAmountCents={collectedCents}
+                    categoryId={coachPayoutCategoryId}
+                    paymentMethods={settlementPaymentMethods}
+                    weekLabel={formatWeekLabel(selectedWeekStart)}
+                  />
                 </div>
               </div>
 
@@ -278,7 +293,9 @@ export async function CoachingWeeklyReport({ searchParams }: CoachingWeeklyRepor
               <p className="text-muted-foreground text-xs">
                 &quot;Collected&quot; is real, recorded revenue (money actually received). &quot;Sessions
                 worked&quot; only shows when it differs — a session that happened but hasn&apos;t
-                been paid/verified yet.
+                been paid/verified yet. Coaches collect their own fee directly — &quot;Pay
+                coach&quot; records what you paid them out of the drawer/account afterward, and
+                reduces that day&apos;s Cash/GCash total.
               </p>
             </div>
           );
