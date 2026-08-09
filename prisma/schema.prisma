@@ -3319,6 +3319,12 @@ model SpecialOpenPlayCheckIn {
   // its own isolated table. Set on every occupant of a court together
   // (same timestamp) when staff press Announce for that court.
   announcementRequestedAt DateTime?
+  // Owner request (2026-08-09): a separate "Time's up" button — "it will
+  // only be used to call out the players and to call if the time is up."
+  // Same token-diffing shape as announcementRequestedAt, but a distinct
+  // field/message ("Court X, your time is up!") so staff can warn a court
+  // before actually freeing it via Mark done.
+  timesUpRequestedAt      DateTime?
   createdByUserId         String
 
   createdBy User @relation(fields: [createdByUserId], references: [id])

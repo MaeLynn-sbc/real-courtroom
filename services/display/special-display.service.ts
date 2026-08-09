@@ -14,6 +14,7 @@ export interface SpecialDisplayCourt {
   courtLabel: string;
   playerNames: string[];
   announcementRequestedAt: string | null;
+  timesUpRequestedAt: string | null;
 }
 
 export interface SpecialDisplayData {
@@ -49,9 +50,10 @@ export class SpecialDisplayService {
         courtLabel,
         playerNames: occupants.map((o) => shortDisplayName(o.playerName)),
         // All occupants of a court are stamped together (see
-        // special-open-play.service.ts's announceCourt) — any one of
-        // them carries the shared token.
+        // special-open-play.service.ts's announceCourt/announceTimesUp) —
+        // any one of them carries the shared token.
         announcementRequestedAt: occupants[0]?.announcementRequestedAt?.toISOString() ?? null,
+        timesUpRequestedAt: occupants[0]?.timesUpRequestedAt?.toISOString() ?? null,
       };
     });
 

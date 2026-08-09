@@ -1,8 +1,8 @@
-import { formatSpecialAnnouncement } from "./special-open-play-tv-client";
+import { formatSpecialAnnouncement, formatSpecialTimesUpAnnouncement } from "./special-open-play-tv-client";
 import type { SpecialDisplayCourt } from "@/services/display/special-display.service";
 
 function court(playerNames: string[], courtLabel = "Court 2"): SpecialDisplayCourt {
-  return { courtLabel, playerNames, announcementRequestedAt: null };
+  return { courtLabel, playerNames, announcementRequestedAt: null, timesUpRequestedAt: null };
 }
 
 describe("formatSpecialAnnouncement", () => {
@@ -29,5 +29,23 @@ describe("formatSpecialAnnouncement", () => {
 
   it("returns an empty string for a court with nobody on it", () => {
     expect(formatSpecialAnnouncement(court([], "Court 1"))).toBe("");
+  });
+});
+
+describe("formatSpecialTimesUpAnnouncement", () => {
+  it("reads '<court>, your time is up!'", () => {
+    expect(formatSpecialTimesUpAnnouncement(court(["Ana T."], "Court 2"))).toBe(
+      "Court 2, your time is up!",
+    );
+  });
+
+  it("doesn't name any players — it's a court-wide cue, not a roll call", () => {
+    const text = formatSpecialTimesUpAnnouncement(court(["Ana T.", "Ben C."], "Court 3"));
+    expect(text).not.toContain("Ana");
+    expect(text).not.toContain("Ben");
+  });
+
+  it("returns an empty string for a court with nobody on it", () => {
+    expect(formatSpecialTimesUpAnnouncement(court([], "Court 1"))).toBe("");
   });
 });

@@ -141,6 +141,23 @@ export class SpecialOpenPlayService {
     }
   }
 
+  // Separate "Time's up" cue — "call if the time is up" — stamps every
+  // current occupant of the court together, same shape as announceCourt but
+  // its own field/message so staff can warn a court before actually
+  // freeing it via completeCourtGame.
+  async announceTimesUp(date: Date, courtLabel: string): Promise<void> {
+    if (!isSpecialCourtLabel(courtLabel)) {
+      throw new Error(`Unknown court "${courtLabel}".`);
+    }
+    const claim = await prisma.specialOpenPlayCheckIn.updateMany({
+      where: { date, courtLabel, status: "PLAYING" },
+      data: { timesUpRequestedAt: new Date() },
+    });
+    if (claim.count === 0) {
+      throw new Error(`${courtLabel} has nobody currently playing to notify.`);
+    }
+  }
+
   // Leaving entirely — from Waiting or Playing (freeing their court seat
   // too, without necessarily ending the rest of the group's game).
   async checkOut(checkInId: string): Promise<SpecialOpenPlayCheckIn> {

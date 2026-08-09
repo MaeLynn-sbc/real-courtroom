@@ -25,6 +25,10 @@ function courtAnnouncementToken(court: SpecialDisplayCourt): string | null {
   return court.announcementRequestedAt;
 }
 
+function courtTimesUpToken(court: SpecialDisplayCourt): string | null {
+  return court.timesUpRequestedAt;
+}
+
 function joinNamesForSpeech(names: string[]): string {
   if (names.length === 0) return "";
   if (names.length === 1) return names[0];
@@ -42,6 +46,11 @@ export function formatSpecialAnnouncement(court: SpecialDisplayCourt): string {
   return `Attention: ${joinNamesForSpeech(names)}, please proceed to ${court.courtLabel}.`;
 }
 
+export function formatSpecialTimesUpAnnouncement(court: SpecialDisplayCourt): string {
+  if (court.playerNames.length === 0) return "";
+  return `${court.courtLabel}, your time is up!`;
+}
+
 export function SpecialOpenPlayTvClient({
   initialData,
   announcementRepeatCount,
@@ -57,10 +66,17 @@ export function SpecialOpenPlayTvClient({
   const [reconnecting, setReconnecting] = useState(false);
   const [started, setStarted] = useState(false);
 
-  const previousTokensRef = useRef<Record<string, string>>(
+  const previousAnnouncementTokensRef = useRef<Record<string, string>>(
     Object.fromEntries(
       initialData.courts
         .map((court) => [court.courtLabel, courtAnnouncementToken(court)] as const)
+        .filter((entry): entry is [string, string] => entry[1] !== null),
+    ),
+  );
+  const previousTimesUpTokensRef = useRef<Record<string, string>>(
+    Object.fromEntries(
+      initialData.courts
+        .map((court) => [court.courtLabel, courtTimesUpToken(court)] as const)
         .filter((entry): entry is [string, string] => entry[1] !== null),
     ),
   );
@@ -142,6 +158,15 @@ export function SpecialOpenPlayTvClient({
     [announcementRepeater],
   );
 
+  const scheduleTimesUp = useCallback(
+    (court: SpecialDisplayCourt) => {
+      const text = formatSpecialTimesUpAnnouncement(court);
+      if (!text) return;
+      announcementRepeater.schedule(text);
+    },
+    [announcementRepeater],
+  );
+
   useEffect(() => {
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -158,14 +183,25 @@ export function SpecialOpenPlayTvClient({
 
         for (const court of json.courts) {
           const token = courtAnnouncementToken(court);
-          const previousToken = previousTokensRef.current[court.courtLabel];
+          const previousToken = previousAnnouncementTokensRef.current[court.courtLabel];
           if (token && token !== previousToken) {
             scheduleAnnouncement(court);
           }
           if (token) {
-            previousTokensRef.current[court.courtLabel] = token;
+            previousAnnouncementTokensRef.current[court.courtLabel] = token;
           } else {
-            delete previousTokensRef.current[court.courtLabel];
+            delete previousAnnouncementTokensRef.current[court.courtLabel];
+          }
+
+          const timesUpToken = courtTimesUpToken(court);
+          const previousTimesUpToken = previousTimesUpTokensRef.current[court.courtLabel];
+          if (timesUpToken && timesUpToken !== previousTimesUpToken) {
+            scheduleTimesUp(court);
+          }
+          if (timesUpToken) {
+            previousTimesUpTokensRef.current[court.courtLabel] = timesUpToken;
+          } else {
+            delete previousTimesUpTokensRef.current[court.courtLabel];
           }
         }
 
@@ -185,7 +221,7 @@ export function SpecialOpenPlayTvClient({
       clearTimeout(timeoutId);
       announcementRepeater.cancelPending();
     };
-  }, [scheduleAnnouncement, announcementRepeater, refreshIntervalSeconds]);
+  }, [scheduleAnnouncement, scheduleTimesUp, announcementRepeater, refreshIntervalSeconds]);
 
   function handleStart() {
     setStarted(true);

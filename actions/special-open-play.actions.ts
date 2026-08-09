@@ -134,6 +134,33 @@ export async function announceSpecialCourtAction(
   }
 }
 
+export async function announceSpecialCourtTimesUpAction(
+  input: SpecialCourtActionInput,
+): Promise<SpecialOpenPlayActionState> {
+  const authz = await requireSpecialOpenPlayAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = specialCourtActionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await specialOpenPlayService.announceTimesUp(
+      new Date(`${parsed.data.date}T00:00:00`),
+      parsed.data.courtLabel,
+    );
+    revalidateSpecialOpenPlay();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "announceSpecialCourtTimesUpAction", userId: authz.userId }),
+    };
+  }
+}
+
 export async function checkOutSpecialPlayerAction(
   input: SpecialCheckInIdInput,
 ): Promise<SpecialOpenPlayActionState> {

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import {
   announceSpecialCourtAction,
+  announceSpecialCourtTimesUpAction,
   assignSpecialGroupToCourtAction,
   checkInSpecialPlayerAction,
   checkOutSpecialPlayerAction,
@@ -144,6 +145,18 @@ export function SpecialOpenPlayBoard({
     });
   }
 
+  function handleTimesUp(courtLabel: string) {
+    startTransition(async () => {
+      const result = await announceSpecialCourtTimesUpAction({ date: dateValue, courtLabel });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`Time's up announced for ${courtLabel}.`);
+      refresh();
+    });
+  }
+
   function handleCheckOut(checkInId: string) {
     startTransition(async () => {
       const result = await checkOutSpecialPlayerAction({ checkInId });
@@ -269,6 +282,15 @@ export function SpecialOpenPlayBoard({
                       onClick={() => handleAnnounce(courtLabel)}
                     >
                       Announce
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isPending}
+                      onClick={() => handleTimesUp(courtLabel)}
+                    >
+                      Time&apos;s up
                     </Button>
                     <Button
                       type="button"

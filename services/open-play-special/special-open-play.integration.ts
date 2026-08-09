@@ -115,6 +115,16 @@ async function main(): Promise<void> {
     );
     console.log("PASS: announceCourt stamps announcementRequestedAt on every current occupant of the court.");
 
+    // ============== 4b. announceTimesUp stamps every occupant together, separate token ==============
+    await specialOpenPlayService.announceTimesUp(TEST_DATE, "Court 1");
+    const board3b = await specialOpenPlayService.listForDate(TEST_DATE);
+    const court1TimesUp = board3b.filter((c) => c.courtLabel === "Court 1");
+    assert(
+      court1TimesUp.every((c) => c.timesUpRequestedAt !== null),
+      "expected every Court 1 occupant to have timesUpRequestedAt stamped",
+    );
+    console.log("PASS: announceTimesUp stamps timesUpRequestedAt on every current occupant of the court.");
+
     // ============== 5. completeCourtGame frees the whole court, back to WAITING ==============
     await specialOpenPlayService.completeCourtGame(TEST_DATE, "Court 1");
     const board4 = await specialOpenPlayService.listForDate(TEST_DATE);
