@@ -172,11 +172,6 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     description:
       "Correct a completed sale's Cash/GCash payment method after the fact, with a required reason — blocked once that day's reconciliation is already confirmed.",
   },
-  [PERMISSIONS.COACHING_RECORD_SESSION_PAYMENT]: {
-    label: "Record Coaching Session Payment",
-    description:
-      "Manually record a coach session's fee as collected (Cash/GCash) when it was never captured through a booking settlement.",
-  },
 };
 
 const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
@@ -216,7 +211,6 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.SALES_CREATE_WITHOUT_SHIFT,
     PERMISSIONS.PAYROLL_MANAGE,
     PERMISSIONS.ACCOUNTS_CORRECT_SALE_PAYMENT_METHOD,
-    PERMISSIONS.COACHING_RECORD_SESSION_PAYMENT,
   ],
   [SYSTEM_ROLES.TOURNAMENT_DIRECTOR]: [
     PERMISSIONS.DASHBOARD_ACCESS,

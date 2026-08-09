@@ -130,18 +130,6 @@ export const PERMISSIONS = {
   // it's deliberately no broader than the trust already required to
   // confirm/reopen either one.
   ACCOUNTS_CORRECT_SALE_PAYMENT_METHOD: "accounts:correct_sale_payment_method",
-  // Owner request (2026-08-09), from the Coaching report: "we should be
-  // the one to put the collected and we should... choose source of
-  // funds" — a coach session's fee is only ever recorded as a Sale
-  // automatically, as a side effect of settling the underlying court
-  // booking (see coach-session-fee-sale.ts's own comment). A session
-  // whose booking was never settled through that path (paid the coach
-  // directly, or some other gap) has no Sale at all and nothing anywhere
-  // could create one after the fact. Its own dedicated permission, same
-  // "granted to nobody by default except OWNER directly" shape as every
-  // other accounts-adjacent permission above — this creates real revenue
-  // and flips CoachSession.status to PAID, not a lightweight action.
-  COACHING_RECORD_SESSION_PAYMENT: "coaching:record_session_payment",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

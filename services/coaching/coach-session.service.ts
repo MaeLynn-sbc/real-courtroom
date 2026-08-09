@@ -6,9 +6,7 @@ import { dailyScope, nextSequence } from "@/lib/reference-counter";
 import { runSerializableWithRetry } from "@/lib/serializable-retry";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import { isSlotFullyCovered } from "@/services/coaching/coach-availability-match";
-import { recordCoachSessionFeeSale } from "@/services/coaching/coach-session-fee-sale";
 import { formatCoachSessionReference } from "@/services/coaching/coach-session-reference";
-import { saleService } from "@/services/sales/sale.service";
 
 export type CoachSessionConflictType =
   | "BOOKING_NOT_FOUND"
@@ -292,73 +290,6 @@ export class CoachSessionService {
     });
 
     return coachSession;
-  }
-
-  // Owner request (2026-08-09), from the Coaching report: "we should be
-  // the one to put the collected and... choose source of funds." Every
-  // existing coaching Sale is created automatically, as a side effect of
-  // settling the underlying court booking (see coach-session-fee-sale.ts's
-  // own comment) — this is the first MANUAL entry point, for a session
-  // whose fee was never captured that way. Uses the session's own already-
-  // snapshotted rateCents (never re-typed here — one less place to
-  // fat-finger a number), matching how the automatic path never re-types
-  // it either. Sets status to PAID (previously defined in the schema but
-  // never actually written anywhere) so this same report's Status column
-  // finally reflects it.
-  //
-  // Race protection: the whole read-decide-write sequence runs inside one
-  // Serializable transaction, same discipline as createCoachSession above
-  // — two concurrent "mark collected" clicks on the same session can't
-  // both succeed; the loser's retry re-reads the row fresh (now PAID) and
-  // cleanly hits the "already collected" guard below, not a duplicate
-  // Sale (Sale.coachSessionId is @unique regardless, as a hard backstop).
-  async markSessionCollected(
-    coachSessionId: string,
-    paymentMethodId: string,
-    employeeId: string,
-    shiftId: string,
-    actorUserId: string,
-  ) {
-    const { sale, updatedSession } = await runSerializableWithRetry(async (tx) => {
-      const session = await tx.coachSession.findUniqueOrThrow({ where: { id: coachSessionId } });
-      if (session.status === "CANCELLED") {
-        throw new Error("This session was cancelled — there's nothing to collect.");
-      }
-      if (session.status === "PAID") {
-        throw new Error("This session is already marked collected.");
-      }
-
-      const sale = await recordCoachSessionFeeSale(
-        {
-          coachSessionId,
-          rateCents: session.rateCents,
-          paymentMethodId,
-          employeeId,
-          shiftId,
-          playerId: session.playerId,
-        },
-        tx,
-      );
-
-      const updatedSession = await tx.coachSession.update({
-        where: { id: coachSessionId },
-        data: { status: "PAID" },
-      });
-      await tx.coachSessionHistory.create({
-        data: {
-          coachSessionId,
-          status: "PAID",
-          changedById: actorUserId,
-          note: "Marked collected manually from the Coaching report.",
-        },
-      });
-
-      return { sale, updatedSession };
-    });
-
-    await saleService.logSaleCreated(sale, actorUserId);
-
-    return updatedSession;
   }
 
   // The public flow's own "remove" — only ever called from that path (see
