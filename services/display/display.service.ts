@@ -63,16 +63,6 @@ export interface DisplayCourtActive {
   // specific court, so open play has no per-court "next" (BUILD-SPEC.md
   // §12 "tying the next four to a specific court would be wrong").
   next: DisplayNextBooking | null;
-  // op only — the underlying GameAssignment id, undefined for res.
-  // Owner request (2026-08-09): the private, dashboard-only
-  // "Special Open Play" copy of this display (app/dashboard/admin/
-  // openplayspecial) needs this to wire its own manual Announce button
-  // (announceAssignmentAction) directly from the display, without a
-  // second query. An opaque cuid carries none of the info BUILD-SPEC.md
-  // §12 excludes (name/skill/phone/payment) — safe to include in the
-  // public feed too rather than forking the shape, the public
-  // TvDisplayClient simply never reads it.
-  assignmentId?: string;
 }
 
 // Manual timer/announce (reported live): a foursome has been assigned to
@@ -95,9 +85,6 @@ export interface DisplayCourtOpPending {
   startAt: null;
   endAt: null;
   next: null;
-  // See DisplayCourtActive.assignmentId's own comment — same reasoning,
-  // this state's own GameAssignment id.
-  assignmentId?: string;
 }
 
 export type DisplayCourt = DisplayCourtFree | DisplayCourtActive | DisplayCourtOpPending;
@@ -298,7 +285,6 @@ export class DisplayService {
           announcementRequestedAt: activeAssignment.announcementRequestedAt?.toISOString() ?? null,
           timesUpRequestedAt: activeAssignment.timesUpRequestedAt?.toISOString() ?? null,
           next: null,
-          assignmentId: activeAssignment.id,
         };
       }
 
@@ -322,7 +308,6 @@ export class DisplayService {
           startAt: null,
           endAt: null,
           next: null,
-          assignmentId: proposedAssignment.id,
         };
       }
 
