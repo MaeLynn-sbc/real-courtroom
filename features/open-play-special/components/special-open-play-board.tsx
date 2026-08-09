@@ -154,7 +154,12 @@ export function SpecialOpenPlayBoard({
     return () => clearInterval(id);
   }, [router]);
 
-  const waiting = checkIns.filter((c) => c.status === "WAITING" && c.stagedSlot === null);
+  // Owner request (2026-08-09): "can u arrang this in alphabetical
+  // letters" — the Waiting list, alphabetical by name instead of
+  // check-in order.
+  const waiting = checkIns
+    .filter((c) => c.status === "WAITING" && c.stagedSlot === null)
+    .sort((a, b) => a.playerName.localeCompare(b.playerName));
   const playingByCourt = new Map<string, SpecialCheckIn[]>();
   const stagedBySlot = new Map<StagedSlot, SpecialCheckIn[]>();
   for (const checkIn of checkIns) {
