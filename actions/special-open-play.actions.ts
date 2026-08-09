@@ -7,10 +7,14 @@ import {
   checkInSpecialPlayerSchema,
   specialCheckInIdSchema,
   specialCourtActionSchema,
+  specialStagedSlotActionSchema,
+  stageSpecialGroupSchema,
   type AssignSpecialGroupToCourtInput,
   type CheckInSpecialPlayerInput,
   type SpecialCheckInIdInput,
   type SpecialCourtActionInput,
+  type SpecialStagedSlotActionInput,
+  type StageSpecialGroupInput,
 } from "@/features/open-play-special/schemas/special-open-play.schema";
 import { requireSystemAdmin } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
@@ -157,6 +161,54 @@ export async function announceSpecialCourtTimesUpAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "announceSpecialCourtTimesUpAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function stageSpecialGroupAction(
+  input: StageSpecialGroupInput,
+): Promise<SpecialOpenPlayActionState> {
+  const authz = await requireSpecialOpenPlayAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = stageSpecialGroupSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await specialOpenPlayService.stageGroup(parsed.data.checkInIds, parsed.data.slot);
+    revalidateSpecialOpenPlay();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "stageSpecialGroupAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function clearSpecialStagedSlotAction(
+  input: SpecialStagedSlotActionInput,
+): Promise<SpecialOpenPlayActionState> {
+  const authz = await requireSpecialOpenPlayAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = specialStagedSlotActionSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await specialOpenPlayService.clearStagedSlot(new Date(`${parsed.data.date}T00:00:00`), parsed.data.slot);
+    revalidateSpecialOpenPlay();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "clearSpecialStagedSlotAction", userId: authz.userId }),
     };
   }
 }

@@ -15,6 +15,14 @@ export interface SpecialDisplayCourt {
   playerNames: string[];
   announcementRequestedAt: string | null;
   timesUpRequestedAt: string | null;
+  // Owner request (2026-08-09): an automatic "1 minute remaining" voice
+  // cue on /tourtv, computed client-side against the same 20-minute soft
+  // target the admin board's own timer pill uses (see
+  // special-open-play-tv-client.tsx's GAME_TARGET_MINUTES) — the raw
+  // start time is exposed here so the display can compute it itself,
+  // same as every other "recomputed at render/poll, no server flag"
+  // soft-target timer in this app.
+  startedAt: string | null;
 }
 
 export interface SpecialDisplayData {
@@ -46,6 +54,10 @@ export class SpecialDisplayService {
 
     const courts: SpecialDisplayCourt[] = COURT_LABELS.map((courtLabel) => {
       const occupants = checkIns.filter((c) => c.status === "PLAYING" && c.courtLabel === courtLabel);
+      const earliestStart = occupants
+        .map((o) => o.startedAt)
+        .filter((value): value is Date => value !== null)
+        .sort((a, b) => a.getTime() - b.getTime())[0];
       return {
         courtLabel,
         playerNames: occupants.map((o) => shortDisplayName(o.playerName)),
@@ -54,6 +66,7 @@ export class SpecialDisplayService {
         // any one of them carries the shared token.
         announcementRequestedAt: occupants[0]?.announcementRequestedAt?.toISOString() ?? null,
         timesUpRequestedAt: occupants[0]?.timesUpRequestedAt?.toISOString() ?? null,
+        startedAt: earliestStart?.toISOString() ?? null,
       };
     });
 

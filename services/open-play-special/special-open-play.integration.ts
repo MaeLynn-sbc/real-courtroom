@@ -26,6 +26,11 @@
  *      Sale, PlayerTab, GameAssignment, QueueEntry, or
  *      OpenPlayNightRegistration row — zero shared tables with the real
  *      Open Play system, by construction.
+ *   9. stageGroup earmarks a group into a slot (still WAITING) and
+ *      rejects filling an already-staged slot.
+ *  10. clearStagedSlot un-stages a group back to plain Waiting.
+ *  11. assignGroupToCourt clears stagedSlot when a staged group is sent
+ *      straight to a court.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -155,6 +160,50 @@ async function main(): Promise<void> {
       "expected the checked-out player to be excluded from the board",
     );
     console.log("PASS: listForDate shows active (WAITING/PLAYING) check-ins only, excluding DONE.");
+
+    // ============== 9. stageGroup earmarks a group, rejects an occupied slot ==============
+    await specialOpenPlayService.stageGroup([dan.id, eve.id], "NEXT_UP");
+    const board6 = await specialOpenPlayService.listForDate(TEST_DATE);
+    const danRow = board6.find((c) => c.id === dan.id);
+    const eveRow = board6.find((c) => c.id === eve.id);
+    assert(
+      danRow?.status === "WAITING" && danRow.stagedSlot === "NEXT_UP",
+      "expected Dan to still be WAITING but staged in NEXT_UP",
+    );
+    assert(
+      eveRow?.status === "WAITING" && eveRow.stagedSlot === "NEXT_UP",
+      "expected Eve to still be WAITING but staged in NEXT_UP",
+    );
+    let rejectedOccupiedSlot = false;
+    try {
+      await specialOpenPlayService.stageGroup([finn.id], "NEXT_UP");
+    } catch (error) {
+      rejectedOccupiedSlot = true;
+      assert(String(error).includes("already staged"), `expected an already-staged error, got ${error}`);
+    }
+    assert(rejectedOccupiedSlot, "expected staging into an already-occupied slot to be rejected");
+    console.log("PASS: stageGroup earmarks a group into a slot and rejects an already-staged slot.");
+
+    // ============== 10. clearStagedSlot un-stages back to plain Waiting ==============
+    await specialOpenPlayService.clearStagedSlot(TEST_DATE, "NEXT_UP");
+    const board7 = await specialOpenPlayService.listForDate(TEST_DATE);
+    const danAfterClear = board7.find((c) => c.id === dan.id);
+    assert(danAfterClear?.stagedSlot === null, "expected Dan's stagedSlot to be cleared back to null");
+    console.log("PASS: clearStagedSlot returns a staged group to plain Waiting.");
+
+    // ============== 11. assignGroupToCourt clears stagedSlot when sending a staged group to a court ==============
+    await specialOpenPlayService.stageGroup([dan.id, eve.id], "AFTER_THAT");
+    await specialOpenPlayService.assignGroupToCourt([dan.id, eve.id], "Court 3");
+    const board8 = await specialOpenPlayService.listForDate(TEST_DATE);
+    const danOnCourt = board8.find((c) => c.id === dan.id);
+    assert(
+      danOnCourt?.status === "PLAYING" && danOnCourt.courtLabel === "Court 3" && danOnCourt.stagedSlot === null,
+      "expected Dan to be PLAYING on Court 3 with stagedSlot cleared",
+    );
+    console.log("PASS: assignGroupToCourt clears stagedSlot when a staged group is sent straight to a court.");
+
+    // Clean up Court 3 / Finn before the isolation check below.
+    await specialOpenPlayService.completeCourtGame(TEST_DATE, "Court 3");
 
     // ============== 8. Zero footprint in every real Open Play / money table ==============
     const [saleCountAfter, tabCountAfter, assignmentCountAfter, queueCountAfter, regCountAfter] =

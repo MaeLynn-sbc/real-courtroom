@@ -29,3 +29,17 @@ export const specialCheckInIdSchema = z.object({
   checkInId: z.string().min(1),
 });
 export type SpecialCheckInIdInput = z.infer<typeof specialCheckInIdSchema>;
+
+// Owner request (2026-08-09): "can we also add next up. then next
+// then" — manual staging only, no auto-queue.
+export const stageSpecialGroupSchema = z.object({
+  checkInIds: z.array(z.string().min(1)).min(1, "Select at least one player.").max(4),
+  slot: z.enum(["NEXT_UP", "AFTER_THAT", "THEN"]),
+});
+export type StageSpecialGroupInput = z.infer<typeof stageSpecialGroupSchema>;
+
+export const specialStagedSlotActionSchema = z.object({
+  date: z.string().min(1),
+  slot: z.enum(["NEXT_UP", "AFTER_THAT", "THEN"]),
+});
+export type SpecialStagedSlotActionInput = z.infer<typeof specialStagedSlotActionSchema>;

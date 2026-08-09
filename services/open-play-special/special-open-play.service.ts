@@ -1,6 +1,12 @@
 import type { SpecialOpenPlayCheckIn } from "@/lib/generated/prisma/client";
-import type { SkillLevel } from "@/lib/generated/prisma/enums";
+import type { SkillLevel, SpecialStagedSlot } from "@/lib/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+
+export const SPECIAL_STAGED_SLOTS = ["NEXT_UP", "AFTER_THAT", "THEN"] as const;
+
+function isSpecialStagedSlot(value: string): value is SpecialStagedSlot {
+  return (SPECIAL_STAGED_SLOTS as readonly string[]).includes(value);
+}
 
 // Owner request (2026-08-09): "an outside special court" — see
 // prisma/schema.prisma's own comment on SpecialOpenPlayCheckIn for the
@@ -104,10 +110,73 @@ export class SpecialOpenPlayService {
 
     const claim = await prisma.specialOpenPlayCheckIn.updateMany({
       where: { id: { in: checkInIds }, status: "WAITING" },
-      data: { status: "PLAYING", courtLabel, startedAt: new Date() },
+      // Clearing stagedSlot here (unconditionally — harmless if it was
+      // already null) is what makes "send a staged Next up/After
+      // that/Then group straight to a court" work for free: the admin
+      // board just calls this same method with that slot's member ids.
+      data: { status: "PLAYING", courtLabel, startedAt: new Date(), stagedSlot: null },
     });
     if (claim.count !== checkInIds.length) {
       throw new Error("Some of these players were already assigned by someone else — refresh and try again.");
+    }
+  }
+
+  // Manual staging only ("can we also add next up. then next then" —
+  // explicitly no AUTO_QUEUE source, see this model's own schema
+  // comment). One group per slot at a time — filling an already-staged
+  // slot is a clean rejection, never a silent overwrite.
+  async stageGroup(checkInIds: string[], slot: string): Promise<void> {
+    if (!isSpecialStagedSlot(slot)) {
+      throw new Error(`Unknown staging slot "${slot}".`);
+    }
+    if (checkInIds.length === 0) {
+      throw new Error("Select at least one player.");
+    }
+    if (checkInIds.length > MAX_PLAYERS_PER_COURT) {
+      throw new Error(`A group can only hold ${MAX_PLAYERS_PER_COURT} players.`);
+    }
+
+    const targets = await prisma.specialOpenPlayCheckIn.findMany({
+      where: { id: { in: checkInIds } },
+    });
+    if (targets.length !== checkInIds.length) {
+      throw new Error("One of the selected players no longer exists — refresh and try again.");
+    }
+    if (targets.some((t) => t.status !== "WAITING" || t.stagedSlot !== null)) {
+      throw new Error("One of the selected players is no longer waiting, or is already staged — refresh and try again.");
+    }
+    const date = targets[0].date;
+    if (targets.some((t) => t.date.getTime() !== date.getTime())) {
+      throw new Error("Selected players must all be checked in for the same date.");
+    }
+
+    const alreadyStaged = await prisma.specialOpenPlayCheckIn.findFirst({
+      where: { date, stagedSlot: slot, status: "WAITING" },
+    });
+    if (alreadyStaged) {
+      throw new Error(`That slot is already staged — clear it first.`);
+    }
+
+    const claim = await prisma.specialOpenPlayCheckIn.updateMany({
+      where: { id: { in: checkInIds }, status: "WAITING", stagedSlot: null },
+      data: { stagedSlot: slot },
+    });
+    if (claim.count !== checkInIds.length) {
+      throw new Error("Some of these players were already taken by someone else — refresh and try again.");
+    }
+  }
+
+  // Un-stage a slot's group back to plain Waiting.
+  async clearStagedSlot(date: Date, slot: string): Promise<void> {
+    if (!isSpecialStagedSlot(slot)) {
+      throw new Error(`Unknown staging slot "${slot}".`);
+    }
+    const claim = await prisma.specialOpenPlayCheckIn.updateMany({
+      where: { date, stagedSlot: slot, status: "WAITING" },
+      data: { stagedSlot: null },
+    });
+    if (claim.count === 0) {
+      throw new Error("Nothing is staged in that slot.");
     }
   }
 
@@ -163,7 +232,7 @@ export class SpecialOpenPlayService {
   async checkOut(checkInId: string): Promise<SpecialOpenPlayCheckIn> {
     const claim = await prisma.specialOpenPlayCheckIn.updateMany({
       where: { id: checkInId, status: { in: ["WAITING", "PLAYING"] } },
-      data: { status: "DONE", courtLabel: null, doneAt: new Date() },
+      data: { status: "DONE", courtLabel: null, stagedSlot: null, doneAt: new Date() },
     });
     if (claim.count === 0) {
       throw new Error("This check-in has already left.");

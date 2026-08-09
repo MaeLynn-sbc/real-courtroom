@@ -20,6 +20,13 @@ import type { SpecialDisplayCourt, SpecialDisplayData } from "@/services/display
 
 const RETRY_INTERVAL_MS = 5_000;
 const ANNOUNCEMENT_REPEAT_GAP_MS = 6_000;
+// Must match the admin board's own GAME_TARGET_MINUTES
+// (features/open-play-special/components/special-open-play-board.tsx) —
+// duplicated rather than shared, same pattern as COURT_LABELS elsewhere
+// in this feature (see special-open-play.service.ts / special-display
+// .service.ts / the board component, each with their own copy).
+const GAME_TARGET_MINUTES = 20;
+const ONE_MINUTE_WARNING_MINUTES = GAME_TARGET_MINUTES - 1;
 
 function courtAnnouncementToken(court: SpecialDisplayCourt): string | null {
   return court.announcementRequestedAt;
@@ -51,6 +58,23 @@ export function formatSpecialTimesUpAnnouncement(court: SpecialDisplayCourt): st
   return `${court.courtLabel}, your time is up!`;
 }
 
+export function formatSpecialOneMinuteWarning(court: SpecialDisplayCourt): string {
+  if (court.playerNames.length === 0) return "";
+  return `${court.courtLabel}, 1 minute remaining.`;
+}
+
+// Automatic — "its gonna be automatic" — fires once per game the moment
+// elapsed time crosses the (target - 1)-minute mark, purely from
+// startedAt, no staff button. The upper bound keeps it from firing late
+// (e.g. after a slow poll) once the game's already fully over, when
+// "1 minute remaining" would read as wrong rather than just late.
+export function isOneMinuteWarningDue(startedAtIso: string, now: number): boolean {
+  const startedAtMs = new Date(startedAtIso).getTime();
+  const warnAtMs = startedAtMs + ONE_MINUTE_WARNING_MINUTES * 60_000;
+  const endAtMs = startedAtMs + GAME_TARGET_MINUTES * 60_000;
+  return now >= warnAtMs && now < endAtMs;
+}
+
 export function SpecialOpenPlayTvClient({
   initialData,
   announcementRepeatCount,
@@ -80,6 +104,11 @@ export function SpecialOpenPlayTvClient({
         .filter((entry): entry is [string, string] => entry[1] !== null),
     ),
   );
+  // Tracks which startedAt already got its 1-minute warning per court, so
+  // it fires exactly once per game — keyed by startedAt (not a boolean)
+  // so a fresh group on the same court after Complete game naturally
+  // gets its own warning again.
+  const oneMinuteWarnedStartedAtRef = useRef<Record<string, string>>({});
   const speechQueueRef = useRef<string[]>([]);
   const isSpeakingRef = useRef(false);
   const resolvedVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
@@ -167,6 +196,15 @@ export function SpecialOpenPlayTvClient({
     [announcementRepeater],
   );
 
+  const scheduleOneMinuteWarning = useCallback(
+    (court: SpecialDisplayCourt) => {
+      const text = formatSpecialOneMinuteWarning(court);
+      if (!text) return;
+      announcementRepeater.schedule(text);
+    },
+    [announcementRepeater],
+  );
+
   useEffect(() => {
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -203,6 +241,16 @@ export function SpecialOpenPlayTvClient({
           } else {
             delete previousTimesUpTokensRef.current[court.courtLabel];
           }
+
+          if (court.startedAt) {
+            const alreadyWarned = oneMinuteWarnedStartedAtRef.current[court.courtLabel] === court.startedAt;
+            if (!alreadyWarned && isOneMinuteWarningDue(court.startedAt, Date.now())) {
+              scheduleOneMinuteWarning(court);
+              oneMinuteWarnedStartedAtRef.current[court.courtLabel] = court.startedAt;
+            }
+          } else {
+            delete oneMinuteWarnedStartedAtRef.current[court.courtLabel];
+          }
         }
 
         setData(json);
@@ -221,7 +269,13 @@ export function SpecialOpenPlayTvClient({
       clearTimeout(timeoutId);
       announcementRepeater.cancelPending();
     };
-  }, [scheduleAnnouncement, scheduleTimesUp, announcementRepeater, refreshIntervalSeconds]);
+  }, [
+    scheduleAnnouncement,
+    scheduleTimesUp,
+    scheduleOneMinuteWarning,
+    announcementRepeater,
+    refreshIntervalSeconds,
+  ]);
 
   function handleStart() {
     setStarted(true);

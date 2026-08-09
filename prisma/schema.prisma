@@ -3297,6 +3297,22 @@ enum SpecialOpenPlayStatus {
   DONE
 }
 
+// Owner request (2026-08-09): "can we also add next up. then next
+// then" — manual-only staging boxes, same visual idea as real Open
+// Play's StagedGroupSlot but deliberately no AUTO_QUEUE source (the
+// full skill-matching auto-pairing engine was already explicitly
+// scoped OUT of Special Open Play). A row's stagedSlot is an orthogonal
+// flag on top of status: WAITING (same "doesn't reorder, doesn't
+// change status" shape as QueueEntry.stagedGroupId) — staged players
+// are excluded from the plain Waiting list and shown in their slot's
+// box instead, until sent to a court (which clears stagedSlot, see
+// assignGroupToCourt) or explicitly cleared back to Waiting.
+enum SpecialStagedSlot {
+  NEXT_UP
+  AFTER_THAT
+  THEN
+}
+
 model SpecialOpenPlayCheckIn {
   id                      String                @id @default(cuid())
   date                    DateTime
@@ -3309,6 +3325,9 @@ model SpecialOpenPlayCheckIn {
   // (DONE). Up to 4 rows may share the same date+courtLabel at once (a
   // real foursome) — see special-open-play.service.ts's assignToCourt.
   courtLabel              String?
+  // Non-null while WAITING and earmarked into a staging box — see this
+  // enum's own comment above. Never set at the same time as courtLabel.
+  stagedSlot              SpecialStagedSlot?
   checkedInAt             DateTime              @default(now())
   startedAt               DateTime?
   doneAt                  DateTime?

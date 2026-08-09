@@ -10,7 +10,9 @@ import {
   assignSpecialGroupToCourtAction,
   checkInSpecialPlayerAction,
   checkOutSpecialPlayerAction,
+  clearSpecialStagedSlotAction,
   completeSpecialCourtGameAction,
+  stageSpecialGroupAction,
 } from "@/actions/special-open-play.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +24,18 @@ import type { SkillLevel } from "@/lib/generated/prisma/enums";
 
 const COURT_LABELS = ["Court 1", "Court 2", "Court 3"] as const;
 const MAX_PLAYERS_PER_COURT = 4;
+// Owner request (2026-08-09): "can we also add next up. then next
+// then" — manual staging only (confirmed over adding the full
+// auto-pairing "Auto queue" engine). A group is built by hand into one
+// of these slots and later sent to whichever court frees up, instead of
+// having to know the destination court up front.
+const STAGED_SLOTS = ["NEXT_UP", "AFTER_THAT", "THEN"] as const;
+type StagedSlot = (typeof STAGED_SLOTS)[number];
+const STAGED_SLOT_LABELS: Record<StagedSlot, string> = {
+  NEXT_UP: "Next up",
+  AFTER_THAT: "After that",
+  THEN: "Then",
+};
 // Owner request (2026-08-09): a 20-minute soft target, same idea as real
 // Open Play's targetGameMinutes countdown — purely informational, nothing
 // auto-happens at zero, recomputed at render (no client-side ticking
@@ -43,6 +57,7 @@ export interface SpecialCheckIn {
   status: "WAITING" | "PLAYING" | "DONE";
   courtLabel: string | null;
   startedAt: string | null;
+  stagedSlot: StagedSlot | null;
 }
 
 function formatStartedAt(iso: string): string {
@@ -76,11 +91,12 @@ export function SpecialOpenPlayBoard({
   const [phone, setPhone] = useState("");
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [buildTargetCourt, setBuildTargetCourt] = useState<string>(COURT_LABELS[0]);
+  const [buildTarget, setBuildTarget] = useState<string>(COURT_LABELS[0]);
   const [isPending, startTransition] = useTransition();
 
-  const waiting = checkIns.filter((c) => c.status === "WAITING");
+  const waiting = checkIns.filter((c) => c.status === "WAITING" && c.stagedSlot === null);
   const playingByCourt = new Map<string, SpecialCheckIn[]>();
+  const stagedBySlot = new Map<StagedSlot, SpecialCheckIn[]>();
   for (const checkIn of checkIns) {
     if (checkIn.status === "PLAYING" && checkIn.courtLabel) {
       const existing = playingByCourt.get(checkIn.courtLabel);
@@ -90,7 +106,17 @@ export function SpecialOpenPlayBoard({
         playingByCourt.set(checkIn.courtLabel, [checkIn]);
       }
     }
+    if (checkIn.status === "WAITING" && checkIn.stagedSlot) {
+      const existing = stagedBySlot.get(checkIn.stagedSlot);
+      if (existing) {
+        existing.push(checkIn);
+      } else {
+        stagedBySlot.set(checkIn.stagedSlot, [checkIn]);
+      }
+    }
   }
+  const isCourtTarget = (value: string): value is (typeof COURT_LABELS)[number] =>
+    (COURT_LABELS as readonly string[]).includes(value);
 
   function refresh() {
     router.refresh();
@@ -143,8 +169,58 @@ export function SpecialOpenPlayBoard({
     });
   }
 
+  function handleStageGroup(slot: StagedSlot) {
+    if (selectedIds.length === 0) {
+      toast.error("Select at least one player first.");
+      return;
+    }
+    startTransition(async () => {
+      const result = await stageSpecialGroupAction({ checkInIds: selectedIds, slot });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${selectedIds.length} player(s) staged in ${STAGED_SLOT_LABELS[slot]}.`);
+      setSelectedIds([]);
+      refresh();
+    });
+  }
+
   function handleCreateGroup() {
-    handleAssignGroup(buildTargetCourt);
+    if (isCourtTarget(buildTarget)) {
+      handleAssignGroup(buildTarget);
+    } else {
+      handleStageGroup(buildTarget as StagedSlot);
+    }
+  }
+
+  function handleClearStagedSlot(slot: StagedSlot) {
+    startTransition(async () => {
+      const result = await clearSpecialStagedSlotAction({ date: dateValue, slot });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${STAGED_SLOT_LABELS[slot]} cleared — back to Waiting.`);
+      refresh();
+    });
+  }
+
+  function handleSendStagedToCourt(slot: StagedSlot, courtLabel: string) {
+    const group = stagedBySlot.get(slot) ?? [];
+    if (group.length === 0) return;
+    startTransition(async () => {
+      const result = await assignSpecialGroupToCourtAction({
+        checkInIds: group.map((c) => c.id),
+        courtLabel,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${STAGED_SLOT_LABELS[slot]} sent to ${courtLabel}.`);
+      refresh();
+    });
   }
 
   function handleCompleteGame(courtLabel: string) {
@@ -342,16 +418,15 @@ export function SpecialOpenPlayBoard({
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-muted-foreground text-sm">
-            Pick 1 to 4 players from the waiting list below (checkboxes), choose a court, then create the
-            group.
+            Pick 1 to 4 players from the waiting list below (checkboxes), choose a court or a staging slot,
+            then create the group.
           </p>
           <div className="flex flex-wrap items-center gap-3">
-            <Select
-              value={buildTargetCourt}
-              onValueChange={(value) => setBuildTargetCourt(value ?? COURT_LABELS[0])}
-            >
-              <SelectTrigger className="w-40">
-                <SelectValue>{() => buildTargetCourt}</SelectValue>
+            <Select value={buildTarget} onValueChange={(value) => setBuildTarget(value ?? COURT_LABELS[0])}>
+              <SelectTrigger className="w-48">
+                <SelectValue>
+                  {() => (isCourtTarget(buildTarget) ? buildTarget : STAGED_SLOT_LABELS[buildTarget as StagedSlot])}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {COURT_LABELS.map((courtLabel) => {
@@ -360,6 +435,14 @@ export function SpecialOpenPlayBoard({
                   return (
                     <SelectItem key={courtLabel} value={courtLabel} disabled={remaining === 0}>
                       {courtLabel} ({remaining} open)
+                    </SelectItem>
+                  );
+                })}
+                {STAGED_SLOTS.map((slot) => {
+                  const staged = stagedBySlot.get(slot) ?? [];
+                  return (
+                    <SelectItem key={slot} value={slot} disabled={staged.length > 0}>
+                      {STAGED_SLOT_LABELS[slot]} {staged.length > 0 ? "(staged)" : "(empty)"}
                     </SelectItem>
                   );
                 })}
@@ -373,7 +456,8 @@ export function SpecialOpenPlayBoard({
               disabled={
                 isPending ||
                 selectedIds.length === 0 ||
-                selectedIds.length > MAX_PLAYERS_PER_COURT - (playingByCourt.get(buildTargetCourt)?.length ?? 0)
+                (isCourtTarget(buildTarget) &&
+                  selectedIds.length > MAX_PLAYERS_PER_COURT - (playingByCourt.get(buildTarget)?.length ?? 0))
               }
               onClick={handleCreateGroup}
             >
@@ -382,6 +466,64 @@ export function SpecialOpenPlayBoard({
           </div>
         </CardContent>
       </Card>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {STAGED_SLOTS.map((slot) => {
+          const group = stagedBySlot.get(slot) ?? [];
+          return (
+            <Card key={slot}>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between text-base">
+                  <span>{STAGED_SLOT_LABELS[slot]}</span>
+                  {group.length > 0 ? <Badge variant="outline">{group.length}/4 staged</Badge> : null}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2">
+                {group.length > 0 ? (
+                  <>
+                    <ul className="flex flex-col gap-1">
+                      {group.map((member) => (
+                        <li key={member.id} className="text-sm">
+                          {member.playerName}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {COURT_LABELS.map((courtLabel) => {
+                        const occupants = playingByCourt.get(courtLabel) ?? [];
+                        const remaining = MAX_PLAYERS_PER_COURT - occupants.length;
+                        return (
+                          <Button
+                            key={courtLabel}
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={isPending || remaining < group.length}
+                            onClick={() => handleSendStagedToCourt(slot, courtLabel)}
+                          >
+                            → {courtLabel}
+                          </Button>
+                        );
+                      })}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={isPending}
+                        onClick={() => handleClearStagedSlot(slot)}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-muted-foreground text-sm">Empty.</p>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
 
       <Card>
         <CardHeader>
