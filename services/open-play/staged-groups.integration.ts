@@ -296,9 +296,13 @@ async function main(): Promise<void> {
         .join(",") === [...autoIds].sort().join(","),
       "expected the assignment's participants to be resolved fresh from the staged group's real members",
     );
+    // Owner request (2026-08-09): the first announcement now fires
+    // automatically the moment ANY assignment is proposed to a court —
+    // reversed from this test's original assertion (see
+    // createAssignmentTx's own comment in open-play-rotation.service.ts).
     assert(
-      assignment.announcementRequestedAt === null,
-      "expected NO announcement to fire automatically from pipeline advance",
+      assignment.announcementRequestedAt !== null,
+      "expected the announcement to fire automatically the instant this staged group is assigned to a court",
     );
 
     const assignedGroupRow = await prisma.stagedGroup.findUnique({ where: { id: autoGroup.id } });
@@ -318,7 +322,7 @@ async function main(): Promise<void> {
     );
     assert(thenNow === undefined, "expected Then to be empty after the pipeline advanced");
     console.log(
-      "PASS: assigning a staged group to a court resolves members fresh, deletes the emptied slot, and auto-advances the pipeline — no announcement fires.",
+      "PASS: assigning a staged group to a court resolves members fresh, deletes the emptied slot, auto-advances the pipeline, and auto-fires the announcement.",
     );
 
     // ============== 9. The real race: two concurrent assignments of the same staged group ==============

@@ -933,18 +933,19 @@ export class OpenPlayRotationService {
     return updated;
   }
 
-  // Manual timer/announce (reported live): players take time to walk to
-  // their court, so auto-starting the clock and auto-announcing the
-  // instant a foursome is assigned shorted them part of their 15 minutes.
-  // Deliberately separate from confirmAssignment/startedAt below —
-  // announcing (players walk over) and starting the timer (players are on
-  // court) are two different staff decisions with a gap between them, not
-  // one bundled step. Re-pressable (a fresh timestamp each time, no
-  // "already announced" guard) — nobody heard it the first time, or a
-  // no-show needs re-calling, are both legitimate reasons to press this
-  // again. Works on PROPOSED (the normal case — announce, then start) or
-  // ACTIVE (a legitimate re-announce after the timer's already running),
-  // but not DONE/CANCELLED — nothing to announce for a game that's over.
+  // Manual RE-announce (owner request, 2026-08-09: the first announcement
+  // now fires automatically the instant a foursome is proposed — see
+  // createAssignmentTx's own comment). This button stays, unchanged, for
+  // every case that still needs a human to press it: nobody heard it the
+  // first time, or a no-show needs re-calling. Still deliberately
+  // separate from confirmAssignment/startedAt below — announcing (players
+  // walk over) and starting the timer (players are on court) are two
+  // different staff decisions with a gap between them, not one bundled
+  // step; the clock still never auto-starts. Re-pressable (a fresh
+  // timestamp each time, no "already announced" guard). Works on
+  // PROPOSED (the normal case) or ACTIVE (a legitimate re-announce after
+  // the timer's already running), but not DONE/CANCELLED — nothing to
+  // announce for a game that's over.
   async announceAssignment(
     assignmentId: string,
     actorUserId: string,
@@ -1621,6 +1622,22 @@ export class OpenPlayRotationService {
       throw new Error("This court is currently booked — not available for open play right now.");
     }
 
+    // Owner request (2026-08-09): auto-announce the moment a foursome is
+    // proposed to a court — the TV should call names without staff having
+    // to press anything. Reverses the earlier "manual only" decision
+    // (see announceAssignment's own comment) narrowly: only WHICH action
+    // fires the announcement changes here, not when the game clock
+    // starts — confirmAssignment/startedAt stays its own separate, still-
+    // manual step, so the original concern (players get shorted playtime
+    // if the clock starts before they've walked over) still doesn't
+    // apply. announceAssignment (the manual "Announce" button) is
+    // unchanged and stays re-pressable — nobody heard it, or a no-show
+    // needs re-calling, are both still real reasons to press it again;
+    // this only removes the requirement to press it the FIRST time.
+    // createAssignmentTx is the single choke point every assignment-
+    // creation path (auto-pairing, manual staff assignment, staged-group
+    // promotion) already funnels through, so this one line covers all of
+    // them.
     const assignment = await tx.gameAssignment.create({
       data: {
         courtId: input.courtId,
@@ -1630,6 +1647,7 @@ export class OpenPlayRotationService {
         source: input.source,
         createdByUserId: input.createdByUserId,
         status: "PROPOSED",
+        announcementRequestedAt: new Date(),
         participants: {
           create: input.registrationIds.map((registrationId) => ({ registrationId })),
         },
