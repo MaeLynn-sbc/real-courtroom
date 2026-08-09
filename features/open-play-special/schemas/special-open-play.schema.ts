@@ -43,3 +43,14 @@ export const specialStagedSlotActionSchema = z.object({
   slot: z.enum(["NEXT_UP", "AFTER_THAT", "THEN"]),
 });
 export type SpecialStagedSlotActionInput = z.infer<typeof specialStagedSlotActionSchema>;
+
+// Owner request (2026-08-09): "can i manually add player" (in every
+// staging box) — check a new player straight into a slot in one step.
+export const checkInSpecialPlayerToSlotSchema = z.object({
+  date: z.string().min(1, "Pick a date."),
+  playerName: z.string().min(1, "Enter a name."),
+  phone: z.string().optional(),
+  skillLevel: skillLevelSchema,
+  slot: z.enum(["NEXT_UP", "AFTER_THAT", "THEN"]),
+});
+export type CheckInSpecialPlayerToSlotInput = z.infer<typeof checkInSpecialPlayerToSlotSchema>;

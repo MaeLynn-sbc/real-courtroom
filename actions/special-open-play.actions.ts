@@ -5,12 +5,14 @@ import { revalidatePath } from "next/cache";
 import {
   assignSpecialGroupToCourtSchema,
   checkInSpecialPlayerSchema,
+  checkInSpecialPlayerToSlotSchema,
   specialCheckInIdSchema,
   specialCourtActionSchema,
   specialStagedSlotActionSchema,
   stageSpecialGroupSchema,
   type AssignSpecialGroupToCourtInput,
   type CheckInSpecialPlayerInput,
+  type CheckInSpecialPlayerToSlotInput,
   type SpecialCheckInIdInput,
   type SpecialCourtActionInput,
   type SpecialStagedSlotActionInput,
@@ -209,6 +211,35 @@ export async function clearSpecialStagedSlotAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "clearSpecialStagedSlotAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function checkInSpecialPlayerToSlotAction(
+  input: CheckInSpecialPlayerToSlotInput,
+): Promise<SpecialOpenPlayActionState> {
+  const authz = await requireSpecialOpenPlayAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = checkInSpecialPlayerToSlotSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await specialOpenPlayService.checkInAndStage(
+      new Date(`${parsed.data.date}T00:00:00`),
+      { playerName: parsed.data.playerName, phone: parsed.data.phone, skillLevel: parsed.data.skillLevel },
+      parsed.data.slot,
+      authz.userId,
+    );
+    revalidateSpecialOpenPlay();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "checkInSpecialPlayerToSlotAction", userId: authz.userId }),
     };
   }
 }

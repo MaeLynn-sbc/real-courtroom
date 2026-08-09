@@ -26,8 +26,8 @@
  *      Sale, PlayerTab, GameAssignment, QueueEntry, or
  *      OpenPlayNightRegistration row — zero shared tables with the real
  *      Open Play system, by construction.
- *   9. stageGroup earmarks a group into a slot (still WAITING) and
- *      rejects filling an already-staged slot.
+ *   9. stageGroup/checkInAndStage top a slot up incrementally (still
+ *      WAITING) and reject once it's at capacity (4).
  *  10. clearStagedSlot un-stages a group back to plain Waiting.
  *  11. assignGroupToCourt clears stagedSlot when a staged group is sent
  *      straight to a court.
@@ -161,7 +161,7 @@ async function main(): Promise<void> {
     );
     console.log("PASS: listForDate shows active (WAITING/PLAYING) check-ins only, excluding DONE.");
 
-    // ============== 9. stageGroup earmarks a group, rejects an occupied slot ==============
+    // ============== 9. stageGroup earmarks a group; checkInAndStage tops it up; capacity is enforced ==============
     await specialOpenPlayService.stageGroup([dan.id, eve.id], "NEXT_UP");
     const board6 = await specialOpenPlayService.listForDate(TEST_DATE);
     const danRow = board6.find((c) => c.id === dan.id);
@@ -174,15 +174,35 @@ async function main(): Promise<void> {
       eveRow?.status === "WAITING" && eveRow.stagedSlot === "NEXT_UP",
       "expected Eve to still be WAITING but staged in NEXT_UP",
     );
-    let rejectedOccupiedSlot = false;
+
+    // "can i manually add player" — checkInAndStage tops an already-staged
+    // slot up in one step (2/4 -> 3/4), not blocked as "already staged."
+    const gina = await specialOpenPlayService.checkInAndStage(
+      TEST_DATE,
+      { playerName: "Gina Special" },
+      "NEXT_UP",
+      owner.id,
+    );
+    assert(gina.stagedSlot === "NEXT_UP", "expected Gina to be staged directly into NEXT_UP");
+
+    await specialOpenPlayService.stageGroup([finn.id], "NEXT_UP");
+    const board6b = await specialOpenPlayService.listForDate(TEST_DATE);
+    const nextUpFull = board6b.filter((c) => c.stagedSlot === "NEXT_UP");
+    assert(nextUpFull.length === 4, `expected NEXT_UP to now have 4 staged, got ${nextUpFull.length}`);
+
+    const hank = await specialOpenPlayService.checkIn(TEST_DATE, { playerName: "Hank Special" }, owner.id);
+    let rejectedOverCapacity2 = false;
     try {
-      await specialOpenPlayService.stageGroup([finn.id], "NEXT_UP");
+      await specialOpenPlayService.stageGroup([hank.id], "NEXT_UP");
     } catch (error) {
-      rejectedOccupiedSlot = true;
-      assert(String(error).includes("already staged"), `expected an already-staged error, got ${error}`);
+      rejectedOverCapacity2 = true;
+      assert(String(error).includes("room for"), `expected a capacity error, got ${error}`);
     }
-    assert(rejectedOccupiedSlot, "expected staging into an already-occupied slot to be rejected");
-    console.log("PASS: stageGroup earmarks a group into a slot and rejects an already-staged slot.");
+    assert(rejectedOverCapacity2, "expected staging into a full slot to be rejected");
+    console.log(
+      "PASS: stageGroup/checkInAndStage top up a slot incrementally and reject once it's full (4/4).",
+    );
+    await specialOpenPlayService.checkOut(hank.id);
 
     // ============== 10. clearStagedSlot un-stages back to plain Waiting ==============
     await specialOpenPlayService.clearStagedSlot(TEST_DATE, "NEXT_UP");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -9,6 +9,7 @@ import {
   announceSpecialCourtTimesUpAction,
   assignSpecialGroupToCourtAction,
   checkInSpecialPlayerAction,
+  checkInSpecialPlayerToSlotAction,
   checkOutSpecialPlayerAction,
   clearSpecialStagedSlotAction,
   completeSpecialCourtGameAction,
@@ -64,14 +65,16 @@ function formatStartedAt(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-function formatGameTimeRemaining(startedAtIso: string): { text: string; overtime: boolean } {
+// Owner request (2026-08-09): "i want it to appear like minute with
+// seconds. like 03.04" — MM:SS instead of a rounded "Xm left".
+function formatGameTimeRemaining(startedAtIso: string, now: number): { text: string; overtime: boolean } {
   const endAtMs = new Date(startedAtIso).getTime() + GAME_TARGET_MINUTES * 60_000;
-  const msLeft = endAtMs - Date.now();
-  const minutes = Math.round(Math.abs(msLeft) / 60_000);
-  if (msLeft <= 0) {
-    return { text: minutes === 0 ? "time's up" : `${minutes}m over`, overtime: true };
-  }
-  return { text: `${minutes}m left`, overtime: false };
+  const msLeft = endAtMs - now;
+  const totalSeconds = Math.floor(Math.abs(msLeft) / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const mmss = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return { text: msLeft <= 0 ? `${mmss} over` : mmss, overtime: msLeft <= 0 };
 }
 
 // Owner request (2026-08-09): "an outside special court... like i can
@@ -92,7 +95,22 @@ export function SpecialOpenPlayBoard({
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [buildTarget, setBuildTarget] = useState<string>(COURT_LABELS[0]);
+  // Owner request (2026-08-09): "can i manually add player" (in every
+  // staging box) — a quick-add name field right in each Next up/After
+  // that/Then card, one per slot.
+  const [quickAddNames, setQuickAddNames] = useState<Record<StagedSlot, string>>({
+    NEXT_UP: "",
+    AFTER_THAT: "",
+    THEN: "",
+  });
   const [isPending, startTransition] = useTransition();
+  // Live MM:SS display for the game timer — ticks every second on the
+  // client only; nothing server-side polls or refreshes from this.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const waiting = checkIns.filter((c) => c.status === "WAITING" && c.stagedSlot === null);
   const playingByCourt = new Map<string, SpecialCheckIn[]>();
@@ -202,6 +220,24 @@ export function SpecialOpenPlayBoard({
         return;
       }
       toast.success(`${STAGED_SLOT_LABELS[slot]} cleared — back to Waiting.`);
+      refresh();
+    });
+  }
+
+  function handleQuickAddToSlot(slot: StagedSlot) {
+    const name = quickAddNames[slot].trim();
+    if (!name) {
+      toast.error("Enter a name.");
+      return;
+    }
+    startTransition(async () => {
+      const result = await checkInSpecialPlayerToSlotAction({ date: dateValue, playerName: name, slot });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${name} added to ${STAGED_SLOT_LABELS[slot]}.`);
+      setQuickAddNames((current) => ({ ...current, [slot]: "" }));
       refresh();
     });
   }
@@ -367,10 +403,10 @@ export function SpecialOpenPlayBoard({
                           Manual group · started {formatStartedAt(earliestStart)}
                         </p>
                         <Badge
-                          variant={formatGameTimeRemaining(earliestStart).overtime ? "warning" : "outline"}
+                          variant={formatGameTimeRemaining(earliestStart, now).overtime ? "warning" : "outline"}
                           className="w-fit"
                         >
-                          {formatGameTimeRemaining(earliestStart).text}
+                          {formatGameTimeRemaining(earliestStart, now).text}
                         </Badge>
                       </>
                     ) : null}
@@ -440,9 +476,10 @@ export function SpecialOpenPlayBoard({
                 })}
                 {STAGED_SLOTS.map((slot) => {
                   const staged = stagedBySlot.get(slot) ?? [];
+                  const remaining = MAX_PLAYERS_PER_COURT - staged.length;
                   return (
-                    <SelectItem key={slot} value={slot} disabled={staged.length > 0}>
-                      {STAGED_SLOT_LABELS[slot]} {staged.length > 0 ? "(staged)" : "(empty)"}
+                    <SelectItem key={slot} value={slot} disabled={remaining === 0}>
+                      {STAGED_SLOT_LABELS[slot]} ({remaining} open)
                     </SelectItem>
                   );
                 })}
@@ -456,8 +493,10 @@ export function SpecialOpenPlayBoard({
               disabled={
                 isPending ||
                 selectedIds.length === 0 ||
-                (isCourtTarget(buildTarget) &&
-                  selectedIds.length > MAX_PLAYERS_PER_COURT - (playingByCourt.get(buildTarget)?.length ?? 0))
+                (isCourtTarget(buildTarget)
+                  ? selectedIds.length > MAX_PLAYERS_PER_COURT - (playingByCourt.get(buildTarget)?.length ?? 0)
+                  : selectedIds.length >
+                    MAX_PLAYERS_PER_COURT - (stagedBySlot.get(buildTarget as StagedSlot)?.length ?? 0))
               }
               onClick={handleCreateGroup}
             >
@@ -470,6 +509,7 @@ export function SpecialOpenPlayBoard({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {STAGED_SLOTS.map((slot) => {
           const group = stagedBySlot.get(slot) ?? [];
+          const slotFull = group.length >= MAX_PLAYERS_PER_COURT;
           return (
             <Card key={slot}>
               <CardHeader>
@@ -480,45 +520,66 @@ export function SpecialOpenPlayBoard({
               </CardHeader>
               <CardContent className="flex flex-col gap-2">
                 {group.length > 0 ? (
-                  <>
-                    <ul className="flex flex-col gap-1">
-                      {group.map((member) => (
-                        <li key={member.id} className="text-sm">
-                          {member.playerName}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {COURT_LABELS.map((courtLabel) => {
-                        const occupants = playingByCourt.get(courtLabel) ?? [];
-                        const remaining = MAX_PLAYERS_PER_COURT - occupants.length;
-                        return (
-                          <Button
-                            key={courtLabel}
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={isPending || remaining < group.length}
-                            onClick={() => handleSendStagedToCourt(slot, courtLabel)}
-                          >
-                            → {courtLabel}
-                          </Button>
-                        );
-                      })}
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={isPending}
-                        onClick={() => handleClearStagedSlot(slot)}
-                      >
-                        Clear
-                      </Button>
-                    </div>
-                  </>
+                  <ul className="flex flex-col gap-1">
+                    {group.map((member) => (
+                      <li key={member.id} className="text-sm">
+                        {member.playerName}
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
                   <p className="text-muted-foreground text-sm">Empty.</p>
                 )}
+
+                <div className="flex gap-2 pt-1">
+                  <Input
+                    placeholder="Add player…"
+                    value={quickAddNames[slot]}
+                    onChange={(event) =>
+                      setQuickAddNames((current) => ({ ...current, [slot]: event.target.value }))
+                    }
+                    disabled={isPending || slotFull}
+                    className="h-8 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isPending || slotFull}
+                    onClick={() => handleQuickAddToSlot(slot)}
+                  >
+                    Add
+                  </Button>
+                </div>
+
+                {group.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {COURT_LABELS.map((courtLabel) => {
+                      const occupants = playingByCourt.get(courtLabel) ?? [];
+                      const remaining = MAX_PLAYERS_PER_COURT - occupants.length;
+                      return (
+                        <Button
+                          key={courtLabel}
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={isPending || remaining < group.length}
+                          onClick={() => handleSendStagedToCourt(slot, courtLabel)}
+                        >
+                          → {courtLabel}
+                        </Button>
+                      );
+                    })}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={isPending}
+                      onClick={() => handleClearStagedSlot(slot)}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           );

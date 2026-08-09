@@ -123,8 +123,11 @@ export class SpecialOpenPlayService {
 
   // Manual staging only ("can we also add next up. then next then" —
   // explicitly no AUTO_QUEUE source, see this model's own schema
-  // comment). One group per slot at a time — filling an already-staged
-  // slot is a clean rejection, never a silent overwrite.
+  // comment). Incremental, same capacity-check shape as
+  // assignGroupToCourt — a slot can be topped up one player (or one
+  // group) at a time up to 4, not just filled once and then locked
+  // until cleared ("can i manually add player" — staff can keep adding
+  // to Next up/After that/Then as more people check in).
   async stageGroup(checkInIds: string[], slot: string): Promise<void> {
     if (!isSpecialStagedSlot(slot)) {
       throw new Error(`Unknown staging slot "${slot}".`);
@@ -150,11 +153,13 @@ export class SpecialOpenPlayService {
       throw new Error("Selected players must all be checked in for the same date.");
     }
 
-    const alreadyStaged = await prisma.specialOpenPlayCheckIn.findFirst({
+    const existingCount = await prisma.specialOpenPlayCheckIn.count({
       where: { date, stagedSlot: slot, status: "WAITING" },
     });
-    if (alreadyStaged) {
-      throw new Error(`That slot is already staged — clear it first.`);
+    if (existingCount + checkInIds.length > MAX_PLAYERS_PER_COURT) {
+      throw new Error(
+        `That slot only has room for ${MAX_PLAYERS_PER_COURT - existingCount} more player(s).`,
+      );
     }
 
     const claim = await prisma.specialOpenPlayCheckIn.updateMany({
@@ -164,6 +169,22 @@ export class SpecialOpenPlayService {
     if (claim.count !== checkInIds.length) {
       throw new Error("Some of these players were already taken by someone else — refresh and try again.");
     }
+  }
+
+  // "can i manually add player" (in every staging box) — check a new
+  // player straight into a slot in one step, instead of checking in via
+  // the top form and then separately selecting + staging them. Same two
+  // real writes as doing it by hand (checkIn, then stageGroup), just
+  // combined behind one button.
+  async checkInAndStage(
+    date: Date,
+    input: SpecialOpenPlayCheckInInput,
+    slot: string,
+    actorUserId: string,
+  ): Promise<SpecialOpenPlayCheckIn> {
+    const created = await this.checkIn(date, input, actorUserId);
+    await this.stageGroup([created.id], slot);
+    return prisma.specialOpenPlayCheckIn.findUniqueOrThrow({ where: { id: created.id } });
   }
 
   // Un-stage a slot's group back to plain Waiting.
