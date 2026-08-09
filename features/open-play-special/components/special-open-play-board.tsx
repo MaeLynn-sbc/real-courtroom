@@ -12,6 +12,7 @@ import {
   checkOutSpecialPlayerAction,
   completeSpecialCourtGameAction,
 } from "@/actions/special-open-play.actions";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,11 @@ import type { SkillLevel } from "@/lib/generated/prisma/enums";
 
 const COURT_LABELS = ["Court 1", "Court 2", "Court 3"] as const;
 const MAX_PLAYERS_PER_COURT = 4;
+// Owner request (2026-08-09): a 20-minute soft target, same idea as real
+// Open Play's targetGameMinutes countdown — purely informational, nothing
+// auto-happens at zero, recomputed at render (no client-side ticking
+// clock), same as the real rotation board's own staff-screen timer.
+const GAME_TARGET_MINUTES = 20;
 
 const SKILL_LABELS: Record<SkillLevel, string> = {
   BEGINNER: "Beginner",
@@ -36,6 +42,21 @@ export interface SpecialCheckIn {
   skillLevel: SkillLevel | null;
   status: "WAITING" | "PLAYING" | "DONE";
   courtLabel: string | null;
+  startedAt: string | null;
+}
+
+function formatStartedAt(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function formatGameTimeRemaining(startedAtIso: string): { text: string; overtime: boolean } {
+  const endAtMs = new Date(startedAtIso).getTime() + GAME_TARGET_MINUTES * 60_000;
+  const msLeft = endAtMs - Date.now();
+  const minutes = Math.round(Math.abs(msLeft) / 60_000);
+  if (msLeft <= 0) {
+    return { text: minutes === 0 ? "time's up" : `${minutes}m over`, overtime: true };
+  }
+  return { text: `${minutes}m left`, overtime: false };
 }
 
 // Owner request (2026-08-09): "an outside special court... like i can
@@ -55,6 +76,7 @@ export function SpecialOpenPlayBoard({
   const [phone, setPhone] = useState("");
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [buildTargetCourt, setBuildTargetCourt] = useState<string>(COURT_LABELS[0]);
   const [isPending, startTransition] = useTransition();
 
   const waiting = checkIns.filter((c) => c.status === "WAITING");
@@ -119,6 +141,10 @@ export function SpecialOpenPlayBoard({
       setSelectedIds([]);
       refresh();
     });
+  }
+
+  function handleCreateGroup() {
+    handleAssignGroup(buildTargetCourt);
   }
 
   function handleCompleteGame(courtLabel: string) {
@@ -232,82 +258,130 @@ export function SpecialOpenPlayBoard({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {COURT_LABELS.map((courtLabel) => {
           const occupants = playingByCourt.get(courtLabel) ?? [];
-          const remaining = MAX_PLAYERS_PER_COURT - occupants.length;
+          const earliestStart = occupants
+            .map((o) => o.startedAt)
+            .filter((value): value is string => value !== null)
+            .sort()[0];
           return (
             <Card key={courtLabel}>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between text-base">
                   <span>{courtLabel}</span>
-                  <span className="text-muted-foreground text-xs font-normal">
-                    {occupants.length}/{MAX_PLAYERS_PER_COURT}
-                  </span>
+                  {occupants.length > 0 ? <Badge>On court</Badge> : <Badge variant="outline">Empty</Badge>}
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-2">
                 {occupants.length > 0 ? (
-                  <ul className="flex flex-col gap-1">
-                    {occupants.map((occupant) => (
-                      <li key={occupant.id} className="text-sm">
-                        {occupant.playerName}
-                        {occupant.skillLevel ? (
-                          <span className="text-muted-foreground ml-1 text-xs">
-                            ({SKILL_LABELS[occupant.skillLevel]})
-                          </span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
+                  <>
+                    <ul className="flex flex-col gap-1">
+                      {occupants.map((occupant) => (
+                        <li key={occupant.id} className="text-sm">
+                          {occupant.playerName}
+                          {occupant.skillLevel ? (
+                            <span className="text-muted-foreground ml-1 text-xs">
+                              · {SKILL_LABELS[occupant.skillLevel]}
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                    {earliestStart ? (
+                      <>
+                        <p className="text-muted-foreground text-xs">
+                          Manual group · started {formatStartedAt(earliestStart)}
+                        </p>
+                        <Badge
+                          variant={formatGameTimeRemaining(earliestStart).overtime ? "warning" : "outline"}
+                          className="w-fit"
+                        >
+                          {formatGameTimeRemaining(earliestStart).text}
+                        </Badge>
+                      </>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isPending}
+                        onClick={() => handleAnnounce(courtLabel)}
+                      >
+                        Announce
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isPending}
+                        onClick={() => handleTimesUp(courtLabel)}
+                      >
+                        Time&apos;s up
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={isPending}
+                        onClick={() => handleCompleteGame(courtLabel)}
+                      >
+                        Complete game
+                      </Button>
+                    </div>
+                  </>
                 ) : (
                   <p className="text-muted-foreground text-sm">Empty</p>
                 )}
-
-                {selectedIds.length > 0 && remaining > 0 ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={isPending || selectedIds.length > remaining}
-                    onClick={() => handleAssignGroup(courtLabel)}
-                  >
-                    Assign selected ({selectedIds.length}) here
-                  </Button>
-                ) : null}
-
-                {occupants.length > 0 ? (
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={isPending}
-                      onClick={() => handleAnnounce(courtLabel)}
-                    >
-                      Announce
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={isPending}
-                      onClick={() => handleTimesUp(courtLabel)}
-                    >
-                      Time&apos;s up
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      disabled={isPending}
-                      onClick={() => handleCompleteGame(courtLabel)}
-                    >
-                      Mark done
-                    </Button>
-                  </div>
-                ) : null}
               </CardContent>
             </Card>
           );
         })}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Build a group by hand</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-muted-foreground text-sm">
+            Pick 1 to 4 players from the waiting list below (checkboxes), choose a court, then create the
+            group.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Select
+              value={buildTargetCourt}
+              onValueChange={(value) => setBuildTargetCourt(value ?? COURT_LABELS[0])}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue>{() => buildTargetCourt}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {COURT_LABELS.map((courtLabel) => {
+                  const occupants = playingByCourt.get(courtLabel) ?? [];
+                  const remaining = MAX_PLAYERS_PER_COURT - occupants.length;
+                  return (
+                    <SelectItem key={courtLabel} value={courtLabel} disabled={remaining === 0}>
+                      {courtLabel} ({remaining} open)
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+            <span className="text-muted-foreground text-sm">
+              {selectedIds.length}/{MAX_PLAYERS_PER_COURT} picked
+            </span>
+            <Button
+              type="button"
+              disabled={
+                isPending ||
+                selectedIds.length === 0 ||
+                selectedIds.length > MAX_PLAYERS_PER_COURT - (playingByCourt.get(buildTargetCourt)?.length ?? 0)
+              }
+              onClick={handleCreateGroup}
+            >
+              Create group
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

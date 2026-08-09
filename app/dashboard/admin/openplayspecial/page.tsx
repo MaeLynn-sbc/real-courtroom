@@ -37,6 +37,7 @@ export default async function OpenPlaySpecialPage() {
         skillLevel: checkIn.skillLevel,
         status: checkIn.status,
         courtLabel: checkIn.courtLabel,
+        startedAt: checkIn.startedAt ? checkIn.startedAt.toISOString() : null,
       }))}
     />
   );
