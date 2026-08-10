@@ -13,3 +13,13 @@ export const correctSalePaymentMethodInputSchema = z.object({
 });
 
 export type CorrectSalePaymentMethodInput = z.infer<typeof correctSalePaymentMethodInputSchema>;
+
+// Owner request (2026-08-10): "the staff encoded wrong product and wants
+// it to void" — see saleService.voidSaleAsCorrection's own comment. Same
+// required-reason shape as the payment-method correction above.
+export const voidSaleInputSchema = z.object({
+  saleId: z.string().min(1),
+  reason: z.string().min(1, "A reason is required.").max(500),
+});
+
+export type VoidSaleInput = z.infer<typeof voidSaleInputSchema>;

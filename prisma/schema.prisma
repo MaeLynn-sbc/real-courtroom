@@ -370,6 +370,10 @@ model Employee {
   // Owner request (2026-08-08) — see Sale.paymentMethodCorrectedByEmployeeId
   // below, and saleService.correctPaymentMethod's own comment.
   paymentMethodCorrectedSales               Sale[]                             @relation("SalePaymentMethodCorrectedBy")
+  // Owner request (2026-08-10): "the staff encoded wrong product and
+  // wants it to void" — see Sale.voidedByEmployeeId below, and
+  // saleService.voidSaleAsCorrection's own comment.
+  voidedSales                                Sale[]                             @relation("SaleVoidedBy")
   // Phase 8 plumbing — see BookingPaymentProof/BookingRefund, below Sale.
   resolvedBookingPaymentProofs              BookingPaymentProof[]
   issuedBookingRefunds                      BookingRefund[]
@@ -2859,6 +2863,15 @@ model Sale {
   paymentMethodCorrectionReason      String?
   paymentMethodCorrectedByEmployeeId String?
 
+  // Owner request (2026-08-10): "the staff encoded wrong product and
+  // wants it to void" — see saleService.voidSaleAsCorrection's own
+  // comment. Same "columns on the row + a single audit log entry"
+  // shape as the payment-method correction above — no separate child
+  // table. Null on every sale that's never been voided this way.
+  voidedAt           DateTime?
+  voidReason         String?
+  voidedByEmployeeId String?
+
   paymentMethod                    PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
   employee                         Employee                   @relation(fields: [employeeId], references: [id])
   shift                            Shift                      @relation(fields: [shiftId], references: [id])
@@ -2874,6 +2887,7 @@ model Sale {
   openPlayNightRegistration        OpenPlayNightRegistration? @relation(fields: [openPlayNightRegistrationId], references: [id])
   bookingTab                       BookingTab?                @relation(fields: [bookingTabId], references: [id])
   paymentMethodCorrectedByEmployee Employee?                  @relation("SalePaymentMethodCorrectedBy", fields: [paymentMethodCorrectedByEmployeeId], references: [id])
+  voidedByEmployee                 Employee?                  @relation("SaleVoidedBy", fields: [voidedByEmployeeId], references: [id])
 
   @@index([category])
   @@index([createdAt])

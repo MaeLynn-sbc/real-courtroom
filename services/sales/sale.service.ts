@@ -283,6 +283,68 @@ export class SaleService {
     return updated;
   }
 
+  // Owner request (2026-08-10): "the staff encoded wrong product and
+  // wants it to void" — voidSale (above) is the internal, unattributed
+  // offsetting-entry primitive bookingRefundService uses; this is the
+  // real owner-facing correction path on top of it, following
+  // correctPaymentMethod's own pattern exactly: a required, non-empty
+  // reason; a real employeeId (who reported the wrong encoding)
+  // alongside actorUserId (who's voiding it); an atomic claim-check
+  // update scoped to status COMPLETED, so a stale UI or a double-submit
+  // can't double-void; the same CASH/GCASH confirmed-day block as the
+  // payment-method correction, since voiding also changes a
+  // reconciled day's total. Columns on the row (voidedAt/voidReason/
+  // voidedByEmployeeId) + one audit log entry, no separate child table.
+  async voidSaleAsCorrection(
+    saleId: string,
+    reason: string,
+    employeeId: string,
+    actorUserId: string,
+  ): Promise<Sale> {
+    if (!reason.trim()) {
+      throw new Error("A reason is required to void a sale.");
+    }
+    if (!employeeId) {
+      throw new Error("An employee must be attributed to a void.");
+    }
+
+    const sale = await prisma.sale.findUniqueOrThrow({ where: { id: saleId } });
+    if (sale.status !== "COMPLETED") {
+      throw new Error(`Only a COMPLETED sale can be voided (current status: ${sale.status}).`);
+    }
+
+    const paymentMethod = await prisma.paymentMethod.findUniqueOrThrow({
+      where: { id: sale.paymentMethodId },
+    });
+    await this.assertReconciliationDayNotConfirmed(sale.createdAt, paymentMethod.key);
+
+    const claim = await prisma.sale.updateMany({
+      where: { id: saleId, status: "COMPLETED" },
+      data: {
+        status: "VOID",
+        voidedAt: new Date(),
+        voidReason: reason,
+        voidedByEmployeeId: employeeId,
+      },
+    });
+    if (claim.count === 0) {
+      throw new Error("This sale has already changed since you loaded it — refresh and try again.");
+    }
+
+    const updated = await prisma.sale.findUniqueOrThrow({ where: { id: saleId } });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "sale.voided_as_correction",
+      entityType: "Sale",
+      entityId: saleId,
+      oldValues: { status: "COMPLETED" },
+      newValues: { status: "VOID", reason, employeeId },
+    });
+
+    return updated;
+  }
+
   // Cash/GCash daily reconciliation is keyed by calendar date
   // (CashDailyBalance/GcashDailyBalance.date, midnight-normalized) — a
   // payment method with no daily-balance concept (Bank Transfer, Card,
@@ -340,6 +402,27 @@ export class SaleService {
 
   async listSalesForPlayer(playerId: string): Promise<Sale[]> {
     return prisma.sale.findMany({ where: { playerId }, orderBy: { createdAt: "desc" } });
+  }
+
+  // Owner request (2026-08-10): "the staff encoded wrong product and
+  // wants it to void" — powers the Shop page's own "Recent sales" list,
+  // the surface staff/owner actually see the wrong-product sale from.
+  // COMPLETED and VOID both included (a voided row still needs to show,
+  // with its badge, so it's clear it was handled) — only excludes
+  // nothing, since this is a short recent-activity list, not a revenue
+  // total.
+  async listRecentProductSales(limit = 20) {
+    return prisma.sale.findMany({
+      where: { category: "PRODUCT" },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      include: {
+        product: { select: { name: true } },
+        employee: { select: { firstName: true, lastName: true } },
+        paymentMethod: { select: { label: true } },
+        voidedByEmployee: { select: { firstName: true, lastName: true } },
+      },
+    });
   }
 
   // Powers the Operations Workspace's Today's Revenue panel and the

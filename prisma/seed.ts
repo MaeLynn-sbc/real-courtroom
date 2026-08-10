@@ -172,6 +172,11 @@ const PERMISSION_DEFINITIONS: Record<PermissionKey, PermissionDefinition> = {
     description:
       "Correct a completed sale's Cash/GCash payment method after the fact, with a required reason — blocked once that day's reconciliation is already confirmed.",
   },
+  [PERMISSIONS.ACCOUNTS_VOID_SALE]: {
+    label: "Void Sale",
+    description:
+      "Void a completed sale (e.g. wrong product encoded) with a required reason — blocked once that day's Cash/GCash reconciliation is already confirmed.",
+  },
 };
 
 const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
@@ -211,6 +216,7 @@ const ROLE_PERMISSION_GRANTS: Record<SystemRoleName, PermissionKey[]> = {
     PERMISSIONS.SALES_CREATE_WITHOUT_SHIFT,
     PERMISSIONS.PAYROLL_MANAGE,
     PERMISSIONS.ACCOUNTS_CORRECT_SALE_PAYMENT_METHOD,
+    PERMISSIONS.ACCOUNTS_VOID_SALE,
   ],
   [SYSTEM_ROLES.TOURNAMENT_DIRECTOR]: [
     PERMISSIONS.DASHBOARD_ACCESS,

@@ -2,7 +2,9 @@
 
 import {
   correctSalePaymentMethodInputSchema,
+  voidSaleInputSchema,
   type CorrectSalePaymentMethodInput,
+  type VoidSaleInput,
 } from "@/features/sales/schemas/sale.schema";
 import { requireEmployee } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
@@ -48,6 +50,39 @@ export async function correctSalePaymentMethodAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "correctSalePaymentMethodAction", userId: authz.userId }),
+    };
+  }
+}
+
+// Owner request (2026-08-10): "the staff encoded wrong product and wants
+// it to void" — see saleService.voidSaleAsCorrection's own comment. Same
+// requireEmployee gating shape as correctSalePaymentMethodAction above —
+// this needs a real employeeId, not only a permission check.
+export async function voidSaleAction(input: VoidSaleInput): Promise<SaleActionState> {
+  const authz = await requireEmployee(
+    PERMISSIONS.ACCOUNTS_VOID_SALE,
+    "You don't have permission to void a sale.",
+  );
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = voidSaleInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await saleService.voidSaleAsCorrection(
+      parsed.data.saleId,
+      parsed.data.reason,
+      authz.employeeId,
+      authz.userId,
+    );
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "voidSaleAction", userId: authz.userId }),
     };
   }
 }

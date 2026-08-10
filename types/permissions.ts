@@ -130,6 +130,11 @@ export const PERMISSIONS = {
   // it's deliberately no broader than the trust already required to
   // confirm/reopen either one.
   ACCOUNTS_CORRECT_SALE_PAYMENT_METHOD: "accounts:correct_sale_payment_method",
+  // Owner request (2026-08-10): "the staff encoded wrong product and
+  // wants it to void" — see saleService.voidSaleAsCorrection's own
+  // comment. Same dedicated, owner-only-by-default shape as the
+  // payment-method correction above.
+  ACCOUNTS_VOID_SALE: "accounts:void_sale",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

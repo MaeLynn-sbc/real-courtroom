@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
 
+import { auth } from "@/auth";
+import { RecentProductSalesList } from "@/features/products/components/recent-product-sales-list";
 import { SellProductForm } from "@/features/products/components/sell-product-form";
+import { hasPermission } from "@/lib/rbac";
 import { playerService } from "@/services/player/player.service";
 import { productService } from "@/services/products/product.service";
 import { saleService } from "@/services/sales/sale.service";
+import { PERMISSIONS } from "@/types/permissions";
 
 export const metadata: Metadata = {
   title: "Shop",
@@ -12,10 +16,14 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function ProductsPage() {
-  const [products, players, paymentMethods] = await Promise.all([
+  const session = await auth();
+  const canVoidSale = hasPermission(session?.user.permissions ?? [], PERMISSIONS.ACCOUNTS_VOID_SALE);
+
+  const [products, players, paymentMethods, recentSales] = await Promise.all([
     productService.listActiveProducts(),
     playerService.listPlayers(),
     saleService.listPaymentMethods(),
+    saleService.listRecentProductSales(),
   ]);
 
   const productOptions = products.map((product) => ({
@@ -44,6 +52,22 @@ export default async function ProductsPage() {
         products={productOptions}
         players={playerOptions}
         paymentMethods={paymentMethodOptions}
+      />
+      <RecentProductSalesList
+        canVoidSale={canVoidSale}
+        sales={recentSales.map((sale) => ({
+          id: sale.id,
+          productName: sale.product?.name ?? sale.description ?? "Item",
+          amountCents: sale.amountCents,
+          employeeName: `${sale.employee.firstName} ${sale.employee.lastName}`,
+          paymentMethodLabel: sale.paymentMethod.label,
+          status: sale.status,
+          createdAt: sale.createdAt.toISOString(),
+          voidReason: sale.voidReason,
+          voidedByEmployeeName: sale.voidedByEmployee
+            ? `${sale.voidedByEmployee.firstName} ${sale.voidedByEmployee.lastName}`
+            : null,
+        }))}
       />
     </div>
   );
