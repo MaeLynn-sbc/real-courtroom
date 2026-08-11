@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { formatTime12h } from "@/lib/format-time";
 
 interface ShiftTemplateRow {
   id: string;
@@ -187,8 +188,8 @@ export function ShiftTemplateSettings({ templates }: ShiftTemplateSettingsProps)
                       ) : (
                         <>
                           <td className="px-3 py-2 font-medium">{template.name}</td>
-                          <td className="px-3 py-2">{template.startTime}</td>
-                          <td className="px-3 py-2">{template.endTime}</td>
+                          <td className="px-3 py-2">{formatTime12h(template.startTime)}</td>
+                          <td className="px-3 py-2">{formatTime12h(template.endTime)}</td>
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-2">
                               <Switch

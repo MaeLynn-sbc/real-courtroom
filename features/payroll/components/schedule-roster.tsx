@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatTime12h } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 
 interface RosterEmployee {
@@ -263,7 +264,7 @@ export function ScheduleRoster({ weekStart, employees, templates, assignments }:
                               <SelectItem value={OFF_VALUE}>Off</SelectItem>
                               {templates.map((template) => (
                                 <SelectItem key={template.id} value={template.id}>
-                                  {template.name} ({template.startTime}–{template.endTime})
+                                  {template.name} ({formatTime12h(template.startTime)}–{formatTime12h(template.endTime)})
                                 </SelectItem>
                               ))}
                               <SelectItem value={CUSTOM_VALUE}>Custom hours…</SelectItem>
@@ -364,7 +365,7 @@ function BulkAssignPanel({
             <SelectContent>
               {templates.map((template) => (
                 <SelectItem key={template.id} value={template.id}>
-                  {template.name} ({template.startTime}–{template.endTime})
+                  {template.name} ({formatTime12h(template.startTime)}–{formatTime12h(template.endTime)})
                 </SelectItem>
               ))}
             </SelectContent>
