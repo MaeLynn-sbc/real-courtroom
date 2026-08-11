@@ -6,6 +6,7 @@ import {
   GenerateBracketButton,
   ResetBracketButton,
 } from "@/features/tournaments/components/generate-bracket-button";
+import { ManualMatchForm } from "@/features/tournaments/components/manual-match-form";
 import { MaxTeamsField } from "@/features/tournaments/components/max-teams-field";
 import { RegistrationForm } from "@/features/tournaments/components/registration-form";
 import { RegistrationList } from "@/features/tournaments/components/registration-list";
@@ -68,6 +69,10 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
       ? `${player1Name} / ${player2.user.name ?? player2.user.email ?? "Unknown player"}`
       : player1Name;
   }
+
+  const confirmedTeams = category.registrations
+    .filter((registration) => registration.status === "CONFIRMED")
+    .map((registration) => ({ teamId: registration.teamId, name: teamNames[registration.teamId] }));
 
   const bracketGenerated = matches.length > 0;
   const confirmedCount = category.registrations.filter((r) => r.status === "CONFIRMED").length;
@@ -141,6 +146,7 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
           matches={matches}
           courts={courtOptions}
         />
+        <ManualMatchForm tournamentId={tournamentId} categoryId={categoryId} teams={confirmedTeams} />
       </section>
 
       <section className="flex flex-col gap-3">

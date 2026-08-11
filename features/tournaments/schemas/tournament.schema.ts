@@ -134,3 +134,23 @@ export const markWalkoverSchema = z.object({
 });
 
 export type MarkWalkoverInput = z.infer<typeof markWalkoverSchema>;
+
+// Owner request (2026-08-11): the actual draw/grouping happens live on
+// an external wheel-of-fortune site so everyone can watch — this just
+// needs to record whatever pairing that produces, one at a time, not
+// generate any pairing itself. round is optional so matches from
+// different rounds/pools can still be told apart in BracketView's own
+// groupByRound display; omitted matches fall into "Round 0" same as
+// any other round-less Match already does elsewhere in this schema.
+export const createManualMatchSchema = z
+  .object({
+    team1Id: z.string().min(1, "Select the first team."),
+    team2Id: z.string().min(1, "Select the second team."),
+    round: z.coerce.number().int().positive().optional(),
+  })
+  .refine((data) => data.team1Id !== data.team2Id, {
+    message: "Pick two different teams.",
+    path: ["team2Id"],
+  });
+
+export type CreateManualMatchInput = z.infer<typeof createManualMatchSchema>;

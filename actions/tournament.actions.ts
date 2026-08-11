@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import {
   createCategorySchema,
+  createManualMatchSchema,
   createTournamentSchema,
   markWalkoverSchema,
   recordScoreSchema,
@@ -14,6 +15,7 @@ import {
   updateTournamentPaymentSettingSchema,
   updateTournamentStatusSchema,
   type CreateCategoryInput,
+  type CreateManualMatchInput,
   type CreateTournamentInput,
   type MarkWalkoverInput,
   type RecordScoreInput,
@@ -399,6 +401,32 @@ export async function generateBracketAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "generateBracketAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function createManualMatchAction(
+  tournamentId: string,
+  categoryId: string,
+  input: CreateManualMatchInput,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = createManualMatchSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid match." };
+  }
+
+  try {
+    await tournamentService.createManualMatch(categoryId, parsed.data, authz.userId);
+    revalidateCategory(tournamentId, categoryId);
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "createManualMatchAction", userId: authz.userId }),
     };
   }
 }

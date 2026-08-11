@@ -5,6 +5,7 @@ import type {
   UpdateRegistrationPlayerNamesInput,
 } from "@/features/tournaments/schemas/tournament.schema";
 import type {
+  Match,
   Prisma,
   Tournament,
   TournamentCategory,
@@ -671,6 +672,58 @@ export class TournamentService {
       entityId: categoryId,
       newValues: { teamCount: teamIds.length, format: category.format },
     });
+  }
+
+  // Owner request (2026-08-11): "the bracketing might be done live via
+  // wheel of fortune in the internet so that everybody can see it" — the
+  // actual random draw happens externally, on stream, not in this app.
+  // This just records whatever pairing that produces, one match at a
+  // time — no auto-pairing, no group/pool concept, deliberately. Works
+  // alongside generateBracket/resetBracket, not instead of them: a
+  // category can mix an auto-generated round robin with extra manually
+  // added matches, or be built entirely by hand if generateBracket was
+  // never run for it.
+  async createManualMatch(
+    categoryId: string,
+    input: { team1Id: string; team2Id: string; round?: number },
+    actorUserId: string,
+  ): Promise<Match> {
+    if (input.team1Id === input.team2Id) {
+      throw new Error("Pick two different teams.");
+    }
+
+    const registrations = await prisma.tournamentRegistration.findMany({
+      where: {
+        tournamentCategoryId: categoryId,
+        status: "CONFIRMED",
+        teamId: { in: [input.team1Id, input.team2Id] },
+      },
+      select: { teamId: true },
+    });
+    const confirmedTeamIds = new Set(registrations.map((r) => r.teamId));
+    if (!confirmedTeamIds.has(input.team1Id) || !confirmedTeamIds.has(input.team2Id)) {
+      throw new Error("Both teams must be confirmed registrations in this category.");
+    }
+
+    const match = await prisma.match.create({
+      data: {
+        tournamentCategoryId: categoryId,
+        round: input.round ?? null,
+        team1Id: input.team1Id,
+        team2Id: input.team2Id,
+        status: "SCHEDULED",
+      },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.match_created_manually",
+      entityType: "TournamentCategory",
+      entityId: categoryId,
+      newValues: { matchId: match.id, team1Id: input.team1Id, team2Id: input.team2Id, round: match.round },
+    });
+
+    return match;
   }
 
   // Owner request (2026-08-11): "can i remove this after all. these are
