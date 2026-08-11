@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { ScoresheetView } from "@/features/tournaments/components/scoresheet-view";
+import { courtService } from "@/services/court/court.service";
 import { matchService } from "@/services/tournaments/match.service";
 import { tournamentService } from "@/services/tournaments/tournament.service";
 
@@ -41,7 +42,10 @@ export default async function ScoresheetPage({ params }: ScoresheetPageProps) {
     notFound();
   }
 
-  const allMatches = await matchService.listMatchesByCategory(categoryId);
+  const [allMatches, courts] = await Promise.all([
+    matchService.listMatchesByCategory(categoryId),
+    courtService.listCourts(),
+  ]);
   const scheduledMatches = allMatches
     .filter((match) => match.status === "SCHEDULED")
     .map((match) => ({
@@ -50,9 +54,13 @@ export default async function ScoresheetPage({ params }: ScoresheetPageProps) {
       round: match.round,
       team1Name: teamLabel(match.team1),
       team2Name: teamLabel(match.team2),
+      courtId: match.courtId,
       courtName: match.court?.name ?? null,
       scheduledAt: match.scheduledAt ? match.scheduledAt.toISOString() : null,
     }));
+  const courtOptions = courts
+    .filter((court) => court.status !== "DISABLED")
+    .map((court) => ({ id: court.id, name: court.name }));
 
   return (
     <ScoresheetView
@@ -61,6 +69,7 @@ export default async function ScoresheetPage({ params }: ScoresheetPageProps) {
       categoryName={category.name}
       tournamentName={category.tournament.name}
       matches={scheduledMatches}
+      courts={courtOptions}
     />
   );
 }

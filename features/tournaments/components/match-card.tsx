@@ -4,30 +4,17 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import {
-  completeMatchAction,
-  markWalkoverAction,
-  recordScoreAction,
-  scheduleMatchAction,
-} from "@/actions/tournament.actions";
+import { completeMatchAction, markWalkoverAction, recordScoreAction } from "@/actions/tournament.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { MatchStatus } from "@/lib/generated/prisma/enums";
 import type { matchService } from "@/services/tournaments/match.service";
 
 type Matches = Awaited<ReturnType<typeof matchService.listMatchesByCategory>>;
 export type MatchWithTeams = Matches[number];
 
-const NO_COURT_VALUE = "__none__";
 // Owner report (2026-08-11): "games have only 1 set per game" — a
 // single game (not best-of-3). determineMatchWinner (match-status.ts)
 // already makes no assumption about set count — it just checks which
@@ -62,27 +49,15 @@ function teamLabel(team: MatchWithTeams["team1"] | MatchWithTeams["team2"]): str
   return `${player1Name} / ${team.player2.user.name ?? team.player2.user.email ?? "Unknown player"}`;
 }
 
-function toLocalInputValue(date: Date): string {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`;
-}
-
 interface MatchCardProps {
   tournamentId: string;
   categoryId: string;
   match: MatchWithTeams;
-  courts: { id: string; name: string }[];
 }
 
-export function MatchCard({ tournamentId, categoryId, match, courts }: MatchCardProps) {
+export function MatchCard({ tournamentId, categoryId, match }: MatchCardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [courtId, setCourtId] = useState(match.courtId ?? NO_COURT_VALUE);
-  const [scheduledAt, setScheduledAt] = useState(
-    match.scheduledAt ? toLocalInputValue(match.scheduledAt) : "",
-  );
   const [setScores, setSetScores] = useState(() =>
     Array.from({ length: SET_COUNT }, (_, index) => {
       const existing = match.scores.find((score) => score.setNumber === index + 1);
@@ -105,17 +80,6 @@ export function MatchCard({ tournamentId, categoryId, match, courts }: MatchCard
       }
       router.refresh();
     });
-  }
-
-  function handleSaveSchedule() {
-    handleAction(
-      () =>
-        scheduleMatchAction(tournamentId, categoryId, match.id, {
-          courtId: courtId === NO_COURT_VALUE ? undefined : courtId,
-          scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
-        }),
-      "Match scheduled.",
-    );
   }
 
   function handleSaveSet(setNumber: number) {
@@ -158,45 +122,19 @@ export function MatchCard({ tournamentId, categoryId, match, courts }: MatchCard
           <p className="text-muted-foreground text-sm">Automatic bye — advances without playing.</p>
         ) : (
           <>
-            {isEditable ? (
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium">Court</label>
-                  <Select value={courtId} onValueChange={(value) => setCourtId(value ?? NO_COURT_VALUE)}>
-                    <SelectTrigger className="w-40">
-                      <SelectValue placeholder="No court">
-                        {(value: string) =>
-                          value === NO_COURT_VALUE
-                            ? "No court"
-                            : (courts.find((court) => court.id === value)?.name ?? "No court")
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NO_COURT_VALUE}>No court</SelectItem>
-                      {courts.map((court) => (
-                        <SelectItem key={court.id} value={court.id}>
-                          {court.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium">Scheduled at</label>
-                  <Input
-                    type="datetime-local"
-                    value={scheduledAt}
-                    onChange={(event) => setScheduledAt(event.target.value)}
-                    className="w-48"
-                  />
-                </div>
-                <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={handleSaveSchedule}>
-                  Save schedule
-                </Button>
-              </div>
-            ) : match.court ? (
-              <p className="text-muted-foreground text-sm">{match.court.name}</p>
+            {/* Owner request (2026-08-11): "remove this and put it on
+                other tabs. the schedule. it shouldnt conflict with the
+                score cards" — court + scheduled-at assignment moved to
+                the Scoresheet page (features/tournaments/components/
+                scoresheet-view.tsx); this card is score entry only now,
+                plain-text court display if one's already assigned. */}
+            {match.court ? (
+              <p className="text-muted-foreground text-sm">
+                {match.court.name}
+                {match.scheduledAt
+                  ? ` · ${new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" }).format(match.scheduledAt)}`
+                  : ""}
+              </p>
             ) : null}
 
             <div className="flex flex-col gap-2">

@@ -2,8 +2,14 @@
 
 import Link from "next/link";
 import { Printer } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
 
+import { scheduleMatchAction } from "@/actions/tournament.actions";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface ScoresheetMatch {
   id: string;
@@ -11,6 +17,7 @@ interface ScoresheetMatch {
   round: number | null;
   team1Name: string;
   team2Name: string;
+  courtId: string | null;
   courtName: string | null;
   scheduledAt: string | null;
 }
@@ -21,8 +28,10 @@ interface ScoresheetViewProps {
   categoryName: string;
   tournamentName: string;
   matches: ScoresheetMatch[];
+  courts: { id: string; name: string }[];
 }
 
+const NO_COURT_VALUE = "__none__";
 const timeFormatter = new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit" });
 
 function groupByPool(matches: ScoresheetMatch[]): Map<string | null, ScoresheetMatch[]> {
@@ -33,6 +42,14 @@ function groupByPool(matches: ScoresheetMatch[]): Map<string | null, ScoresheetM
     groups.set(match.poolLabel, list);
   }
   return groups;
+}
+
+function toLocalInputValue(iso: string): string {
+  const date = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
 }
 
 // Owner request (2026-08-11): "i want it to be lines only so that the
@@ -47,13 +64,14 @@ export function ScoresheetView({
   categoryName,
   tournamentName,
   matches,
+  courts,
 }: ScoresheetViewProps) {
   const pools = Array.from(groupByPool(matches).entries()).sort(([a], [b]) =>
     (a ?? "").localeCompare(b ?? ""),
   );
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
       <div className="flex items-center justify-between gap-3 print:hidden">
         <Link
           href={`/dashboard/tournaments/${tournamentId}/categories/${categoryId}`}
@@ -87,27 +105,18 @@ export function ScoresheetView({
                     <th className="py-1.5 text-center font-medium">Score</th>
                     <th className="py-1.5 text-left font-medium">Team 2</th>
                     <th className="py-1.5 text-center font-medium">Score</th>
-                    <th className="py-1.5 text-left font-medium">Court</th>
-                    <th className="py-1.5 text-left font-medium">Time</th>
+                    <th className="py-1.5 text-left font-medium">Court &amp; time</th>
                   </tr>
                 </thead>
                 <tbody>
                   {poolMatches.map((match) => (
-                    <tr key={match.id} className="border-b">
-                      <td className="py-2">{match.round ?? "—"}</td>
-                      <td className="py-2">{match.team1Name}</td>
-                      <td className="py-2">
-                        <span className="inline-block w-16 border-b border-dotted">&nbsp;</span>
-                      </td>
-                      <td className="py-2">{match.team2Name}</td>
-                      <td className="py-2">
-                        <span className="inline-block w-16 border-b border-dotted">&nbsp;</span>
-                      </td>
-                      <td className="py-2">{match.courtName ?? "—"}</td>
-                      <td className="py-2">
-                        {match.scheduledAt ? timeFormatter.format(new Date(match.scheduledAt)) : "—"}
-                      </td>
-                    </tr>
+                    <ScoresheetRow
+                      key={match.id}
+                      tournamentId={tournamentId}
+                      categoryId={categoryId}
+                      match={match}
+                      courts={courts}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -124,5 +133,98 @@ export function ScoresheetView({
         }
       `}</style>
     </div>
+  );
+}
+
+// Owner request (2026-08-11): "remove this and put it on other tabs.
+// the schedule. it shouldnt conflict with the score cards" — court +
+// scheduled-at assignment lives here now instead of on the score-entry
+// match card. Each row keeps its own local court/time state (same
+// shape match-card.tsx used to have) so editing one match never
+// touches another's unsaved input. The editor is print:hidden; a plain-
+// text duplicate of the same court/time (hidden on screen, shown only
+// on print) is what actually prints, so the printed sheet stays a
+// clean line, not a form control.
+function ScoresheetRow({
+  tournamentId,
+  categoryId,
+  match,
+  courts,
+}: {
+  tournamentId: string;
+  categoryId: string;
+  match: ScoresheetMatch;
+  courts: { id: string; name: string }[];
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [courtId, setCourtId] = useState(match.courtId ?? NO_COURT_VALUE);
+  const [scheduledAt, setScheduledAt] = useState(
+    match.scheduledAt ? toLocalInputValue(match.scheduledAt) : "",
+  );
+
+  function handleSave() {
+    startTransition(async () => {
+      const result = await scheduleMatchAction(tournamentId, categoryId, match.id, {
+        courtId: courtId === NO_COURT_VALUE ? undefined : courtId,
+        scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Match scheduled.");
+      router.refresh();
+    });
+  }
+
+  const printText = [
+    match.courtName,
+    match.scheduledAt ? timeFormatter.format(new Date(match.scheduledAt)) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <tr className="border-b">
+      <td className="py-2">{match.round ?? "—"}</td>
+      <td className="py-2">{match.team1Name}</td>
+      <td className="py-2">
+        <span className="inline-block w-16 border-b border-dotted">&nbsp;</span>
+      </td>
+      <td className="py-2">{match.team2Name}</td>
+      <td className="py-2">
+        <span className="inline-block w-16 border-b border-dotted">&nbsp;</span>
+      </td>
+      <td className="py-2">
+        <span className="hidden print:inline">{printText || "—"}</span>
+        <div className="flex flex-wrap items-center gap-1.5 print:hidden">
+          <Select value={courtId} onValueChange={(value) => value && setCourtId(value)}>
+            <SelectTrigger className="h-8 w-32 text-xs">
+              <SelectValue>
+                {courtId === NO_COURT_VALUE ? "No court" : (courts.find((c) => c.id === courtId)?.name ?? "No court")}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_COURT_VALUE}>No court</SelectItem>
+              {courts.map((court) => (
+                <SelectItem key={court.id} value={court.id}>
+                  {court.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            type="datetime-local"
+            value={scheduledAt}
+            onChange={(event) => setScheduledAt(event.target.value)}
+            className="h-8 w-44 text-xs"
+          />
+          <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={handleSave}>
+            Save
+          </Button>
+        </div>
+      </td>
+    </tr>
   );
 }

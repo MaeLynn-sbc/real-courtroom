@@ -13,7 +13,6 @@ import { PoolAssignmentForm } from "@/features/tournaments/components/pool-assig
 import { RegistrationForm } from "@/features/tournaments/components/registration-form";
 import { RegistrationList } from "@/features/tournaments/components/registration-list";
 import { StandingsTable } from "@/features/tournaments/components/standings-table";
-import { courtService } from "@/services/court/court.service";
 import { saleService } from "@/services/sales/sale.service";
 import { matchService } from "@/services/tournaments/match.service";
 import { standingsService } from "@/services/tournaments/standings.service";
@@ -44,10 +43,9 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
     notFound();
   }
 
-  const [matches, standings, courts, paymentMethods] = await Promise.all([
+  const [matches, standings, paymentMethods] = await Promise.all([
     matchService.listMatchesByCategory(categoryId),
     standingsService.getStandings(categoryId),
-    courtService.listCourts(),
     saleService.listPaymentMethods(),
   ]);
 
@@ -55,10 +53,6 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
     id: method.id,
     label: method.label,
   }));
-
-  const courtOptions = courts
-    .filter((court) => court.status !== "DISABLED")
-    .map((court) => ({ id: court.id, name: court.name }));
 
   const teamNames: Record<string, string> = {};
   for (const registration of category.registrations) {
@@ -180,12 +174,7 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
             teams={confirmedTeamsWithPool}
           />
         ) : null}
-        <BracketView
-          tournamentId={tournamentId}
-          categoryId={categoryId}
-          matches={matches}
-          courts={courtOptions}
-        />
+        <BracketView tournamentId={tournamentId} categoryId={categoryId} matches={matches} />
         <ManualMatchForm tournamentId={tournamentId} categoryId={categoryId} teams={confirmedTeams} />
       </section>
 
