@@ -57,9 +57,17 @@ export default async function SchedulePage({ searchParams }: SchedulePageProps) 
             hours/pay computation reads this yet.
           </p>
         </div>
-        <Link href="/dashboard/payroll" className="text-primary text-sm underline underline-offset-2">
-          ← Back to Payroll
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/dashboard/payroll/schedule/settings"
+            className="text-primary text-sm underline underline-offset-2"
+          >
+            Manage shift times
+          </Link>
+          <Link href="/dashboard/payroll" className="text-primary text-sm underline underline-offset-2">
+            ← Back to Payroll
+          </Link>
+        </div>
       </div>
 
       <div className="flex items-center gap-2">

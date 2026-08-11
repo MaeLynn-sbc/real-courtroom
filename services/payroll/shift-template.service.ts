@@ -60,6 +60,33 @@ export class ShiftTemplateService {
     return template;
   }
 
+  async updateTemplate(
+    templateId: string,
+    input: CreateShiftTemplateInput,
+    actorUserId: string,
+  ): Promise<ShiftTemplate> {
+    if (!input.name.trim()) {
+      throw new Error("Enter a name for this shift.");
+    }
+
+    const existing = await prisma.shiftTemplate.findUniqueOrThrow({ where: { id: templateId } });
+
+    const template = await prisma.shiftTemplate.update({
+      where: { id: templateId },
+      data: { name: input.name.trim(), startTime: input.startTime, endTime: input.endTime },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "shift_template.updated",
+      entityId: template.id,
+      oldValues: { name: existing.name, startTime: existing.startTime, endTime: existing.endTime },
+      newValues: { name: template.name, startTime: template.startTime, endTime: template.endTime },
+    });
+
+    return template;
+  }
+
   async setTemplateActive(
     templateId: string,
     active: boolean,
