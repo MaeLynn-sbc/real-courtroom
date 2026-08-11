@@ -1,4 +1,9 @@
-import { computeBusinessDate, getBusinessDateRange } from "@/lib/business-date";
+import {
+  assertIsCurrentBusinessDate,
+  computeBusinessDate,
+  getBusinessDateRange,
+  StaleBusinessDateError,
+} from "@/lib/business-date";
 
 const ROLLOVER_HOUR = 3;
 
@@ -42,5 +47,33 @@ describe("getBusinessDateRange", () => {
 
     expect(fridayNight >= start && fridayNight < end).toBe(true);
     expect(saturdayEarly >= start && saturdayEarly < end).toBe(true);
+  });
+});
+
+describe("assertIsCurrentBusinessDate", () => {
+  // Owner incident (2026-08-11): a staff tab stuck on yesterday's date
+  // silently wrote a whole day's worth of real registrations and court
+  // groups under the wrong business date — invisible everywhere that
+  // correctly queries today. This guard is the fix.
+  it("passes silently when the date matches today's real business date", () => {
+    const now = new Date(2026, 7, 11, 19, 0); // Aug 11, 7:00 PM
+    const today = computeBusinessDate(now, ROLLOVER_HOUR);
+    expect(() => assertIsCurrentBusinessDate(today, ROLLOVER_HOUR, now)).not.toThrow();
+  });
+
+  it("throws when the date is a real day behind (the reported incident)", () => {
+    const now = new Date(2026, 7, 11, 19, 0); // Aug 11, 7:00 PM
+    const yesterday = new Date(2026, 7, 10); // the stale tab's date
+    expect(() => assertIsCurrentBusinessDate(yesterday, ROLLOVER_HOUR, now)).toThrow(
+      StaleBusinessDateError,
+    );
+  });
+
+  it("still passes for a legitimate post-midnight, pre-rollover action", () => {
+    // 1:00 AM Saturday, rollover hour 3 — this genuinely still belongs
+    // to Friday's business date (BUILD-SPEC.md §0), not a stale-tab bug.
+    const now = new Date(2026, 6, 25, 1, 0);
+    const fridayBusinessDate = new Date(2026, 6, 24);
+    expect(() => assertIsCurrentBusinessDate(fridayBusinessDate, ROLLOVER_HOUR, now)).not.toThrow();
   });
 });

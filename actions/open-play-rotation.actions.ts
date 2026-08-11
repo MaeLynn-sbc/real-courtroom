@@ -27,12 +27,14 @@ import {
   type SwapPartyMemberInput,
 } from "@/features/open-play-capacity/schemas/open-play-rotation.schema";
 import { requirePermission } from "@/lib/action-auth";
+import { assertIsCurrentBusinessDate } from "@/lib/business-date";
 import { toActionError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import {
   AssignmentAlreadyCompletedError,
   openPlayRotationService,
 } from "@/services/open-play/open-play-rotation.service";
+import { settingsService } from "@/services/settings/settings.service";
 import { PERMISSIONS } from "@/types/permissions";
 
 export interface OpenPlayRotationActionState {
@@ -54,6 +56,25 @@ function parseDate(dateParam: string): Date {
   return new Date(`${dateParam}T00:00:00`);
 }
 
+// Owner incident (2026-08-11): a staff browser tab left open on a stale
+// /open-play-capacity/[date] URL silently wrote a whole day's real
+// activity — walk-in check-ins, manual court groups — under yesterday's
+// business date, invisible everywhere that correctly queries today
+// (the TV display, any freshly-loaded board). See
+// assertIsCurrentBusinessDate's own comment in lib/business-date.ts.
+// Deliberately placed here, at the action (HTTP) boundary, not inside
+// the service methods themselves — those are also called directly by
+// ~16 integration test files using a deliberately non-today date for
+// test isolation, which this check would otherwise break. The action
+// layer is the real attack surface: a stale CLIENT date reaching a
+// live server, not a trusted internal/test caller.
+async function parseAndValidateTodayDate(dateParam: string): Promise<Date> {
+  const date = parseDate(dateParam);
+  const courtHours = await settingsService.getCourtHours();
+  assertIsCurrentBusinessDate(date, courtHours.businessDateRolloverHour);
+  return date;
+}
+
 export async function proposeAssignmentAction(
   input: ProposeAssignmentInput,
 ): Promise<OpenPlayRotationActionState> {
@@ -69,7 +90,7 @@ export async function proposeAssignmentAction(
 
   try {
     const assignment = await openPlayRotationService.proposeNextAssignment(
-      parseDate(parsed.data.date),
+      await parseAndValidateTodayDate(parsed.data.date),
       parsed.data.courtId,
       authz.userId,
     );
@@ -100,7 +121,7 @@ export async function createManualAssignmentAction(
 
   try {
     await openPlayRotationService.createManualAssignment(
-      parseDate(parsed.data.date),
+      await parseAndValidateTodayDate(parsed.data.date),
       parsed.data.courtId,
       parsed.data.registrationIds,
       authz.userId,
@@ -136,7 +157,7 @@ export async function assignPendingGroupToCourtAction(
 
   try {
     await openPlayRotationService.assignPendingGroupToCourt(
-      parseDate(parsed.data.date),
+      await parseAndValidateTodayDate(parsed.data.date),
       parsed.data.courtId,
       parsed.data.stagedGroupId,
       authz.userId,
@@ -170,7 +191,7 @@ export async function stageAutoQueueAction(
 
   try {
     await openPlayRotationService.stageAutoQueue(
-      parseDate(parsed.data.date),
+      await parseAndValidateTodayDate(parsed.data.date),
       parsed.data.slot,
       parsed.data.size,
       authz.userId,
@@ -200,7 +221,7 @@ export async function stageManualGroupAction(
 
   try {
     await openPlayRotationService.stageManualGroup(
-      parseDate(parsed.data.date),
+      await parseAndValidateTodayDate(parsed.data.date),
       parsed.data.slot,
       parsed.data.registrationIds,
       authz.userId,

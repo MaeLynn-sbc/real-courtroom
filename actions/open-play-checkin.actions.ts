@@ -14,6 +14,7 @@ import {
   requirePermission,
   requireSystemAdmin,
 } from "@/lib/action-auth";
+import { assertIsCurrentBusinessDate } from "@/lib/business-date";
 import { toActionError } from "@/lib/errors";
 import { openPlayCheckinService } from "@/services/open-play/open-play-checkin.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -158,8 +159,16 @@ export async function registerAndCheckInAction(
   }
 
   try {
+    // Owner incident (2026-08-11): a stale /open-play-capacity/[date]
+    // browser tab silently wrote a whole day's walk-ins under
+    // yesterday's business date — invisible everywhere that correctly
+    // queries today. See assertIsCurrentBusinessDate's own comment.
+    const weeknightDate = new Date(`${parsed.data.date}T00:00:00`);
+    const courtHours = await settingsService.getCourtHours();
+    assertIsCurrentBusinessDate(weeknightDate, courtHours.businessDateRolloverHour);
+
     await openPlayCheckinService.registerAndCheckIn(
-      { date: new Date(`${parsed.data.date}T00:00:00`) },
+      { date: weeknightDate },
       base,
       authz.userId,
     );
