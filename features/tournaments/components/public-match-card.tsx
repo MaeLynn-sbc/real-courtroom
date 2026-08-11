@@ -1,6 +1,8 @@
 import type { MatchWithTeams } from "@/features/tournaments/components/match-card";
 import type { MatchStatus } from "@/lib/generated/prisma/enums";
 
+const timeFormatter = new Intl.DateTimeFormat("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
 const STATUS_LABELS: Record<MatchStatus, string> = {
   SCHEDULED: "Scheduled",
   IN_PROGRESS: "In Progress",
@@ -36,7 +38,17 @@ export function PublicMatchCard({ match }: { match: MatchWithTeams }) {
         <span className="font-jetbrains text-[10px] font-bold tracking-[0.14em] uppercase">
           <span className={isLive ? "text-coral" : "text-slate"}>{STATUS_LABELS[match.status]}</span>
         </span>
-        {match.court ? <span className="text-slate text-xs">{match.court.name}</span> : null}
+        {/* Owner request (2026-08-11): "staff can see it; players should
+            too" — scheduledAt already existed on Match, just wasn't
+            surfaced here. Shown next to the court, same "· "-joined
+            convention as the score line below. */}
+        {match.court || match.scheduledAt ? (
+          <span className="text-slate text-xs">
+            {[match.court?.name, match.scheduledAt ? timeFormatter.format(match.scheduledAt) : null]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        ) : null}
       </div>
 
       {isBye ? (

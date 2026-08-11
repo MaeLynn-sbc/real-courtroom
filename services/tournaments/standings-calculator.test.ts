@@ -5,7 +5,7 @@ import {
 } from "@/services/tournaments/standings-calculator";
 
 describe("calculateRoundRobinStandings", () => {
-  it("ranks teams by wins then set differential", () => {
+  it("ranks teams by wins", () => {
     const matches: StandingsMatchInput[] = [
       {
         round: 1,
@@ -60,6 +60,107 @@ describe("calculateRoundRobinStandings", () => {
     for (const row of standings) {
       expect(row.played).toBe(0);
     }
+  });
+
+  // Owner report (2026-08-11): "team A beats team B, B withdraws, A must
+  // still show that win." teamIds omits B entirely — same as
+  // standings.service.ts only seeding rows from CONFIRMED registrations,
+  // so a withdrawn team never gets a row.
+  it("still credits a win to a team whose opponent has since withdrawn (no row for the opponent)", () => {
+    const matches: StandingsMatchInput[] = [
+      {
+        round: 1,
+        team1Id: "A",
+        team2Id: "B",
+        winnerTeamId: "A",
+        status: "COMPLETED",
+        scores: [
+          { team1Score: 11, team2Score: 5 },
+          { team1Score: 11, team2Score: 7 },
+        ],
+      },
+    ];
+
+    // Only "A" is passed — "B" withdrew and no longer has a standings row.
+    const standings = calculateRoundRobinStandings(["A"], matches);
+    const teamA = standings.find((row) => row.teamId === "A");
+    expect(teamA?.played).toBe(1);
+    expect(teamA?.wins).toBe(1);
+    expect(teamA?.losses).toBe(0);
+  });
+
+  // Owner request (2026-08-11): "the tiebreaker must use points" — two
+  // teams with identical wins AND identical set differential, but
+  // different point differential, must not tie.
+  it("ranks by point differential, not set differential, when both teams have the same wins and set diff", () => {
+    const matches: StandingsMatchInput[] = [
+      // "X" wins 2-0 by a huge margin (+22 points), loses 0-2 by a small
+      // margin (-4 points) — net 2 sets won, 2 lost (diff 0), but +18 points.
+      {
+        round: 1,
+        team1Id: "X",
+        team2Id: "OpponentOfX1",
+        winnerTeamId: "X",
+        status: "COMPLETED",
+        scores: [
+          { team1Score: 11, team2Score: 0 },
+          { team1Score: 11, team2Score: 0 },
+        ],
+      },
+      {
+        round: 2,
+        team1Id: "X",
+        team2Id: "OpponentOfX2",
+        winnerTeamId: "OpponentOfX2",
+        status: "COMPLETED",
+        scores: [
+          { team1Score: 9, team2Score: 11 },
+          { team1Score: 9, team2Score: 11 },
+        ],
+      },
+      // "W" wins and loses by the same narrow margin both times — net 2
+      // sets won, 2 lost (diff 0, same as X), but 0 net points.
+      {
+        round: 1,
+        team1Id: "W",
+        team2Id: "OpponentOfW1",
+        winnerTeamId: "W",
+        status: "COMPLETED",
+        scores: [
+          { team1Score: 11, team2Score: 9 },
+          { team1Score: 11, team2Score: 9 },
+        ],
+      },
+      {
+        round: 2,
+        team1Id: "W",
+        team2Id: "OpponentOfW2",
+        winnerTeamId: "OpponentOfW2",
+        status: "COMPLETED",
+        scores: [
+          { team1Score: 9, team2Score: 11 },
+          { team1Score: 9, team2Score: 11 },
+        ],
+      },
+    ];
+
+    const standings = calculateRoundRobinStandings(
+      ["X", "W", "OpponentOfX1", "OpponentOfX2", "OpponentOfW1", "OpponentOfW2"],
+      matches,
+    );
+    const teamX = standings.find((row) => row.teamId === "X")!;
+    const teamW = standings.find((row) => row.teamId === "W")!;
+
+    expect(teamX.wins).toBe(1);
+    expect(teamW.wins).toBe(1);
+    expect(teamX.setDifferential).toBe(0);
+    expect(teamW.setDifferential).toBe(0);
+    expect(teamX.pointDifferential).toBe(18);
+    expect(teamW.pointDifferential).toBe(0);
+
+    // Same wins, same set differential — must be ranked by point
+    // differential, so X (the real tiebreak winner) sorts above W.
+    expect(standings.indexOf(teamX)).toBeLessThan(standings.indexOf(teamW));
   });
 });
 

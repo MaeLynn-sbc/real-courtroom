@@ -36,7 +36,9 @@ export function StandingsTable({ standings, teamNames }: StandingsTableProps) {
               <TableCell>
                 {row.setsWon}–{row.setsLost}
               </TableCell>
-              <TableCell>{row.setDifferential > 0 ? `+${row.setDifferential}` : row.setDifferential}</TableCell>
+              <TableCell>
+                {row.pointDifferential > 0 ? `+${row.pointDifferential}` : row.pointDifferential}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>

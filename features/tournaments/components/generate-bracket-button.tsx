@@ -10,9 +10,17 @@ import { Button } from "@/components/ui/button";
 interface GenerateBracketButtonProps {
   tournamentId: string;
   categoryId: string;
+  // Owner report (2026-08-10): "can we put the scoring here?" —
+  // investigation found the scoring UI was already exactly here,
+  // just hidden until this button is clicked; the real confusion was
+  // this button/section being labeled "Bracket" even for ROUND_ROBIN,
+  // which doesn't build an elimination tree at all — it creates
+  // all-play-all match pairings. Format-aware copy so round robin
+  // reads as what it actually does.
+  isRoundRobin: boolean;
 }
 
-export function GenerateBracketButton({ tournamentId, categoryId }: GenerateBracketButtonProps) {
+export function GenerateBracketButton({ tournamentId, categoryId, isRoundRobin }: GenerateBracketButtonProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -23,14 +31,14 @@ export function GenerateBracketButton({ tournamentId, categoryId }: GenerateBrac
         toast.error(result.error);
         return;
       }
-      toast.success("Bracket generated.");
+      toast.success(isRoundRobin ? "Matchups created." : "Bracket generated.");
       router.refresh();
     });
   }
 
   return (
     <Button type="button" disabled={isPending} onClick={handleClick}>
-      {isPending ? "Generating…" : "Generate bracket"}
+      {isPending ? "Creating…" : isRoundRobin ? "Create matchups" : "Generate bracket"}
     </Button>
   );
 }

@@ -21,11 +21,22 @@ export interface RoundRobinStandingRow {
   setsWon: number;
   setsLost: number;
   setDifferential: number;
+  // Owner request (2026-08-11): the real tiebreaker — USAP order ranks on
+  // point differential, not set differential (a set win by 11-0 and a set
+  // win by 11-9 both count as "+1 set," which can't tell two teams with
+  // the same win-loss record apart the way actual point margin can).
+  // Summed from every recorded Score row, kept alongside setDifferential
+  // (still shown, still useful) rather than replacing it.
+  pointsFor: number;
+  pointsAgainst: number;
+  pointDifferential: number;
 }
 
-// Sorted by wins desc, then set differential desc, then teamId for a
-// stable tiebreak (no head-to-head/strength-of-schedule tiebreaking —
-// not requested for this phase).
+// Sorted by wins desc, then POINT differential desc (see
+// RoundRobinStandingRow.pointDifferential's own comment), then teamId for
+// a stable tiebreak. This is still a single-key sort, not the full USAP
+// head-to-head cascade — that's a separate, larger change (tied-subset
+// grouping + rank-relative tiebreak 4), deliberately not done here.
 export function calculateRoundRobinStandings(
   teamIds: string[],
   matches: StandingsMatchInput[],
@@ -33,7 +44,18 @@ export function calculateRoundRobinStandings(
   const rows = new Map<string, RoundRobinStandingRow>(
     teamIds.map((teamId) => [
       teamId,
-      { teamId, played: 0, wins: 0, losses: 0, setsWon: 0, setsLost: 0, setDifferential: 0 },
+      {
+        teamId,
+        played: 0,
+        wins: 0,
+        losses: 0,
+        setsWon: 0,
+        setsLost: 0,
+        setDifferential: 0,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+      },
     ]),
   );
 
@@ -47,43 +69,65 @@ export function calculateRoundRobinStandings(
 
     const row1 = rows.get(match.team1Id);
     const row2 = rows.get(match.team2Id);
-    if (!row1 || !row2) {
+    // Owner report (2026-08-11): "a withdrawn team's completed matches
+    // must still count toward their OPPONENTS' records" — a withdrawn
+    // team has no row (standings.service.ts only seeds `rows` from
+    // CONFIRMED registrations), but that must only erase THEIR OWN
+    // standing, not retroactively strip a legitimate win from whoever
+    // they played. Update whichever row(s) actually exist instead of
+    // skipping the whole match when either side is missing.
+    if (!row1 && !row2) {
       continue;
     }
 
-    row1.played += 1;
-    row2.played += 1;
-
     let setsWon1 = 0;
     let setsWon2 = 0;
+    let points1 = 0;
+    let points2 = 0;
     for (const score of match.scores) {
       if (score.team1Score > score.team2Score) {
         setsWon1 += 1;
       } else if (score.team2Score > score.team1Score) {
         setsWon2 += 1;
       }
+      points1 += score.team1Score;
+      points2 += score.team2Score;
     }
-    row1.setsWon += setsWon1;
-    row1.setsLost += setsWon2;
-    row2.setsWon += setsWon2;
-    row2.setsLost += setsWon1;
 
-    if (match.winnerTeamId === match.team1Id) {
-      row1.wins += 1;
-      row2.losses += 1;
-    } else {
-      row2.wins += 1;
-      row1.losses += 1;
+    if (row1) {
+      row1.played += 1;
+      row1.setsWon += setsWon1;
+      row1.setsLost += setsWon2;
+      row1.pointsFor += points1;
+      row1.pointsAgainst += points2;
+      if (match.winnerTeamId === match.team1Id) {
+        row1.wins += 1;
+      } else {
+        row1.losses += 1;
+      }
+    }
+    if (row2) {
+      row2.played += 1;
+      row2.setsWon += setsWon2;
+      row2.setsLost += setsWon1;
+      row2.pointsFor += points2;
+      row2.pointsAgainst += points1;
+      if (match.winnerTeamId === match.team2Id) {
+        row2.wins += 1;
+      } else {
+        row2.losses += 1;
+      }
     }
   }
 
   for (const row of rows.values()) {
     row.setDifferential = row.setsWon - row.setsLost;
+    row.pointDifferential = row.pointsFor - row.pointsAgainst;
   }
 
   return Array.from(rows.values()).sort((a, b) => {
     if (b.wins !== a.wins) return b.wins - a.wins;
-    if (b.setDifferential !== a.setDifferential) return b.setDifferential - a.setDifferential;
+    if (b.pointDifferential !== a.pointDifferential) return b.pointDifferential - a.pointDifferential;
     return a.teamId.localeCompare(b.teamId);
   });
 }

@@ -41,7 +41,7 @@ export function PublicStandingsTable({ standings, teamNames }: PublicStandingsTa
                   {row.setsWon}–{row.setsLost}
                 </td>
                 <td className="text-slate px-3 py-2">
-                  {row.setDifferential > 0 ? `+${row.setDifferential}` : row.setDifferential}
+                  {row.pointDifferential > 0 ? `+${row.pointDifferential}` : row.pointDifferential}
                 </td>
               </tr>
             ))}

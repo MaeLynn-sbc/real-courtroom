@@ -68,6 +68,7 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
 
   const bracketGenerated = matches.length > 0;
   const confirmedCount = category.registrations.filter((r) => r.status === "CONFIRMED").length;
+  const isRoundRobin = category.format === "ROUND_ROBIN";
 
   return (
     <div className="flex flex-col gap-8">
@@ -109,15 +110,20 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
 
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-medium">Bracket</h2>
+          <h2 className="text-lg font-medium">{isRoundRobin ? "Matches" : "Bracket"}</h2>
           {!bracketGenerated ? (
-            <GenerateBracketButton tournamentId={tournamentId} categoryId={categoryId} />
+            <GenerateBracketButton
+              tournamentId={tournamentId}
+              categoryId={categoryId}
+              isRoundRobin={isRoundRobin}
+            />
           ) : null}
         </div>
         {!bracketGenerated ? (
           <p className="text-muted-foreground text-sm">
             {confirmedCount} confirmed team{confirmedCount === 1 ? "" : "s"} — at least 2 are
-            required to generate the bracket.
+            required to {isRoundRobin ? "create the matchups" : "generate the bracket"}.
+            {isRoundRobin ? " Score entry for each match appears here once matchups are created." : ""}
           </p>
         ) : null}
         <BracketView
