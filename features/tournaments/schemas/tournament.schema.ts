@@ -167,3 +167,15 @@ export const createPoolsSchema = z.object({
 });
 
 export type CreatePoolsInput = z.infer<typeof createPoolsSchema>;
+
+// Owner request (2026-08-11): "i want to edit and manually add teams"
+// — moves one team at a time, as the external wheel-of-fortune draw
+// names it. poolLabel is a free-typed string (not constrained to
+// A/B/C), since staff might label pools however the live draw does;
+// null clears the team back to unassigned.
+export const setTeamPoolSchema = z.object({
+  teamId: z.string().min(1),
+  poolLabel: z.string().trim().min(1).max(50).nullable(),
+});
+
+export type SetTeamPoolInput = z.infer<typeof setTeamPoolSchema>;

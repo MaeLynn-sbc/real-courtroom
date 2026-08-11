@@ -11,6 +11,7 @@ import {
   recordScoreSchema,
   registerTeamSchema,
   scheduleMatchSchema,
+  setTeamPoolSchema,
   updateCategoryMaxTeamsSchema,
   updateRegistrationPlayerNamesSchema,
   updateTournamentPaymentSettingSchema,
@@ -23,6 +24,7 @@ import {
   type RecordScoreInput,
   type RegisterTeamInput,
   type ScheduleMatchInput,
+  type SetTeamPoolInput,
   type UpdateCategoryMaxTeamsInput,
   type UpdateRegistrationPlayerNamesInput,
   type UpdateTournamentPaymentSettingInput,
@@ -409,6 +411,32 @@ export async function createPoolsAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "createPoolsAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function setTeamPoolAction(
+  tournamentId: string,
+  categoryId: string,
+  input: SetTeamPoolInput,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = setTeamPoolSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid pool." };
+  }
+
+  try {
+    await tournamentService.setTeamPool(categoryId, parsed.data.teamId, parsed.data.poolLabel, authz.userId);
+    revalidateCategory(tournamentId, categoryId);
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "setTeamPoolAction", userId: authz.userId }),
     };
   }
 }

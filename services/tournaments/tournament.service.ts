@@ -669,6 +669,49 @@ export class TournamentService {
     return pools;
   }
 
+  // Owner request (2026-08-11): "i want to edit and manually add teams.
+  // as what ive said. teams will be drawn by wheel of fortune for
+  // fairness" — createPools' random shuffle is a quick-start option,
+  // not the only way in. This is the one-team-at-a-time move: staff
+  // pick each team's real pool as the external wheel draws it live, or
+  // fix a single mis-drawn team without redrawing everyone else the
+  // way createPools would. poolLabel: null clears a team back to
+  // unassigned (e.g. to undo a wheel result and redraw that one team).
+  async setTeamPool(
+    categoryId: string,
+    teamId: string,
+    poolLabel: string | null,
+    actorUserId: string,
+  ): Promise<void> {
+    const existingMatchCount = await prisma.match.count({
+      where: { tournamentCategoryId: categoryId },
+    });
+    if (existingMatchCount > 0) {
+      throw new Error("Matchups have already been generated for this category — reset them first to change pools.");
+    }
+
+    const registration = await prisma.tournamentRegistration.findFirst({
+      where: { tournamentCategoryId: categoryId, teamId, status: "CONFIRMED" },
+    });
+    if (!registration) {
+      throw new Error("That team isn't a confirmed registration in this category.");
+    }
+
+    await prisma.tournamentRegistration.update({
+      where: { id: registration.id },
+      data: { poolLabel },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.team_pool_changed",
+      entityType: "TournamentRegistration",
+      entityId: registration.id,
+      oldValues: { poolLabel: registration.poolLabel },
+      newValues: { poolLabel },
+    });
+  }
+
   async generateBracket(categoryId: string, actorUserId: string): Promise<void> {
     const category = await prisma.tournamentCategory.findUniqueOrThrow({
       where: { id: categoryId },

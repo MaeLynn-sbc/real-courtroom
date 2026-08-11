@@ -75,6 +75,15 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
     .filter((registration) => registration.status === "CONFIRMED")
     .map((registration) => ({ teamId: registration.teamId, name: teamNames[registration.teamId] }));
 
+  const confirmedTeamsWithPool = category.registrations
+    .filter((registration) => registration.status === "CONFIRMED")
+    .map((registration) => ({
+      teamId: registration.teamId,
+      name: teamNames[registration.teamId],
+      poolLabel: registration.poolLabel,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   const poolsByLabel = new Map<string, string[]>();
   for (const registration of category.registrations) {
     if (registration.status !== "CONFIRMED" || !registration.poolLabel) continue;
@@ -158,6 +167,7 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
             categoryId={categoryId}
             confirmedCount={confirmedCount}
             pools={pools}
+            teams={confirmedTeamsWithPool}
           />
         ) : null}
         <BracketView
