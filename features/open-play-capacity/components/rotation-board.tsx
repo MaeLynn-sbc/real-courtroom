@@ -228,6 +228,24 @@ function NextUpSection({
     AFTER_THAT: [],
     THEN: [],
   });
+  // Owner request (2026-08-11): "make this alphabetical order so we can
+  // check the players name easily. and when we type the first letter it
+  // appears right away" — sorted for the hand-pick checkbox list and the
+  // "Add from waiting…" dropdown ONLY, not the separate "Waiting" list
+  // further down the page (that one stays in real queue-priority order —
+  // it's drag-to-reorder, so its position on screen IS the actual turn
+  // order; alphabetizing it would misrepresent that). Per-slot search
+  // text filters the checkbox list live as you type; the native <select>
+  // below gets the same "type a letter, jump to it" behavior for free
+  // once its own options are alphabetical, no extra code needed there.
+  const alphabeticalWaitingMembers = [...flatWaitingMembers].sort((a, b) =>
+    a.playerName.localeCompare(b.playerName),
+  );
+  const [handPickSearch, setHandPickSearch] = useState<Record<StagedGroupSlot, string>>({
+    NEXT_UP: "",
+    AFTER_THAT: "",
+    THEN: "",
+  });
   const vacantCourts = courts.filter((court) => !court.active && !court.proposed && !court.booked);
 
   function toggleHandPick(slot: StagedGroupSlot, registrationId: string) {
@@ -363,8 +381,23 @@ function NextUpSection({
             </div>
             {handPickOpen[slot] ? (
               <div className="flex flex-col gap-2 rounded-md border border-dashed p-2">
+                <input
+                  type="text"
+                  placeholder="Type a name…"
+                  value={handPickSearch[slot]}
+                  onChange={(event) =>
+                    setHandPickSearch((prev) => ({ ...prev, [slot]: event.target.value }))
+                  }
+                  className="border-input rounded-md border px-2 py-1 text-xs"
+                />
                 <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
-                  {flatWaitingMembers.map((member) => {
+                  {alphabeticalWaitingMembers
+                    .filter((member) =>
+                      displayPlayerName(member.playerName)
+                        .toLowerCase()
+                        .includes(handPickSearch[slot].trim().toLowerCase()),
+                    )
+                    .map((member) => {
                     const picked = handPicks[slot].includes(member.registrationId);
                     return (
                       <label
@@ -450,7 +483,7 @@ function NextUpSection({
                   disabled={isPending}
                 >
                   <option value="">Add from waiting…</option>
-                  {flatWaitingMembers.map((member) => (
+                  {alphabeticalWaitingMembers.map((member) => (
                     <option key={member.registrationId} value={member.registrationId}>
                       {displayPlayerName(member.playerName)}
                     </option>
