@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { TIEBREAKER_ORDER_DESCRIPTION } from "@/services/tournaments/standings-calculator";
 import type { StandingsResult } from "@/services/tournaments/standings.service";
 
 interface PublicStandingsTableProps {
@@ -47,6 +48,13 @@ export function PublicStandingsTable({ standings, teamNames }: PublicStandingsTa
             ))}
           </tbody>
         </table>
+        {/* Owner request (2026-08-11): "the public standings page must
+            display the tiebreaker order in use, so players can see how
+            placement was decided." Short, plain text — same order
+            standings-calculator.ts's cascade actually implements. */}
+        <p className="text-slate mt-3 text-xs">
+          Ties are broken in order: {TIEBREAKER_ORDER_DESCRIPTION.join(", then ")}.
+        </p>
       </div>
     );
   }

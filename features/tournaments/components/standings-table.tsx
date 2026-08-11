@@ -37,7 +37,17 @@ export function StandingsTable({ standings, teamNames }: StandingsTableProps) {
                 {row.setsWon}–{row.setsLost}
               </TableCell>
               <TableCell>
-                {row.pointDifferential > 0 ? `+${row.pointDifferential}` : row.pointDifferential}
+                <div className="flex items-center gap-2">
+                  <span>{row.pointDifferential > 0 ? `+${row.pointDifferential}` : row.pointDifferential}</span>
+                  {/* Owner request (2026-08-11): "I don't want a genuine
+                      tie to be invisible to me" — this row survived all
+                      five USAP tiebreakers and was still tied, ordered
+                      arbitrarily by teamId as a last resort. Staff-only —
+                      the public table never shows this per row. */}
+                  {row.tiedAfterAllTiebreakers ? (
+                    <Badge variant="destructive">Tie unresolved</Badge>
+                  ) : null}
+                </div>
               </TableCell>
             </TableRow>
           ))}
