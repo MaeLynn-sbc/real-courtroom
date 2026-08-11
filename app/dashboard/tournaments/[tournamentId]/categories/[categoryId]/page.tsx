@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BracketView } from "@/features/tournaments/components/bracket-view";
@@ -140,19 +141,28 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-lg font-medium">{isRoundRobin ? "Matches" : "Bracket"}</h2>
-          {!bracketGenerated ? (
-            <GenerateBracketButton
-              tournamentId={tournamentId}
-              categoryId={categoryId}
-              isRoundRobin={isRoundRobin}
-            />
-          ) : (
-            <ResetBracketButton
-              tournamentId={tournamentId}
-              categoryId={categoryId}
-              isRoundRobin={isRoundRobin}
-            />
-          )}
+          <div className="flex items-center gap-4">
+            <Link
+              href={`/dashboard/tournaments/${tournamentId}/categories/${categoryId}/scoresheet`}
+              target="_blank"
+              className="text-primary text-sm underline underline-offset-2"
+            >
+              Scoresheet ↗
+            </Link>
+            {!bracketGenerated ? (
+              <GenerateBracketButton
+                tournamentId={tournamentId}
+                categoryId={categoryId}
+                isRoundRobin={isRoundRobin}
+              />
+            ) : (
+              <ResetBracketButton
+                tournamentId={tournamentId}
+                categoryId={categoryId}
+                isRoundRobin={isRoundRobin}
+              />
+            )}
+          </div>
         </div>
         {!bracketGenerated ? (
           <p className="text-muted-foreground text-sm">
