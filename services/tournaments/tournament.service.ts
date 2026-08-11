@@ -673,6 +673,29 @@ export class TournamentService {
     });
   }
 
+  // Owner request (2026-08-11): "can i remove this after all. these are
+  // all trials" — undoes generateBracket so a category can be
+  // regenerated cleanly (generateBracket itself refuses to run again
+  // while any Match rows exist). Real delete, not a status flip — a
+  // trial bracket has no revenue or real standings tied to it worth
+  // preserving. Score rows cascade-delete with their Match (see
+  // Score.match's own onDelete: Cascade). Registrations/teams are left
+  // untouched — this only undoes the bracket step, not who's signed up.
+  async resetBracket(categoryId: string, actorUserId: string): Promise<void> {
+    const { count } = await prisma.match.deleteMany({ where: { tournamentCategoryId: categoryId } });
+    if (count === 0) {
+      throw new Error("This category has no bracket to reset.");
+    }
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.bracket_reset",
+      entityType: "TournamentCategory",
+      entityId: categoryId,
+      oldValues: { matchCount: count },
+    });
+  }
+
   private async promoteFromWaitlist(categoryId: string): Promise<void> {
     const nextWaitlisted = await prisma.tournamentRegistration.findFirst({
       where: { tournamentCategoryId: categoryId, status: "WAITLISTED" },

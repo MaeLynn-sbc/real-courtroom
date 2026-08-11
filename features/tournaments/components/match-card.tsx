@@ -28,7 +28,12 @@ type Matches = Awaited<ReturnType<typeof matchService.listMatchesByCategory>>;
 export type MatchWithTeams = Matches[number];
 
 const NO_COURT_VALUE = "__none__";
-const SET_COUNT = 3;
+// Owner report (2026-08-11): "games have only 1 set per game" — a
+// single game (not best-of-3). determineMatchWinner (match-status.ts)
+// already makes no assumption about set count — it just checks which
+// team won more of whatever Score rows exist — so this is a pure UI
+// change, no service logic needed.
+const SET_COUNT = 1;
 
 const STATUS_LABELS: Record<MatchStatus, string> = {
   SCHEDULED: "Scheduled",

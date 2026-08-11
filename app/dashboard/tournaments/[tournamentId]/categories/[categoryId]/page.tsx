@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { BracketView } from "@/features/tournaments/components/bracket-view";
-import { GenerateBracketButton } from "@/features/tournaments/components/generate-bracket-button";
+import {
+  GenerateBracketButton,
+  ResetBracketButton,
+} from "@/features/tournaments/components/generate-bracket-button";
 import { MaxTeamsField } from "@/features/tournaments/components/max-teams-field";
 import { RegistrationForm } from "@/features/tournaments/components/registration-form";
 import { RegistrationList } from "@/features/tournaments/components/registration-list";
@@ -117,7 +120,13 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
               categoryId={categoryId}
               isRoundRobin={isRoundRobin}
             />
-          ) : null}
+          ) : (
+            <ResetBracketButton
+              tournamentId={tournamentId}
+              categoryId={categoryId}
+              isRoundRobin={isRoundRobin}
+            />
+          )}
         </div>
         {!bracketGenerated ? (
           <p className="text-muted-foreground text-sm">

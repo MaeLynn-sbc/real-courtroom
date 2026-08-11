@@ -403,6 +403,26 @@ export async function generateBracketAction(
   }
 }
 
+export async function resetBracketAction(
+  tournamentId: string,
+  categoryId: string,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  try {
+    await tournamentService.resetBracket(categoryId, authz.userId);
+    revalidateCategory(tournamentId, categoryId);
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "resetBracketAction", userId: authz.userId }),
+    };
+  }
+}
+
 export async function scheduleMatchAction(
   tournamentId: string,
   categoryId: string,
