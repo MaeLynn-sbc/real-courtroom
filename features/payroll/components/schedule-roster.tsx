@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { assignDayAction, bulkAssignAction, clearDayAction } from "@/actions/schedule-assignment.actions";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -151,7 +152,16 @@ export function ScheduleRoster({ weekStart, employees, templates, assignments }:
       {employees.length === 0 ? (
         <p className="text-muted-foreground text-sm">No active employees to schedule.</p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border">
+        // Owner report (2026-08-11): "this is so not visible" — this
+        // table was rendered as a bare bordered div directly on the
+        // dashboard's dark page background, never wrapped in the
+        // shared white Card the way every other page is. Select/Input's
+        // translucent dark:bg-input/30 treatment assumes a white Card
+        // backdrop (--card is white even in dark mode, deliberately —
+        // see globals.css's own comment), not the raw navy page, which
+        // is what made everything read as washed-out pale-blue-on-navy.
+        <Card>
+          <CardContent className="overflow-x-auto p-0">
           <table className="w-full min-w-[720px] border-collapse text-sm">
             <thead>
               <tr className="bg-muted/40">
@@ -228,9 +238,17 @@ export function ScheduleRoster({ weekStart, employees, templates, assignments }:
                             <SelectTrigger
                               className={cn(
                                 "h-9 w-full text-xs",
+                                // Owner report (2026-08-11): "this is so
+                                // not visible" — text-court-blue on this
+                                // trigger's semi-transparent dark
+                                // background was near-illegible. That
+                                // token pairs with court-blue-foreground
+                                // as a filled badge everywhere else in
+                                // this app; do the same here instead of
+                                // bare colored text on a dark background.
                                 selectValue === OFF_VALUE
                                   ? "text-muted-foreground"
-                                  : "border-court-blue text-court-blue",
+                                  : "border-court-blue bg-court-blue text-court-blue-foreground",
                               )}
                             >
                               <SelectValue>
@@ -259,7 +277,8 @@ export function ScheduleRoster({ weekStart, employees, templates, assignments }:
               ))}
             </tbody>
           </table>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       <BulkAssignPanel employees={employees} templates={templates} weekStart={weekStart} />
@@ -310,8 +329,12 @@ function BulkAssignPanel({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-xl border p-4">
-      <h2 className="text-sm font-medium">Bulk assign</h2>
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Bulk assign</CardTitle>
+      </CardHeader>
+      <form onSubmit={handleSubmit}>
+      <CardContent className="flex flex-col gap-3">
       <p className="text-muted-foreground text-xs">
         Repeat one shift for an employee across a date range — e.g. &quot;Opening, every day this
         month.&quot;
@@ -375,6 +398,8 @@ function BulkAssignPanel({
           placeholder="e.g. covering for a coworker on leave"
         />
       </div>
-    </form>
+      </CardContent>
+      </form>
+    </Card>
   );
 }
