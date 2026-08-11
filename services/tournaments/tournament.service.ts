@@ -16,6 +16,7 @@ import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { saleService } from "@/services/sales/sale.service";
 import {
+  dividePoolsEvenly,
   generateRoundRobinPairings,
   generateSingleEliminationRound1,
 } from "@/services/tournaments/bracket-generator";
@@ -607,6 +608,67 @@ export class TournamentService {
     return prisma.tournamentRegistration.findUniqueOrThrow({ where: { id: registrationId } });
   }
 
+  // Owner request (2026-08-11): "create 2 brackets with option of 3 or
+  // 4 or equally divide the players for the bracket created. then it
+  // will auto create the match" — randomly draws the confirmed field
+  // into poolCount groups (dividePoolsEvenly spreads any remainder
+  // across pools rather than dumping it in the last one) and writes
+  // poolLabel onto each registration. Overwrites any previous pool
+  // assignment — calling this again re-draws everyone fresh, same
+  // "always re-derive, don't try to diff" shape as re-running
+  // generateBracket after resetBracket. generateBracket itself is what
+  // actually creates the per-pool matches — this only decides who's in
+  // which pool.
+  async createPools(
+    categoryId: string,
+    poolCount: number,
+    actorUserId: string,
+  ): Promise<{ poolLabel: string; teamIds: string[] }[]> {
+    const existingMatchCount = await prisma.match.count({
+      where: { tournamentCategoryId: categoryId },
+    });
+    if (existingMatchCount > 0) {
+      throw new Error("Matchups have already been generated for this category — reset them first to redraw pools.");
+    }
+
+    const registrations = await prisma.tournamentRegistration.findMany({
+      where: { tournamentCategoryId: categoryId, status: "CONFIRMED" },
+      select: { teamId: true },
+    });
+    if (registrations.length < 2) {
+      throw new Error("At least 2 confirmed teams are required to create pools.");
+    }
+
+    const teamIds = registrations.map((registration) => registration.teamId);
+    for (let i = teamIds.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [teamIds[i], teamIds[j]] = [teamIds[j], teamIds[i]];
+    }
+
+    const pools = dividePoolsEvenly(teamIds, poolCount);
+
+    await prisma.$transaction(
+      pools.flatMap((pool) =>
+        pool.teamIds.map((teamId) =>
+          prisma.tournamentRegistration.updateMany({
+            where: { tournamentCategoryId: categoryId, teamId, status: "CONFIRMED" },
+            data: { poolLabel: pool.poolLabel },
+          }),
+        ),
+      ),
+    );
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.pools_created",
+      entityType: "TournamentCategory",
+      entityId: categoryId,
+      newValues: { pools: pools.map((pool) => ({ poolLabel: pool.poolLabel, teamCount: pool.teamIds.length })) },
+    });
+
+    return pools;
+  }
+
   async generateBracket(categoryId: string, actorUserId: string): Promise<void> {
     const category = await prisma.tournamentCategory.findUniqueOrThrow({
       where: { id: categoryId },
@@ -622,7 +684,7 @@ export class TournamentService {
     const registrations = await prisma.tournamentRegistration.findMany({
       where: { tournamentCategoryId: categoryId, status: "CONFIRMED" },
       orderBy: { registeredAt: "asc" },
-      select: { teamId: true },
+      select: { teamId: true, poolLabel: true },
     });
 
     if (registrations.length < 2) {
@@ -632,16 +694,61 @@ export class TournamentService {
     const teamIds = registrations.map((registration) => registration.teamId);
 
     if (category.format === "ROUND_ROBIN") {
-      const pairings = generateRoundRobinPairings(teamIds);
-      await prisma.match.createMany({
-        data: pairings.map((pairing) => ({
-          tournamentCategoryId: categoryId,
-          round: pairing.round,
-          team1Id: pairing.team1Id,
-          team2Id: pairing.team2Id,
-          status: "SCHEDULED",
-        })),
-      });
+      const pooledCount = registrations.filter((r) => r.poolLabel !== null).length;
+      if (pooledCount > 0 && pooledCount < registrations.length) {
+        throw new Error(
+          "Every confirmed team must be assigned to a pool before generating matchups — re-run Create pools so the new team is included.",
+        );
+      }
+
+      const matchData: Array<{
+        tournamentCategoryId: string;
+        round: number;
+        poolLabel: string | null;
+        team1Id: string;
+        team2Id: string;
+        status: "SCHEDULED";
+      }> = [];
+
+      if (pooledCount > 0) {
+        // Owner request (2026-08-11): "create 2 brackets... then it
+        // will auto create the match" — one independent round robin
+        // per pool (round numbers restart at 1 within each pool, same
+        // as the unpooled path below), not one flat round robin across
+        // every confirmed team.
+        const byPool = new Map<string, string[]>();
+        for (const registration of registrations) {
+          const label = registration.poolLabel as string;
+          const list = byPool.get(label) ?? [];
+          list.push(registration.teamId);
+          byPool.set(label, list);
+        }
+        for (const [poolLabel, poolTeamIds] of byPool) {
+          for (const pairing of generateRoundRobinPairings(poolTeamIds)) {
+            matchData.push({
+              tournamentCategoryId: categoryId,
+              round: pairing.round,
+              poolLabel,
+              team1Id: pairing.team1Id,
+              team2Id: pairing.team2Id,
+              status: "SCHEDULED",
+            });
+          }
+        }
+      } else {
+        for (const pairing of generateRoundRobinPairings(teamIds)) {
+          matchData.push({
+            tournamentCategoryId: categoryId,
+            round: pairing.round,
+            poolLabel: null,
+            team1Id: pairing.team1Id,
+            team2Id: pairing.team2Id,
+            status: "SCHEDULED",
+          });
+        }
+      }
+
+      await prisma.match.createMany({ data: matchData });
     } else if (category.format === "SINGLE_ELIMINATION") {
       const pairings = generateSingleEliminationRound1(teamIds);
       for (let position = 0; position < pairings.length; position += 1) {

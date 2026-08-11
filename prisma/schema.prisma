@@ -2301,6 +2301,13 @@ model TournamentRegistration {
   teamId               String
   status               TournamentRegistrationStatus @default(PENDING)
   seed                 Int?
+  // Owner request (2026-08-11): "create 2 brackets... equally divide the
+  // players" — set by tournamentService.createPools, null until pools
+  // are assigned (the ordinary, non-pooled round robin path this app has
+  // always had). Purely a grouping label ("A", "B", ...), not a foreign
+  // key — there's no separate Pool table, since a pool never outlives
+  // the one category it was drawn for.
+  poolLabel            String?
   registeredAt         DateTime                     @default(now())
   createdAt            DateTime                     @default(now())
   updatedAt            DateTime                     @updatedAt
@@ -2324,6 +2331,14 @@ model Match {
   tournamentCategoryId    String?
   courtId                 String?
   round                   Int?
+  // Denormalized from TournamentRegistration.poolLabel at the moment
+  // generateBracket creates this match (round already restarts at 1
+  // within each pool, same shape as an unpooled round robin) — a Match
+  // has no direct link to a registration to join through, so this can't
+  // just be read off team1/team2's own pool at display time. Null for
+  // every match created before pools existed, same "always been null"
+  // default every other nullable Match field already has.
+  poolLabel               String?
   bracketPosition         Int?
   team1Id                 String
   team2Id                 String?

@@ -93,6 +93,41 @@ export function generateSingleEliminationRound1(teamIds: string[]): EliminationP
   return pairings;
 }
 
+export interface PoolAssignment {
+  poolLabel: string;
+  teamIds: string[];
+}
+
+const POOL_LABELS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+// Owner request (2026-08-11): "create 2 brackets with option of 3 or 4
+// or equally divide the players for the bracket created" — the caller
+// decides poolCount (either typed directly, or computed from a desired
+// "teams per pool" size) and, separately, whether to shuffle teamIds
+// first (a real random draw) or pass them in as-is (e.g. registration
+// order) — this function only deals already-ordered teamIds round-robin
+// style (index % poolCount) so any remainder spreads evenly across
+// pools (10 teams / 3 pools -> 4/3/3, never 4/4/2), rather than dumping
+// every leftover into the last pool.
+export function dividePoolsEvenly(teamIds: string[], poolCount: number): PoolAssignment[] {
+  if (poolCount < 1) {
+    throw new Error("There must be at least 1 pool.");
+  }
+  if (poolCount > teamIds.length) {
+    throw new Error("Cannot create more pools than there are teams.");
+  }
+
+  const pools: string[][] = Array.from({ length: poolCount }, () => []);
+  teamIds.forEach((teamId, index) => {
+    pools[index % poolCount].push(teamId);
+  });
+
+  return pools.map((teamIdsInPool, index) => ({
+    poolLabel: POOL_LABELS[index] ?? `Pool ${index + 1}`,
+    teamIds: teamIdsInPool,
+  }));
+}
+
 // Pairs up a completed round's winners (already in bracket order) into
 // the next round's matchups. Because round 1 padded to a power of 2, every
 // pairing from here on is a real match — no more byes are possible.

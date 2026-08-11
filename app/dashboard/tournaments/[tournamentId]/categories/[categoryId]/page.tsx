@@ -8,6 +8,7 @@ import {
 } from "@/features/tournaments/components/generate-bracket-button";
 import { ManualMatchForm } from "@/features/tournaments/components/manual-match-form";
 import { MaxTeamsField } from "@/features/tournaments/components/max-teams-field";
+import { PoolAssignmentForm } from "@/features/tournaments/components/pool-assignment-form";
 import { RegistrationForm } from "@/features/tournaments/components/registration-form";
 import { RegistrationList } from "@/features/tournaments/components/registration-list";
 import { StandingsTable } from "@/features/tournaments/components/standings-table";
@@ -74,6 +75,17 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
     .filter((registration) => registration.status === "CONFIRMED")
     .map((registration) => ({ teamId: registration.teamId, name: teamNames[registration.teamId] }));
 
+  const poolsByLabel = new Map<string, string[]>();
+  for (const registration of category.registrations) {
+    if (registration.status !== "CONFIRMED" || !registration.poolLabel) continue;
+    const list = poolsByLabel.get(registration.poolLabel) ?? [];
+    list.push(teamNames[registration.teamId]);
+    poolsByLabel.set(registration.poolLabel, list);
+  }
+  const pools = Array.from(poolsByLabel.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([poolLabel, teamNamesInPool]) => ({ poolLabel, teamNames: teamNamesInPool }));
+
   const bracketGenerated = matches.length > 0;
   const confirmedCount = category.registrations.filter((r) => r.status === "CONFIRMED").length;
   const isRoundRobin = category.format === "ROUND_ROBIN";
@@ -139,6 +151,14 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
             required to {isRoundRobin ? "create the matchups" : "generate the bracket"}.
             {isRoundRobin ? " Score entry for each match appears here once matchups are created." : ""}
           </p>
+        ) : null}
+        {!bracketGenerated && isRoundRobin ? (
+          <PoolAssignmentForm
+            tournamentId={tournamentId}
+            categoryId={categoryId}
+            confirmedCount={confirmedCount}
+            pools={pools}
+          />
         ) : null}
         <BracketView
           tournamentId={tournamentId}

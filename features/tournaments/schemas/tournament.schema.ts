@@ -154,3 +154,16 @@ export const createManualMatchSchema = z
   });
 
 export type CreateManualMatchInput = z.infer<typeof createManualMatchSchema>;
+
+// Owner request (2026-08-11): "create 2 brackets with option of 3 or 4
+// or equally divide the players for the bracket created. then it will
+// auto create the match" — poolCount is always what the service acts
+// on; the "3 or 4 teams per pool" phrasing is a UI-only alternate input
+// mode (features/tournaments/components/pool-assignment-form.tsx
+// computes poolCount = ceil(confirmedCount / teamsPerPool) before
+// calling this action), not a second server-side shape.
+export const createPoolsSchema = z.object({
+  poolCount: z.coerce.number().int().min(1, "Enter at least 1 pool."),
+});
+
+export type CreatePoolsInput = z.infer<typeof createPoolsSchema>;

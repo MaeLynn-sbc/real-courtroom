@@ -21,15 +21,38 @@ function groupByRound(matches: MatchWithTeams[]): Map<number, MatchWithTeams[]> 
   return groups;
 }
 
-export function BracketView({ tournamentId, categoryId, matches, courts }: BracketViewProps) {
-  if (matches.length === 0) {
-    return (
-      <p className="text-muted-foreground text-sm">
-        No bracket yet — generate it once teams are registered.
-      </p>
-    );
+// Owner request (2026-08-11): "create 2 brackets... then it will auto
+// create the match" — a pooled round robin restarts round numbers at 1
+// within EACH pool (see generateBracket's own comment), so grouping by
+// round alone would merge Pool A's Round 1 with Pool B's Round 1 into
+// one "Round 1" bucket. Grouped by pool first (only when any match here
+// actually has one — an ordinary, non-pooled category's matches all
+// have poolLabel: null and fall back to exactly the plain
+// Round-N display this already had).
+function groupByPool(matches: MatchWithTeams[]): Map<string | null, MatchWithTeams[]> {
+  const groups = new Map<string | null, MatchWithTeams[]>();
+  for (const match of matches) {
+    const group = groups.get(match.poolLabel);
+    if (group) {
+      group.push(match);
+    } else {
+      groups.set(match.poolLabel, [match]);
+    }
   }
+  return groups;
+}
 
+function RoundGroups({
+  tournamentId,
+  categoryId,
+  matches,
+  courts,
+}: {
+  tournamentId: string;
+  categoryId: string;
+  matches: MatchWithTeams[];
+  courts: { id: string; name: string }[];
+}) {
   const rounds = Array.from(groupByRound(matches).entries()).sort(([a], [b]) => a - b);
 
   return (
@@ -48,6 +71,36 @@ export function BracketView({ tournamentId, categoryId, matches, courts }: Brack
               />
             ))}
           </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function BracketView({ tournamentId, categoryId, matches, courts }: BracketViewProps) {
+  if (matches.length === 0) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        No bracket yet — generate it once teams are registered.
+      </p>
+    );
+  }
+
+  const pools = Array.from(groupByPool(matches).entries()).sort(([a], [b]) =>
+    (a ?? "").localeCompare(b ?? ""),
+  );
+  const isPooled = pools.length > 1 || pools[0]?.[0] !== null;
+
+  if (!isPooled) {
+    return <RoundGroups tournamentId={tournamentId} categoryId={categoryId} matches={matches} courts={courts} />;
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      {pools.map(([poolLabel, poolMatches]) => (
+        <div key={poolLabel ?? "none"} className="flex flex-col gap-3">
+          <h3 className="text-base font-semibold">Pool {poolLabel ?? "—"}</h3>
+          <RoundGroups tournamentId={tournamentId} categoryId={categoryId} matches={poolMatches} courts={courts} />
         </div>
       ))}
     </div>

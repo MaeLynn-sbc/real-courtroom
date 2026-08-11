@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import {
   createCategorySchema,
   createManualMatchSchema,
+  createPoolsSchema,
   createTournamentSchema,
   markWalkoverSchema,
   recordScoreSchema,
@@ -16,6 +17,7 @@ import {
   updateTournamentStatusSchema,
   type CreateCategoryInput,
   type CreateManualMatchInput,
+  type CreatePoolsInput,
   type CreateTournamentInput,
   type MarkWalkoverInput,
   type RecordScoreInput,
@@ -381,6 +383,32 @@ export async function updateRegistrationPlayerNamesAction(
         action: "updateRegistrationPlayerNamesAction",
         userId: authz.userId,
       }),
+    };
+  }
+}
+
+export async function createPoolsAction(
+  tournamentId: string,
+  categoryId: string,
+  input: CreatePoolsInput,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = createPoolsSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid pool count." };
+  }
+
+  try {
+    await tournamentService.createPools(categoryId, parsed.data.poolCount, authz.userId);
+    revalidateCategory(tournamentId, categoryId);
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "createPoolsAction", userId: authz.userId }),
     };
   }
 }

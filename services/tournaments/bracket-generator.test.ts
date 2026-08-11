@@ -1,4 +1,5 @@
 import {
+  dividePoolsEvenly,
   generateRoundRobinPairings,
   generateSingleEliminationRound1,
   pairNextRound,
@@ -77,6 +78,39 @@ describe("generateSingleEliminationRound1", () => {
   it("returns no pairings for fewer than 2 teams", () => {
     expect(generateSingleEliminationRound1([])).toEqual([]);
     expect(generateSingleEliminationRound1(["A"])).toEqual([]);
+  });
+});
+
+describe("dividePoolsEvenly", () => {
+  it("splits an exactly-divisible field into equal pools", () => {
+    const pools = dividePoolsEvenly(["A", "B", "C", "D", "E", "F"], 2);
+    expect(pools).toHaveLength(2);
+    expect(pools[0].poolLabel).toBe("A");
+    expect(pools[1].poolLabel).toBe("B");
+    expect(pools[0].teamIds).toHaveLength(3);
+    expect(pools[1].teamIds).toHaveLength(3);
+  });
+
+  it("spreads a remainder evenly across pools instead of dumping it in the last one", () => {
+    const teamIds = Array.from({ length: 10 }, (_, i) => `T${i}`);
+    const pools = dividePoolsEvenly(teamIds, 3);
+    const sizes = pools.map((pool) => pool.teamIds.length).sort((a, b) => b - a);
+    expect(sizes).toEqual([4, 3, 3]);
+  });
+
+  it("every team appears in exactly one pool, none dropped or duplicated", () => {
+    const teamIds = Array.from({ length: 10 }, (_, i) => `T${i}`);
+    const pools = dividePoolsEvenly(teamIds, 3);
+    const allAssigned = pools.flatMap((pool) => pool.teamIds).sort();
+    expect(allAssigned).toEqual([...teamIds].sort());
+  });
+
+  it("refuses more pools than teams", () => {
+    expect(() => dividePoolsEvenly(["A", "B"], 3)).toThrow("Cannot create more pools");
+  });
+
+  it("refuses fewer than 1 pool", () => {
+    expect(() => dividePoolsEvenly(["A", "B"], 0)).toThrow("at least 1 pool");
   });
 });
 
