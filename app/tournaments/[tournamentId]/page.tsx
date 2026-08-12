@@ -125,7 +125,11 @@ export default async function PublicTournamentPage({ params }: TournamentPagePro
                   <h3 className="font-jetbrains text-slate mb-3 text-[11px] font-bold tracking-[0.18em] uppercase">
                     Standings
                   </h3>
-                  <PublicStandingsTable standings={standings} teamNames={teamNames} />
+                  <PublicStandingsTable
+                    standings={standings}
+                    teamNames={teamNames}
+                    teamPoolNumbers={teamPoolNumbers}
+                  />
                 </div>
               </div>
             </div>

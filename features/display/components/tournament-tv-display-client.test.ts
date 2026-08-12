@@ -5,8 +5,8 @@ function match(team1Names: string[], team2Names: string[], courtName = "Court 2"
   return {
     id: "match-1",
     courtName,
-    team1: { names: team1Names },
-    team2: { names: team2Names },
+    team1: { names: team1Names, number: null },
+    team2: { names: team2Names, number: null },
     categoryLabel: "Men's Doubles",
     status: "SCHEDULED",
     announcementRequestedAt: null,

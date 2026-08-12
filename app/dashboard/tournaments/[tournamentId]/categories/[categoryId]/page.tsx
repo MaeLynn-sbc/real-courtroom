@@ -213,7 +213,7 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Standings</h2>
-        <StandingsTable standings={standings} teamNames={teamNames} />
+        <StandingsTable standings={standings} teamNames={teamNames} teamPoolNumbers={teamPoolNumbers} />
       </section>
     </div>
   );

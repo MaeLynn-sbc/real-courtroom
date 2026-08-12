@@ -149,6 +149,32 @@ async function main(): Promise<void> {
     );
     console.log("PASS: the match surfaces in the display feed with correctly shortened team names on both sides.");
 
+    // ============== 3b. Team numbers ("1a"/"2a") surface too ==============
+    // Set directly, not via setTeamPool — that service method correctly
+    // refuses once a match exists for the category (this test creates
+    // Match rows by hand, not via generateBracket), a real guard not
+    // being tested here.
+    await prisma.tournamentRegistration.update({
+      where: { tournamentCategoryId_teamId: { tournamentCategoryId: category.id, teamId: reg1.teamId } },
+      data: { poolLabel: "A", poolPosition: 1 },
+    });
+    await prisma.tournamentRegistration.update({
+      where: { tournamentCategoryId_teamId: { tournamentCategoryId: category.id, teamId: reg2.teamId } },
+      data: { poolLabel: "A", poolPosition: 2 },
+    });
+    const displayedWithPools = await tournamentDisplayService.getDisplayData();
+    const matchWithPools = displayedWithPools.matches.find((m) => m.id === match.id);
+    assert(matchWithPools, "expected the match to still appear after pool assignment");
+    assert(
+      matchWithPools!.team1.number === "1a",
+      `expected team1's number to be "1a" (first team assigned to pool A), got ${matchWithPools!.team1.number}`,
+    );
+    assert(
+      matchWithPools!.team2.number === "2a",
+      `expected team2's number to be "2a" (second team assigned to pool A), got ${matchWithPools!.team2.number}`,
+    );
+    console.log("PASS: getDisplayData surfaces each team's real pool number (\"1a\"/\"2a\"), scoped by category.");
+
     // ============== 4. No court assigned — excluded ==============
     const unassignedMatch = await prisma.match.create({
       data: { tournamentCategoryId: category.id, team1Id: reg1.teamId, team2Id: reg2.teamId, status: "SCHEDULED" },

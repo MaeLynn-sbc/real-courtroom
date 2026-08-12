@@ -5,12 +5,13 @@ import type { StandingsResult } from "@/services/tournaments/standings.service";
 interface PublicStandingsTableProps {
   standings: StandingsResult;
   teamNames: Record<string, string>;
+  teamPoolNumbers: Record<string, string | null>;
 }
 
 // Public counterpart to standings-table.tsx — same StandingsResult shape,
 // styled for the branded public site (navy/bone/coral) instead of the
 // staff dashboard's generic shadcn Table.
-export function PublicStandingsTable({ standings, teamNames }: PublicStandingsTableProps) {
+export function PublicStandingsTable({ standings, teamNames, teamPoolNumbers }: PublicStandingsTableProps) {
   if (standings.rows.length === 0) {
     return <p className="text-slate text-sm">No standings yet.</p>;
   }
@@ -33,6 +34,9 @@ export function PublicStandingsTable({ standings, teamNames }: PublicStandingsTa
             {standings.rows.map((row) => (
               <tr key={row.teamId} className="border-line/60 border-b last:border-b-0">
                 <td className="text-bone py-2 pr-3 font-medium">
+                  {teamPoolNumbers[row.teamId] ? (
+                    <span className="text-slate">{teamPoolNumbers[row.teamId]}. </span>
+                  ) : null}
                   {teamNames[row.teamId] ?? row.teamId}
                 </td>
                 <td className="text-slate px-3 py-2">{row.played}</td>
@@ -66,7 +70,12 @@ export function PublicStandingsTable({ standings, teamNames }: PublicStandingsTa
           key={row.teamId}
           className="border-line flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm"
         >
-          <span className="text-bone font-medium">{teamNames[row.teamId] ?? row.teamId}</span>
+          <span className="text-bone font-medium">
+            {teamPoolNumbers[row.teamId] ? (
+              <span className="text-slate">{teamPoolNumbers[row.teamId]}. </span>
+            ) : null}
+            {teamNames[row.teamId] ?? row.teamId}
+          </span>
           <span
             className={cn(
               "font-jetbrains rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.1em] uppercase",

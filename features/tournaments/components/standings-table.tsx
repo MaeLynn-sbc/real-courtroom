@@ -6,9 +6,10 @@ import type { StandingsResult } from "@/services/tournaments/standings.service";
 interface StandingsTableProps {
   standings: StandingsResult;
   teamNames: Record<string, string>;
+  teamPoolNumbers: Record<string, string | null>;
 }
 
-export function StandingsTable({ standings, teamNames }: StandingsTableProps) {
+export function StandingsTable({ standings, teamNames, teamPoolNumbers }: StandingsTableProps) {
   if (standings.rows.length === 0) {
     return <EmptyState title="No standings yet." />;
   }
@@ -29,7 +30,12 @@ export function StandingsTable({ standings, teamNames }: StandingsTableProps) {
         <TableBody>
           {standings.rows.map((row) => (
             <TableRow key={row.teamId}>
-              <TableCell className="font-medium">{teamNames[row.teamId] ?? row.teamId}</TableCell>
+              <TableCell className="font-medium">
+                {teamPoolNumbers[row.teamId] ? (
+                  <span className="text-muted-foreground">{teamPoolNumbers[row.teamId]}. </span>
+                ) : null}
+                {teamNames[row.teamId] ?? row.teamId}
+              </TableCell>
               <TableCell>{row.played}</TableCell>
               <TableCell>{row.wins}</TableCell>
               <TableCell>{row.losses}</TableCell>

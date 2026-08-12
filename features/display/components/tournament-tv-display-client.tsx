@@ -341,9 +341,15 @@ function MatchCard({ match }: { match: TournamentDisplayMatch }) {
         </span>
       </div>
       <div className="flex flex-col gap-1 text-2xl font-bold">
-        <span>{match.team1.names.join(" & ")}</span>
+        <span>
+          {match.team1.number ? <span className="text-green mr-2">{match.team1.number}</span> : null}
+          {match.team1.names.join(" & ")}
+        </span>
         <span className="text-slate text-sm font-normal uppercase">vs</span>
-        <span>{match.team2.names.join(" & ")}</span>
+        <span>
+          {match.team2.number ? <span className="text-green mr-2">{match.team2.number}</span> : null}
+          {match.team2.names.join(" & ")}
+        </span>
       </div>
       <span className="text-slate text-xs">{match.categoryLabel}</span>
     </div>

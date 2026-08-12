@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { formatTeamPoolNumber } from "@/services/tournaments/bracket-generator";
 
 // Owner request (2026-08-09): a TV display for tournaments (/tourtv),
 // same concept as the Open Play TV (services/display/display.service.ts)
@@ -16,6 +17,11 @@ export interface TournamentDisplayTeam {
   // BUILD-SPEC.md §12 "no full names on a public display" rule the Open
   // Play TV already follows.
   names: string[];
+  // Owner request (2026-08-12): "can the team has numbers. like what
+  // number they are in the pool or bracket" — "1a"/"2a" style (services/
+  // tournaments/bracket-generator.ts's formatTeamPoolNumber). Null for
+  // an unassigned team or a match from a non-pooled category.
+  number: string | null;
 }
 
 export interface TournamentDisplayMatch {
@@ -60,12 +66,12 @@ type MatchTeam = {
   player2: { user: { name: string | null; email: string | null } } | null;
 };
 
-function toDisplayTeam(team: MatchTeam): TournamentDisplayTeam {
+function toDisplayTeam(team: MatchTeam, number: string | null): TournamentDisplayTeam {
   const names = [shortDisplayName(team.player1.user.name ?? team.player1.user.email)];
   if (team.player2) {
     names.push(shortDisplayName(team.player2.user.name ?? team.player2.user.email));
   }
-  return { names };
+  return { names, number };
 }
 
 export class TournamentDisplayService {
@@ -107,23 +113,50 @@ export class TournamentDisplayService {
       orderBy: [{ status: "asc" }, { scheduledAt: "asc" }, { announcementRequestedAt: "asc" }],
     });
 
+    const filtered = matches.filter(
+      (match): match is typeof match & { team2: NonNullable<typeof match.team2> } => Boolean(match.team2),
+    );
+
+    // Owner request (2026-08-12): team numbers — a Match has no direct
+    // link to a registration (same reason Match.poolLabel is itself
+    // denormalized, see that field's own schema comment), so each
+    // team's poolLabel/poolPosition is looked up here, scoped by
+    // (categoryId, teamId) since the same team could theoretically be
+    // registered under different categories across the facility-wide
+    // set of matches this display spans.
+    const registrations = await prisma.tournamentRegistration.findMany({
+      where: {
+        teamId: { in: [...new Set(filtered.flatMap((match) => [match.team1Id, match.team2Id as string]))] },
+      },
+      select: { teamId: true, tournamentCategoryId: true, poolLabel: true, poolPosition: true },
+    });
+    const numberByCategoryAndTeam = new Map<string, string | null>();
+    for (const registration of registrations) {
+      numberByCategoryAndTeam.set(
+        `${registration.tournamentCategoryId}:${registration.teamId}`,
+        formatTeamPoolNumber(registration.poolLabel, registration.poolPosition),
+      );
+    }
+
     return {
       generatedAt: new Date().toISOString(),
-      matches: matches
-        .filter((match): match is typeof match & { team2: NonNullable<typeof match.team2> } =>
-          Boolean(match.team2),
-        )
-        .map((match) => ({
-          id: match.id,
-          courtName: match.court?.name ?? "Court",
-          team1: toDisplayTeam(match.team1),
-          team2: toDisplayTeam(match.team2),
-          categoryLabel: match.tournamentCategory
-            ? `${match.tournamentCategory.tournament.name} — ${match.tournamentCategory.name}`
-            : "Tournament",
-          status: match.status === "IN_PROGRESS" ? "IN_PROGRESS" : "SCHEDULED",
-          announcementRequestedAt: match.announcementRequestedAt?.toISOString() ?? null,
-        })),
+      matches: filtered.map((match) => ({
+        id: match.id,
+        courtName: match.court?.name ?? "Court",
+        team1: toDisplayTeam(
+          match.team1,
+          numberByCategoryAndTeam.get(`${match.tournamentCategoryId}:${match.team1Id}`) ?? null,
+        ),
+        team2: toDisplayTeam(
+          match.team2,
+          numberByCategoryAndTeam.get(`${match.tournamentCategoryId}:${match.team2Id}`) ?? null,
+        ),
+        categoryLabel: match.tournamentCategory
+          ? `${match.tournamentCategory.tournament.name} — ${match.tournamentCategory.name}`
+          : "Tournament",
+        status: match.status === "IN_PROGRESS" ? "IN_PROGRESS" : "SCHEDULED",
+        announcementRequestedAt: match.announcementRequestedAt?.toISOString() ?? null,
+      })),
     };
   }
 }
