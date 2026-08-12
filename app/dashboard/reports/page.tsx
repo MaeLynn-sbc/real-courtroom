@@ -200,6 +200,24 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
             <p className="text-muted-foreground text-sm">{report.description}</p>
           </Link>
         ))}
+        {/* Owner request (2026-08-12): "kindly build history also of
+            player tabs. daily so we will know all the details" — a real
+            standalone page (services/open-play/player-tab-history.
+            service.ts), not routed through the generic [reportType]
+            switch above — see report.schema.ts's own comment on why
+            open-play data was deliberately pulled OUT of that switch. */}
+        <Link
+          href={`/dashboard/reports/player-tabs${queryString ? `?${queryString}` : ""}`}
+          className="hover:border-primary/50 hover:bg-muted/30 flex flex-col gap-2 rounded-xl border p-4 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <FileText className="text-muted-foreground size-4" aria-hidden="true" />
+            <span className="font-medium">Player tabs history</span>
+          </div>
+          <p className="text-muted-foreground text-sm">
+            Every Open Play tab in range — settled, written off, or still open.
+          </p>
+        </Link>
       </div>
     </div>
   );
