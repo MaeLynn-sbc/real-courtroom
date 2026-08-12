@@ -10,6 +10,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { resolveDateRange, type DateRange } from "@/services/analytics/date-range";
 import { REPORT_CSV_COLUMNS, toCsv } from "@/services/export/export.service";
 import { reportingService } from "@/services/reporting/reporting.service";
+import { settingsService } from "@/services/settings/settings.service";
 import { PERMISSIONS } from "@/types/permissions";
 
 export interface ExportReportActionState {
@@ -105,11 +106,14 @@ export async function exportReportCsvAction(
   }
 
   try {
+    const courtHours = await settingsService.getCourtHours();
     const range = resolveDateRange(
       parsed.data.range.preset,
       parsed.data.range.from && parsed.data.range.to
         ? { from: parsed.data.range.from, to: parsed.data.range.to }
         : undefined,
+      undefined,
+      courtHours.businessDateRolloverHour,
     );
 
     const csv = await buildReportCsv(parsed.data.reportType, range);

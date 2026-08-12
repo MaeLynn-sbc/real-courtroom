@@ -8,6 +8,7 @@ import { formatCurrency } from "@/lib/utils";
 import { resolveDateRangeFromSearchParams } from "@/services/analytics/date-range";
 import { expenseService } from "@/services/expenses/expense.service";
 import { reportingService } from "@/services/reporting/reporting.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
   title: "Reports",
@@ -69,8 +70,8 @@ interface ReportsPageProps {
 }
 
 export default async function ReportsPage({ searchParams }: ReportsPageProps) {
-  const params = await searchParams;
-  const range = resolveDateRangeFromSearchParams(params);
+  const [params, courtHours] = await Promise.all([searchParams, settingsService.getCourtHours()]);
+  const range = resolveDateRangeFromSearchParams(params, courtHours.businessDateRolloverHour);
   const [revenue, totalExpensesCents, cashPosition] = await Promise.all([
     reportingService.getRevenueReport(range),
     expenseService.getExpensesTotalForRange(range),

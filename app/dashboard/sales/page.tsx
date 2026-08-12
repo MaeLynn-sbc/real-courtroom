@@ -6,6 +6,7 @@ import { DateRangePicker } from "@/features/analytics/components/date-range-pick
 import { formatCurrency } from "@/lib/utils";
 import { resolveDateRangeFromSearchParams } from "@/services/analytics/date-range";
 import { openPlaySalesService } from "@/services/open-play/open-play-sales.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
   title: "Sales — Open Play",
@@ -29,8 +30,8 @@ interface SalesPageProps {
 }
 
 export default async function SalesPage({ searchParams }: SalesPageProps) {
-  const params = await searchParams;
-  const range = resolveDateRangeFromSearchParams(params);
+  const [params, courtHours] = await Promise.all([searchParams, settingsService.getCourtHours()]);
+  const range = resolveDateRangeFromSearchParams(params, courtHours.businessDateRolloverHour);
   const summary = await openPlaySalesService.getSummary(range.from, range.to);
 
   return (

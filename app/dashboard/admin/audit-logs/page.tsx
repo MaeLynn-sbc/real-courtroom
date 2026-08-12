@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DateRangePicker } from "@/features/analytics/components/date-range-picker";
 import { activityFeedService } from "@/services/activity/activity-feed.service";
 import { resolveDateRangeFromSearchParams } from "@/services/analytics/date-range";
+import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
   title: "Audit Logs",
@@ -18,8 +19,8 @@ interface AuditLogsPageProps {
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" });
 
 export default async function AuditLogsPage({ searchParams }: AuditLogsPageProps) {
-  const params = await searchParams;
-  const range = resolveDateRangeFromSearchParams(params);
+  const [params, courtHours] = await Promise.all([searchParams, settingsService.getCourtHours()]);
+  const range = resolveDateRangeFromSearchParams(params, courtHours.businessDateRolloverHour);
 
   const entries = await activityFeedService.getActivityFeed({
     from: range.from,

@@ -6,10 +6,28 @@ import {
 describe("resolveDateRange", () => {
   const now = new Date(2026, 6, 20, 15, 30); // Jul 20, 2026, 3:30pm
 
-  it("TODAY starts at midnight of the current day", () => {
+  it("TODAY starts at midnight of the current day when no rolloverHour is given (default 0, old behavior)", () => {
     const result = resolveDateRange("TODAY", undefined, now);
     expect(result.from).toEqual(new Date(2026, 6, 20, 0, 0, 0, 0));
     expect(result.to).toEqual(now);
+  });
+
+  // Owner-directed consolidation (2026-08-12): "the attendant dashboard
+  // resetting mid-shift" — TODAY must use computeBusinessDate, the same
+  // rollover-hour logic every other correct part of the app already
+  // uses, not literal midnight.
+  it("TODAY starts at midnight of the current calendar day when now is after the rollover hour (no visible change from before)", () => {
+    const afterRollover = new Date(2026, 6, 20, 9, 0); // 9am, rollover 3am
+    const result = resolveDateRange("TODAY", undefined, afterRollover, 3);
+    expect(result.from).toEqual(new Date(2026, 6, 20, 0, 0, 0, 0));
+    expect(result.to).toEqual(afterRollover);
+  });
+
+  it("TODAY stays on the PREVIOUS calendar day's midnight when now is before the rollover hour (the actual fix)", () => {
+    const beforeRollover = new Date(2026, 6, 21, 1, 30); // 1:30am, rollover 3am
+    const result = resolveDateRange("TODAY", undefined, beforeRollover, 3);
+    expect(result.from).toEqual(new Date(2026, 6, 20, 0, 0, 0, 0));
+    expect(result.to).toEqual(beforeRollover);
   });
 
   it("7_DAYS goes back 7 days from now", () => {
@@ -88,5 +106,20 @@ describe("resolveDateRangeFromSearchParams", () => {
   it("ignores an array-valued search param", () => {
     const result = resolveDateRangeFromSearchParams({ preset: ["7_DAYS", "TODAY"] });
     expect(result.to.getTime() - result.from.getTime()).toBeCloseTo(30 * 24 * 60 * 60 * 1000, -3);
+  });
+
+  it("threads rolloverHour through to a TODAY preset", () => {
+    // 1:30am — before the 3am rollover, so business date is still
+    // yesterday. Proves the rolloverHour argument actually reaches
+    // resolveDateRange (which itself defaults `now` to `new Date()`),
+    // using a fixed system time rather than the real clock, which
+    // would make this test flaky depending on when it runs.
+    jest.useFakeTimers().setSystemTime(new Date(2026, 6, 21, 1, 30));
+    try {
+      const result = resolveDateRangeFromSearchParams({ preset: "TODAY" }, 3);
+      expect(result.from).toEqual(new Date(2026, 6, 20, 0, 0, 0, 0));
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

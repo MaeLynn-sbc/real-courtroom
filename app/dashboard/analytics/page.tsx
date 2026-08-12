@@ -6,6 +6,7 @@ import { KpiCard } from "@/features/analytics/components/kpi-card";
 import { activityFeedService } from "@/services/activity/activity-feed.service";
 import { analyticsService } from "@/services/analytics/analytics.service";
 import { resolveDateRangeFromSearchParams } from "@/services/analytics/date-range";
+import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
   title: "Analytics",
@@ -18,8 +19,8 @@ interface AnalyticsPageProps {
 const dateFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" });
 
 export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps) {
-  const params = await searchParams;
-  const range = resolveDateRangeFromSearchParams(params);
+  const [params, courtHours] = await Promise.all([searchParams, settingsService.getCourtHours()]);
+  const range = resolveDateRangeFromSearchParams(params, courtHours.businessDateRolloverHour);
 
   const [
     courtUtilizationTrend,

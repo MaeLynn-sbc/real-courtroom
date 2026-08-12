@@ -22,6 +22,7 @@ import { courtService } from "@/services/court/court.service";
 import { inventoryAlertsService } from "@/services/inventory/inventory-alerts.service";
 import { saleService } from "@/services/sales/sale.service";
 import { shiftService } from "@/services/shift/shift.service";
+import { settingsService } from "@/services/settings/settings.service";
 import { PERMISSIONS } from "@/types/permissions";
 import { SYSTEM_ROLES } from "@/types/roles";
 
@@ -34,11 +35,11 @@ interface DashboardPageProps {
 }
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const [session, params] = await Promise.all([auth(), searchParams]);
-  const range = resolveDateRangeFromSearchParams(params);
+  const [session, params, courtHours] = await Promise.all([auth(), searchParams, settingsService.getCourtHours()]);
+  const range = resolveDateRangeFromSearchParams(params, courtHours.businessDateRolloverHour);
   // "Today" always means today, independent of the KPI trend range above —
   // the date-range picker controls the trend grid, not these live panels.
-  const today = resolveDateRange("TODAY");
+  const today = resolveDateRange("TODAY", undefined, undefined, courtHours.businessDateRolloverHour);
 
   const employee = session?.user.id
     ? await prisma.employee.findUnique({ where: { userId: session.user.id } })

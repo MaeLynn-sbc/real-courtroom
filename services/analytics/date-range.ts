@@ -1,3 +1,5 @@
+import { computeBusinessDate } from "@/lib/business-date";
+
 export type DateRangePreset = "TODAY" | "7_DAYS" | "30_DAYS" | "90_DAYS" | "CUSTOM";
 
 export interface DateRange {
@@ -5,15 +7,32 @@ export interface DateRange {
   to: Date;
 }
 
-// Pure — no Prisma import, unit-tested directly. `to` is always "now" (or
-// the custom range's end) so every report/analytics query has a stable,
-// inclusive-of-today upper bound. CUSTOM requires both custom.from and
-// custom.to — falls back to 30 days if either is missing rather than
-// throwing, since the UI always provides both together.
+// Pure — no Prisma import, unit-tested directly (computeBusinessDate is
+// equally pure, so importing it doesn't change that). `to` is always
+// "now" (or the custom range's end) so every report/analytics query has
+// a stable, inclusive-of-today upper bound. CUSTOM requires both
+// custom.from and custom.to — falls back to 30 days if either is
+// missing rather than throwing, since the UI always provides both
+// together.
+//
+// Owner-directed consolidation (2026-08-12): TODAY used to be literal
+// calendar midnight, rollover-hour blind — the root cause of "the
+// attendant dashboard resetting mid-shift" at the stroke of midnight
+// even though the business day (and the shift) hadn't actually turned
+// over yet. Now uses the SAME computeBusinessDate every other correct
+// part of this app already uses (Open Play, the TV display). Callers
+// are responsible for fetching the real rolloverHour via
+// settingsService.getCourtHours() — this function stays pure/DB-free,
+// same reasoning assertIsCurrentBusinessDate's own comment gives.
+// rolloverHour defaults to 0 (= literal midnight, the old behavior)
+// only so a caller that genuinely has no rollover-hour context handy
+// doesn't silently regress to garbage; every real caller in this app
+// now passes the actual setting.
 export function resolveDateRange(
   preset: DateRangePreset,
   custom?: { from: Date; to: Date },
   now: Date = new Date(),
+  rolloverHour = 0,
 ): DateRange {
   if (preset === "CUSTOM" && custom) {
     return { from: custom.from, to: custom.to };
@@ -24,7 +43,7 @@ export function resolveDateRange(
 
   switch (preset) {
     case "TODAY":
-      from.setHours(0, 0, 0, 0);
+      from.setTime(computeBusinessDate(now, rolloverHour).getTime());
       break;
     case "7_DAYS":
       from.setDate(from.getDate() - 7);
@@ -59,6 +78,7 @@ function isDateRangePreset(value: string): value is DateRangePreset {
 // alongside resolveDateRange rather than being copy-pasted three times.
 export function resolveDateRangeFromSearchParams(
   searchParams: Record<string, string | string[] | undefined>,
+  rolloverHour = 0,
 ): DateRange {
   const presetParam = searchParams.preset;
   const preset =
@@ -88,5 +108,5 @@ export function resolveDateRangeFromSearchParams(
         }
       : undefined;
 
-  return resolveDateRange(preset, custom);
+  return resolveDateRange(preset, custom, undefined, rolloverHour);
 }

@@ -26,6 +26,7 @@ import type {
 } from "@/lib/generated/prisma/enums";
 import { formatCurrency } from "@/lib/utils";
 import { resolveDateRangeFromSearchParams, type DateRange } from "@/services/analytics/date-range";
+import { settingsService } from "@/services/settings/settings.service";
 import {
   reportingService,
   type BookingReportRow,
@@ -77,7 +78,8 @@ export default async function ReportPage({ params, searchParams }: ReportPagePro
     return <CoachingWeeklyReport searchParams={rawSearchParams} />;
   }
 
-  const range = resolveDateRangeFromSearchParams(rawSearchParams);
+  const courtHours = await settingsService.getCourtHours();
+  const range = resolveDateRangeFromSearchParams(rawSearchParams, courtHours.businessDateRolloverHour);
   const parsedRangeInput = dateRangeSchema.safeParse({
     preset: rawSearchParams.preset,
     from: rawSearchParams.from,
