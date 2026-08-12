@@ -191,6 +191,13 @@ export class CashReconciliationService {
     }
   }
 
+  // Hardening (2026-08-12): GCash's twin of getTodaysBalance — see that
+  // method's own comment. The reconciliation page now calls this
+  // instead of computing "today" itself.
+  async getTodaysBalance(rolloverHour: number): Promise<CashDailyBalance | null> {
+    return this.getOrCreateBalanceForDate(computeBusinessDate(new Date(), rolloverHour));
+  }
+
   // Live — startingBalanceCents + Cash sales for that same day, as of
   // right now. Shown to staff BEFORE they confirm, same "expected"
   // pattern GCash reconciliation and shift cash reconciliation both

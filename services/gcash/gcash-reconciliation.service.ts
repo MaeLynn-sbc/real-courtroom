@@ -192,6 +192,20 @@ export class GcashReconciliationService {
     }
   }
 
+  // Hardening (2026-08-12): the one remaining spot where "what day is
+  // today" was being resolved by the CALLER (the reconciliation page)
+  // instead of enforced here — unlike Sale.businessDate, which is
+  // computed inside createSale itself so no caller can get it wrong. A
+  // future caller (a dashboard tile, an API route) fetching "today's
+  // balance" by hand-rolling toMidnight(new Date()) could silently
+  // reintroduce the exact midnight-rollover bug the Group B
+  // consolidation just fixed. This is the enforced version — always
+  // rollover-hour aware, never re-implementable wrong. The reconciliation
+  // page now calls this instead of computing "today" itself.
+  async getTodaysBalance(rolloverHour: number): Promise<GcashDailyBalance | null> {
+    return this.getOrCreateBalanceForDate(computeBusinessDate(new Date(), rolloverHour));
+  }
+
   // Live — startingBalanceCents + GCash sales for that same day, as of
   // right now. Shown to staff BEFORE they confirm, same "expected"
   // pattern shift cash reconciliation already established. See

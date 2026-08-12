@@ -54,6 +54,14 @@ export default async function ReconciliationPage({ searchParams }: Reconciliatio
   // midnight — a day confirmed before the rollover hour no longer
   // resets to a fresh, empty "today" out from under a still-open shift.
   const courtHours = await settingsService.getCourtHours();
+  const rolloverHour = courtHours.businessDateRolloverHour;
+  // Used only for the "not viewing today" banner comparison below —
+  // never to fetch/create a balance row. Hardening (2026-08-12): the
+  // row-fetching "today" resolution moved OUT of this page and into
+  // each service's own getTodaysBalance, so a future caller can't
+  // reintroduce a raw-midnight bug the way this page's own code used to
+  // risk. This computation is display-only.
+  const today = computeBusinessDate(new Date(), rolloverHour);
   // Reported live (2026-08-04): "there's no option to close it" — a day
   // confirmed too early had no way back, because this page only ever
   // showed "today," with no way to reach any other date at all — not
@@ -61,10 +69,7 @@ export default async function ReconciliationPage({ searchParams }: Reconciliatio
   // sitting right behind today's premature close. ?date= (surfaced via
   // the Recent days table below becoming links) opens any date the same
   // way "today" always has; omitted, it's today exactly as before.
-  const viewedDate = dateParam
-    ? new Date(`${dateParam}T00:00:00`)
-    : computeBusinessDate(new Date(), courtHours.businessDateRolloverHour);
-  const today = computeBusinessDate(new Date(), courtHours.businessDateRolloverHour);
+  const viewedDate = dateParam ? new Date(`${dateParam}T00:00:00`) : today;
   const isViewingToday =
     viewedDate.getFullYear() === today.getFullYear() &&
     viewedDate.getMonth() === today.getMonth() &&
@@ -81,11 +86,17 @@ export default async function ReconciliationPage({ searchParams }: Reconciliatio
   // instead — see loadBalance's own comment.
   const [gcashResult, cashResult] = await Promise.all([
     loadBalance(
-      () => gcashReconciliationService.getOrCreateBalanceForDate(viewedDate),
+      () =>
+        dateParam
+          ? gcashReconciliationService.getOrCreateBalanceForDate(viewedDate)
+          : gcashReconciliationService.getTodaysBalance(rolloverHour),
       (error): error is GcashPriorDayNotClosedError => error instanceof GcashPriorDayNotClosedError,
     ),
     loadBalance(
-      () => cashReconciliationService.getOrCreateBalanceForDate(viewedDate),
+      () =>
+        dateParam
+          ? cashReconciliationService.getOrCreateBalanceForDate(viewedDate)
+          : cashReconciliationService.getTodaysBalance(rolloverHour),
       (error): error is CashPriorDayNotClosedError => error instanceof CashPriorDayNotClosedError,
     ),
   ]);
