@@ -2867,6 +2867,25 @@ model Sale {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Owner-directed consolidation (2026-08-12): "the split you found is
+  // the bug; generalize the fix that was made narrowly on Aug 7."
+  // Before this, only OPEN_PLAY sales were correctly attributed to the
+  // business day they actually belong to (via a join to
+  // PlayerTab.date/OpenPlayNightRegistration.date) — every other
+  // category filtered on raw createdAt, so a sale rung up between
+  // midnight and the rollover hour (e.g. 1:30AM, rollover 3AM) landed
+  // on the wrong day in reports. Set once, at creation
+  // (saleService.createSale), via the SAME computeBusinessDate every
+  // other correct part of this app uses — not recomputed per query.
+  // Nullable only because it can't be backfilled by a schema default
+  // (computeBusinessDate needs the createdAt it's derived from, plus
+  // the rollover-hour setting); a one-off script backfills every
+  // existing row once, immediately after this migration deploys — see
+  // that script's own note. Not a "restated confirmed number" the way
+  // GcashDailyBalance/CashDailyBalance would be — this is a derived
+  // attribute, never itself reconciled/confirmed by staff.
+  businessDate DateTime?
+
   // Owner request (2026-08-08): a real, audit-logged correction path for
   // when an attendant records a Cash payment as GCash (or the reverse) —
   // see saleService.correctPaymentMethod's own comment. Same "columns on
@@ -2906,6 +2925,7 @@ model Sale {
 
   @@index([category])
   @@index([createdAt])
+  @@index([businessDate])
   @@index([employeeId])
   @@index([shiftId])
   @@index([playerId])

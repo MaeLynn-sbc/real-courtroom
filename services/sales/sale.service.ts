@@ -1,3 +1,4 @@
+import { computeBusinessDate } from "@/lib/business-date";
 import type { PaymentMethod, Prisma, Sale } from "@/lib/generated/prisma/client";
 import type { SaleCategory, SaleSource } from "@/lib/generated/prisma/enums";
 import { logger } from "@/lib/logger";
@@ -5,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
 import type { DateRange } from "@/services/analytics/date-range";
 import { formatSaleNumber } from "@/services/sales/sale-reference";
+import { settingsService } from "@/services/settings/settings.service";
 
 function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
   if (value === undefined) {
@@ -126,11 +128,47 @@ export class SaleService {
     const now = input.createdAt ?? new Date();
     const sequence = await nextSequence(dailyScope("SALE", now), client);
     const saleNumber = formatSaleNumber(now, sequence);
+    // Owner-directed consolidation (2026-08-12): set once, here, via the
+    // same computeBusinessDate every other correct part of this app
+    // uses — not recomputed per query at report time. See this
+    // column's own schema comment for why every category needed this,
+    // not just Open Play.
+    //
+    // Open Play is a deliberate exception to "compute from now": the
+    // Aug 7 incident this whole column generalizes was specifically
+    // about a tab/registration for one night being SETTLED well after
+    // that night ended (sometimes the next day, past the next
+    // rollover too) — PlayerTab.date/OpenPlayNightRegistration.date
+    // already holds which business night the sale is really FOR
+    // (itself written by the rollover-aware write guard at check-in
+    // time), which is a genuinely different question from "when was
+    // this Sale row created." Every other category has no such
+    // distinction — a booking/coaching/product Sale is created at the
+    // moment the transaction happens, so "when created" and "which
+    // business day this belongs to" are the same instant.
+    let businessDate: Date;
+    if (input.playerTabId) {
+      const tab = await client.playerTab.findUniqueOrThrow({
+        where: { id: input.playerTabId },
+        select: { date: true },
+      });
+      businessDate = tab.date;
+    } else if (input.openPlayNightRegistrationId) {
+      const registration = await client.openPlayNightRegistration.findUniqueOrThrow({
+        where: { id: input.openPlayNightRegistrationId },
+        select: { date: true },
+      });
+      businessDate = registration.date;
+    } else {
+      const courtHours = await settingsService.getCourtHours();
+      businessDate = computeBusinessDate(now, courtHours.businessDateRolloverHour);
+    }
 
     return client.sale.create({
       data: {
         saleNumber,
         createdAt: now,
+        businessDate,
         category: input.category,
         source: input.source ?? "RECEPTION",
         amountCents: input.amountCents,
@@ -450,29 +488,21 @@ export class SaleService {
     "OTHER",
   ];
 
-  async getSalesSummary(range: DateRange): Promise<SalesSummary> {
-    // Reported live (2026-08-07): an Open Play tab settled just after
-    // midnight (closing out the PREVIOUS night's session) was showing up in
-    // TODAY's revenue, even though it was already accounted for as part of
-    // last night's count. Sale.createdAt is when the settlement was rung
-    // up, not which night's session it was for — PlayerTab.date and
-    // OpenPlayNightRegistration.date hold that already. So Open Play sales
-    // are scoped by their linked session date instead of createdAt; every
-    // other category (no such "which night" concept) keeps using
-    // createdAt exactly as before.
-    const inRange = { gte: range.from, lte: range.to };
-    const where: Prisma.SaleWhereInput = {
-      status: "COMPLETED",
-      OR: [
-        { category: { not: "OPEN_PLAY" }, createdAt: inRange },
-        { category: "OPEN_PLAY", playerTabId: { not: null }, playerTab: { date: inRange } },
-        {
-          category: "OPEN_PLAY",
-          openPlayNightRegistrationId: { not: null },
-          openPlayNightRegistration: { date: inRange },
-        },
-      ],
+  // Owner-directed consolidation (2026-08-12): "getSalesSummary applies
+  // business-date logic to EVERY category, not just Open Play. The
+  // split you found is the bug; generalize the fix that was made
+  // narrowly on Aug 7." Sale.businessDate (set once, at creation — see
+  // that column's own schema comment) replaces the old OPEN_PLAY-only
+  // OR split entirely: every category now filters on the same column,
+  // no join needed. rolloverHour normalizes range.from/range.to into
+  // business-date terms before filtering — the range itself may still
+  // be raw timestamps (e.g. "now" as the TODAY preset's upper bound).
+  async getSalesSummary(range: DateRange, rolloverHour = 0): Promise<SalesSummary> {
+    const inRange = {
+      gte: computeBusinessDate(range.from, rolloverHour),
+      lte: computeBusinessDate(range.to, rolloverHour),
     };
+    const where: Prisma.SaleWhereInput = { status: "COMPLETED", businessDate: inRange };
 
     const [
       totals,
@@ -501,25 +531,14 @@ export class SaleService {
       prisma.paymentMethod.findMany(),
       prisma.employee.findMany(),
       // "Regular" (pay-per-game/tab) vs "Unli" (flat Fri/Sat access fee) —
-      // see OpenPlaySummaryCategory's own comment above. Scoped by session
-      // date, same reasoning as `where` above.
+      // see OpenPlaySummaryCategory's own comment above.
       prisma.sale.aggregate({
-        where: {
-          status: "COMPLETED",
-          category: "OPEN_PLAY",
-          playerTabId: { not: null },
-          playerTab: { date: inRange },
-        },
+        where: { ...where, category: "OPEN_PLAY", playerTabId: { not: null } },
         _sum: { amountCents: true },
         _count: true,
       }),
       prisma.sale.aggregate({
-        where: {
-          status: "COMPLETED",
-          category: "OPEN_PLAY",
-          openPlayNightRegistrationId: { not: null },
-          openPlayNightRegistration: { date: inRange },
-        },
+        where: { ...where, category: "OPEN_PLAY", openPlayNightRegistrationId: { not: null } },
         _sum: { amountCents: true },
         _count: true,
       }),

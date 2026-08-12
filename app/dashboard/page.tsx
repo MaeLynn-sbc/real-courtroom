@@ -57,7 +57,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const [kpis, todaysSales, currentShift, alerts, activityFeed, courtStatus, onDutyShifts, recentShifts] =
     await Promise.all([
       analyticsService.getDashboardKpis(range),
-      saleService.getSalesSummary(today),
+      saleService.getSalesSummary(today, courtHours.businessDateRolloverHour),
       employee ? shiftService.getCurrentShift(employee.id) : Promise.resolve(null),
       inventoryAlertsService.getAlerts(),
       activityFeedService.getActivityFeed({ limit: 10 }),
