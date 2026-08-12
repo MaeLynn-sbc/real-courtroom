@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 interface Team {
   teamId: string;
@@ -31,6 +32,7 @@ interface PoolAssignmentFormProps {
 const MODE_POOL_COUNT = "poolCount";
 const MODE_TEAMS_PER_POOL = "teamsPerPool";
 const UNASSIGNED_VALUE = "__unassigned__";
+const UNASSIGNED_GROUP_KEY = "__unassigned_group__";
 const POOL_LETTER_OPTIONS = ["A", "B", "C", "D", "E", "F"];
 
 // Owner request (2026-08-13): "can i hva a pool players list. edit it
@@ -85,43 +87,67 @@ function TeamPoolRow({
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 py-1.5">
-      <span className="text-sm">
-        {team.number ? <span className="text-muted-foreground">{team.number}. </span> : null}
-        {team.name}
-      </span>
-      <div className="flex items-center gap-2">
-        <Select
-          value={poolLabel}
-          onValueChange={(next) => next && setPoolLabel(next)}
-        >
-          <SelectTrigger className="h-8 w-32 text-xs">
-            <SelectValue>{isUnassigned ? "Unassigned" : `Pool ${poolLabel}`}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
-            {POOL_LETTER_OPTIONS.map((letter) => (
-              <SelectItem key={letter} value={letter}>
-                Pool {letter}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Input
-          type="number"
-          min={1}
-          placeholder="#"
-          className="h-8 w-14 text-xs"
-          disabled={isUnassigned}
-          value={position}
-          onChange={(event) => setPosition(event.target.value)}
-        />
-        <Button type="button" size="sm" variant="outline" disabled={isPending || !isDirty} onClick={handleSave}>
-          Save
-        </Button>
-      </div>
-    </div>
+    <TableRow>
+      <TableCell className="text-muted-foreground w-10 text-sm">{team.number ?? "—"}</TableCell>
+      <TableCell className="text-sm">{team.name}</TableCell>
+      <TableCell>
+        <div className="flex items-center gap-2">
+          <Select value={poolLabel} onValueChange={(next) => next && setPoolLabel(next)}>
+            <SelectTrigger className="h-8 w-32 text-xs">
+              <SelectValue>{isUnassigned ? "Unassigned" : `Pool ${poolLabel}`}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
+              {POOL_LETTER_OPTIONS.map((letter) => (
+                <SelectItem key={letter} value={letter}>
+                  Pool {letter}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            type="number"
+            min={1}
+            placeholder="#"
+            className="h-8 w-14 text-xs"
+            disabled={isUnassigned}
+            value={position}
+            onChange={(event) => setPosition(event.target.value)}
+          />
+          <Button type="button" size="sm" variant="outline" disabled={isPending || !isDirty} onClick={handleSave}>
+            Save
+          </Button>
+        </div>
+      </TableCell>
+    </TableRow>
   );
+}
+
+// Owner request (2026-08-13): "also a table for each pool so it would
+// be numbered accordingly" — one Table per pool (plus one for anyone
+// still unassigned), each sorted by poolPosition, instead of a single
+// flat alphabetical list. Grouped client-side from the same flat
+// `teams` prop the page already builds — no new data shape needed.
+function groupTeamsByPool(teams: Team[]): { key: string; label: string; teams: Team[] }[] {
+  const groups = new Map<string, Team[]>();
+  for (const team of teams) {
+    const key = team.poolLabel ?? UNASSIGNED_GROUP_KEY;
+    const list = groups.get(key) ?? [];
+    list.push(team);
+    groups.set(key, list);
+  }
+
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => {
+      if (a === UNASSIGNED_GROUP_KEY) return 1;
+      if (b === UNASSIGNED_GROUP_KEY) return -1;
+      return a.localeCompare(b);
+    })
+    .map(([key, teamsInGroup]) => ({
+      key,
+      label: key === UNASSIGNED_GROUP_KEY ? "Unassigned" : `Pool ${key}`,
+      teams: teamsInGroup.sort((a, b) => (a.poolPosition ?? 0) - (b.poolPosition ?? 0)),
+    }));
 }
 
 // Owner request (2026-08-11): "create 2 brackets with option of 3 or 4
@@ -165,6 +191,8 @@ export function PoolAssignmentForm({
   if (confirmedCount < 2) {
     return null;
   }
+
+  const groupedTeams = groupTeamsByPool(teams);
 
   return (
     <div className="flex flex-col gap-4">
@@ -239,23 +267,38 @@ export function PoolAssignmentForm({
         </Card>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Pool players</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          <p className="text-muted-foreground text-xs">
-            Edit any team&apos;s pool and number by hand — e.g. as the live wheel-of-fortune draw
-            names each team, or to fix a number after the fact. Works even once matchups have
-            already been generated; it never moves an already-created match to a different pool.
-          </p>
-          <div className="flex flex-col divide-y">
-            {teams.map((team) => (
-              <TeamPoolRow key={team.teamId} tournamentId={tournamentId} categoryId={categoryId} team={team} />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex flex-col gap-3">
+        <p className="text-muted-foreground text-xs">
+          Edit any team&apos;s pool and number by hand — e.g. as the live wheel-of-fortune draw
+          names each team, or to fix a number after the fact. Works even once matchups have
+          already been generated; it never moves an already-created match to a different pool.
+        </p>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {groupedTeams.map((group) => (
+            <Card key={group.key}>
+              <CardHeader>
+                <CardTitle className="text-base">{group.label}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10">#</TableHead>
+                      <TableHead>Team</TableHead>
+                      <TableHead>Pool</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {group.teams.map((team) => (
+                      <TeamPoolRow key={team.teamId} tournamentId={tournamentId} categoryId={categoryId} team={team} />
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
