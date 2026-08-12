@@ -89,7 +89,7 @@ export default async function ReportPage({ params, searchParams }: ReportPagePro
     ? parsedRangeInput.data
     : { preset: "30_DAYS" };
 
-  const table = await renderTable(parsedType.data, range);
+  const table = await renderTable(parsedType.data, range, courtHours.businessDateRolloverHour);
 
   return (
     <div className="flex flex-col gap-6">
@@ -113,7 +113,7 @@ export default async function ReportPage({ params, searchParams }: ReportPagePro
   );
 }
 
-async function renderTable(reportType: ReportTypeInput, range: DateRange) {
+async function renderTable(reportType: ReportTypeInput, range: DateRange, rolloverHour: number) {
   switch (reportType) {
     case "booking": {
       const { rows } = await reportingService.getBookingReport(range);
@@ -203,7 +203,7 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
       return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.id} />;
     }
     case "salesByCategory": {
-      const rows = await reportingService.getSalesByCategoryReport(range);
+      const rows = await reportingService.getSalesByCategoryReport(range, rolloverHour);
       const columns: ReportTableColumn<SalesByCategoryRow>[] = [
         {
           header: "Category",
@@ -222,7 +222,7 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
       return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.category} />;
     }
     case "salesByPaymentMethod": {
-      const rows = await reportingService.getSalesByPaymentMethodReport(range);
+      const rows = await reportingService.getSalesByPaymentMethodReport(range, rolloverHour);
       const columns: ReportTableColumn<SalesByPaymentMethodRow>[] = [
         { header: "Payment Method", render: (r) => r.paymentMethodLabel },
         { header: "Transactions", render: (r) => r.transactionCount },
@@ -231,7 +231,7 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange) {
       return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.paymentMethodLabel} />;
     }
     case "salesByProduct": {
-      const rows = await reportingService.getSalesByProductReport(range);
+      const rows = await reportingService.getSalesByProductReport(range, rolloverHour);
       const columns: ReportTableColumn<SalesByProductRow>[] = [
         { header: "Product", render: (r) => r.productName },
         { header: "Qty sold", render: (r) => r.quantitySold },

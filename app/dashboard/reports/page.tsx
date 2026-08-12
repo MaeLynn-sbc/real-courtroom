@@ -73,7 +73,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const [params, courtHours] = await Promise.all([searchParams, settingsService.getCourtHours()]);
   const range = resolveDateRangeFromSearchParams(params, courtHours.businessDateRolloverHour);
   const [revenue, totalExpensesCents, cashPosition] = await Promise.all([
-    reportingService.getRevenueReport(range),
+    reportingService.getRevenueReport(range, courtHours.businessDateRolloverHour),
     expenseService.getExpensesTotalForRange(range),
     reportingService.getCashPositionSummary(range),
   ]);

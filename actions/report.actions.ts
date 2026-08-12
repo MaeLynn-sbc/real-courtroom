@@ -38,6 +38,7 @@ function requireReportsManage() {
 async function buildReportCsv(
   reportType: ExportReportInput["reportType"],
   range: DateRange,
+  rolloverHour: number,
 ): Promise<string> {
   switch (reportType) {
     case "booking": {
@@ -69,15 +70,15 @@ async function buildReportCsv(
       return toCsv(rows, REPORT_CSV_COLUMNS.lockerRental);
     }
     case "salesByCategory": {
-      const rows = await reportingService.getSalesByCategoryReport(range);
+      const rows = await reportingService.getSalesByCategoryReport(range, rolloverHour);
       return toCsv(rows, REPORT_CSV_COLUMNS.salesByCategory);
     }
     case "salesByPaymentMethod": {
-      const rows = await reportingService.getSalesByPaymentMethodReport(range);
+      const rows = await reportingService.getSalesByPaymentMethodReport(range, rolloverHour);
       return toCsv(rows, REPORT_CSV_COLUMNS.salesByPaymentMethod);
     }
     case "salesByProduct": {
-      const rows = await reportingService.getSalesByProductReport(range);
+      const rows = await reportingService.getSalesByProductReport(range, rolloverHour);
       return toCsv(rows, REPORT_CSV_COLUMNS.salesByProduct);
     }
   }
@@ -116,7 +117,7 @@ export async function exportReportCsvAction(
       courtHours.businessDateRolloverHour,
     );
 
-    const csv = await buildReportCsv(parsed.data.reportType, range);
+    const csv = await buildReportCsv(parsed.data.reportType, range, courtHours.businessDateRolloverHour);
     const filename = `${parsed.data.reportType}-report-${new Date().toISOString().slice(0, 10)}.csv`;
 
     return { error: null, filename, csv };

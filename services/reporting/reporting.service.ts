@@ -1,3 +1,4 @@
+import { computeBusinessDate } from "@/lib/business-date";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { DateRange } from "@/services/analytics/date-range";
@@ -513,10 +514,10 @@ export class ReportingService {
   // replacing it, since the two can legitimately disagree (e.g. a row
   // created outside the Sale-integrated action paths).
 
-  async getSalesByCategoryReport(range: DateRange): Promise<SalesByCategoryRow[]> {
+  async getSalesByCategoryReport(range: DateRange, rolloverHour = 0): Promise<SalesByCategoryRow[]> {
     const rows = await prisma.sale.groupBy({
       by: ["category"],
-      where: this.dateAwareSaleWhere(range),
+      where: this.dateAwareSaleWhere(range, rolloverHour),
       _sum: { amountCents: true },
       _count: true,
       orderBy: { category: "asc" },
@@ -529,11 +530,14 @@ export class ReportingService {
     }));
   }
 
-  async getSalesByPaymentMethodReport(range: DateRange): Promise<SalesByPaymentMethodRow[]> {
+  async getSalesByPaymentMethodReport(
+    range: DateRange,
+    rolloverHour = 0,
+  ): Promise<SalesByPaymentMethodRow[]> {
     const [rows, paymentMethods] = await Promise.all([
       prisma.sale.groupBy({
         by: ["paymentMethodId"],
-        where: this.dateAwareSaleWhere(range),
+        where: this.dateAwareSaleWhere(range, rolloverHour),
         _sum: { amountCents: true },
         _count: true,
       }),
@@ -556,12 +560,15 @@ export class ReportingService {
   // to each supplier for a given day or range. Fetches raw rows rather
   // than groupBy since the historical quantity can only be recovered by
   // parsing each row's own description (see parseProductQuantity).
-  async getSalesByProductReport(range: DateRange): Promise<SalesByProductRow[]> {
+  async getSalesByProductReport(range: DateRange, rolloverHour = 0): Promise<SalesByProductRow[]> {
     const sales = await prisma.sale.findMany({
       where: {
         category: "PRODUCT",
         status: "COMPLETED",
-        createdAt: { gte: range.from, lte: range.to },
+        businessDate: {
+          gte: computeBusinessDate(range.from, rolloverHour),
+          lte: computeBusinessDate(range.to, rolloverHour),
+        },
         productId: { not: null },
       },
       select: {
@@ -607,27 +614,21 @@ export class ReportingService {
   // sessionId fork — null means regular (weeknight, uncapped), set
   // means unli (Fri/Sat, capacity-gated) — so tracing either link back
   // to its sessionId is enough to classify every OPEN_PLAY sale.
-  // Owner-reported incident (2026-08-08): scoped by createdAt here used
-  // to count a tab settled just after midnight for the PREVIOUS night's
-  // session as part of the wrong day — same bug already fixed on the
-  // dashboard's Today's Revenue panel (saleService.getSalesSummary), not
-  // yet applied to this separate, duplicate implementation. Scoped by
-  // the linked session's own date (PlayerTab.date /
-  // OpenPlayNightRegistration.date) instead, same reasoning as that
-  // fix's own comment.
+  // Owner-directed consolidation (2026-08-12): "one shared date
+  // function... starting with the three copies of the same OR filter
+  // across sale.service and reporting.service." Sale.businessDate
+  // (set once, at creation — see that column's own schema comment)
+  // replaces the join-based OR entirely; no join needed to find the
+  // right day anymore, since every Sale already carries it. This is
+  // the second of the three copies — see dateAwareSaleWhere below for
+  // the third, and saleService.getSalesSummary for the first (already
+  // fixed the same way).
   private async getOpenPlaySplit(
     range: DateRange,
+    rolloverHour = 0,
   ): Promise<{ regularCents: number; unliCents: number }> {
-    const inRange = { gte: range.from, lte: range.to };
     const sales = await prisma.sale.findMany({
-      where: {
-        category: "OPEN_PLAY",
-        status: "COMPLETED",
-        OR: [
-          { playerTabId: { not: null }, playerTab: { date: inRange } },
-          { openPlayNightRegistrationId: { not: null }, openPlayNightRegistration: { date: inRange } },
-        ],
-      },
+      where: { ...this.dateAwareSaleWhere(range, rolloverHour), category: "OPEN_PLAY" },
       select: {
         amountCents: true,
         playerTab: { select: { sessionId: true } },
@@ -649,29 +650,19 @@ export class ReportingService {
     return { regularCents, unliCents };
   }
 
-  // Owner-reported incident (2026-08-08): every report below used to sum
-  // Sale rows by raw createdAt, including an Open Play tab settled just
-  // after midnight for the PREVIOUS night's session — the same money
-  // getOpenPlaySplit already attributes correctly to that earlier day.
-  // Shared here (not re-typed per report) specifically so the category
-  // report, the payment-method report, and the revenue summary can never
-  // drift apart from each other on this, the same reasoning
-  // getRevenueReport's own now-removed private copy documented. Non-
-  // Open-Play sales have no session-date concept, so they keep using
-  // createdAt unchanged.
-  private dateAwareSaleWhere(range: DateRange): Prisma.SaleWhereInput {
-    const inRange = { gte: range.from, lte: range.to };
+  // Owner-directed consolidation (2026-08-12): the third of the three
+  // copies (see getOpenPlaySplit above) — filters every category
+  // uniformly on Sale.businessDate now, same as
+  // saleService.getSalesSummary. Shared here (not re-typed per report)
+  // so the category report, the payment-method report, and the revenue
+  // summary can never drift apart from each other.
+  private dateAwareSaleWhere(range: DateRange, rolloverHour = 0): Prisma.SaleWhereInput {
     return {
       status: "COMPLETED",
-      OR: [
-        { category: { not: "OPEN_PLAY" }, createdAt: inRange },
-        { category: "OPEN_PLAY", playerTabId: { not: null }, playerTab: { date: inRange } },
-        {
-          category: "OPEN_PLAY",
-          openPlayNightRegistrationId: { not: null },
-          openPlayNightRegistration: { date: inRange },
-        },
-      ],
+      businessDate: {
+        gte: computeBusinessDate(range.from, rolloverHour),
+        lte: computeBusinessDate(range.to, rolloverHour),
+      },
     };
   }
 
@@ -716,8 +707,8 @@ export class ReportingService {
     };
   }
 
-  async getRevenueReport(range: DateRange): Promise<RevenueReportResult> {
-    const dateAwareWhere = this.dateAwareSaleWhere(range);
+  async getRevenueReport(range: DateRange, rolloverHour = 0): Promise<RevenueReportResult> {
+    const dateAwareWhere = this.dateAwareSaleWhere(range, rolloverHour);
 
     const [saleCategoryTotals, openPlaySplit, paymentMethodTotals, paymentMethods] =
       await Promise.all([
@@ -731,7 +722,7 @@ export class ReportingService {
           where: { category: { in: ["BOOKING", "PRODUCT", "COACHING"] }, ...dateAwareWhere },
           _sum: { amountCents: true },
         }),
-        this.getOpenPlaySplit(range),
+        this.getOpenPlaySplit(range, rolloverHour),
         // Cash/GCash actually collected, across every category — same
         // predicate as getSalesByPaymentMethodReport, requested alongside
         // the category breakdown so the totals reconcile against the

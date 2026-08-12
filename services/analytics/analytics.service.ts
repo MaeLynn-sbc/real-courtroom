@@ -227,7 +227,7 @@ export class AnalyticsService {
     };
   }
 
-  async getDashboardKpis(range: DateRange): Promise<DashboardKpis> {
+  async getDashboardKpis(range: DateRange, rolloverHour = 0): Promise<DashboardKpis> {
     // bookingReport is still fetched here for totalBookings/
     // tournamentsInRange below — getRevenueReport is now fully
     // Sale-sourced (see its own comment) and no longer takes or needs a
@@ -245,7 +245,7 @@ export class AnalyticsService {
       equipmentSummary,
       lockerUtilization,
     ] = await Promise.all([
-      reportingService.getRevenueReport(range),
+      reportingService.getRevenueReport(range, rolloverHour),
       prisma.membership.count({ where: { status: "ACTIVE" } }),
       this.getMembershipGrowth(range),
       this.getOpenPlayParticipation(range),
