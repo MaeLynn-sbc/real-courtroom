@@ -3,6 +3,7 @@ import {
   computeBusinessDate,
   getBusinessDateRange,
   StaleBusinessDateError,
+  widenToBusinessDateRangeStart,
 } from "@/lib/business-date";
 
 const ROLLOVER_HOUR = 3;
@@ -30,6 +31,34 @@ describe("computeBusinessDate", () => {
   it("rolls a timestamp just before the rollover hour back to the previous calendar date", () => {
     const justBeforeRollover = new Date(2026, 6, 25, 2, 59);
     expect(computeBusinessDate(justBeforeRollover, ROLLOVER_HOUR)).toEqual(new Date(2026, 6, 24));
+  });
+});
+
+describe("widenToBusinessDateRangeStart", () => {
+  // Real incident (2026-08-12): "Open Play (regular)" read PHP 4,975
+  // against real Sale rows that only totalled PHP 1,220 for the actual
+  // business date — computeBusinessDate was being re-applied to a
+  // range.from that was ALREADY an exact business-date value (midnight),
+  // rolling it back a second, extra day.
+  it("returns an already-exact-midnight input completely unchanged, even though its hour (0) is below the rollover hour", () => {
+    const alreadyBusinessDate = new Date(2026, 7, 12); // Aug 12, exact midnight
+    expect(widenToBusinessDateRangeStart(alreadyBusinessDate, ROLLOVER_HOUR)).toEqual(
+      new Date(2026, 7, 12),
+    );
+  });
+
+  it("still widens a genuinely raw, non-midnight timestamp down to its own business date (same as computeBusinessDate)", () => {
+    const rawNarrowWindowStart = new Date(2026, 7, 12, 21, 30); // "an hour ago", 9:30 PM
+    expect(widenToBusinessDateRangeStart(rawNarrowWindowStart, ROLLOVER_HOUR)).toEqual(
+      new Date(2026, 7, 12),
+    );
+  });
+
+  it("still rolls a raw, non-midnight, pre-rollover timestamp back to the previous business date", () => {
+    const rawJustBeforeRollover = new Date(2026, 7, 12, 2, 30); // 2:30 AM, before the 3 AM rollover
+    expect(widenToBusinessDateRangeStart(rawJustBeforeRollover, ROLLOVER_HOUR)).toEqual(
+      new Date(2026, 7, 11),
+    );
   });
 });
 

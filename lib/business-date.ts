@@ -52,6 +52,38 @@ export function assertIsCurrentBusinessDate(
   }
 }
 
+// Real incident (2026-08-12): computeBusinessDate is NOT idempotent
+// when rolloverHour > 0 — its own output is always exact midnight
+// (hours=0), and re-running computeBusinessDate on an already-midnight
+// value sees "hours 0 < rolloverHour" and rolls it back ANOTHER full
+// day. Several report queries (saleService.getSalesSummary, reporting.
+// service.ts's dateAwareSaleWhere/getSalesByProductReport) filter
+// Sale.businessDate against a range whose `.from` is SOMETIMES already
+// a business-date value (resolveDateRange's TODAY/CUSTOM presets
+// compute it via computeBusinessDate themselves) and SOMETIMES a
+// genuinely raw timestamp that still needs widening down to its own
+// business date (a multi-day preset's "N days ago right now", or an
+// ad-hoc narrow window like "the last hour"). Blindly calling
+// computeBusinessDate on `.from` in the first case silently summed an
+// extra day's worth of sales into "today" — discovered live when
+// "Open Play (regular)" read PHP 4,975 against real Sale rows that
+// only totalled PHP 1,220 for the actual business date. Blindly using
+// `.from` as-is in the second case broke any narrow, non-midnight
+// window (Sale.businessDate is always midnight-valued, so a `gte`
+// bound later than midnight the same day excludes that whole day).
+// This is the safe version: an exact-midnight input is trusted as
+// already business-date-correct and returned unchanged; anything else
+// (a genuinely raw wall-clock reading) gets computeBusinessDate's usual
+// widening treatment.
+export function widenToBusinessDateRangeStart(timestamp: Date, rolloverHour: number): Date {
+  const isExactMidnight =
+    timestamp.getHours() === 0 &&
+    timestamp.getMinutes() === 0 &&
+    timestamp.getSeconds() === 0 &&
+    timestamp.getMilliseconds() === 0;
+  return isExactMidnight ? timestamp : computeBusinessDate(timestamp, rolloverHour);
+}
+
 // The real-timestamp range [start, end) that belongs to business date
 // `date` — e.g. rolloverHour=3 turns "Friday" into
 // [Fri 03:00, Sat 03:00), which is what a "today's bookings" query

@@ -1,4 +1,4 @@
-import { computeBusinessDate } from "@/lib/business-date";
+import { computeBusinessDate, widenToBusinessDateRangeStart } from "@/lib/business-date";
 import type { PaymentMethod, Prisma, Sale } from "@/lib/generated/prisma/client";
 import type { SaleCategory, SaleSource } from "@/lib/generated/prisma/enums";
 import { logger } from "@/lib/logger";
@@ -498,8 +498,15 @@ export class SaleService {
   // business-date terms before filtering — the range itself may still
   // be raw timestamps (e.g. "now" as the TODAY preset's upper bound).
   async getSalesSummary(range: DateRange, rolloverHour = 0): Promise<SalesSummary> {
+    // Real incident (2026-08-12) — see lib/business-date.ts's
+    // widenToBusinessDateRangeStart for the full story. range.from may
+    // already be an exact business-date value (resolveDateRange's TODAY
+    // preset computes it via computeBusinessDate itself) or a genuinely
+    // raw timestamp that still needs widening (a multi-day preset, or an
+    // ad-hoc narrow window) — this handles both without double-applying
+    // the rollover-hour rollback.
     const inRange = {
-      gte: computeBusinessDate(range.from, rolloverHour),
+      gte: widenToBusinessDateRangeStart(range.from, rolloverHour),
       lte: computeBusinessDate(range.to, rolloverHour),
     };
     const where: Prisma.SaleWhereInput = { status: "COMPLETED", businessDate: inRange };

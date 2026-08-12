@@ -1,4 +1,4 @@
-import { computeBusinessDate } from "@/lib/business-date";
+import { computeBusinessDate, widenToBusinessDateRangeStart } from "@/lib/business-date";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { DateRange } from "@/services/analytics/date-range";
@@ -561,12 +561,14 @@ export class ReportingService {
   // than groupBy since the historical quantity can only be recovered by
   // parsing each row's own description (see parseProductQuantity).
   async getSalesByProductReport(range: DateRange, rolloverHour = 0): Promise<SalesByProductRow[]> {
+    // Real incident (2026-08-12) — see lib/business-date.ts's
+    // widenToBusinessDateRangeStart for the full story.
     const sales = await prisma.sale.findMany({
       where: {
         category: "PRODUCT",
         status: "COMPLETED",
         businessDate: {
-          gte: computeBusinessDate(range.from, rolloverHour),
+          gte: widenToBusinessDateRangeStart(range.from, rolloverHour),
           lte: computeBusinessDate(range.to, rolloverHour),
         },
         productId: { not: null },
@@ -657,10 +659,12 @@ export class ReportingService {
   // so the category report, the payment-method report, and the revenue
   // summary can never drift apart from each other.
   private dateAwareSaleWhere(range: DateRange, rolloverHour = 0): Prisma.SaleWhereInput {
+    // Real incident (2026-08-12) — see lib/business-date.ts's
+    // widenToBusinessDateRangeStart for the full story.
     return {
       status: "COMPLETED",
       businessDate: {
-        gte: computeBusinessDate(range.from, rolloverHour),
+        gte: widenToBusinessDateRangeStart(range.from, rolloverHour),
         lte: computeBusinessDate(range.to, rolloverHour),
       },
     };
