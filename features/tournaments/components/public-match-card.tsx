@@ -11,15 +11,16 @@ const STATUS_LABELS: Record<MatchStatus, string> = {
   WALKOVER: "Walkover",
 };
 
-function teamLabel(team: MatchWithTeams["team1"] | MatchWithTeams["team2"]): string {
+// Owner request (2026-08-12): "can the team has numbers. like what
+// number they are in the pool or bracket" — optional "1a"/"2a" prefix,
+// same convention as match-card.tsx's own teamLabel.
+function teamLabel(team: MatchWithTeams["team1"] | MatchWithTeams["team2"], number?: string | null): string {
   if (!team) {
     return "BYE";
   }
   const player1Name = team.player1.user.name ?? "Unknown player";
-  if (!team.player2) {
-    return player1Name;
-  }
-  return `${player1Name} / ${team.player2.user.name ?? "Unknown player"}`;
+  const base = team.player2 ? `${player1Name} / ${team.player2.user.name ?? "Unknown player"}` : player1Name;
+  return number ? `${number}. ${base}` : base;
 }
 
 // Public, read-only counterpart to match-card.tsx — same data
@@ -28,7 +29,13 @@ function teamLabel(team: MatchWithTeams["team1"] | MatchWithTeams["team2"]): str
 // email — team names use User.name only, unlike the staff card's own
 // `?? user.email` fallback (a player's email has no business being on a
 // public page).
-export function PublicMatchCard({ match }: { match: MatchWithTeams }) {
+export function PublicMatchCard({
+  match,
+  teamPoolNumbers,
+}: {
+  match: MatchWithTeams;
+  teamPoolNumbers: Record<string, string | null>;
+}) {
   const isBye = match.team2 === null;
   const isLive = match.status === "IN_PROGRESS";
 
@@ -52,7 +59,9 @@ export function PublicMatchCard({ match }: { match: MatchWithTeams }) {
       </div>
 
       {isBye ? (
-        <p className="text-bone text-sm font-medium">{teamLabel(match.team1)} — bye</p>
+        <p className="text-bone text-sm font-medium">
+          {teamLabel(match.team1, teamPoolNumbers[match.team1Id])} — bye
+        </p>
       ) : (
         <>
           <div className="flex flex-col gap-1">
@@ -66,7 +75,7 @@ export function PublicMatchCard({ match }: { match: MatchWithTeams }) {
                     isWinner ? "text-bone font-semibold" : "text-slate"
                   }`}
                 >
-                  <span>{teamLabel(team)}</span>
+                  <span>{teamLabel(team, teamId ? teamPoolNumbers[teamId] : null)}</span>
                   {match.scores.length > 0 ? (
                     <span className="font-jetbrains tabular-nums">
                       {match.scores

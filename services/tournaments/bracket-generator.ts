@@ -128,6 +128,22 @@ export function dividePoolsEvenly(teamIds: string[], poolCount: number): PoolAss
   }));
 }
 
+// Owner request (2026-08-12): "can the team has numbers. like what
+// number they are in the pool or bracket" — combines
+// TournamentRegistration's poolPosition + poolLabel into the single
+// display string every UI surface renders ("1a", "2a", ... for pool
+// "A"; "1b", "2b", ... for pool "B"). Never persisted as this combined
+// string itself — poolLabel/poolPosition stay separate columns so
+// poolLabel keeps meaning exactly the plain "A"/"B" grouping label
+// existing tests assert on. Null whenever either half is missing
+// (unassigned, or a match/registration that predates this feature).
+export function formatTeamPoolNumber(poolLabel: string | null, poolPosition: number | null): string | null {
+  if (poolLabel === null || poolPosition === null) {
+    return null;
+  }
+  return `${poolPosition}${poolLabel.toLowerCase()}`;
+}
+
 // Pairs up a completed round's winners (already in bracket order) into
 // the next round's matchups. Because round 1 padded to a power of 2, every
 // pairing from here on is a real match — no more byes are possible.

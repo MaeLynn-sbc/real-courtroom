@@ -117,13 +117,31 @@ async function main(): Promise<void> {
 
     const registrationsAfterDraw = await prisma.tournamentRegistration.findMany({
       where: { tournamentCategoryId: category.id },
-      select: { teamId: true, poolLabel: true },
+      select: { teamId: true, poolLabel: true, poolPosition: true },
     });
     assert(
       registrationsAfterDraw.every((r) => r.poolLabel !== null),
       "expected every registration to have a real poolLabel persisted, not just returned",
     );
     console.log("PASS: createPools splits every confirmed team into real pools, none dropped or duplicated.");
+
+    // ============== 1b. poolPosition: 1..N sequential within each pool, no gaps/dupes ==============
+    const positionsByPool = new Map<string, number[]>();
+    for (const registration of registrationsAfterDraw) {
+      assert(registration.poolPosition !== null, "expected every pooled registration to have a real poolPosition, not just poolLabel");
+      const list = positionsByPool.get(registration.poolLabel!) ?? [];
+      list.push(registration.poolPosition!);
+      positionsByPool.set(registration.poolLabel!, list);
+    }
+    for (const [poolLabel, positions] of positionsByPool) {
+      const sorted = [...positions].sort((a, b) => a - b);
+      const expected = Array.from({ length: sorted.length }, (_, i) => i + 1);
+      assert(
+        JSON.stringify(sorted) === JSON.stringify(expected),
+        `expected pool ${poolLabel}'s positions to be exactly 1..${sorted.length} with no gaps or duplicates, got ${JSON.stringify(sorted)}`,
+      );
+    }
+    console.log("PASS: createPools assigns 1-indexed, gap-free poolPosition within each pool.");
 
     // ============== 3 & 4. generateBracket only pairs within each pool ==============
     await tournamentService.generateBracket(category.id, owner.id);
@@ -193,7 +211,15 @@ async function main(): Promise<void> {
       const unpooledMatches = await prisma.match.findMany({ where: { tournamentCategoryId: category2.id } });
       assert(unpooledMatches.length === 1, `expected exactly 1 match for 2 unpooled teams, got ${unpooledMatches.length}`);
       assert(unpooledMatches[0]!.poolLabel === null, "expected an unpooled category's matches to have poolLabel: null, exactly as before this feature existed");
-      console.log("PASS: a category with no pools assigned still gets the exact old flat round robin (poolLabel: null).");
+      const unpooledRegistrations = await prisma.tournamentRegistration.findMany({
+        where: { tournamentCategoryId: category2.id },
+        select: { poolPosition: true },
+      });
+      assert(
+        unpooledRegistrations.every((r) => r.poolPosition === null),
+        "expected an unpooled category's registrations to have poolPosition: null too",
+      );
+      console.log("PASS: a category with no pools assigned still gets the exact old flat round robin (poolLabel: null, poolPosition: null).");
       await cleanUp(tournament2.id);
     } catch (error) {
       await cleanUp(tournament2.id);

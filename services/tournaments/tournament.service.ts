@@ -649,10 +649,14 @@ export class TournamentService {
 
     await prisma.$transaction(
       pools.flatMap((pool) =>
-        pool.teamIds.map((teamId) =>
+        pool.teamIds.map((teamId, index) =>
           prisma.tournamentRegistration.updateMany({
             where: { tournamentCategoryId: categoryId, teamId, status: "CONFIRMED" },
-            data: { poolLabel: pool.poolLabel },
+            // index + 1: draw order within THIS pool, after the shuffle
+            // above — the display number (bracket-generator.ts's
+            // formatTeamPoolNumber combines this with poolLabel, e.g.
+            // "1a", "2a").
+            data: { poolLabel: pool.poolLabel, poolPosition: index + 1 },
           }),
         ),
       ),
@@ -697,9 +701,27 @@ export class TournamentService {
       throw new Error("That team isn't a confirmed registration in this category.");
     }
 
+    // Appended to the end of the target pool — same "1-indexed position
+    // within this pool" meaning createPools writes, just assigned one
+    // team at a time instead of by a fresh shuffle. Excludes this
+    // registration's own row from the count so re-assigning a team to
+    // the pool it's already in doesn't push its own position forward.
+    // null when clearing back to unassigned (poolLabel: null).
+    const poolPosition =
+      poolLabel === null
+        ? null
+        : (await prisma.tournamentRegistration.count({
+            where: {
+              tournamentCategoryId: categoryId,
+              poolLabel,
+              status: "CONFIRMED",
+              id: { not: registration.id },
+            },
+          })) + 1;
+
     await prisma.tournamentRegistration.update({
       where: { id: registration.id },
-      data: { poolLabel },
+      data: { poolLabel, poolPosition },
     });
 
     await this.writeAuditLog({
@@ -707,8 +729,8 @@ export class TournamentService {
       action: "tournament.team_pool_changed",
       entityType: "TournamentRegistration",
       entityId: registration.id,
-      oldValues: { poolLabel: registration.poolLabel },
-      newValues: { poolLabel },
+      oldValues: { poolLabel: registration.poolLabel, poolPosition: registration.poolPosition },
+      newValues: { poolLabel, poolPosition },
     });
   }
 

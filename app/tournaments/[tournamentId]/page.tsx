@@ -5,6 +5,7 @@ import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { PublicBracketView } from "@/features/tournaments/components/public-bracket-view";
 import { PublicStandingsTable } from "@/features/tournaments/components/public-standings-table";
+import { formatTeamPoolNumber } from "@/services/tournaments/bracket-generator";
 import { matchService } from "@/services/tournaments/match.service";
 import { standingsService } from "@/services/tournaments/standings.service";
 import { tournamentService } from "@/services/tournaments/tournament.service";
@@ -59,14 +60,19 @@ export default async function PublicTournamentPage({ params }: TournamentPagePro
         standingsService.getStandings(category.id),
       ]);
       const teamNames: Record<string, string> = {};
+      const teamPoolNumbers: Record<string, string | null> = {};
       for (const registration of fullCategory?.registrations ?? []) {
         const player1Name = registration.team.player1.user.name ?? "Unknown player";
         const player2 = registration.team.player2;
         teamNames[registration.teamId] = player2
           ? `${player1Name} / ${player2.user.name ?? "Unknown player"}`
           : player1Name;
+        teamPoolNumbers[registration.teamId] = formatTeamPoolNumber(
+          registration.poolLabel,
+          registration.poolPosition,
+        );
       }
-      return { category, matches, standings, teamNames };
+      return { category, matches, standings, teamNames, teamPoolNumbers };
     }),
   );
 
@@ -98,7 +104,7 @@ export default async function PublicTournamentPage({ params }: TournamentPagePro
           </div>
         </section>
       ) : (
-        categoryData.map(({ category, matches, standings, teamNames }) => (
+        categoryData.map(({ category, matches, standings, teamNames, teamPoolNumbers }) => (
           <section key={category.id} className="border-line border-t px-6 py-[clamp(32px,5vw,56px)]">
             <div className="mx-auto max-w-5xl">
               <h2 className="font-display text-bone text-2xl font-extrabold tracking-[-0.01em] uppercase">
@@ -113,7 +119,7 @@ export default async function PublicTournamentPage({ params }: TournamentPagePro
                   <h3 className="font-jetbrains text-slate mb-3 text-[11px] font-bold tracking-[0.18em] uppercase">
                     Bracket
                   </h3>
-                  <PublicBracketView matches={matches} />
+                  <PublicBracketView matches={matches} teamPoolNumbers={teamPoolNumbers} />
                 </div>
                 <div>
                   <h3 className="font-jetbrains text-slate mb-3 text-[11px] font-bold tracking-[0.18em] uppercase">

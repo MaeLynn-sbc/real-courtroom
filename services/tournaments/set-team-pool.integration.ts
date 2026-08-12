@@ -101,19 +101,22 @@ async function main(): Promise<void> {
     await tournamentService.setTeamPool(category.id, regA.teamId, "A", owner.id);
     let reloaded = await prisma.tournamentRegistration.findUniqueOrThrow({ where: { id: regA.id } });
     assert(reloaded.poolLabel === "A", `expected poolLabel "A", got ${reloaded.poolLabel}`);
-    console.log("PASS: setTeamPool assigns a confirmed team to a pool, persisted.");
+    assert(reloaded.poolPosition === 1, `expected poolPosition 1 (first team in pool A), got ${reloaded.poolPosition}`);
+    console.log("PASS: setTeamPool assigns a confirmed team to a pool, persisted, at poolPosition 1.");
 
     // ============== 2. Moves a team to a different pool ==============
     await tournamentService.setTeamPool(category.id, regA.teamId, "B", owner.id);
     reloaded = await prisma.tournamentRegistration.findUniqueOrThrow({ where: { id: regA.id } });
     assert(reloaded.poolLabel === "B", `expected poolLabel to move to "B", got ${reloaded.poolLabel}`);
-    console.log("PASS: setTeamPool moves a team already in one pool to a different pool.");
+    assert(reloaded.poolPosition === 1, `expected poolPosition to reset to 1 in the new pool, got ${reloaded.poolPosition}`);
+    console.log("PASS: setTeamPool moves a team already in one pool to a different pool, resetting its position.");
 
     // ============== 3. Clears back to unassigned ==============
     await tournamentService.setTeamPool(category.id, regA.teamId, null, owner.id);
     reloaded = await prisma.tournamentRegistration.findUniqueOrThrow({ where: { id: regA.id } });
     assert(reloaded.poolLabel === null, `expected poolLabel to clear to null, got ${reloaded.poolLabel}`);
-    console.log("PASS: setTeamPool clears a team back to unassigned.");
+    assert(reloaded.poolPosition === null, `expected poolPosition to clear to null too, got ${reloaded.poolPosition}`);
+    console.log("PASS: setTeamPool clears a team back to unassigned, poolPosition included.");
 
     // ============== 4. Refuses a non-confirmed/non-existent team ==============
     let rejectedBadTeam = false;
@@ -141,6 +144,17 @@ async function main(): Promise<void> {
     // run at all — set regB's too so this step tests only the "bracket
     // already exists" guard, not the separate partial-pool guard.
     await tournamentService.setTeamPool(category.id, regB.teamId, "A", owner.id);
+    // ============== poolPosition appends to the end of the target pool ==============
+    // regA is already in pool "A" at position 1 (step 6, above) — regB
+    // joining the same pool should land at position 2, not collide with
+    // or overwrite regA's own position.
+    const regBReloaded = await prisma.tournamentRegistration.findUniqueOrThrow({ where: { id: regB.id } });
+    assert(
+      regBReloaded.poolPosition === 2,
+      `expected regB to append at poolPosition 2 (regA already occupies 1 in pool A), got ${regBReloaded.poolPosition}`,
+    );
+    console.log("PASS: setTeamPool appends a team to the end of the target pool's positions, not colliding with existing teams.");
+
     await tournamentService.generateBracket(category.id, owner.id);
     let rejectedAfterBracket = false;
     try {

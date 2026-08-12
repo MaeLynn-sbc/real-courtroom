@@ -15,8 +15,8 @@ interface PoolAssignmentFormProps {
   tournamentId: string;
   categoryId: string;
   confirmedCount: number;
-  pools: { poolLabel: string; teamNames: string[] }[];
-  teams: { teamId: string; name: string; poolLabel: string | null }[];
+  pools: { poolLabel: string; teams: { teamId: string; name: string; number: string | null }[] }[];
+  teams: { teamId: string; name: string; poolLabel: string | null; number: string | null }[];
 }
 
 const MODE_POOL_COUNT = "poolCount";
@@ -134,8 +134,11 @@ export function PoolAssignmentForm({
                   <div key={pool.poolLabel} className="rounded-md border p-2">
                     <p className="text-xs font-semibold">Pool {pool.poolLabel}</p>
                     <ul className="text-muted-foreground mt-1 text-xs">
-                      {pool.teamNames.map((name) => (
-                        <li key={name}>{name}</li>
+                      {pool.teams.map((team) => (
+                        <li key={team.teamId}>
+                          {team.number ? `${team.number}. ` : ""}
+                          {team.name}
+                        </li>
                       ))}
                     </ul>
                   </div>
@@ -158,7 +161,10 @@ export function PoolAssignmentForm({
           <div className="flex flex-col divide-y">
             {teams.map((team) => (
               <div key={team.teamId} className="flex items-center justify-between gap-3 py-1.5">
-                <span className="text-sm">{team.name}</span>
+                <span className="text-sm">
+                  {team.number ? <span className="text-muted-foreground">{team.number}. </span> : null}
+                  {team.name}
+                </span>
                 <Select
                   value={team.poolLabel ?? UNASSIGNED_VALUE}
                   onValueChange={(next) => next && handleSetTeamPool(team.teamId, team.name, next)}

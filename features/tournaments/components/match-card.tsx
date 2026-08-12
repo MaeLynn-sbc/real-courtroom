@@ -38,24 +38,31 @@ const STATUS_VARIANTS: Record<MatchStatus, "success" | "outline" | "destructive"
   WALKOVER: "success",
 };
 
-function teamLabel(team: MatchWithTeams["team1"] | MatchWithTeams["team2"]): string {
+// Owner request (2026-08-12): "can the team has numbers. like what
+// number they are in the pool or bracket" — optional "1a"/"2a" prefix
+// (bracket-generator.ts's formatTeamPoolNumber), null/undefined for an
+// unassigned team or a match from before pools existed.
+function teamLabel(team: MatchWithTeams["team1"] | MatchWithTeams["team2"], number?: string | null): string {
   if (!team) {
     return "BYE";
   }
   const player1Name = team.player1.user.name ?? team.player1.user.email ?? "Unknown player";
-  if (!team.player2) {
-    return player1Name;
-  }
-  return `${player1Name} / ${team.player2.user.name ?? team.player2.user.email ?? "Unknown player"}`;
+  const base = team.player2
+    ? `${player1Name} / ${team.player2.user.name ?? team.player2.user.email ?? "Unknown player"}`
+    : player1Name;
+  return number ? `${number}. ${base}` : base;
 }
 
 interface MatchCardProps {
   tournamentId: string;
   categoryId: string;
   match: MatchWithTeams;
+  teamPoolNumbers: Record<string, string | null>;
 }
 
-export function MatchCard({ tournamentId, categoryId, match }: MatchCardProps) {
+export function MatchCard({ tournamentId, categoryId, match, teamPoolNumbers }: MatchCardProps) {
+  const team1Number = teamPoolNumbers[match.team1Id];
+  const team2Number = match.team2Id ? teamPoolNumbers[match.team2Id] : null;
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [setScores, setSetScores] = useState(() =>
@@ -112,7 +119,8 @@ export function MatchCard({ tournamentId, categoryId, match }: MatchCardProps) {
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-sm">
-            {teamLabel(match.team1)} {isBye ? "" : "vs"} {isBye ? "" : teamLabel(match.team2)}
+            {teamLabel(match.team1, team1Number)} {isBye ? "" : "vs"}{" "}
+            {isBye ? "" : teamLabel(match.team2, team2Number)}
           </CardTitle>
           <Badge variant={STATUS_VARIANTS[match.status]}>{STATUS_LABELS[match.status]}</Badge>
         </div>
@@ -193,7 +201,7 @@ export function MatchCard({ tournamentId, categoryId, match }: MatchCardProps) {
                   disabled={isPending}
                   onClick={() => handleWalkover(match.team1Id)}
                 >
-                  Walkover: {teamLabel(match.team1)}
+                  Walkover: {teamLabel(match.team1, team1Number)}
                 </Button>
                 <Button
                   type="button"
@@ -202,7 +210,7 @@ export function MatchCard({ tournamentId, categoryId, match }: MatchCardProps) {
                   disabled={isPending}
                   onClick={() => handleWalkover(match.team2Id as string)}
                 >
-                  Walkover: {teamLabel(match.team2)}
+                  Walkover: {teamLabel(match.team2, team2Number)}
                 </Button>
               </div>
             ) : null}
@@ -210,7 +218,9 @@ export function MatchCard({ tournamentId, categoryId, match }: MatchCardProps) {
             {match.winnerTeamId ? (
               <p className="text-sm font-medium">
                 Winner:{" "}
-                {match.winnerTeamId === match.team1Id ? teamLabel(match.team1) : teamLabel(match.team2)}
+                {match.winnerTeamId === match.team1Id
+                  ? teamLabel(match.team1, team1Number)
+                  : teamLabel(match.team2, team2Number)}
               </p>
             ) : null}
           </>

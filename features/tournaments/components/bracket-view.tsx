@@ -4,6 +4,7 @@ interface BracketViewProps {
   tournamentId: string;
   categoryId: string;
   matches: MatchWithTeams[];
+  teamPoolNumbers: Record<string, string | null>;
 }
 
 function groupByRound(matches: MatchWithTeams[]): Map<number, MatchWithTeams[]> {
@@ -45,10 +46,12 @@ function RoundGroups({
   tournamentId,
   categoryId,
   matches,
+  teamPoolNumbers,
 }: {
   tournamentId: string;
   categoryId: string;
   matches: MatchWithTeams[];
+  teamPoolNumbers: Record<string, string | null>;
 }) {
   const rounds = Array.from(groupByRound(matches).entries()).sort(([a], [b]) => a - b);
 
@@ -59,7 +62,13 @@ function RoundGroups({
           <h3 className="text-sm font-medium">Round {round}</h3>
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
             {roundMatches.map((match) => (
-              <MatchCard key={match.id} tournamentId={tournamentId} categoryId={categoryId} match={match} />
+              <MatchCard
+                key={match.id}
+                tournamentId={tournamentId}
+                categoryId={categoryId}
+                match={match}
+                teamPoolNumbers={teamPoolNumbers}
+              />
             ))}
           </div>
         </div>
@@ -68,7 +77,7 @@ function RoundGroups({
   );
 }
 
-export function BracketView({ tournamentId, categoryId, matches }: BracketViewProps) {
+export function BracketView({ tournamentId, categoryId, matches, teamPoolNumbers }: BracketViewProps) {
   if (matches.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
@@ -83,7 +92,14 @@ export function BracketView({ tournamentId, categoryId, matches }: BracketViewPr
   const isPooled = pools.length > 1 || pools[0]?.[0] !== null;
 
   if (!isPooled) {
-    return <RoundGroups tournamentId={tournamentId} categoryId={categoryId} matches={matches} />;
+    return (
+      <RoundGroups
+        tournamentId={tournamentId}
+        categoryId={categoryId}
+        matches={matches}
+        teamPoolNumbers={teamPoolNumbers}
+      />
+    );
   }
 
   return (
@@ -91,7 +107,12 @@ export function BracketView({ tournamentId, categoryId, matches }: BracketViewPr
       {pools.map(([poolLabel, poolMatches]) => (
         <div key={poolLabel ?? "none"} className="flex flex-col gap-3">
           <h3 className="text-base font-semibold">Pool {poolLabel ?? "—"}</h3>
-          <RoundGroups tournamentId={tournamentId} categoryId={categoryId} matches={poolMatches} />
+          <RoundGroups
+            tournamentId={tournamentId}
+            categoryId={categoryId}
+            matches={poolMatches}
+            teamPoolNumbers={teamPoolNumbers}
+          />
         </div>
       ))}
     </div>

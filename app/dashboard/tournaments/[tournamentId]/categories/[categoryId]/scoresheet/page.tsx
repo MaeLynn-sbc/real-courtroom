@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { ScoresheetView } from "@/features/tournaments/components/scoresheet-view";
 import { courtService } from "@/services/court/court.service";
+import { formatTeamPoolNumber } from "@/services/tournaments/bracket-generator";
 import { matchService } from "@/services/tournaments/match.service";
 import { tournamentService } from "@/services/tournaments/tournament.service";
 
@@ -46,14 +47,32 @@ export default async function ScoresheetPage({ params }: ScoresheetPageProps) {
     matchService.listMatchesByCategory(categoryId),
     courtService.listCourts(),
   ]);
+
+  // Owner request (2026-08-12): "can the team has numbers. like what
+  // number they are in the pool or bracket" — a court official reading
+  // this printed sheet should be able to tell teams apart by number,
+  // same as every other tournament surface.
+  const teamPoolNumbers: Record<string, string | null> = {};
+  for (const registration of category.registrations) {
+    teamPoolNumbers[registration.teamId] = formatTeamPoolNumber(
+      registration.poolLabel,
+      registration.poolPosition,
+    );
+  }
+  function withNumber(team: Parameters<typeof teamLabel>[0], teamId: string | null): string {
+    const label = teamLabel(team);
+    const number = teamId ? teamPoolNumbers[teamId] : null;
+    return number ? `${number}. ${label}` : label;
+  }
+
   const scheduledMatches = allMatches
     .filter((match) => match.status === "SCHEDULED")
     .map((match) => ({
       id: match.id,
       poolLabel: match.poolLabel,
       round: match.round,
-      team1Name: teamLabel(match.team1),
-      team2Name: teamLabel(match.team2),
+      team1Name: withNumber(match.team1, match.team1Id),
+      team2Name: withNumber(match.team2, match.team2Id),
       courtId: match.courtId,
       courtName: match.court?.name ?? null,
       scheduledAt: match.scheduledAt ? match.scheduledAt.toISOString() : null,

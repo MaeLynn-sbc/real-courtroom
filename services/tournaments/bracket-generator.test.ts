@@ -1,5 +1,6 @@
 import {
   dividePoolsEvenly,
+  formatTeamPoolNumber,
   generateRoundRobinPairings,
   generateSingleEliminationRound1,
   pairNextRound,
@@ -111,6 +112,21 @@ describe("dividePoolsEvenly", () => {
 
   it("refuses fewer than 1 pool", () => {
     expect(() => dividePoolsEvenly(["A", "B"], 0)).toThrow("at least 1 pool");
+  });
+});
+
+describe("formatTeamPoolNumber", () => {
+  it("combines position and pool label, lowercasing the letter", () => {
+    expect(formatTeamPoolNumber("A", 1)).toBe("1a");
+    expect(formatTeamPoolNumber("A", 2)).toBe("2a");
+    expect(formatTeamPoolNumber("B", 1)).toBe("1b");
+    expect(formatTeamPoolNumber("B", 12)).toBe("12b");
+  });
+
+  it("returns null when either half is missing", () => {
+    expect(formatTeamPoolNumber(null, 1)).toBeNull();
+    expect(formatTeamPoolNumber("A", null)).toBeNull();
+    expect(formatTeamPoolNumber(null, null)).toBeNull();
   });
 });
 

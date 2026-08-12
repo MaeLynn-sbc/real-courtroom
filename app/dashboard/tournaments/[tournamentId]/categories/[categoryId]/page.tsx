@@ -14,6 +14,7 @@ import { RegistrationForm } from "@/features/tournaments/components/registration
 import { RegistrationList } from "@/features/tournaments/components/registration-list";
 import { StandingsTable } from "@/features/tournaments/components/standings-table";
 import { saleService } from "@/services/sales/sale.service";
+import { formatTeamPoolNumber } from "@/services/tournaments/bracket-generator";
 import { matchService } from "@/services/tournaments/match.service";
 import { standingsService } from "@/services/tournaments/standings.service";
 import { tournamentService } from "@/services/tournaments/tournament.service";
@@ -70,25 +71,52 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
     .filter((registration) => registration.status === "CONFIRMED")
     .map((registration) => ({ teamId: registration.teamId, name: teamNames[registration.teamId] }));
 
+  // Owner request (2026-08-12): "can the team has numbers. like what
+  // number they are in the pool or bracket" — teamId -> "1a"/"2a" style
+  // display string (bracket-generator.ts's formatTeamPoolNumber), null
+  // for anyone unassigned. Shared by every surface on this page that
+  // renders a team.
+  const teamPoolNumbers: Record<string, string | null> = {};
+  for (const registration of category.registrations) {
+    teamPoolNumbers[registration.teamId] = formatTeamPoolNumber(
+      registration.poolLabel,
+      registration.poolPosition,
+    );
+  }
+
   const confirmedTeamsWithPool = category.registrations
     .filter((registration) => registration.status === "CONFIRMED")
     .map((registration) => ({
       teamId: registration.teamId,
       name: teamNames[registration.teamId],
       poolLabel: registration.poolLabel,
+      number: teamPoolNumbers[registration.teamId],
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const poolsByLabel = new Map<string, string[]>();
+  const poolsByLabel = new Map<string, { teamId: string; name: string; poolPosition: number | null }[]>();
   for (const registration of category.registrations) {
     if (registration.status !== "CONFIRMED" || !registration.poolLabel) continue;
     const list = poolsByLabel.get(registration.poolLabel) ?? [];
-    list.push(teamNames[registration.teamId]);
+    list.push({
+      teamId: registration.teamId,
+      name: teamNames[registration.teamId],
+      poolPosition: registration.poolPosition,
+    });
     poolsByLabel.set(registration.poolLabel, list);
   }
   const pools = Array.from(poolsByLabel.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([poolLabel, teamNamesInPool]) => ({ poolLabel, teamNames: teamNamesInPool }));
+    .map(([poolLabel, teamsInPool]) => ({
+      poolLabel,
+      teams: teamsInPool
+        .sort((a, b) => (a.poolPosition ?? 0) - (b.poolPosition ?? 0))
+        .map((team) => ({
+          teamId: team.teamId,
+          name: team.name,
+          number: formatTeamPoolNumber(poolLabel, team.poolPosition),
+        })),
+    }));
 
   const bracketGenerated = matches.length > 0;
   const confirmedCount = category.registrations.filter((r) => r.status === "CONFIRMED").length;
@@ -174,7 +202,12 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
             teams={confirmedTeamsWithPool}
           />
         ) : null}
-        <BracketView tournamentId={tournamentId} categoryId={categoryId} matches={matches} />
+        <BracketView
+          tournamentId={tournamentId}
+          categoryId={categoryId}
+          matches={matches}
+          teamPoolNumbers={teamPoolNumbers}
+        />
         <ManualMatchForm tournamentId={tournamentId} categoryId={categoryId} teams={confirmedTeams} />
       </section>
 

@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { TournamentRegistrationStatus } from "@/lib/generated/prisma/enums";
+import { formatTeamPoolNumber } from "@/services/tournaments/bracket-generator";
 import type { tournamentService } from "@/services/tournaments/tournament.service";
 
 type CategoryWithRegistrations = NonNullable<
@@ -148,6 +149,7 @@ export function RegistrationList({
         <TableHeader>
           <TableRow>
             <TableHead>Team</TableHead>
+            <TableHead>Pool #</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Receipt</TableHead>
             <TableHead>Actions</TableHead>
@@ -182,6 +184,9 @@ export function RegistrationList({
                   ) : (
                     teamDisplayName(registration.team)
                   )}
+                </TableCell>
+                <TableCell className="text-muted-foreground text-sm">
+                  {formatTeamPoolNumber(registration.poolLabel, registration.poolPosition) ?? "—"}
                 </TableCell>
                 <TableCell>
                   <Badge variant={STATUS_VARIANTS[registration.status]}>

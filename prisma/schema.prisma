@@ -2308,6 +2308,17 @@ model TournamentRegistration {
   // key — there's no separate Pool table, since a pool never outlives
   // the one category it was drawn for.
   poolLabel            String?
+  // Owner request (2026-08-12): "can the team has numbers. like what
+  // number they are in the pool or bracket" — 1-indexed position within
+  // poolLabel, set alongside it by createPools (draw order, after the
+  // shuffle) and setTeamPool (appended to the end of the target pool).
+  // Combined for display as e.g. "1a", "2a" (services/tournaments/
+  // bracket-generator.ts's formatTeamPoolNumber) — never persisted as
+  // that combined string itself, so poolLabel stays exactly the plain
+  // "A"/"B" grouping label existing tests already assert on. Null
+  // whenever poolLabel is null (unassigned, or the ordinary non-pooled
+  // round robin path).
+  poolPosition         Int?
   registeredAt         DateTime                     @default(now())
   createdAt            DateTime                     @default(now())
   updatedAt            DateTime                     @updatedAt
