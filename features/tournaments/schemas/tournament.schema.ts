@@ -179,3 +179,25 @@ export const setTeamPoolSchema = z.object({
 });
 
 export type SetTeamPoolInput = z.infer<typeof setTeamPoolSchema>;
+
+// Owner request (2026-08-13): "can i hva a pool players list. edit it
+// and change it" — a real correction path for AFTER a bracket already
+// exists, unlike setTeamPool above (which correctly refuses once
+// matches exist — see tournamentService.setTeamPool's own comment).
+// poolLabel and poolPosition always travel together here: both null
+// clears the team back to unassigned, both set corrects it — there's
+// no "auto-append to the end of the pool" here the way createPools/
+// setTeamPool have, since the whole point of this path is manually
+// fixing a specific number to match reality (e.g. the real wheel-of-
+// fortune draw), not drawing a fresh one.
+export const correctTeamPoolAssignmentSchema = z
+  .object({
+    teamId: z.string().min(1),
+    poolLabel: z.string().trim().min(1).max(50).nullable(),
+    poolPosition: z.number().int().positive().nullable(),
+  })
+  .refine((data) => (data.poolLabel === null) === (data.poolPosition === null), {
+    message: "A pool and a position must be set together, or both cleared.",
+  });
+
+export type CorrectTeamPoolAssignmentInput = z.infer<typeof correctTeamPoolAssignmentSchema>;

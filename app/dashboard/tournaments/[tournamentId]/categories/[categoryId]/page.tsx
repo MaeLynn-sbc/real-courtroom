@@ -90,6 +90,7 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
       teamId: registration.teamId,
       name: teamNames[registration.teamId],
       poolLabel: registration.poolLabel,
+      poolPosition: registration.poolPosition,
       number: teamPoolNumbers[registration.teamId],
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -193,11 +194,12 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
             {isRoundRobin ? " Score entry for each match appears here once matchups are created." : ""}
           </p>
         ) : null}
-        {!bracketGenerated && isRoundRobin ? (
+        {isRoundRobin ? (
           <PoolAssignmentForm
             tournamentId={tournamentId}
             categoryId={categoryId}
             confirmedCount={confirmedCount}
+            bracketGenerated={bracketGenerated}
             pools={pools}
             teams={confirmedTeamsWithPool}
           />

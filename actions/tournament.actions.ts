@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import {
+  correctTeamPoolAssignmentSchema,
   createCategorySchema,
   createManualMatchSchema,
   createPoolsSchema,
@@ -16,6 +17,7 @@ import {
   updateRegistrationPlayerNamesSchema,
   updateTournamentPaymentSettingSchema,
   updateTournamentStatusSchema,
+  type CorrectTeamPoolAssignmentInput,
   type CreateCategoryInput,
   type CreateManualMatchInput,
   type CreatePoolsInput,
@@ -437,6 +439,42 @@ export async function setTeamPoolAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "setTeamPoolAction", userId: authz.userId }),
+    };
+  }
+}
+
+// Owner request (2026-08-13): "can i hva a pool players list. edit it
+// and change it" — see tournamentService.correctTeamPoolAssignment's
+// own comment for why this is a separate action from setTeamPoolAction
+// above, not a relaxed guard on it.
+export async function correctTeamPoolAssignmentAction(
+  tournamentId: string,
+  categoryId: string,
+  input: CorrectTeamPoolAssignmentInput,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = correctTeamPoolAssignmentSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid pool assignment." };
+  }
+
+  try {
+    await tournamentService.correctTeamPoolAssignment(
+      categoryId,
+      parsed.data.teamId,
+      parsed.data.poolLabel,
+      parsed.data.poolPosition,
+      authz.userId,
+    );
+    revalidateCategory(tournamentId, categoryId);
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "correctTeamPoolAssignmentAction", userId: authz.userId }),
     };
   }
 }

@@ -734,6 +734,55 @@ export class TournamentService {
     });
   }
 
+  // Owner request (2026-08-13): "can i hva a pool players list. edit it
+  // and change it" — real incident: a live tournament's pools had been
+  // drawn before poolPosition existed, so every team showed no number at
+  // all, and there was no way back in through setTeamPool above, which
+  // correctly refuses once matches exist. This is the fix — a pure
+  // relabeling correction, deliberately with NO "matches already
+  // generated" guard, since it never touches a Match row (Match.poolLabel
+  // is denormalized at generateBracket time and stays whatever it was —
+  // correcting a team's own pool/position here does not retroactively
+  // move any already-created match to a different pool section). Both
+  // poolLabel and poolPosition are set explicitly together (or cleared
+  // together) — see the schema's own comment for why this doesn't
+  // auto-append the way setTeamPool/createPools do.
+  async correctTeamPoolAssignment(
+    categoryId: string,
+    teamId: string,
+    poolLabel: string | null,
+    poolPosition: number | null,
+    actorUserId: string,
+  ): Promise<void> {
+    if ((poolLabel === null) !== (poolPosition === null)) {
+      throw new Error("A pool and a position must be set together, or both cleared.");
+    }
+    if (poolPosition !== null && (!Number.isInteger(poolPosition) || poolPosition < 1)) {
+      throw new Error("Position must be a positive whole number.");
+    }
+
+    const registration = await prisma.tournamentRegistration.findFirst({
+      where: { tournamentCategoryId: categoryId, teamId, status: "CONFIRMED" },
+    });
+    if (!registration) {
+      throw new Error("That team isn't a confirmed registration in this category.");
+    }
+
+    await prisma.tournamentRegistration.update({
+      where: { id: registration.id },
+      data: { poolLabel, poolPosition },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.pool_assignment_corrected",
+      entityType: "TournamentRegistration",
+      entityId: registration.id,
+      oldValues: { poolLabel: registration.poolLabel, poolPosition: registration.poolPosition },
+      newValues: { poolLabel, poolPosition },
+    });
+  }
+
   async generateBracket(categoryId: string, actorUserId: string): Promise<void> {
     const category = await prisma.tournamentCategory.findUniqueOrThrow({
       where: { id: categoryId },
