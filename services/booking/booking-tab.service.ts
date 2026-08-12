@@ -10,13 +10,10 @@ import { saleService } from "@/services/sales/sale.service";
 // schema comment for why this is a separate service/model rather than a
 // PlayerTab retrofit.
 //
-// The one deliberate structural difference from PlayerTab: settleTab
-// below creates ONE Sale PER PRODUCT line item (category PRODUCT,
-// productId set), not one lump Sale for the whole tab. PlayerTab's own
-// settleTab bundles everything into a single category-OPEN_PLAY Sale
-// with no productId — which is exactly why an open-play PRODUCT add-on
-// never shows up on the Shop Products report. This tab is built to not
-// repeat that from day one.
+// settleTab below creates ONE Sale PER PRODUCT line item (category
+// PRODUCT, productId set) — this tab was built with that shape from
+// day one, before PlayerTab's own settleTab (migration 71, 2026-08-12)
+// caught up to the same split for open play's add-ons.
 
 interface AuditLogEntry {
   actorUserId: string | null;

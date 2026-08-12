@@ -234,7 +234,7 @@ async function testSettlementCreatesASale(courtId: string, actorUserId: string, 
   );
   assert(settled.status === "SETTLED", "tab should be SETTLED after settlement");
 
-  const sale = await prisma.sale.findUnique({ where: { playerTabId: tab!.tab.id } });
+  const sale = await prisma.sale.findFirst({ where: { playerTabId: tab!.tab.id } });
   assert(sale, "settling a non-zero tab should create a Sale row");
   assert(sale!.amountCents === 3500, `expected Sale amountCents 3500, got ${sale!.amountCents}`);
   assert(sale!.category === "OPEN_PLAY", `expected category OPEN_PLAY, got ${sale!.category}`);
@@ -439,6 +439,104 @@ async function testVoidThenRecreditSameAssignment(courtId: string, actorUserId: 
   console.log("PASS: voiding a game credit and re-crediting the same assignment succeeds — no silent free game");
 }
 
+// Owner request (2026-08-12): "the regular open play should separate
+// the add ons for the balls and other products. it shouldnt be in the
+// regular open play sales" — proves settleTab now creates ONE Sale for
+// the game charge (category OPEN_PLAY) plus a SEPARATE Sale per product
+// add-on (category PRODUCT, productId set), mirroring
+// bookingTabService.settleTab exactly, instead of folding everything
+// into one lump OPEN_PLAY sale.
+async function testSettlementSplitsProductAddOnIntoSeparateSale(
+  courtId: string,
+  actorUserId: string,
+  employeeId: string,
+  shiftId: string,
+  paymentMethodId: string,
+): Promise<void> {
+  const product = await prisma.product.findFirstOrThrow({ where: { active: true } });
+
+  const registration = await openPlayRegistrationService.registerWeeknightWalkIn(
+    WEEKNIGHT_DATE,
+    { playerName: "Product Split Player", phone: nextPhone(), skillLevel: "INTERMEDIATE" },
+    actorUserId,
+  );
+  await openPlayCheckinService.checkIn(registration.id, actorUserId);
+  await creditGameDirectly(registration.id, courtId, WEEKNIGHT_DATE);
+
+  const tab = await playerTabService.getTabViewByRegistration(registration.id);
+  assert(tab, "checkIn should have opened a tab");
+  await playerTabService.addProductLineItem(tab!.tab.id, product.id, 2, actorUserId);
+
+  const beforeSettle = await playerTabService.getTabView(tab!.tab.id);
+  const expectedProductCents = product.priceCents * 2;
+  assert(
+    beforeSettle.totalCents === 3500 + expectedProductCents,
+    `expected tab total to be the game charge plus the product (${3500 + expectedProductCents}), got ${beforeSettle.totalCents}`,
+  );
+
+  await playerTabService.settleTab(tab!.tab.id, "CASH", null, { employeeId, shiftId, paymentMethodId }, actorUserId);
+
+  const sales = await prisma.sale.findMany({ where: { playerTabId: tab!.tab.id } });
+  assert(sales.length === 2, `expected exactly 2 Sale rows (one OPEN_PLAY, one PRODUCT), got ${sales.length}`);
+
+  const openPlaySale = sales.find((s) => s.category === "OPEN_PLAY");
+  assert(openPlaySale, "expected one Sale with category OPEN_PLAY");
+  assert(openPlaySale!.amountCents === 3500, `expected the OPEN_PLAY sale to be exactly the game charge (3500), got ${openPlaySale!.amountCents}`);
+  assert(openPlaySale!.productId === null, "expected the OPEN_PLAY sale to have no productId");
+
+  const productSale = sales.find((s) => s.category === "PRODUCT");
+  assert(productSale, "expected one Sale with category PRODUCT");
+  assert(
+    productSale!.amountCents === expectedProductCents,
+    `expected the PRODUCT sale to be exactly the add-on charge (${expectedProductCents}), got ${productSale!.amountCents}`,
+  );
+  assert(productSale!.productId === product.id, "expected the PRODUCT sale's productId to trace back to the real Product row");
+
+  console.log("PASS: settling a tab with a product add-on creates two Sales — OPEN_PLAY for the game charge, PRODUCT for the add-on, not one lump sale");
+}
+
+// Same scenario, but the product add-on is voided before settlement —
+// proves it's excluded outright (no stray PRODUCT sale, and no leaked
+// negative charge landing in the OPEN_PLAY sale either, since the
+// compensating void row is type ADJUSTMENT, not PRODUCT).
+async function testVoidedProductAddOnExcludedFromBothSales(
+  courtId: string,
+  actorUserId: string,
+  employeeId: string,
+  shiftId: string,
+  paymentMethodId: string,
+): Promise<void> {
+  const product = await prisma.product.findFirstOrThrow({ where: { active: true } });
+
+  const registration = await openPlayRegistrationService.registerWeeknightWalkIn(
+    WEEKNIGHT_DATE,
+    { playerName: "Voided Product Player", phone: nextPhone(), skillLevel: "INTERMEDIATE" },
+    actorUserId,
+  );
+  await openPlayCheckinService.checkIn(registration.id, actorUserId);
+  await creditGameDirectly(registration.id, courtId, WEEKNIGHT_DATE);
+
+  const tab = await playerTabService.getTabViewByRegistration(registration.id);
+  assert(tab, "checkIn should have opened a tab");
+  const productItem = await playerTabService.addProductLineItem(tab!.tab.id, product.id, 1, actorUserId);
+  await playerTabService.voidLineItem(tab!.tab.id, productItem.id, "Player changed their mind", actorUserId);
+
+  const beforeSettle = await playerTabService.getTabView(tab!.tab.id);
+  assert(beforeSettle.totalCents === 3500, `expected the voided product to be fully excluded, tab total should be just the game charge (3500), got ${beforeSettle.totalCents}`);
+
+  await playerTabService.settleTab(tab!.tab.id, "CASH", null, { employeeId, shiftId, paymentMethodId }, actorUserId);
+
+  const sales = await prisma.sale.findMany({ where: { playerTabId: tab!.tab.id } });
+  assert(sales.length === 1, `expected exactly 1 Sale row (the voided product creates none), got ${sales.length}`);
+  assert(sales[0]!.category === "OPEN_PLAY", `expected the one Sale to be OPEN_PLAY, got ${sales[0]!.category}`);
+  assert(
+    sales[0]!.amountCents === 3500,
+    `expected the OPEN_PLAY sale to be exactly the game charge (3500), with no leaked negative from the voided product's compensating entry, got ${sales[0]!.amountCents}`,
+  );
+
+  console.log("PASS: a voided product add-on creates no PRODUCT sale and leaves the OPEN_PLAY sale unaffected — no leaked negative charge.");
+}
+
 async function main() {
   await cleanUpWeeknight();
 
@@ -460,6 +558,8 @@ async function main() {
     await testFriSatPlayerOwesZero(court.id, owner.id);
     await testClosingSessionBlockedByOpenTab(court.id, owner.id);
     await testSettlementCreatesASale(court.id, owner.id, employee.id, shift.id, paymentMethod.id);
+    await testSettlementSplitsProductAddOnIntoSeparateSale(court.id, owner.id, employee.id, shift.id, paymentMethod.id);
+    await testVoidedProductAddOnExcludedFromBothSales(court.id, owner.id, employee.id, shift.id, paymentMethod.id);
     await testSettlingTwiceIsRejectedNotDuplicated(court.id, owner.id, employee.id, shift.id, paymentMethod.id);
     await testWriteOffTwiceIsRejected(court.id, owner.id, employee.id);
     await testWriteOffRequiresEmployeeAndIsVisibleSeparately(court.id, owner.id, employee.id);

@@ -270,6 +270,12 @@ export class PlayerTabService {
           unitPriceCents: product.priceCents,
           amountCents: product.priceCents * qty,
           createdByUserId: actorUserId,
+          // Owner request (2026-08-12): "the regular open play should
+          // separate the add ons... it shouldnt be in the regular open
+          // play sales" — captured so settleTab can create a real,
+          // traceable Sale (category PRODUCT) for this add-on instead
+          // of folding it into the combined OPEN_PLAY sale.
+          productId,
         },
       });
     });
@@ -459,24 +465,65 @@ export class PlayerTabService {
 
       // Computed here, not before the transaction — see the fix comment
       // above for why that distinction is load-bearing.
-      const lineItems = await tx.tabLineItem.findMany({ where: { tabId } });
-      const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
+      const lineItems = await tx.tabLineItem.findMany({
+        where: { tabId },
+        include: { voidedByItems: true, voidsLineItem: true },
+      });
+
+      // Owner request (2026-08-12): "the regular open play should
+      // separate the add ons for the balls and other products. it
+      // shouldnt be in the regular open play sales" — mirrors
+      // bookingTabService.settleTab exactly: PRODUCT line items each
+      // get their own Sale (category PRODUCT, productId set) instead of
+      // being folded into the combined game/rental/adjustment total.
+      //
+      // A voided PRODUCT item is excluded outright (voidedByItems.length
+      // > 0), same as BookingTab — its compensating void row is type
+      // ADJUSTMENT, not PRODUCT, so it's excluded from openPlayItems
+      // below too (by checking what the void TARGETS, not just its own
+      // type), rather than leaking a stray negative charge into the
+      // open-play total that has nothing to do with open play money.
+      const productItems = lineItems.filter((item) => item.type === "PRODUCT" && item.voidedByItems.length === 0);
+      const openPlayItems = lineItems.filter((item) => {
+        if (item.type === "PRODUCT") return false;
+        if (item.voidsLineItemId && item.voidsLineItem?.type === "PRODUCT") return false;
+        return true;
+      });
+      const openPlayTotalCents = openPlayItems.reduce((sum, item) => sum + item.amountCents, 0);
+      const totalCents = openPlayTotalCents + productItems.reduce((sum, item) => sum + item.amountCents, 0);
 
       const registration = await tx.openPlayNightRegistration.findUniqueOrThrow({
         where: { id: updated.registrationId },
       });
 
-      if (totalCents > 0) {
+      if (openPlayTotalCents > 0) {
         await saleService.createSale(
           {
             category: "OPEN_PLAY",
-            amountCents: totalCents,
+            amountCents: openPlayTotalCents,
             paymentMethodId: saleContext.paymentMethodId,
             employeeId: saleContext.employeeId,
             shiftId: saleContext.shiftId,
             playerId: registration.playerId ?? undefined,
             playerTabId: tabId,
             description: `Open play tab — ${updated.playerName}`,
+          },
+          tx,
+        );
+      }
+
+      for (const item of productItems) {
+        await saleService.createSale(
+          {
+            category: "PRODUCT",
+            amountCents: item.amountCents,
+            paymentMethodId: saleContext.paymentMethodId,
+            employeeId: saleContext.employeeId,
+            shiftId: saleContext.shiftId,
+            playerId: registration.playerId ?? undefined,
+            productId: item.productId ?? undefined,
+            playerTabId: tabId,
+            description: item.qtyOrGames > 1 ? `${item.description} x${item.qtyOrGames}` : item.description,
           },
           tx,
         );

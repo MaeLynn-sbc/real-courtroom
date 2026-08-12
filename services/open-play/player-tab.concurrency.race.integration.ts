@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   ]);
 
   const finalView = await playerTabService.getTabView(tab!.tab.id);
-  const sale = await prisma.sale.findUnique({ where: { playerTabId: tab!.tab.id } });
+  const sale = await prisma.sale.findFirst({ where: { playerTabId: tab!.tab.id } });
   console.log(`Final tab status: ${finalView.tab.status}, total: ${finalView.totalCents}, Sale amount: ${sale?.amountCents ?? "none"}`);
 
   if (finalView.tab.status === "SETTLED") {

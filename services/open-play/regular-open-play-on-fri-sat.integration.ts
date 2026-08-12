@@ -164,7 +164,7 @@ async function main(): Promise<void> {
     );
     assert(settled.status === "SETTLED", "expected the tab to be SETTLED");
 
-    const settlementSale = await prisma.sale.findUnique({ where: { playerTabId: tab!.tab.id } });
+    const settlementSale = await prisma.sale.findFirst({ where: { playerTabId: tab!.tab.id } });
     assert(settlementSale, "expected settlement to create a Sale row");
     assert(
       settlementSale!.amountCents === openPlaySettings.weeknightGameRateCents,

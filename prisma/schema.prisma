@@ -2145,7 +2145,11 @@ model PlayerTab {
   session          OpenPlayNightSession?     @relation(fields: [sessionId], references: [id])
   writeOffEmployee Employee?                 @relation(fields: [writeOffEmployeeId], references: [id])
   lineItems        TabLineItem[]
-  sale             Sale?
+  // No single `sale Sale?` back-relation here, unlike before migration
+  // 71 — a PlayerTab can now produce SEVERAL Sales at settlement (one
+  // combined OPEN_PLAY sale plus one PRODUCT sale per add-on), see
+  // Sale.playerTabId's own comment. Same shape as BookingTab.sales.
+  sales            Sale[]
 
   @@index([date, status])
   @@index([sessionId])
@@ -2181,6 +2185,16 @@ model TabLineItem {
   reason           String?
   createdByUserId  String?
   createdAt        DateTime        @default(now())
+  // Owner request (2026-08-12): "the regular open play should separate
+  // the add ons for the balls and other products. it shouldnt be in the
+  // regular open play sales" — same shape as BookingTabLineItem's own
+  // productId (that model had this from day one specifically because
+  // this one didn't; see its own schema comment). Set for type=PRODUCT
+  // by addProductLineItem; null for every other type. Lets settleTab
+  // create a real, traceable Sale (category PRODUCT, productId set) per
+  // add-on instead of folding it into the combined OPEN_PLAY sale,
+  // exactly like BookingTab already does.
+  productId        String?
 
   // Set only on a void adjustment (type=ADJUSTMENT) — points back to the
   // line item it offsets. Purely additive: the original row is never
@@ -2852,7 +2866,17 @@ model Sale {
   // sale of an already-sold product threw a real unique-constraint
   // violation). See migration 29_sale_product_id_not_unique.
   productId                   String?
-  playerTabId                 String? @unique
+  // NOT unique, as of migration 71 — same shape as productId above, and
+  // for the identical reason. Owner request (2026-08-12): "the regular
+  // open play should separate the add ons for the balls and other
+  // products. it shouldnt be in the regular open play sales" —
+  // settleTab now creates ONE Sale for the tab's combined game/rental/
+  // adjustment charges (category OPEN_PLAY) PLUS one Sale PER PRODUCT
+  // add-on line item (category PRODUCT, productId set), mirroring
+  // BookingTab's own settlement below. A `@unique` here made that
+  // impossible — the exact failure productId's own unique constraint
+  // hit before migration 29.
+  playerTabId                 String?
   // Gate 2 review follow-up: the Fri/Sat ₱150 walk-in registration fee
   // (services/open-play/open-play-registration.service.ts's
   // registerWalkIn) — a SaleCategory.OPEN_PLAY Sale, but distinct from
@@ -2866,13 +2890,12 @@ model Sale {
   // the identical reason. A BookingTab settlement (services/booking/
   // booking-tab.service.ts) creates ONE Sale PER DISTINCT PRODUCT rather
   // than one lump Sale for the whole tab, specifically so add-on revenue
-  // lands on the correct category (PRODUCT, with productId set) instead
-  // of being invisible to the Shop Products report the way open play's
-  // PlayerTab settlement (one Sale, category OPEN_PLAY, no productId)
-  // already is — see BookingTab's own schema comment. A `@unique` here
-  // would make it impossible to ever settle a tab with two different
-  // add-ons on it, the same failure productId's own unique constraint
-  // hit before migration 29.
+  // lands on the correct category (PRODUCT, with productId set) — the
+  // same fix migration 71 later applied to playerTabId above, once
+  // open play's own PlayerTab settlement had the identical gap. A
+  // `@unique` here would make it impossible to ever settle a tab with
+  // two different add-ons on it, the same failure productId's own
+  // unique constraint hit before migration 29.
   bookingTabId                String?
 
   createdAt DateTime @default(now())
