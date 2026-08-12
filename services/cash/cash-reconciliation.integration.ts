@@ -31,6 +31,7 @@
  */
 import "dotenv/config";
 
+import { computeBusinessDate } from "../../lib/business-date";
 import { prisma } from "../../lib/prisma";
 import {
   cashReconciliationService,
@@ -39,6 +40,7 @@ import {
 } from "./cash-reconciliation.service";
 import { expenseService } from "../expenses/expense.service";
 import { saleService } from "../sales/sale.service";
+import { settingsService } from "../settings/settings.service";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -96,7 +98,20 @@ async function main(): Promise<void> {
   const owner = await prisma.user.findFirstOrThrow({ where: { username: "owner" } });
   const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
 
-  const today = toMidnight(new Date());
+  // Real incident (2026-08-13): this test used to compute "today" via
+  // literal toMidnight(new Date()) while seedFirstBalance defaulted to
+  // rolloverHour 0 — meanwhile createSale (called below with no
+  // playerTabId) always computes Sale.businessDate via the REAL
+  // rolloverHour setting. Those two only ever disagreed when the test
+  // happened to run between midnight and the real rollover hour — rare,
+  // but genuinely hit live once this session ran long enough to cross
+  // that window, and the known Cash sale's delta silently read 0. Both
+  // "today" and the seed now use the same real rolloverHour createSale
+  // itself uses, so they can't drift apart regardless of the wall-clock
+  // moment this test happens to run.
+  const courtHours = await settingsService.getCourtHours();
+  const rolloverHour = courtHours.businessDateRolloverHour;
+  const today = computeBusinessDate(new Date(), rolloverHour);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -120,7 +135,7 @@ async function main(): Promise<void> {
     );
 
     // ============== 2. One-time seed; a second attempt is rejected ==============
-    const seeded = await cashReconciliationService.seedFirstBalance(500000, owner.id); // ₱5,000
+    const seeded = await cashReconciliationService.seedFirstBalance(500000, owner.id, rolloverHour); // ₱5,000
     assert(seeded.date.getTime() === today.getTime(), "expected the seed to target today");
     assert(
       seeded.startingBalanceCents === 500000,

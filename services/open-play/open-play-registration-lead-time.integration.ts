@@ -17,6 +17,7 @@
  */
 import "dotenv/config";
 
+import { computeBusinessDate } from "../../lib/business-date";
 import { prisma } from "../../lib/prisma";
 import { openPlayCapacityService } from "./open-play-capacity.service";
 import { createPublicOpenPlayRegistration } from "./public-open-play-registration.service";
@@ -53,8 +54,15 @@ async function main(): Promise<void> {
 
   const originalSettings = await settingsService.getOpenPlaySettings();
 
-  const todayMidnight = new Date();
-  todayMidnight.setHours(0, 0, 0, 0);
+  // Real incident (2026-08-13): this used to be literal
+  // new Date().setHours(0,0,0,0) — but the real lead-time gate inside
+  // createPublicOpenPlayRegistration computes "today" via the rollover-
+  // hour-aware computeBusinessDate. Those two only disagree when this
+  // test happens to run between midnight and the real rollover hour —
+  // rare, but genuinely hit once this session ran long enough to cross
+  // that window, throwing the boundary off by exactly one day.
+  const courtHours = await settingsService.getCourtHours();
+  const todayMidnight = computeBusinessDate(new Date(), courtHours.businessDateRolloverHour);
   const daysUntilSession = Math.round((TEST_DATE.getTime() - todayMidnight.getTime()) / (24 * 60 * 60 * 1000));
   console.log(`Fixture date is ${daysUntilSession} real calendar days from today.`);
 

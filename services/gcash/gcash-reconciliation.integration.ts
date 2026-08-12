@@ -35,10 +35,12 @@
  */
 import "dotenv/config";
 
+import { computeBusinessDate } from "../../lib/business-date";
 import { prisma } from "../../lib/prisma";
 import { expenseService } from "../expenses/expense.service";
 import { gcashReconciliationService, GcashBalanceAlreadyConfirmedError, PriorDayNotClosedError } from "./gcash-reconciliation.service";
 import { saleService } from "../sales/sale.service";
+import { settingsService } from "../settings/settings.service";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -85,7 +87,15 @@ async function main(): Promise<void> {
   const owner = await prisma.user.findFirstOrThrow({ where: { username: "owner" } });
   const gcashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "GCASH" } });
 
-  const today = toMidnight(new Date());
+  // Real incident (2026-08-13) — see cash-reconciliation.integration.ts's
+  // twin comment for the full story: this test's "today" and
+  // seedFirstBalance's default rolloverHour (0) could disagree with
+  // createSale's real rollover-hour-based businessDate whenever the test
+  // happened to run between midnight and the real rollover hour. Both
+  // now use the same real rolloverHour throughout.
+  const courtHours = await settingsService.getCourtHours();
+  const rolloverHour = courtHours.businessDateRolloverHour;
+  const today = computeBusinessDate(new Date(), rolloverHour);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -104,7 +114,7 @@ async function main(): Promise<void> {
     console.log("PASS: with no prior CONFIRMED day, getOrCreateBalanceForDate returns null — a real handled case, not a crash.");
 
     // ============== 2. One-time seed; a second attempt is rejected ==============
-    const seeded = await gcashReconciliationService.seedFirstBalance(500000, owner.id); // ₱5,000
+    const seeded = await gcashReconciliationService.seedFirstBalance(500000, owner.id, rolloverHour); // ₱5,000
     assert(seeded.date.getTime() === today.getTime(), "expected the seed to target today");
     assert(seeded.startingBalanceCents === 500000, `expected startingBalanceCents 500000, got ${seeded.startingBalanceCents}`);
     assert(seeded.status === "OPEN", `expected OPEN, got ${seeded.status}`);
