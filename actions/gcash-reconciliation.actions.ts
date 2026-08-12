@@ -16,6 +16,7 @@ import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { gcashReconciliationService } from "@/services/gcash/gcash-reconciliation.service";
+import { settingsService } from "@/services/settings/settings.service";
 import { PERMISSIONS } from "@/types/permissions";
 
 export interface GcashReconciliationActionState {
@@ -62,7 +63,12 @@ export async function seedGcashBalanceAction(input: SeedGcashBalanceInput): Prom
   }
 
   try {
-    await gcashReconciliationService.seedFirstBalance(parsed.data.startingBalanceCents, authz.userId);
+    const courtHours = await settingsService.getCourtHours();
+    await gcashReconciliationService.seedFirstBalance(
+      parsed.data.startingBalanceCents,
+      authz.userId,
+      courtHours.businessDateRolloverHour,
+    );
     revalidateGcashReconciliation();
     return { error: null };
   } catch (error) {

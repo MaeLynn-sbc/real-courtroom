@@ -16,6 +16,7 @@ import { requirePermission } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { cashReconciliationService } from "@/services/cash/cash-reconciliation.service";
+import { settingsService } from "@/services/settings/settings.service";
 import { PERMISSIONS } from "@/types/permissions";
 
 export interface CashReconciliationActionState {
@@ -61,9 +62,11 @@ export async function seedCashBalanceAction(
   }
 
   try {
+    const courtHours = await settingsService.getCourtHours();
     await cashReconciliationService.seedFirstBalance(
       parsed.data.startingBalanceCents,
       authz.userId,
+      courtHours.businessDateRolloverHour,
     );
     revalidateCashReconciliation();
     return { error: null };

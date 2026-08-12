@@ -132,16 +132,14 @@ export class ExpenseService {
   // (rent, supplies, a bank fee paid from the drawer) explains a deficit
   // instead of just being an unexplained variance note. Filters on
   // Expense.date (the business date, local-midnight-normalized at
-  // creation — actions/expense.actions.ts), not createdAt, matching how
-  // the reconciliation balances themselves are date-keyed.
+  // creation — actions/expense.actions.ts, always already exact
+  // midnight, so an exact match is all this needs — no rollover-hour
+  // math, unlike Sale.createdAt which needed the businessDate column).
   async getGcashExpensesForDate(date: Date): Promise<number> {
     const gcashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "GCASH" } });
-    const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const startOfNextDay = new Date(startOfDay);
-    startOfNextDay.setDate(startOfNextDay.getDate() + 1);
 
     const result = await prisma.expense.aggregate({
-      where: { paymentMethodId: gcashMethod.id, date: { gte: startOfDay, lt: startOfNextDay } },
+      where: { paymentMethodId: gcashMethod.id, date },
       _sum: { amountCents: true },
     });
     return result._sum.amountCents ?? 0;
@@ -150,12 +148,9 @@ export class ExpenseService {
   // Cash's twin of getGcashExpensesForDate above.
   async getCashExpensesForDate(date: Date): Promise<number> {
     const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
-    const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const startOfNextDay = new Date(startOfDay);
-    startOfNextDay.setDate(startOfNextDay.getDate() + 1);
 
     const result = await prisma.expense.aggregate({
-      where: { paymentMethodId: cashMethod.id, date: { gte: startOfDay, lt: startOfNextDay } },
+      where: { paymentMethodId: cashMethod.id, date },
       _sum: { amountCents: true },
     });
     return result._sum.amountCents ?? 0;

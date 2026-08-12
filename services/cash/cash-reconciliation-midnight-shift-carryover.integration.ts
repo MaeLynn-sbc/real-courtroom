@@ -1,32 +1,34 @@
 /**
- * Real incident (2026-08-08): a shift spanning midnight had its physical
- * closing count confirmed as the PREVIOUS day's ending balance, several
- * minutes AFTER a few more sales had already come in right after
- * midnight. That confirmed figure already included those sales (the
- * physical drawer count happened after them). The following day's own
- * expected-balance calculation then counted the SAME sales a second
- * time, purely because their createdAt fell after midnight — inflating
- * that day's expected total, and its reported deficit, by real money
- * that was never actually going to reappear in that day's drawer.
- * Traced on a real Aug 7 cash reconciliation: ₱1,120.00 double-counted,
- * accounting for exactly half of a ₱2,220.00 reported deficit.
+ * Cash's twin of services/gcash/gcash-reconciliation-midnight-shift-
+ * carryover.integration.ts — same real incident (2026-08-08), same fix,
+ * same reasoning, applied to CashReconciliationService instead.
+ *
+ * Owner-directed consolidation (2026-08-12) changed HOW this incident is
+ * prevented: a sale rung up just after midnight but before the rollover
+ * hour now gets Sale.businessDate = the PREVIOUS business day at the
+ * moment it's created (the same computeBusinessDate every other correct
+ * part of the app uses), so getCashSalesForDate(dayOne) correctly
+ * includes it from the start — no separate excludeBefore/confirmedAt
+ * exclusion needed for this case anymore. excludeBefore remains as an
+ * independent safety net for a genuinely late confirmation (see that
+ * parameter's own comment in sale.service.ts) — not exercised by this
+ * test, which is specifically about the ordinary midnight-spanning case.
+ *
+ * Traced on a real Aug 7 cash reconciliation: ₱1,120.00 that used to be
+ * double-counted, accounting for exactly half of a ₱2,220.00 reported
+ * deficit — the original incident this test was written to prove fixed.
  *
  * Proves, against real rows:
- *   1. A sale whose createdAt is BEFORE the previous day's confirmedAt
- *      is excluded from the day's expected ending balance — it was
- *      already captured in that earlier physical count.
- *   2. A sale whose createdAt is AFTER the previous day's confirmedAt
- *      still counts normally — this fix only excludes what was already
- *      captured, nothing else.
- *
- * Uses fixed, far-past isolated dates (safely outside any real business
- * date this app has ever operated on), with confirmedAt set directly via
- * Prisma rather than through confirmBalance() (which always stamps real
- * wall-clock "now") — the whole point of this test is the RELATIONSHIP
- * between a sale's createdAt and the previous day's confirmedAt, so both
- * need to be under this test's own control, not tied to whenever it
- * happens to run. Never collides with the sequential today/tomorrow
- * narrative the main cash-reconciliation.integration.ts suite owns.
+ *   1. A sale rung up just after midnight but BEFORE the rollover hour
+ *      is attributed to the PREVIOUS business day's expected balance
+ *      directly — no unexplained variance, no manual note needed.
+ *   2. The next business day's starting balance carries that forward
+ *      correctly, and does NOT also count that same sale again.
+ *   3. A sale rung up just after midnight but AFTER the rollover hour
+ *      belongs to the NEXT business day, not the previous one — the
+ *      boundary is the rollover hour, not literal midnight.
+ *   4. A sale rung up well into the next business day still counts
+ *      normally.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -35,6 +37,7 @@ import "dotenv/config";
 import { prisma } from "../../lib/prisma";
 import { cashReconciliationService } from "./cash-reconciliation.service";
 import { saleService } from "../sales/sale.service";
+import { settingsService } from "../settings/settings.service";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -74,6 +77,9 @@ async function main(): Promise<void> {
   await cleanUp();
 
   const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
+  const courtHours = await settingsService.getCourtHours();
+  const rolloverHour = courtHours.businessDateRolloverHour;
+  assert(rolloverHour >= 1 && rolloverHour <= 22, `this test assumes a rollover hour with room on both sides, got ${rolloverHour}`);
 
   let employeeId: string | undefined;
 
@@ -84,7 +90,6 @@ async function main(): Promise<void> {
       data: { shiftNumber: `SHIFT-MIDCARRY-${Date.now()}`, employeeId: employee.id, status: "OPEN" },
     });
 
-    // ============== Setup: day one, an ordinary sale, then a "late" sale just after midnight ==============
     const dayOneRow = await prisma.cashDailyBalance.create({
       data: { date: DAY_ONE, startingBalanceCents: 100000, status: "OPEN" }, // ₱1,000
     });
@@ -97,80 +102,93 @@ async function main(): Promise<void> {
       description: "Ordinary day-one sale",
       createdAt: new Date(DAY_ONE.getFullYear(), DAY_ONE.getMonth(), DAY_ONE.getDate(), 20, 0),
     });
-    const lateSaleCreatedAt = new Date(DAY_TWO.getFullYear(), DAY_TWO.getMonth(), DAY_TWO.getDate(), 0, 5);
+    // Just after midnight, BEFORE the rollover hour — still day one's
+    // business day.
+    const lateSaleCreatedAt = new Date(
+      DAY_TWO.getFullYear(),
+      DAY_TWO.getMonth(),
+      DAY_TWO.getDate(),
+      Math.max(0, rolloverHour - 1),
+      0,
+    );
     await saleService.createSale({
       category: "PRODUCT",
-      amountCents: 11200, // ₱112 — the "late" sale, minutes after midnight, day-two's calendar date
+      amountCents: 11200, // ₱112 — the "late" sale, minutes after midnight, before rollover
       paymentMethodId: cashMethod.id,
       employeeId: employee.id,
       shiftId: shift.id,
-      description: "Late post-midnight sale — same shift, still open",
+      description: "Late post-midnight sale, before rollover — same shift, still open",
       createdAt: lateSaleCreatedAt,
     });
 
-    // Day one's OWN expected total never includes the late sale at all —
-    // its createdAt is on day two, outside day one's own [dayOne, dayTwo)
-    // window. Confirms the fixture: day one's expected is exactly the
-    // ₱500 ordinary sale.
+    // ============== 1. Attributed to day one directly, no variance ==============
     const dayOneExpected = await cashReconciliationService.getExpectedEndingBalance(dayOneRow);
-    assert(dayOneExpected === 150000, `expected day one's expected ending to be 150000 (starting 100000 + 50000 sale), got ${dayOneExpected}`);
+    assert(
+      dayOneExpected === 161200,
+      `expected day one's expected ending to include the late-but-before-rollover sale directly (161200), got ${dayOneExpected}`,
+    );
+    console.log(
+      "PASS: a sale rung up just after midnight but before the rollover hour is attributed to the previous business day directly — no unexplained variance.",
+    );
 
-    // Confirmed at day-two 00:30 — 25 minutes AFTER the late sale
-    // (00:05). This is the physical count that (in the real incident)
-    // happened after the post-midnight sale, so it already captured
-    // that ₱112 in its ₱1,612 confirmed drawer count. Set directly, not
-    // via confirmBalance() (which always stamps real wall-clock "now")
-    // — this test needs confirmedAt fully under its own control, not
-    // tied to whenever it happens to run.
-    const confirmedAt = new Date(DAY_TWO.getFullYear(), DAY_TWO.getMonth(), DAY_TWO.getDate(), 0, 30);
     await prisma.cashDailyBalance.update({
       where: { id: dayOneRow.id },
       data: {
         status: "CONFIRMED",
-        confirmedEndingBalanceCents: 161200, // starting 1000 + ordinary 500 + the late 112, physically counted together
+        confirmedEndingBalanceCents: 161200,
         expectedEndingBalanceCents: dayOneExpected,
-        varianceCents: 161200 - dayOneExpected,
+        varianceCents: 0,
         withdrawnCents: 0,
-        confirmedAt,
+        confirmedAt: new Date(DAY_TWO.getFullYear(), DAY_TWO.getMonth(), DAY_TWO.getDate(), rolloverHour, 30),
         confirmedByEmployeeId: employee.id,
-        notes: "Physical count includes a sale rung up just after midnight.",
       },
     });
-    console.log("PASS: day one confirmed with the late sale's cash physically included in the count.");
 
-    // ============== 1. Day two's expected total must NOT double-count the late sale ==============
+    // ============== 2. Day two doesn't double-count it ==============
     const dayTwoBalance = await cashReconciliationService.getOrCreateBalanceForDate(DAY_TWO);
     assert(dayTwoBalance, "expected day two's balance to materialize after day one confirmed");
     assert(
       dayTwoBalance!.startingBalanceCents === 161200,
-      `expected day two's starting balance to carry forward the full 161200 (nothing withdrawn), got ${dayTwoBalance!.startingBalanceCents}`,
+      `expected day two's starting balance to carry forward 161200, got ${dayTwoBalance!.startingBalanceCents}`,
     );
     const dayTwoExpected = await cashReconciliationService.getExpectedEndingBalance(dayTwoBalance!);
     assert(
       dayTwoExpected === 161200,
-      `expected day two's expected ending to equal its starting balance exactly (161200) — the late sale must be excluded, not summed again — got ${dayTwoExpected}`,
+      `expected day two's expected ending to equal its starting balance exactly (161200) — the late-but-before-rollover sale must not be double-counted — got ${dayTwoExpected}`,
     );
-    console.log("PASS: the late sale, already captured in day one's physical count, is NOT double-counted into day two's expected balance.");
+    console.log("PASS: the late-but-before-rollover sale, already attributed to day one, is NOT double-counted into day two.");
 
-    // ============== 2. A genuinely NEW day-two sale, created AFTER day one's confirmedAt, still counts normally ==============
-    await saleService.createSale({
+    // ============== 3. Just after the rollover hour -> genuinely day two ==============
+    const justAfterRollover = new Date(
+      DAY_TWO.getFullYear(),
+      DAY_TWO.getMonth(),
+      DAY_TWO.getDate(),
+      Math.min(23, rolloverHour + 1),
+      0,
+    );
+    const afterRolloverSale = await saleService.createSale({
       category: "PRODUCT",
-      amountCents: 30000, // ₱300 — a real, new day-two sale, well after confirmedAt (00:30)
+      amountCents: 30000, // ₱300 — a real, new day-two sale
       paymentMethodId: cashMethod.id,
       employeeId: employee.id,
       shiftId: shift.id,
-      description: "A genuine day-two sale",
-      createdAt: new Date(DAY_TWO.getFullYear(), DAY_TWO.getMonth(), DAY_TWO.getDate(), 10, 0),
+      description: "A genuine day-two sale, after the rollover hour",
+      createdAt: justAfterRollover,
     });
+    const reloadedAfterRolloverSale = await prisma.sale.findUniqueOrThrow({ where: { id: afterRolloverSale.id } });
+    assert(
+      reloadedAfterRolloverSale.businessDate?.getTime() === DAY_TWO.getTime(),
+      `expected a sale after the rollover hour to be attributed to day two, got ${reloadedAfterRolloverSale.businessDate?.toISOString()}`,
+    );
     const dayTwoExpectedAfterNewSale = await cashReconciliationService.getExpectedEndingBalance(dayTwoBalance!);
     assert(
       dayTwoExpectedAfterNewSale === 191200,
       `expected day two's expected ending to rise by exactly the new 30000 sale (to 191200), got ${dayTwoExpectedAfterNewSale}`,
     );
-    console.log("PASS: a genuinely new day-two sale, after day one's confirmedAt, still counts normally — this fix only excludes what was already captured.");
+    console.log("PASS: a sale rung up after the rollover hour belongs to the next business day and counts normally.");
 
     await cleanUp(employeeId);
-    console.log("\nPASS: midnight-spanning shift carryover no longer double-counts, proven against real rows.");
+    console.log("\nPASS: midnight-spanning shift carryover no longer double-counts cash — the boundary is the rollover hour, not literal midnight.");
   } catch (error) {
     await cleanUp(employeeId);
     throw error;

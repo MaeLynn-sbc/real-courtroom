@@ -1,3 +1,4 @@
+import { computeBusinessDate } from "@/lib/business-date";
 import type { CashDailyBalance, Prisma } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
@@ -24,6 +25,10 @@ import { saleService } from "@/services/sales/sale.service";
 // those changes, this formula needs revisiting then — flagged here, not
 // silently ignored.
 
+// Owner-directed consolidation (2026-08-12): deliberately NOT replaced
+// with computeBusinessDate everywhere — see gcashReconciliationService's
+// own identical toMidnight comment. Every call below except
+// seedFirstBalance normalizes a date the caller already decided.
 function toMidnight(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -94,6 +99,7 @@ export class CashReconciliationService {
   async seedFirstBalance(
     startingBalanceCents: number,
     actorUserId: string,
+    rolloverHour = 0,
   ): Promise<CashDailyBalance> {
     const anyExisting = await prisma.cashDailyBalance.findFirst();
     if (anyExisting) {
@@ -105,7 +111,9 @@ export class CashReconciliationService {
     let balance: CashDailyBalance;
     try {
       balance = await prisma.cashDailyBalance.create({
-        data: { date: toMidnight(new Date()), startingBalanceCents },
+        // Owner-directed consolidation (2026-08-12): the one real
+        // "what day is it right now" spot in this file.
+        data: { date: computeBusinessDate(new Date(), rolloverHour), startingBalanceCents },
       });
     } catch (error) {
       // Same benign-race handling as GCash's own seedFirstBalance — two

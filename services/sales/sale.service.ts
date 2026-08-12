@@ -659,34 +659,38 @@ export class SaleService {
   // GCash reconciliation Gate 1: date-scoped (not shift-scoped, unlike
   // getCashSalesForShift above) — GCash is one shared account balance
   // for the whole business, so this sums every GCash Sale across every
-  // shift that fell on the given calendar day, midnight to midnight.
+  // shift attributed to the given business day.
+  //
+  // Owner-directed consolidation (2026-08-12): filters on Sale.
+  // businessDate directly now (set once, at creation — see that
+  // column's own schema comment), not a hand-computed createdAt range —
+  // `date` is expected to already be a real business-date value (what
+  // GcashDailyBalance.date holds), so this is now an exact match, no
+  // rollover-hour math needed here at all.
   //
   // Real incident (2026-08-08): a shift spanning midnight (started Aug 6
   // evening, closed 12:32 AM Aug 7) had its physical closing count
   // confirmed as AUG 6's reconciliation ending balance — at 12:54 AM,
   // AFTER those last few post-midnight sales already happened. That
   // confirmed figure already included them. This function, called again
-  // for Aug 7, counted the exact same sales a second time, purely
-  // because their createdAt fell after midnight — inflating Aug 7's
-  // expected balance by real money that was never actually going to be
-  // in Aug 7's drawer. excludeBefore (the previous day's own
-  // confirmedAt, passed by the reconciliation service) closes this: any
-  // sale that happened before the previous day was physically counted
-  // was already captured in that count, and must not be counted again
-  // here. Optional and unused by any other caller — every existing
-  // behavior is unchanged when omitted.
+  // for Aug 7, counted the exact same sales a second time. businessDate
+  // now correctly buckets those sales under Aug 6 in the first place
+  // (same rollover-hour logic the confirmed balance itself should be
+  // keyed by), but excludeBefore stays as a second, independent guard —
+  // a genuinely late confirmation (staff didn't click Confirm until
+  // well after the day's real close) is a "was this physically counted
+  // already" question, not a "which day does it belong to" one, and
+  // businessDate alone can't answer that. Optional and unused by any
+  // other caller — every existing behavior is unchanged when omitted.
   async getGcashSalesForDate(date: Date, excludeBefore?: Date): Promise<number> {
     const gcashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "GCASH" } });
-    const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const startOfNextDay = new Date(startOfDay);
-    startOfNextDay.setDate(startOfNextDay.getDate() + 1);
-    const gte = excludeBefore && excludeBefore > startOfDay ? excludeBefore : startOfDay;
 
     const result = await prisma.sale.aggregate({
       where: {
         status: "COMPLETED",
         paymentMethodId: gcashMethod.id,
-        createdAt: { gte, lt: startOfNextDay },
+        businessDate: date,
+        ...(excludeBefore ? { createdAt: { gte: excludeBefore } } : {}),
       },
       _sum: { amountCents: true },
     });
@@ -699,19 +703,16 @@ export class SaleService {
   // (services/cash/cash-reconciliation.service.ts). Not the same thing
   // as getCashSalesForShift above, which is per-shift for the drawer
   // handoff reconciliation that already exists on Shift. See
-  // getGcashSalesForDate's own comment for excludeBefore.
+  // getGcashSalesForDate's own comment for businessDate/excludeBefore.
   async getCashSalesForDate(date: Date, excludeBefore?: Date): Promise<number> {
     const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
-    const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const startOfNextDay = new Date(startOfDay);
-    startOfNextDay.setDate(startOfNextDay.getDate() + 1);
-    const gte = excludeBefore && excludeBefore > startOfDay ? excludeBefore : startOfDay;
 
     const result = await prisma.sale.aggregate({
       where: {
         status: "COMPLETED",
         paymentMethodId: cashMethod.id,
-        createdAt: { gte, lt: startOfNextDay },
+        businessDate: date,
+        ...(excludeBefore ? { createdAt: { gte: excludeBefore } } : {}),
       },
       _sum: { amountCents: true },
     });

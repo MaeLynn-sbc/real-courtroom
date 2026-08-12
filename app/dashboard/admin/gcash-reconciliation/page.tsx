@@ -4,11 +4,13 @@ import Link from "next/link";
 import { ReconciliationTabs } from "@/components/shared/reconciliation-tabs";
 import { CashReconciliationWorkspace } from "@/features/cash/components/cash-reconciliation-workspace";
 import { GcashReconciliationWorkspace } from "@/features/gcash/components/gcash-reconciliation-workspace";
+import { computeBusinessDate } from "@/lib/business-date";
 import { cashReconciliationService, PriorDayNotClosedError as CashPriorDayNotClosedError } from "@/services/cash/cash-reconciliation.service";
 import { expenseCategoryService } from "@/services/expenses/expense-category.service";
 import { expenseService } from "@/services/expenses/expense.service";
 import { gcashReconciliationService, PriorDayNotClosedError as GcashPriorDayNotClosedError } from "@/services/gcash/gcash-reconciliation.service";
 import { saleService } from "@/services/sales/sale.service";
+import { settingsService } from "@/services/settings/settings.service";
 import type { CashDailyBalance, GcashDailyBalance } from "@/lib/generated/prisma/client";
 
 // Real incident (2026-08-07): getOrCreateBalanceForDate now throws
@@ -46,6 +48,12 @@ interface ReconciliationPageProps {
 
 export default async function ReconciliationPage({ searchParams }: ReconciliationPageProps) {
   const { date: dateParam } = await searchParams;
+  // Owner-directed consolidation (2026-08-12): "today" (when no ?date=
+  // is given) is now the same rollover-hour-aware computeBusinessDate
+  // every other correct part of the app uses, not literal calendar
+  // midnight — a day confirmed before the rollover hour no longer
+  // resets to a fresh, empty "today" out from under a still-open shift.
+  const courtHours = await settingsService.getCourtHours();
   // Reported live (2026-08-04): "there's no option to close it" — a day
   // confirmed too early had no way back, because this page only ever
   // showed "today," with no way to reach any other date at all — not
@@ -53,8 +61,10 @@ export default async function ReconciliationPage({ searchParams }: Reconciliatio
   // sitting right behind today's premature close. ?date= (surfaced via
   // the Recent days table below becoming links) opens any date the same
   // way "today" always has; omitted, it's today exactly as before.
-  const viewedDate = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();
-  const today = new Date();
+  const viewedDate = dateParam
+    ? new Date(`${dateParam}T00:00:00`)
+    : computeBusinessDate(new Date(), courtHours.businessDateRolloverHour);
+  const today = computeBusinessDate(new Date(), courtHours.businessDateRolloverHour);
   const isViewingToday =
     viewedDate.getFullYear() === today.getFullYear() &&
     viewedDate.getMonth() === today.getMonth() &&

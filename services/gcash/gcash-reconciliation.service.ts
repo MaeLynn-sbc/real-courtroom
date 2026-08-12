@@ -1,3 +1,4 @@
+import { computeBusinessDate } from "@/lib/business-date";
 import type { GcashDailyBalance, Prisma } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
@@ -29,6 +30,14 @@ import { saleService } from "@/services/sales/sale.service";
 // future, this formula would need to incorporate it then — flagged
 // here, not silently ignored.
 
+// Owner-directed consolidation (2026-08-12): deliberately NOT replaced
+// with computeBusinessDate everywhere — every call below except
+// seedFirstBalance's normalizes a date the CALLER already decided
+// (the page's own ?date= param, itself now resolved via
+// computeBusinessDate when omitted — see that page's own comment).
+// Re-running rollover logic on an already-resolved business date would
+// be wrong, not extra-safe; this just strips the time-of-day off a
+// value that's already correct.
 function toMidnight(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -97,7 +106,11 @@ export class GcashReconciliationService {
   // silent 0 default. Throws if ANY record already exists (seeded or
   // not), so it can never overwrite real history; the UI only offers
   // this when getOrCreateBalanceForDate reports none exists yet.
-  async seedFirstBalance(startingBalanceCents: number, actorUserId: string): Promise<GcashDailyBalance> {
+  async seedFirstBalance(
+    startingBalanceCents: number,
+    actorUserId: string,
+    rolloverHour = 0,
+  ): Promise<GcashDailyBalance> {
     const anyExisting = await prisma.gcashDailyBalance.findFirst();
     if (anyExisting) {
       throw new Error("GCash reconciliation has already been started — the starting balance can't be re-seeded.");
@@ -106,7 +119,10 @@ export class GcashReconciliationService {
     let balance: GcashDailyBalance;
     try {
       balance = await prisma.gcashDailyBalance.create({
-        data: { date: toMidnight(new Date()), startingBalanceCents },
+        // Owner-directed consolidation (2026-08-12): the one real
+        // "what day is it right now" spot in this file — rollover-hour
+        // aware, not literal calendar midnight.
+        data: { date: computeBusinessDate(new Date(), rolloverHour), startingBalanceCents },
       });
     } catch (error) {
       // Same benign-race handling as getOrCreateSessionForDate — two
