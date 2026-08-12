@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { SpecialOpenPlayTvClient } from "@/features/display/components/special-open-play-tv-client";
+import { computeBusinessDate } from "@/lib/business-date";
 import { settingsService } from "@/services/settings/settings.service";
 import { specialDisplayService } from "@/services/display/special-display.service";
 
@@ -22,8 +23,10 @@ export const dynamic = "force-dynamic";
 // TournamentTvDisplayClient (see git history for the exact prior
 // version of this file), and revert the metadata title.
 export default async function TourTvPage() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Owner-directed consolidation (2026-08-12): rollover-hour aware, not
+  // literal calendar midnight.
+  const courtHours = await settingsService.getCourtHours();
+  const today = computeBusinessDate(new Date(), courtHours.businessDateRolloverHour);
 
   const [initialData, announcementRepeatCount, announcementVoice, refreshIntervalSeconds] =
     await Promise.all([

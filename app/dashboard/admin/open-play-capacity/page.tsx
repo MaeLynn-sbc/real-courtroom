@@ -25,9 +25,13 @@ const dateValueFormatter = (date: Date) => {
 const labelFormatter = new Intl.DateTimeFormat("en-PH", { weekday: "short", month: "short", day: "numeric" });
 
 export default async function OpenPlayCapacityPage() {
+  const courtHours = await settingsService.getCourtHours();
   const [defaults, upcomingNights, openPlaySettings] = await Promise.all([
     openPlayCapacityService.getCapacityDefaults(),
-    openPlayCapacityService.getUpcomingNights(UPCOMING_NIGHTS_COUNT),
+    openPlayCapacityService.getUpcomingNights(
+      UPCOMING_NIGHTS_COUNT,
+      courtHours.businessDateRolloverHour,
+    ),
     settingsService.getOpenPlaySettings(),
   ]);
 

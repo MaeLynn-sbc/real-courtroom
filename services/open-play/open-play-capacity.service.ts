@@ -1,3 +1,4 @@
+import { computeBusinessDate } from "@/lib/business-date";
 import { getFacilityCloseMinutes } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
@@ -544,8 +545,14 @@ export class OpenPlayCapacityService {
   // doesn't materialize a session row just for viewing; `isOverride`
   // distinguishes "already has its own row" from "would inherit today's
   // default if a session were created right now."
-  async getUpcomingNights(count: number): Promise<UpcomingOpenPlayNight[]> {
-    const today = toMidnight(new Date());
+  // Owner-directed consolidation (2026-08-12): rollover-hour aware, not
+  // literal calendar midnight — same computeBusinessDate every other
+  // correct part of the app uses. rolloverHour defaults to 0 (old
+  // behavior) so the many integration tests exercising this method
+  // don't need updating; every real production caller passes the real
+  // setting.
+  async getUpcomingNights(count: number, rolloverHour = 0): Promise<UpcomingOpenPlayNight[]> {
+    const today = computeBusinessDate(new Date(), rolloverHour);
     const dates: Date[] = [];
     const cursor = new Date(today);
     while (dates.length < count) {

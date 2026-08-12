@@ -53,9 +53,13 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
     );
   }
 
+  const courtHours = await settingsService.getCourtHours();
   const [upcomingNights, capacityDefaults, openPlaySettings, gcashInfo, businessInfo] =
     await Promise.all([
-      openPlayCapacityService.getUpcomingNights(UPCOMING_NIGHTS_COUNT),
+      openPlayCapacityService.getUpcomingNights(
+        UPCOMING_NIGHTS_COUNT,
+        courtHours.businessDateRolloverHour,
+      ),
       openPlayCapacityService.getCapacityDefaults(),
       settingsService.getOpenPlaySettings(),
       // Reported live: this page never fetched or passed the venue's GCash

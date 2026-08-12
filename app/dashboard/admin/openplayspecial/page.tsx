@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 
 import { SpecialOpenPlayBoard } from "@/features/open-play-special/components/special-open-play-board";
+import { computeBusinessDate } from "@/lib/business-date";
 import { specialOpenPlayService } from "@/services/open-play-special/special-open-play.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
   title: "Special Open Play — Private",
@@ -23,8 +25,10 @@ function toDateValue(date: Date): string {
 // rationale. Lives under /dashboard/admin, inheriting SYSTEM_ADMIN from
 // the parent rbac.ts rule — "visible only to me."
 export default async function OpenPlaySpecialPage() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Owner-directed consolidation (2026-08-12): rollover-hour aware, not
+  // literal calendar midnight.
+  const courtHours = await settingsService.getCourtHours();
+  const today = computeBusinessDate(new Date(), courtHours.businessDateRolloverHour);
   const checkIns = await specialOpenPlayService.listForDate(today);
 
   return (

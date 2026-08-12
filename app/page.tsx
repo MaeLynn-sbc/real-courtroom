@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { CourtAvailabilityGrid } from "@/features/bookings/components/court-availability-grid";
 import { CoachingTeaser } from "@/features/coaching/components/coaching-teaser";
 import { TournamentsTeaser } from "@/features/tournaments/components/tournaments-teaser";
+import { computeBusinessDate } from "@/lib/business-date";
 import { getCourtBookingWindow, getFacilityCloseMinutes } from "@/lib/court-hours";
 import { EQUIPMENT_KEYS } from "@/lib/equipment-keys";
 import { resolveOpenPlayClosedMessage } from "@/lib/open-play-closed-message";
@@ -90,8 +91,12 @@ function toLocalDateValue(date: Date): string {
 // robust regardless of what the cache does internally.
 const getCachedOpenPlayHomepageData = unstable_cache(
   async () => {
+    // rolloverHour fetched here too (not passed in) so this cached
+    // function's own cache key stays stable — one more cheap read
+    // bundled into the same 15s window as the other three.
+    const cachedCourtHours = await settingsService.getCourtHours();
     const [upcomingOpenPlayNights, openPlayCapacityDefaults, openPlaySettings] = await Promise.all([
-      openPlayCapacityService.getUpcomingNights(14),
+      openPlayCapacityService.getUpcomingNights(14, cachedCourtHours.businessDateRolloverHour),
       openPlayCapacityService.getCapacityDefaults(),
       settingsService.getOpenPlaySettings(),
     ]);
@@ -137,6 +142,7 @@ function computeOpenPlayCardState(
   featureEnabled: boolean,
   leadTimeDays: number,
   closedRegistrationMessage: string,
+  rolloverHour: number,
 ): OpenPlayCardState {
   if (!featureEnabled || !dayEnabled || !night) {
     return { kind: "not-open" };
@@ -148,11 +154,11 @@ function computeOpenPlayCardState(
     };
   }
 
-  const todayMidnight = new Date();
-  todayMidnight.setHours(0, 0, 0, 0);
-  const daysUntil = Math.round(
-    (night.date.getTime() - todayMidnight.getTime()) / (24 * 60 * 60 * 1000),
-  );
+  // Owner-directed consolidation (2026-08-12): rollover-hour aware, not
+  // literal calendar midnight — same computeBusinessDate every other
+  // correct part of the app uses.
+  const today = computeBusinessDate(new Date(), rolloverHour);
+  const daysUntil = Math.round((night.date.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
   if (daysUntil > leadTimeDays) {
     return {
       kind: "not-yet-open",
@@ -231,6 +237,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     openPlayFeatureEnabled,
     openPlaySettings.onlineRegistrationLeadTimeDays,
     openPlaySettings.closedRegistrationMessage,
+    courtHours.businessDateRolloverHour,
   );
   const saturdayCardState = computeOpenPlayCardState(
     saturdayNight,
@@ -238,6 +245,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     openPlayFeatureEnabled,
     openPlaySettings.onlineRegistrationLeadTimeDays,
     openPlaySettings.closedRegistrationMessage,
+    courtHours.businessDateRolloverHour,
   );
   const openPlayOpensAtFormatter = new Intl.DateTimeFormat("en-PH", {
     month: "long",

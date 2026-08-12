@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { computeBusinessDate, getBusinessDateRange } from "@/lib/business-date";
 import { prisma } from "@/lib/prisma";
 import { healthService } from "@/services/health/health.service";
 import { inventoryAlertsService } from "@/services/inventory/inventory-alerts.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
   title: "Diagnostics",
@@ -15,24 +17,21 @@ export const metadata: Metadata = {
 // showing live deployment state.
 export const dynamic = "force-dynamic";
 
-function startOfToday(): Date {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function endOfToday(): Date {
-  const date = startOfToday();
-  date.setDate(date.getDate() + 1);
-  return date;
-}
-
 export default async function DiagnosticsPage() {
+  // Owner-directed consolidation (2026-08-12): rollover-hour aware, not
+  // literal calendar midnight.
+  const courtHours = await settingsService.getCourtHours();
+  const today = computeBusinessDate(new Date(), courtHours.businessDateRolloverHour);
+  const { start: todayStart, end: todayEnd } = getBusinessDateRange(
+    today,
+    courtHours.businessDateRolloverHour,
+  );
+
   const [health, userCount, bookingsToday, alerts] = await Promise.all([
     healthService.getHealth(),
     prisma.user.count({ where: { deletedAt: null } }),
     prisma.booking.count({
-      where: { startAt: { gte: startOfToday(), lt: endOfToday() }, status: { notIn: ["CANCELLED"] } },
+      where: { startAt: { gte: todayStart, lt: todayEnd }, status: { notIn: ["CANCELLED"] } },
     }),
     inventoryAlertsService.getAlerts(),
   ]);

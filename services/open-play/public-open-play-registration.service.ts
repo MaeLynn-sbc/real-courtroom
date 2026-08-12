@@ -1,4 +1,5 @@
 import type { PublicOpenPlayRegistrationInput } from "@/features/open-play-capacity/schemas/public-open-play-registration.schema";
+import { computeBusinessDate } from "@/lib/business-date";
 import { resolveOpenPlayClosedMessage } from "@/lib/open-play-closed-message";
 import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
@@ -79,11 +80,12 @@ export async function createPublicOpenPlayRegistration(
   // editable via openPlaySettingsSchema.onlineRegistrationLeadTimeDays,
   // not hardcoded.
   const { onlineRegistrationLeadTimeDays } = openPlaySettings;
-  const todayMidnight = new Date();
-  todayMidnight.setHours(0, 0, 0, 0);
-  const daysUntilSession = Math.round(
-    (date.getTime() - todayMidnight.getTime()) / (24 * 60 * 60 * 1000),
-  );
+  // Owner-directed consolidation (2026-08-12): rollover-hour aware, not
+  // literal calendar midnight — same computeBusinessDate every other
+  // correct part of the app uses.
+  const courtHours = await settingsService.getCourtHours();
+  const today = computeBusinessDate(new Date(), courtHours.businessDateRolloverHour);
+  const daysUntilSession = Math.round((date.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
   if (daysUntilSession > onlineRegistrationLeadTimeDays) {
     const opensAt = new Date(date.getTime() - onlineRegistrationLeadTimeDays * 24 * 60 * 60 * 1000);
     return { status: "not-yet-open", opensAt };

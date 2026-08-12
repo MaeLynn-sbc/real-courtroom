@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 
+import { computeBusinessDate } from "@/lib/business-date";
 import { playerTabService } from "@/services/open-play/player-tab.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 // Nav-split (presentation/routing only): "Regular Open Play" needs a
 // static href in lib/config.ts, but the actual destination is today's
@@ -17,8 +19,14 @@ function toDateValue(date: Date): string {
 }
 
 export default async function OpenPlayCapacityTodayPage() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Owner-directed consolidation (2026-08-12): "today" is now the same
+  // rollover-hour-aware computeBusinessDate every other correct part
+  // of the app uses, not literal calendar midnight — narrows the
+  // window the still-open-tabs check below has to protect against,
+  // though it stays as its own check (see its own comment) since a
+  // tab can still be genuinely open well past the rollover hour too.
+  const courtHours = await settingsService.getCourtHours();
+  const today = computeBusinessDate(new Date(), courtHours.businessDateRolloverHour);
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
 
