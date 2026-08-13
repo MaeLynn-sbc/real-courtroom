@@ -247,9 +247,20 @@ export function ScheduleRoster({ weekStart, employees, templates, assignments }:
                                 // as a filled badge everywhere else in
                                 // this app; do the same here instead of
                                 // bare colored text on a dark background.
+                                //
+                                // Owner report (2026-08-14): "the text is
+                                // white" — the fix above still lost to the
+                                // base SelectTrigger's own dark:bg-input/30
+                                // and dark:hover:bg-input/50 (a near-white
+                                // token in this app's dark theme, see
+                                // --input in globals.css) — same specificity
+                                // as the plain bg-court-blue above, so the
+                                // dark: variant won regardless of class
+                                // order. Overriding both dark: variants too
+                                // is what actually makes bg-court-blue win.
                                 selectValue === OFF_VALUE
                                   ? "text-muted-foreground"
-                                  : "border-court-blue bg-court-blue text-court-blue-foreground",
+                                  : "border-court-blue bg-court-blue text-court-blue-foreground dark:bg-court-blue dark:hover:bg-court-blue",
                               )}
                             >
                               <SelectValue>
