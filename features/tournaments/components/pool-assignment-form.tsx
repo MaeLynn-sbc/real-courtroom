@@ -123,6 +123,81 @@ function TeamPoolRow({
   );
 }
 
+// Owner request (2026-08-13): "you can manually add players to the
+// pool from the confirmed players" — picks a still-UNASSIGNED confirmed
+// team and appends them at the end of the pool, same explicit
+// correctTeamPoolAssignmentAction path as every other edit here, not a
+// separate mechanism. Owner follow-up: "once they will be chosen...
+// their names should be gone from the dropdown list" — scoped to
+// unassigned only (not "any team not in this specific pool") so a team
+// already placed in Pool B never shows in Pool A's own Add list; moving
+// a team between pools is still possible, just via that team's own row
+// (Pool dropdown + Save), not through Add.
+function AddTeamToPoolRow({
+  tournamentId,
+  categoryId,
+  poolLabel,
+  nextPosition,
+  availableTeams,
+}: {
+  tournamentId: string;
+  categoryId: string;
+  poolLabel: string;
+  nextPosition: number;
+  availableTeams: Team[];
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [selectedTeamId, setSelectedTeamId] = useState("");
+
+  function handleAdd() {
+    if (!selectedTeamId) {
+      toast.error("Pick a confirmed team to add.");
+      return;
+    }
+    const team = availableTeams.find((t) => t.teamId === selectedTeamId);
+    startTransition(async () => {
+      const result = await correctTeamPoolAssignmentAction(tournamentId, categoryId, {
+        teamId: selectedTeamId,
+        poolLabel,
+        poolPosition: nextPosition,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${team?.name ?? "Team"} → ${nextPosition}${poolLabel.toLowerCase()}.`);
+      setSelectedTeamId("");
+      router.refresh();
+    });
+  }
+
+  if (availableTeams.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center gap-2 border-t pt-2">
+      <Select value={selectedTeamId} onValueChange={(next) => next && setSelectedTeamId(next)}>
+        <SelectTrigger className="h-8 flex-1 text-xs">
+          <SelectValue placeholder="Add a confirmed team…" />
+        </SelectTrigger>
+        <SelectContent>
+          {availableTeams.map((team) => (
+            <SelectItem key={team.teamId} value={team.teamId}>
+              {team.name}
+              {team.number ? ` (currently ${team.number})` : ""}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button type="button" size="sm" disabled={isPending || !selectedTeamId} onClick={handleAdd}>
+        Add
+      </Button>
+    </div>
+  );
+}
+
 // Owner request (2026-08-13): "also a table for each pool so it would
 // be numbered accordingly" — one Table per pool (plus one for anyone
 // still unassigned), each sorted by poolPosition, instead of a single
@@ -279,7 +354,7 @@ export function PoolAssignmentForm({
               <CardHeader>
                 <CardTitle className="text-base">{group.label}</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex flex-col gap-3">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -294,6 +369,15 @@ export function PoolAssignmentForm({
                     ))}
                   </TableBody>
                 </Table>
+                {group.key !== UNASSIGNED_GROUP_KEY ? (
+                  <AddTeamToPoolRow
+                    tournamentId={tournamentId}
+                    categoryId={categoryId}
+                    poolLabel={group.key}
+                    nextPosition={group.teams.length + 1}
+                    availableTeams={teams.filter((team) => team.poolLabel === null)}
+                  />
+                ) : null}
               </CardContent>
             </Card>
           ))}
