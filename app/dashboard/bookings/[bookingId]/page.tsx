@@ -104,6 +104,35 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
   const TERMINAL_STATUSES = new Set(["CANCELLED", "NO_SHOW", "REJECTED", "COMPLETED", "REFUNDED"]);
   const showSwitchCourtForm = !booking.sale && !TERMINAL_STATUSES.has(booking.status);
 
+  // Owner request (2026-08-13): "make sure to remove the option to
+  // switch to the court that is not available" — the dropdown used to
+  // offer every other court regardless of real conflicts (an Open Play
+  // block, another booking, maintenance), only failing after the staff
+  // member already picked one and clicked Switch court. Same
+  // checkAvailability the staff booking form's own Time dropdown already
+  // uses as a live preview (not the real gate — changeBookingCourt's own
+  // check inside its transaction stays the actual source of truth), run
+  // once per other court, in parallel.
+  const switchableCourts = showSwitchCourtForm
+    ? (
+        await Promise.all(
+          courts
+            .filter((court) => court.id !== booking.courtId)
+            .map(async (court) => ({
+              court,
+              availability: await bookingService.checkAvailability(
+                court.id,
+                booking.startAt,
+                booking.endAt,
+                booking.id,
+              ),
+            })),
+        )
+      )
+        .filter((entry) => entry.availability.available)
+        .map((entry) => entry.court)
+    : [];
+
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -135,7 +164,7 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
               <SwitchCourtForm
                 bookingId={booking.id}
                 currentCourtId={booking.courtId}
-                courts={courts.map((court) => ({ id: court.id, name: court.name }))}
+                courts={switchableCourts.map((court) => ({ id: court.id, name: court.name }))}
               />
             </div>
           ) : null}

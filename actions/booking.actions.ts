@@ -259,6 +259,12 @@ export async function changeBookingCourtAction(
     );
     revalidatePath("/dashboard/bookings");
     revalidatePath(`/dashboard/bookings/${parsed.data.bookingId}`);
+    // Matches the same public-facing revalidation public-booking.actions.ts
+    // and public-booking-payment-proof.actions.ts already do — both public
+    // routes rendering CourtAvailabilityGrid are already force-dynamic
+    // (confirmed: no caching layer serves stale data for this), so this is
+    // defense-in-depth for consistency, not fixing an active staleness bug.
+    revalidatePath("/availability");
     return { error: null };
   } catch (error) {
     if (error instanceof BookingConflictError) {
