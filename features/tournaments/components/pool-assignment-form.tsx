@@ -204,11 +204,13 @@ function AddTeamToPoolRow({
     return null;
   }
 
+  const selectedTeam = availableTeams.find((t) => t.teamId === selectedTeamId);
+
   return (
     <div className="flex items-center gap-2 border-t pt-2">
       <Select value={selectedTeamId} onValueChange={(next) => next && setSelectedTeamId(next)}>
         <SelectTrigger className="h-8 flex-1 text-xs">
-          <SelectValue placeholder="Add a confirmed team…" />
+          <SelectValue placeholder="Add a confirmed team…">{selectedTeam && selectedTeam.name}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {availableTeams.map((team) => (
