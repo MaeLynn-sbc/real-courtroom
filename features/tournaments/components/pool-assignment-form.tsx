@@ -86,6 +86,29 @@ function TeamPoolRow({
     });
   }
 
+  // Owner follow-up (2026-08-13): "add an option to remove the team
+  // from the current pool" — a one-click shortcut, skipping the
+  // Select-to-Unassigned-then-Save dance. Acts on the team's real
+  // current pool, not whatever the Select is locally set to, so it
+  // still works correctly even mid-edit.
+  function handleRemove() {
+    startTransition(async () => {
+      const result = await correctTeamPoolAssignmentAction(tournamentId, categoryId, {
+        teamId: team.teamId,
+        poolLabel: null,
+        poolPosition: null,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${team.name} removed from Pool ${team.poolLabel}.`);
+      setPoolLabel(UNASSIGNED_VALUE);
+      setPosition("");
+      router.refresh();
+    });
+  }
+
   return (
     <TableRow>
       <TableCell className="text-muted-foreground w-10 text-sm">{team.number ?? "—"}</TableCell>
@@ -117,6 +140,11 @@ function TeamPoolRow({
           <Button type="button" size="sm" variant="outline" disabled={isPending || !isDirty} onClick={handleSave}>
             Save
           </Button>
+          {team.poolLabel ? (
+            <Button type="button" size="sm" variant="destructive" disabled={isPending} onClick={handleRemove}>
+              Remove
+            </Button>
+          ) : null}
         </div>
       </TableCell>
     </TableRow>
