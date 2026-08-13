@@ -28,7 +28,10 @@ interface ShiftOverviewPanelProps {
 }
 
 const timeFormatter = new Intl.DateTimeFormat("en-PH", { timeStyle: "short" });
-const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" });
+const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 
 // Owner request (2026-08-08): the main dashboard's shift panel is
 // deliberately Owner-excluded (MyShiftPanel is a cashier/reception
@@ -45,21 +48,37 @@ export function ShiftOverviewPanel({ onDuty, recentShifts }: ShiftOverviewPanelP
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <CardTitle>Shifts</CardTitle>
-        <Link href="/dashboard/shift" className={buttonVariants({ variant: "outline", size: "sm" })}>
+        <Link
+          href="/dashboard/shift"
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
           View all
         </Link>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div>
-          <p className="text-muted-foreground mb-2 text-xs">On duty now</p>
+          <p className="text-muted-foreground mb-2 text-[10px] font-bold tracking-[0.12em] uppercase">
+            On duty now
+          </p>
           {onDuty.length === 0 ? (
-            <p className="text-muted-foreground text-sm">Nobody currently clocked in.</p>
+            // Was a bare muted sentence, indistinguishable from any other
+            // caption on the page. Nobody at the desk is an operational
+            // state worth noticing, so it now reads as an empty state.
+            <p className="border-border/70 text-muted-foreground rounded-lg border border-dashed px-3 py-2.5 text-sm">
+              Nobody currently clocked in.
+            </p>
           ) : (
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-2">
               {onDuty.map((shift) => (
-                <div key={shift.id} className="flex items-center justify-between text-sm">
-                  <span className="font-medium">{shift.employeeName}</span>
-                  <span className="text-muted-foreground text-xs">
+                <div key={shift.id} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="bg-success size-1.5 shrink-0 rounded-full"
+                      aria-hidden="true"
+                    />
+                    <span className="truncate font-medium">{shift.employeeName}</span>
+                  </span>
+                  <span className="text-muted-foreground shrink-0 text-xs">
                     {shift.shiftNumber} · since {timeFormatter.format(shift.startedAt)}
                   </span>
                 </div>
@@ -69,25 +88,37 @@ export function ShiftOverviewPanel({ onDuty, recentShifts }: ShiftOverviewPanelP
         </div>
 
         <div className="border-t pt-3">
-          <p className="text-muted-foreground mb-2 text-xs">Recent shifts</p>
+          <p className="text-muted-foreground mb-2 text-[10px] font-bold tracking-[0.12em] uppercase">
+            Recent shifts
+          </p>
           {recentShifts.length === 0 ? (
             <p className="text-muted-foreground text-sm">No shifts yet.</p>
           ) : (
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col">
               {recentShifts.slice(0, 5).map((shift) => (
-                <div key={shift.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate">{shift.employeeName}</span>
-                  <span className="text-muted-foreground shrink-0 text-xs">
-                    {dateTimeFormatter.format(shift.startedAt)}
+                <div
+                  key={shift.id}
+                  className="border-border/50 flex items-center justify-between gap-3 border-b py-2.5 text-sm last:border-b-0"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{shift.employeeName}</span>
+                    <span className="text-muted-foreground block text-xs">
+                      {dateTimeFormatter.format(shift.startedAt)}
+                    </span>
                   </span>
                   {shift.status === "OPEN" ? (
                     <Badge variant="status">Open</Badge>
                   ) : shift.varianceCents ? (
-                    <span className="text-destructive shrink-0 text-xs font-medium">
+                    // A drawer that did not balance is the one line on
+                    // this card an owner has to act on, and it was set in
+                    // the same 12px muted-weight type as the timestamp
+                    // beside it. Given a chip so it separates from the
+                    // "Matched" rows at a glance rather than on a read.
+                    <span className="bg-destructive/10 text-destructive shrink-0 rounded-md px-2 py-1 text-xs font-bold tabular-nums">
                       {formatVariance(shift.varianceCents)}
                     </span>
                   ) : (
-                    <span className="text-success shrink-0 text-xs">Matched</span>
+                    <span className="text-success shrink-0 text-xs font-medium">Matched</span>
                   )}
                 </div>
               ))}

@@ -66,7 +66,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
         onDutyShifts={onDutyShifts}
       />
       <div className="flex flex-1">
-        <DashboardSidebar canViewOpenPlaySpecial={canViewOnDuty} />
+        <DashboardSidebar
+          canViewOpenPlaySpecial={canViewOnDuty}
+          pendingVerificationCount={pendingVerificationCount}
+          pendingOpenPlayVerificationCount={pendingOpenPlayVerificationCount}
+        />
         <main className="flex-1 p-4 md:p-6">
           <VerificationBanner initialCount={pendingVerificationCount} />
           <StaleHoldsBanner initialCount={staleHoldsCount} />

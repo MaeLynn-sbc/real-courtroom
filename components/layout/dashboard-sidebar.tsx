@@ -5,6 +5,7 @@ import {
   BarChart3,
   Banknote,
   CalendarDays,
+  CalendarRange,
   Clock,
   CreditCard,
   Dumbbell,
@@ -21,6 +22,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingBag,
+  Sun,
   TrendingDown,
   Trophy,
   Tv,
@@ -31,7 +33,9 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { UserNav } from "@/components/layout/user-nav";
 import { Logo } from "@/components/shared/logo";
+import { useCurrentUser } from "@/hooks/use-current-user";
 import { dashboardNavGroups, dashboardNavItems } from "@/lib/config";
 import { isFridayOrSaturday } from "@/lib/court-hours";
 import { cn } from "@/lib/utils";
@@ -39,6 +43,12 @@ import { cn } from "@/lib/utils";
 const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
   "/dashboard": LayoutDashboard,
   "/dashboard/shift": Clock,
+  // Both Open Play entries were absent from this map, so they rendered
+  // as the only two nav items in the whole sidebar with no icon at all —
+  // their labels sat unaligned against every other row's icon gutter.
+  // Icon choice only; hrefs, titles and ordering are untouched.
+  "/dashboard/admin/open-play-capacity/today": Sun,
+  "/dashboard/admin/open-play-capacity": CalendarRange,
   "/dashboard/courts": MapPin,
   "/dashboard/bookings": CalendarDays,
   "/dashboard/bookings/verify-payments": Receipt,
@@ -78,7 +88,10 @@ const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
 // app/dashboard/layout.tsx (the same SYSTEM_ADMIN check that page's own
 // route access already requires — see lib/rbac.ts's /dashboard/admin
 // default).
-const OPEN_PLAY_SPECIAL_ITEM = { title: "Special Open Play", href: "/dashboard/admin/openplayspecial" };
+const OPEN_PLAY_SPECIAL_ITEM = {
+  title: "Special Open Play",
+  href: "/dashboard/admin/openplayspecial",
+};
 
 // Picks the longest href that matches the current path (exact or as a
 // parent segment), so a nested route like /dashboard/courts/abc123
@@ -151,30 +164,44 @@ function resolveOpenPlayCapacityActiveHref(pathname: string): string | undefined
 // out of scope for adding one more link.
 export function DashboardSidebar({
   canViewOpenPlaySpecial = false,
+  pendingVerificationCount = 0,
+  pendingOpenPlayVerificationCount = 0,
 }: {
   // Owner-only ("visible only to me") — see OPEN_PLAY_SPECIAL_ITEM's own
   // comment. Defaults false so every other existing call site (there are
   // none today, but a default keeps this a non-breaking prop addition)
   // stays exactly as it was.
   canViewOpenPlaySpecial?: boolean;
+  // Same counts dashboard-header.tsx already renders as its own pill —
+  // this is a second, additive presentation of the identical numbers
+  // (mockup-style badge on the matching nav row), not a replacement.
+  // Defaults keep every pre-existing call site non-breaking.
+  pendingVerificationCount?: number;
+  pendingOpenPlayVerificationCount?: number;
 }) {
   const pathname = usePathname();
+  const { user } = useCurrentUser();
+  const navBadges: Record<string, number> = {
+    "/dashboard/bookings/verify-payments": pendingVerificationCount,
+    "/dashboard/admin/open-play-capacity/verify-payments": pendingOpenPlayVerificationCount,
+  };
   const allHrefs = canViewOpenPlaySpecial
     ? [...dashboardNavItems.map((item) => item.href), OPEN_PLAY_SPECIAL_ITEM.href]
     : dashboardNavItems.map((item) => item.href);
-  const activeHref = resolveOpenPlayCapacityActiveHref(pathname) ?? getActiveHref(pathname, allHrefs);
+  const activeHref =
+    resolveOpenPlayCapacityActiveHref(pathname) ?? getActiveHref(pathname, allHrefs);
 
   return (
-    <aside className="border-border/60 bg-sidebar text-sidebar-foreground hidden w-56 shrink-0 border-r md:flex md:flex-col md:overflow-y-auto">
+    <aside className="border-border/60 bg-sidebar text-sidebar-foreground hidden w-60 shrink-0 border-r md:flex md:flex-col md:overflow-y-auto">
       <div className="border-sidebar-border/60 flex h-16 items-center border-b px-4">
         <Link href="/dashboard" className="flex items-center">
           <Logo size="sm" showWordmark />
         </Link>
       </div>
-      <nav className="flex flex-col gap-4 p-3">
+      <nav className="flex flex-col gap-6 p-3 pb-8">
         {dashboardNavGroups.map((group) => (
           <div key={group.label} className="flex flex-col gap-1">
-            <h2 className="text-sidebar-foreground/60 px-3 pb-1 text-xs font-semibold tracking-wide uppercase">
+            <h2 className="text-sidebar-foreground/45 px-3 pb-2 text-[10px] font-bold tracking-[0.14em] uppercase">
               {group.label}
             </h2>
             {(group.label === "Administration" && canViewOpenPlaySpecial
@@ -183,26 +210,47 @@ export function DashboardSidebar({
             ).map((item) => {
               const Icon = NAV_ICONS[item.href];
               const isActive = item.href === activeHref;
+              const badgeCount = navBadges[item.href] ?? 0;
 
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    // Active state was a fully saturated primary pill —
+                    // the same green as the primary button, the old
+                    // verification banner and the status chips, so green
+                    // carried four unrelated meanings on one screen. A
+                    // tinted background with a left rule reads as "you
+                    // are here" without competing with real actions.
+                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      ? "bg-sidebar-primary/12 text-sidebar-primary font-semibold shadow-[inset_2px_0_0_var(--sidebar-primary)]"
+                      : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                   )}
                 >
-                  {Icon ? <Icon className="size-4" aria-hidden="true" /> : null}
-                  {item.title}
+                  {Icon ? <Icon className="size-4 shrink-0 opacity-90" aria-hidden="true" /> : null}
+                  <span className="min-w-0 flex-1">{item.title}</span>
+                  {badgeCount > 0 ? (
+                    <span className="bg-destructive/15 text-destructive flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-bold">
+                      {badgeCount > 9 ? "9+" : badgeCount}
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}
           </div>
         ))}
       </nav>
+      {user ? (
+        <div className="border-sidebar-border/60 mt-auto flex items-center gap-2.5 border-t p-3">
+          <UserNav />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{user.name ?? user.email}</p>
+            <p className="text-sidebar-foreground/60 truncate text-xs">{user.role ?? "Member"}</p>
+          </div>
+        </div>
+      ) : null}
     </aside>
   );
 }

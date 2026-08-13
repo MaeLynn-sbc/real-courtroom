@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertTriangle, ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
@@ -40,9 +41,28 @@ export function VerificationBanner({ initialCount }: { initialCount: number }) {
   return (
     <Link
       href="/dashboard/bookings/verify-payments"
-      className="bg-primary text-primary-foreground mb-4 flex items-center justify-center rounded-2xl px-6 py-4 text-center text-lg font-semibold transition-opacity hover:opacity-90"
+      // Restyled 2026-08-13 (visual only — same route, same polling, same
+      // zero-count behaviour). Was a full-bleed primary-green slab: the
+      // single loudest element on the dashboard, in the same green as the
+      // primary button and the active nav item, for what is usually a
+      // one-item queue. Green also read as "all good" while the header's
+      // own pill said the same thing in destructive red — the same fact
+      // in two contradictory colours. Now an amber "needs attention" row
+      // that still spans the content width (so it's not missed from
+      // across the desk, the reason this banner exists) but no longer
+      // outweighs everything beneath it.
+      className="mb-4 flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 transition-colors hover:bg-amber-500/15"
     >
-      {count} {count === 1 ? "payment" : "payments"} to verify
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/20">
+        <AlertTriangle className="size-4 text-amber-600" aria-hidden="true" />
+      </span>
+      <span className="min-w-0 flex-1 text-sm font-semibold">
+        {count} {count === 1 ? "payment is" : "payments are"} waiting to be verified
+      </span>
+      <span className="text-muted-foreground hidden items-center gap-1 text-sm font-semibold sm:flex">
+        Verify now
+        <ArrowRight className="size-4" aria-hidden="true" />
+      </span>
     </Link>
   );
 }

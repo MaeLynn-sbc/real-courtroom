@@ -8,6 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { DateRangePicker } from "@/features/analytics/components/date-range-picker";
 import { KpiCard } from "@/features/analytics/components/kpi-card";
 import { CourtStatusPanel } from "@/features/dashboard/components/court-status-panel";
+import { KpiStrip } from "@/features/dashboard/components/kpi-strip";
 import { MyShiftPanel } from "@/features/dashboard/components/my-shift-panel";
 import { QuickActionsPanel } from "@/features/dashboard/components/quick-actions-panel";
 import { RecentActivityPanel } from "@/features/dashboard/components/recent-activity-panel";
@@ -17,7 +18,10 @@ import { hasPermission } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { activityFeedService } from "@/services/activity/activity-feed.service";
 import { analyticsService } from "@/services/analytics/analytics.service";
-import { resolveDateRange, resolveDateRangeFromSearchParams } from "@/services/analytics/date-range";
+import {
+  resolveDateRange,
+  resolveDateRangeFromSearchParams,
+} from "@/services/analytics/date-range";
 import { courtService } from "@/services/court/court.service";
 import { inventoryAlertsService } from "@/services/inventory/inventory-alerts.service";
 import { saleService } from "@/services/sales/sale.service";
@@ -35,11 +39,20 @@ interface DashboardPageProps {
 }
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const [session, params, courtHours] = await Promise.all([auth(), searchParams, settingsService.getCourtHours()]);
+  const [session, params, courtHours] = await Promise.all([
+    auth(),
+    searchParams,
+    settingsService.getCourtHours(),
+  ]);
   const range = resolveDateRangeFromSearchParams(params, courtHours.businessDateRolloverHour);
   // "Today" always means today, independent of the KPI trend range above —
   // the date-range picker controls the trend grid, not these live panels.
-  const today = resolveDateRange("TODAY", undefined, undefined, courtHours.businessDateRolloverHour);
+  const today = resolveDateRange(
+    "TODAY",
+    undefined,
+    undefined,
+    courtHours.businessDateRolloverHour,
+  );
 
   const employee = session?.user.id
     ? await prisma.employee.findUnique({ where: { userId: session.user.id } })
@@ -52,50 +65,90 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   // read-only oversight counterpart, gated the same way
   // /dashboard/shift's own "review every employee's shift" mode already
   // is (REPORTS_MANAGE), not a new permission.
-  const canReviewShifts = hasPermission(session?.user.permissions ?? [], PERMISSIONS.REPORTS_MANAGE);
+  const canReviewShifts = hasPermission(
+    session?.user.permissions ?? [],
+    PERMISSIONS.REPORTS_MANAGE,
+  );
 
-  const [kpis, todaysSales, currentShift, alerts, activityFeed, courtStatus, onDutyShifts, recentShifts] =
-    await Promise.all([
-      analyticsService.getDashboardKpis(range, courtHours.businessDateRolloverHour),
-      saleService.getSalesSummary(today, courtHours.businessDateRolloverHour),
-      employee ? shiftService.getCurrentShift(employee.id) : Promise.resolve(null),
-      inventoryAlertsService.getAlerts(),
-      activityFeedService.getActivityFeed({ limit: 10 }),
-      courtService.getCourtStatusSnapshot(),
-      canReviewShifts ? shiftService.listOpenShiftsWithEmployee() : Promise.resolve([]),
-      canReviewShifts ? shiftService.listAllShiftsForReview(10) : Promise.resolve([]),
-    ]);
+  const [
+    kpis,
+    todaysSales,
+    currentShift,
+    alerts,
+    activityFeed,
+    courtStatus,
+    onDutyShifts,
+    recentShifts,
+  ] = await Promise.all([
+    analyticsService.getDashboardKpis(range, courtHours.businessDateRolloverHour),
+    saleService.getSalesSummary(today, courtHours.businessDateRolloverHour),
+    employee ? shiftService.getCurrentShift(employee.id) : Promise.resolve(null),
+    inventoryAlertsService.getAlerts(),
+    activityFeedService.getActivityFeed({ limit: 10 }),
+    courtService.getCourtStatusSnapshot(),
+    canReviewShifts ? shiftService.listOpenShiftsWithEmployee() : Promise.resolve([]),
+    canReviewShifts ? shiftService.listAllShiftsForReview(10) : Promise.resolve([]),
+  ]);
 
   const shiftSales = currentShift ? await saleService.getSalesForShift(currentShift.id) : null;
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+      {/* Visual only (2026-08-13): three flex children with
+          justify-between put the action buttons in the middle of the
+          row, floating between the greeting and the date picker with
+          nothing tying them together. The two controls are now one
+          right-aligned cluster, and the greeting is sized as the page
+          label it is rather than the loudest text on screen — the
+          numbers below it are what the owner is here to read. Same
+          elements, same links, same picker. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight">
             Welcome{session?.user.name ? `, ${session.user.name}` : ""}
           </h1>
-          <p className="text-muted-foreground text-sm">
-            You&apos;re signed in as {session?.user.role ?? "a member"}.
+          <p className="text-muted-foreground text-xs">
+            Signed in as {session?.user.role ?? "a member"}
           </p>
         </div>
-        {/* Same two links as QuickActionsPanel's own QUICK_ACTIONS list
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Same two links as QuickActionsPanel's own QUICK_ACTIONS list
             below — duplicated here, not moved, so both the always-
             visible header shortcut and the fuller Quick actions card
             keep working. Placed between the welcome block and the date
             picker per the owner's own ask for easier access. */}
-        <div className="flex gap-2">
+          <Link
+            href="/dashboard/bookings/check-in"
+            className={buttonVariants({ variant: "outline" })}
+          >
+            <QrCode className="size-4" aria-hidden="true" />
+            Check in
+          </Link>
           <Link href="/dashboard/bookings/new" className={buttonVariants()}>
             <CalendarPlus className="size-4" aria-hidden="true" />
             New booking
           </Link>
-          <Link href="/dashboard/bookings/check-in" className={buttonVariants({ variant: "outline" })}>
-            <QrCode className="size-4" aria-hidden="true" />
-            Check in
-          </Link>
+          <DateRangePicker />
         </div>
-        <DateRangePicker />
       </div>
+
+      <KpiStrip
+        revenueTodayCents={todaysSales.totalAmountCents}
+        courtsInUse={courtStatus.filter((court) => court.state === "OCCUPIED").length}
+        courtsTotal={courtStatus.length}
+        onDuty={
+          canReviewShifts
+            ? onDutyShifts.map((shift) => ({
+                employeeName: `${shift.employee.firstName} ${shift.employee.lastName}`,
+              }))
+            : null
+        }
+        recentShifts={
+          canReviewShifts
+            ? recentShifts.map((shift) => ({ status: shift.status, varianceCents: shift.varianceCents }))
+            : null
+        }
+      />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {showShiftPanel ? <MyShiftPanel shift={currentShift} sales={shiftSales} /> : null}
