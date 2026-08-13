@@ -62,6 +62,8 @@ export default async function PayPeriodDetailPage({ params, searchParams }: PayP
       ) : (
         <PayPeriodPreview
           periodId={id}
+          periodLabel={`${dateFormatter.format(period.startDate)} – ${dateFormatter.format(period.endDate)}`}
+          generatedAtLabel={new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" }).format(new Date())}
           employees={employees.map((employee) => ({
             id: employee.id,
             name: `${employee.firstName} ${employee.lastName}`,

@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { siteConfig } from "@/lib/config";
 import { formatCurrency } from "@/lib/utils";
 
 interface RosterEmployee {
@@ -55,6 +56,12 @@ interface Totals {
 
 interface PayPeriodPreviewProps {
   periodId: string;
+  periodLabel: string;
+  // Computed server-side and passed down, not read via `new Date()` in this
+  // client component's render — that would render one value during SSR and
+  // a different one at client hydration, a real (if easy to miss)
+  // hydration mismatch.
+  generatedAtLabel: string;
   employees: RosterEmployee[];
   selectedEmployeeId: string;
   days: DayRow[];
@@ -72,9 +79,18 @@ function formatMinutes(minutes: number): string {
   return minutes === 0 ? "—" : minutes.toFixed(minutes % 1 === 0 ? 0 : 2);
 }
 
-export function PayPeriodPreview({ periodId, employees, selectedEmployeeId, days, totals }: PayPeriodPreviewProps) {
+export function PayPeriodPreview({
+  periodId,
+  periodLabel,
+  generatedAtLabel,
+  employees,
+  selectedEmployeeId,
+  days,
+  totals,
+}: PayPeriodPreviewProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const selectedEmployeeName = employees.find((employee) => employee.id === selectedEmployeeId)?.name ?? "—";
 
   function onSelectEmployee(employeeId: string) {
     router.push(`/dashboard/payroll/periods/${periodId}?employeeId=${employeeId}`);
@@ -101,6 +117,20 @@ export function PayPeriodPreview({ periodId, employees, selectedEmployeeId, days
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Unlike the page's own <h1> and the employee picker below (both
+          print:hidden), this survives print — a payslip with no name or
+          pay period on it is useless once it's off the screen. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b pb-3">
+        <div>
+          <p className="text-lg font-semibold tracking-tight">{siteConfig.name} — Payslip</p>
+          <p className="text-muted-foreground text-sm">{selectedEmployeeName}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-medium">{periodLabel}</p>
+          <p className="text-muted-foreground text-xs">Generated {generatedAtLabel}</p>
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-end justify-between gap-3 print:hidden">
         <div className="flex flex-col gap-1.5">
           <label htmlFor="periodEmployeeId" className="text-sm font-medium">

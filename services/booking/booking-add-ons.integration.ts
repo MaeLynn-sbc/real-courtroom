@@ -25,6 +25,7 @@ import { prisma } from "../../lib/prisma";
 import { bookingService } from "./booking.service";
 import { bookingTabService } from "./booking-tab.service";
 import { reportingService } from "../reporting/reporting.service";
+import { settingsService } from "../settings/settings.service";
 
 const TEST_DATE = new Date(2031, 4, 9); // Friday, far enough out not to collide with real usage
 
@@ -232,11 +233,20 @@ async function main(): Promise<void> {
     // Range keyed to Sale.createdAt (when the settlement actually ran,
     // i.e. "now") — NOT TEST_DATE, which only backdates the booking's
     // own startAt/endAt to avoid colliding with real court schedules.
+    // Real incident: this used to call getSalesByProductReport with no
+    // rolloverHour, defaulting to 0 — while the Sale itself gets its
+    // businessDate computed with the REAL configured rollover hour (3
+    // by default). Any run landing between midnight and the real
+    // rollover hour disagreed on which business day "now" belongs to,
+    // so the query missed the very Sale this test just created. Same
+    // fix, same root cause, as gcash-reconciliation.integration.ts's own
+    // comment on this exact class of bug.
+    const rolloverHour = (await settingsService.getCourtHours()).businessDateRolloverHour;
     const range = {
       from: new Date(Date.now() - 60 * 60 * 1000),
       to: new Date(Date.now() + 60 * 1000),
     };
-    const productReport = await reportingService.getSalesByProductReport(range);
+    const productReport = await reportingService.getSalesByProductReport(range, rolloverHour);
     const waterRow = productReport.find((row) => row.productName === water.name);
     assert(
       waterRow !== undefined,

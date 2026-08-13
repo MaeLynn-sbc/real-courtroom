@@ -114,7 +114,9 @@ function NewEntryForm({ employees }: { employees: AttendanceEmployee[] }) {
             <Label htmlFor="attendanceEmployee">Employee</Label>
             <Select value={employeeId} onValueChange={(value) => value && setEmployeeId(value)}>
               <SelectTrigger id="attendanceEmployee">
-                <SelectValue placeholder="Select an employee" />
+                <SelectValue placeholder="Select an employee">
+                  {employees.find((employee) => employee.id === employeeId)?.name}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {employees.map((employee) => (
