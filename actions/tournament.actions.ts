@@ -36,6 +36,7 @@ import { requireEmployee, requireEmployeeWithOpenShift, requirePermission } from
 import { toActionError } from "@/lib/errors";
 import { matchService } from "@/services/tournaments/match.service";
 import { tournamentService } from "@/services/tournaments/tournament.service";
+import { getUploadService } from "@/services/upload/upload-service.factory";
 import { PERMISSIONS } from "@/types/permissions";
 
 export interface TournamentActionState {
@@ -144,6 +145,71 @@ export async function updateTournamentPaymentSettingAction(
         action: "updateTournamentPaymentSettingAction",
         userId: authz.userId,
       }),
+    };
+  }
+}
+
+const MAX_TOURNAMENT_LOGO_BYTES = 5 * 1024 * 1024;
+const ALLOWED_LOGO_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+export interface UploadTournamentLogoState extends TournamentActionState {
+  logoUrl?: string;
+}
+
+// Owner request (2026-08-15): "use their logo... place where i can
+// upload it once it changes" — same shape as cms.actions.ts's own
+// uploadGalleryImageAction (public, directly-servable URL, no access
+// gating needed for a logo shown on a public TV display).
+export async function uploadTournamentLogoAction(
+  tournamentId: string,
+  formData: FormData,
+): Promise<UploadTournamentLogoState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "Choose an image to upload." };
+  }
+  if (!ALLOWED_LOGO_IMAGE_TYPES.has(file.type)) {
+    return { error: "Only PNG, JPEG, WebP, or GIF images are allowed." };
+  }
+  if (file.size > MAX_TOURNAMENT_LOGO_BYTES) {
+    return { error: "Image must be 5MB or smaller." };
+  }
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const result = await getUploadService().upload({
+      fileName: file.name,
+      contentType: file.type,
+      data: buffer,
+    });
+    await tournamentService.updateTournamentLogo(tournamentId, result.url, authz.userId);
+    revalidateTournament(tournamentId);
+    return { error: null, logoUrl: result.url };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "uploadTournamentLogoAction", userId: authz.userId }),
+    };
+  }
+}
+
+export async function removeTournamentLogoAction(tournamentId: string): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  try {
+    await tournamentService.updateTournamentLogo(tournamentId, null, authz.userId);
+    revalidateTournament(tournamentId);
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "removeTournamentLogoAction", userId: authz.userId }),
     };
   }
 }

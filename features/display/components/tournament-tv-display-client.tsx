@@ -1,8 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Logo } from "@/components/shared/logo";
 import { createAnnouncementRepeater } from "@/features/display/lib/announcement-repeater";
+import { cn } from "@/lib/utils";
 import type { TournamentDisplayData, TournamentDisplayMatch } from "@/services/display/tournament-display.service";
 
 // Every match the service returns, across every court's queue plus the
@@ -49,6 +52,15 @@ function firstNameOnly(name: string): string {
   return name.split(" ")[0] ?? name;
 }
 
+// Same formatters as tv-display-client.tsx's own clock (owner request,
+// 2026-08-15: "i want it to be the same as /tv").
+const clockFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  weekday: "long",
+  month: "short",
+  day: "numeric",
+});
+
 export function formatMatchAnnouncement(match: TournamentDisplayMatch): string {
   const team1 = joinNamesForSpeech(match.team1.names.map(firstNameOnly));
   const team2 = joinNamesForSpeech(match.team2.names.map(firstNameOnly));
@@ -76,6 +88,10 @@ export function TournamentTvDisplayClient({
   const [started, setStarted] = useState(false);
   const [announcementsMuted, setAnnouncementsMutedState] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
+  // Live clock in the header — same pattern as tv-display-client.tsx's
+  // own `now` state (owner request, 2026-08-15: "i want it to be the
+  // same as /tv").
+  const [now, setNow] = useState(() => Date.now());
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mountedAtRef = useRef(Date.now());
@@ -106,6 +122,11 @@ export function TournamentTvDisplayClient({
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     const supported = typeof window !== "undefined" && "speechSynthesis" in window;
@@ -304,11 +325,54 @@ export function TournamentTvDisplayClient({
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="font-display text-[clamp(28px,4vw,44px)] leading-none font-extrabold uppercase">
-          Tournament — Now Playing
-        </h1>
-        <div className={reconnecting ? "text-warning text-sm" : "text-slate text-sm"}>
-          {reconnecting ? "Reconnecting…" : "Live"}
+        {/* Owner request (2026-08-15): "use their logo... emphasize the
+            logo of the tournament itself" but "we can still put the
+            courtroom somewhere" — The Courtroom stays present (small,
+            secondary) while the organizer's own uploaded logo (bigger,
+            leading) is the one that reads first. Falls back to the
+            plain-text heading whenever the feed spans more than one
+            tournament (or none) — tournamentLogoUrl/tournamentName are
+            only ever set when every match on screen belongs to the same
+            one, see tournament-display.service.ts's own comment. */}
+        <div className="flex items-center gap-4">
+          <Logo size="sm" className="opacity-70" />
+          {data.tournamentLogoUrl ? (
+            <Image
+              src={data.tournamentLogoUrl}
+              alt={data.tournamentName ?? "Tournament logo"}
+              width={64}
+              height={64}
+              className="size-16 shrink-0 rounded-lg object-contain"
+              unoptimized
+              priority
+            />
+          ) : null}
+          <h1 className="font-display text-[clamp(28px,4vw,44px)] leading-none font-extrabold uppercase">
+            {data.tournamentName ?? "Tournament — Now Playing"}
+          </h1>
+        </div>
+
+        {/* Matches /tv's own header exactly (owner request, 2026-08-15:
+            "i want it to be the same as /tv") — centered status line,
+            big live clock on the right. */}
+        <div
+          className={cn(
+            "font-display hidden text-center text-[1.7vh] font-light tracking-[0.14em] uppercase md:block",
+            reconnecting ? "text-warning" : "text-slate",
+          )}
+        >
+          {reconnecting
+            ? "Reconnecting…"
+            : `Live · Updates every ${refreshIntervalSeconds} second${refreshIntervalSeconds === 1 ? "" : "s"}`}
+        </div>
+
+        <div className="text-right">
+          <b className="font-display block text-[clamp(24px,3.5vw,36px)] leading-none font-extrabold">
+            {clockFormatter.format(now)}
+          </b>
+          <span className="font-mono text-slate text-xs tracking-[0.2em] uppercase">
+            {dateFormatter.format(now)}
+          </span>
         </div>
       </div>
 
@@ -434,7 +498,7 @@ function UnscheduledSection({ matches }: { matches: TournamentDisplayMatch[] }) 
   return (
     <div className="flex flex-col gap-3">
       <h2 className="text-slate text-lg font-bold tracking-widest uppercase">Not yet on a court</h2>
-      <div className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
         {Array.from(byCategory.entries()).map(([categoryLabel, categoryMatches]) => (
           <div key={categoryLabel} className="flex flex-col gap-1.5">
             <span className="text-slate text-xs font-semibold tracking-wide uppercase">{categoryLabel}</span>

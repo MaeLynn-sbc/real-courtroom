@@ -55,6 +55,15 @@ export interface TournamentDisplayData {
   // (2026-08-15): "i want every match to be shown in /tourtv," not just
   // the ones already on a court.
   unscheduled: TournamentDisplayMatch[];
+  // Owner request (2026-08-15): "use their logo" — the organizer's own
+  // branding (Tournament.logoUrl), shown alongside The Courtroom's own
+  // logo in the header, emphasized. Null whenever this feed spans
+  // matches from more than one tournament (or none) — showing one
+  // tournament's logo while displaying another's matches would be
+  // actively misleading, so this only ever resolves when every match on
+  // screen belongs to the exact same tournament.
+  tournamentName: string | null;
+  tournamentLogoUrl: string | null;
 }
 
 // Mirrors display.service.ts's shortDisplayName exactly (see that
@@ -117,7 +126,7 @@ export class TournamentDisplayService {
             player2: { include: { user: { select: { name: true, email: true } } } },
           },
         },
-        tournamentCategory: { include: { tournament: { select: { name: true } } } },
+        tournamentCategory: { include: { tournament: { select: { id: true, name: true, logoUrl: true } } } },
       },
       // IN_PROGRESS first (already on court, most relevant), then
       // SCHEDULED ordered by whenever they were assigned — scheduledAt
@@ -196,10 +205,20 @@ export class TournamentDisplayService {
       .map(([courtName, courtMatches]) => ({ courtName, matches: courtMatches }))
       .sort((a, b) => a.courtName.localeCompare(b.courtName));
 
+    const distinctTournaments = new Map(
+      filtered
+        .map((match) => match.tournamentCategory?.tournament)
+        .filter((tournament): tournament is NonNullable<typeof tournament> => Boolean(tournament))
+        .map((tournament) => [tournament.id, tournament]),
+    );
+    const soleTournament = distinctTournaments.size === 1 ? [...distinctTournaments.values()][0] : null;
+
     return {
       generatedAt: new Date().toISOString(),
       courts,
       unscheduled,
+      tournamentName: soleTournament?.name ?? null,
+      tournamentLogoUrl: soleTournament?.logoUrl ?? null,
     };
   }
 }

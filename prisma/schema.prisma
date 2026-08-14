@@ -2272,6 +2272,14 @@ model Tournament {
   registrationOpensAt   DateTime?
   registrationClosesAt  DateTime?
   venueInfo             String?
+  // Owner request (2026-08-15): "use their logo" on /tourtv — the
+  // organizer's own tournament branding, not The Courtroom's venue logo.
+  // A directly-servable public URL (services/upload/upload-service.interface.ts's
+  // upload(), same as CMS gallery images — this is meant to be shown on
+  // a public TV display, no access gating needed). Nullable: most
+  // tournaments have none, and the display falls back to plain text
+  // when it's unset.
+  logoUrl               String?
   // Owner request (2026-08-05): some tournaments run as an outside event
   // where entrants already paid the organizers directly — registering a
   // team here shouldn't require an open shift or record a Sale at all.

@@ -226,6 +226,33 @@ export class TournamentService {
     return tournament;
   }
 
+  // Owner request (2026-08-15): "use their logo" — the organizer's own
+  // branding, shown on /tourtv (not a hardcoded image; uploaded once,
+  // shown until changed). logoUrl null clears it back to plain text.
+  async updateTournamentLogo(
+    tournamentId: string,
+    logoUrl: string | null,
+    actorUserId: string,
+  ): Promise<Tournament> {
+    const existing = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+
+    const tournament = await prisma.tournament.update({
+      where: { id: tournamentId },
+      data: { logoUrl },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.logo_updated",
+      entityType: "Tournament",
+      entityId: tournament.id,
+      oldValues: { logoUrl: existing.logoUrl },
+      newValues: { logoUrl: tournament.logoUrl },
+    });
+
+    return tournament;
+  }
+
   async updateTournamentStatus(
     tournamentId: string,
     status: TournamentStatus,
