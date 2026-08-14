@@ -13,6 +13,7 @@ import {
   registerTeamSchema,
   scheduleMatchSchema,
   setTeamPoolSchema,
+  stageMatchSchema,
   updateCategoryMaxTeamsSchema,
   updateRegistrationPlayerNamesSchema,
   updateTournamentPaymentSettingSchema,
@@ -27,6 +28,7 @@ import {
   type RegisterTeamInput,
   type ScheduleMatchInput,
   type SetTeamPoolInput,
+  type StageMatchInput,
   type UpdateCategoryMaxTeamsInput,
   type UpdateRegistrationPlayerNamesInput,
   type UpdateTournamentPaymentSettingInput,
@@ -633,6 +635,31 @@ export async function scheduleMatchAction(
     return { error: null };
   } catch (error) {
     return { error: toActionError(error, { action: "scheduleMatchAction", userId: authz.userId }) };
+  }
+}
+
+export async function stageMatchAction(
+  tournamentId: string,
+  categoryId: string,
+  matchId: string,
+  input: StageMatchInput,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = stageMatchSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid staging slot." };
+  }
+
+  try {
+    await matchService.stageMatch(matchId, parsed.data.slot, authz.userId);
+    revalidateCategory(tournamentId, categoryId);
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "stageMatchAction", userId: authz.userId }) };
   }
 }
 

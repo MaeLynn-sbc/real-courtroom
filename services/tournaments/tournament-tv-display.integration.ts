@@ -22,6 +22,12 @@
  *      first, in order, instead of replacing it.
  *   5. A bye (team2Id null) is excluded even if it somehow has a court.
  *   6. A COMPLETED match is excluded even though it still has a court.
+ *   7. stageMatch (owner request, 2026-08-15: manual Scoresheet staging
+ *      into Next up/After that/Then) puts a match in `staged`, clears
+ *      any real court, never appears under a court group or in
+ *      `unscheduled`; assigning a real court afterwards clears
+ *      stagedSlot back out; `staged` is always ordered NEXT_UP, then
+ *      AFTER_THAT, then THEN regardless of creation order.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -226,6 +232,53 @@ async function main(): Promise<void> {
       "expected the original match to stay first in the queue, the newly-scheduled one queued behind it",
     );
     console.log("PASS: a second match scheduled to the same court queues behind the first, in order.");
+
+    // ============== 4c. Manual staging (Next up/After that/Then) ==============
+    const thenMatch = await prisma.match.create({
+      data: { tournamentCategoryId: category.id, team1Id: reg1.teamId, team2Id: reg2.teamId, status: "SCHEDULED" },
+    });
+    const nextUpMatch = await prisma.match.create({
+      data: { tournamentCategoryId: category.id, team1Id: reg1.teamId, team2Id: reg2.teamId, status: "SCHEDULED" },
+    });
+    // Staged out of order (THEN first, NEXT_UP second) to prove the
+    // returned `staged` array orders by slot, not by staging order.
+    await matchService.stageMatch(thenMatch.id, "THEN", owner.id);
+    const stagedNextUp = await matchService.stageMatch(nextUpMatch.id, "NEXT_UP", owner.id);
+    assert(stagedNextUp.courtId === null, "expected stageMatch to clear any real court assignment");
+
+    const afterStaging = await tournamentDisplayService.getDisplayData();
+    assert(
+      afterStaging.staged.length === 2 &&
+        afterStaging.staged[0].id === nextUpMatch.id &&
+        afterStaging.staged[1].id === thenMatch.id,
+      "expected `staged` to contain both matches, ordered NEXT_UP before THEN regardless of staging order",
+    );
+    assert(
+      !afterStaging.unscheduled.some((m) => m.id === nextUpMatch.id || m.id === thenMatch.id),
+      "expected staged matches to never appear in the unscheduled bucket",
+    );
+    assert(
+      !afterStaging.courts.some((court) => court.matches.some((m) => m.id === nextUpMatch.id)),
+      "expected a staged match to never appear under a court group",
+    );
+    console.log("PASS: stageMatch stages a match into a real Next up/After that/Then slot, ordered correctly, excluded from unscheduled and every court group.");
+
+    // Assigning a real court afterwards supersedes staging.
+    const rescheduledFromStaging = await matchService.scheduleMatch(
+      nextUpMatch.id,
+      { courtId: courtA.id },
+      owner.id,
+    );
+    assert(
+      rescheduledFromStaging.stagedSlot === null,
+      "expected assigning a real court to clear stagedSlot back out",
+    );
+    const afterRescheduling = await tournamentDisplayService.getDisplayData();
+    assert(
+      !afterRescheduling.staged.some((m) => m.id === nextUpMatch.id),
+      "expected the now-court-assigned match to leave the staged list",
+    );
+    console.log("PASS: assigning a real court to a staged match clears stagedSlot and moves it out of `staged`.");
 
     // ============== 5. A bye (team2Id null) is excluded even with a court ==============
     const byeMatch = await prisma.match.create({

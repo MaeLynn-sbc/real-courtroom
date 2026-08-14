@@ -2,7 +2,7 @@ import type {
   RecordScoreInput,
   ScheduleMatchInput,
 } from "@/features/tournaments/schemas/tournament.schema";
-import type { Match, Prisma, Score } from "@/lib/generated/prisma/client";
+import type { Match, Prisma, Score, StagedGroupSlot } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { pairNextRound } from "@/services/tournaments/bracket-generator";
@@ -81,13 +81,20 @@ export class MatchService {
       data: {
         courtId: input.courtId,
         scheduledAt: input.scheduledAt,
+        // A real court assignment always supersedes a staging slot —
+        // see stageMatch's own comment for the reverse direction.
+        ...(input.courtId ? { stagedSlot: null } : {}),
         // Owner request (2026-08-09): the tournament TV (/tourtv) auto-
         // announces the moment a match is assigned a real court — see
         // Match.announcementRequestedAt's own schema comment. Bumped
         // whenever this call carries a courtId (freely re-triggerable,
         // same "no already-announced guard" shape as Open Play's manual
         // Announce button) — a call that only updates scheduledAt
-        // without a courtId doesn't re-announce.
+        // without a courtId doesn't re-announce. This is also how the
+        // manual "re-announce" button works (owner request, 2026-08-15:
+        // "add here announce button, to repeat it incase they did not
+        // hear it the first time") — it just calls this same action
+        // again with the match's current courtId, no separate endpoint.
         ...(input.courtId ? { announcementRequestedAt: new Date() } : {}),
       },
     });
@@ -98,6 +105,30 @@ export class MatchService {
       entityType: "Match",
       entityId: match.id,
       newValues: { courtId: match.courtId, scheduledAt: match.scheduledAt },
+    });
+
+    return match;
+  }
+
+  // Owner request (2026-08-15): "add also in the dropdown the next up
+  // after that and then. then we will just manually transfer them to
+  // court numbers. no voice announcements for next up after that and
+  // then" — a pure scheduling holding-pen, no court, no announcement.
+  // Clears any existing court assignment (staging supersedes it, same
+  // as scheduleMatch clearing stagedSlot the other direction) — a
+  // match is either staged or on a real court, never both at once.
+  async stageMatch(matchId: string, slot: StagedGroupSlot, actorUserId: string): Promise<Match> {
+    const match = await prisma.match.update({
+      where: { id: matchId },
+      data: { stagedSlot: slot, courtId: null, scheduledAt: null },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.match_staged",
+      entityType: "Match",
+      entityId: match.id,
+      newValues: { stagedSlot: match.stagedSlot },
     });
 
     return match;

@@ -10,6 +10,7 @@ function match(team1Names: string[], team2Names: string[], courtName = "Court 2"
     categoryLabel: "Men's Doubles",
     status: "SCHEDULED",
     announcementRequestedAt: null,
+    stagedSlot: null,
   };
 }
 

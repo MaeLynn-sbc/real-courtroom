@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { ScoresheetView } from "@/features/tournaments/components/scoresheet-view";
 import { courtService } from "@/services/court/court.service";
+import { tournamentDisplayService } from "@/services/display/tournament-display.service";
 import { formatTeamPoolNumber } from "@/services/tournaments/bracket-generator";
 import { matchService } from "@/services/tournaments/match.service";
 import { tournamentService } from "@/services/tournaments/tournament.service";
@@ -43,10 +44,22 @@ export default async function ScoresheetPage({ params }: ScoresheetPageProps) {
     notFound();
   }
 
-  const [allMatches, courts] = await Promise.all([
+  const [allMatches, courts, displayData] = await Promise.all([
     matchService.listMatchesByCategory(categoryId),
     courtService.listCourts(),
+    tournamentDisplayService.getDisplayData(),
   ]);
+
+  // Owner request (2026-08-15): "remove the court 1 if it is filled
+  // already" — a court is "filled" once it has a current match (playing
+  // now or up next in its queue, i.e. displayData's own matches[0]
+  // concept), tracked by which match currently occupies it so a row can
+  // still show ITS OWN court as a live option, just not another match's.
+  const occupyingMatchIdByCourtName = new Map(
+    displayData.courts
+      .filter((court) => court.matches.length > 0)
+      .map((court) => [court.courtName, court.matches[0]!.id]),
+  );
 
   // Owner request (2026-08-12): "can the team has numbers. like what
   // number they are in the pool or bracket" — a court official reading
@@ -75,10 +88,15 @@ export default async function ScoresheetPage({ params }: ScoresheetPageProps) {
       team2Name: withNumber(match.team2, match.team2Id),
       courtId: match.courtId,
       courtName: match.court?.name ?? null,
+      stagedSlot: match.stagedSlot,
     }));
   const courtOptions = courts
     .filter((court) => court.status !== "DISABLED")
-    .map((court) => ({ id: court.id, name: court.name }));
+    .map((court) => ({
+      id: court.id,
+      name: court.name,
+      occupiedByMatchId: occupyingMatchIdByCourtName.get(court.name) ?? null,
+    }));
 
   return (
     <ScoresheetView

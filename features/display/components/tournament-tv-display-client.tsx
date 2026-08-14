@@ -14,7 +14,7 @@ import type { TournamentDisplayData, TournamentDisplayMatch } from "@/services/d
 // one flat array anymore (owner request, 2026-08-15: real per-court
 // queues, not just a single match per court).
 function flattenMatches(data: TournamentDisplayData): TournamentDisplayMatch[] {
-  return [...data.courts.flatMap((court) => court.matches), ...data.unscheduled];
+  return [...data.courts.flatMap((court) => court.matches), ...data.unscheduled, ...data.staged];
 }
 
 // Tournament twin of tv-display-client.tsx — same poll-loop/speech-queue/
@@ -358,26 +358,26 @@ export function TournamentTvDisplayClient({
           </h1>
         </div>
 
-        {/* Matches /tv's own header exactly (owner request, 2026-08-15:
-            "i want it to be the same as /tv") — centered status line,
-            big live clock on the right. */}
-        <div
-          className={cn(
-            "font-display hidden text-center text-[1.7vh] font-light tracking-[0.14em] uppercase md:block",
-            reconnecting ? "text-warning" : "text-slate",
-          )}
-        >
-          {reconnecting
-            ? "Reconnecting…"
-            : `Live · Updates every ${refreshIntervalSeconds} second${refreshIntervalSeconds === 1 ? "" : "s"}`}
-        </div>
-
+        {/* Owner request (2026-08-15): "put this above live updates
+            every 10 seconds to save space" — clock stacked on top,
+            status line underneath, both in one right-aligned column
+            instead of three separate header sections. */}
         <div className="text-right">
           <b className="font-display block text-[clamp(24px,3.5vw,36px)] leading-none font-extrabold">
             {clockFormatter.format(now)}
           </b>
-          <span className="font-mono text-slate text-xs tracking-[0.2em] uppercase">
+          <span className="font-mono text-slate block text-xs tracking-[0.2em] uppercase">
             {dateFormatter.format(now)}
+          </span>
+          <span
+            className={cn(
+              "font-display block text-[1.4vh] font-light tracking-[0.14em] uppercase",
+              reconnecting ? "text-warning" : "text-slate",
+            )}
+          >
+            {reconnecting
+              ? "Reconnecting…"
+              : `Live · Updates every ${refreshIntervalSeconds}s`}
           </span>
         </div>
       </div>
@@ -395,11 +395,14 @@ export function TournamentTvDisplayClient({
       {data.courts.length === 0 ? (
         <p className="text-slate text-lg">No matches right now.</p>
       ) : (
-        <div className="flex flex-col gap-6">
-          {data.courts.map((court) => (
-            <CourtRow key={court.courtName} courtName={court.courtName} matches={court.matches} />
-          ))}
-        </div>
+        <>
+          <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-3">
+            {data.courts.map((court) => (
+              <CourtCard key={court.courtName} courtName={court.courtName} matches={court.matches} />
+            ))}
+          </div>
+          <NextUpRow staged={data.staged} />
+        </>
       )}
 
       {speechSupported ? (
@@ -438,61 +441,78 @@ function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" 
   );
 }
 
-// Owner request (2026-08-15), final form after a few rounds: "not
-// single box. 3 boxes for courts. and small boxes for next up. exactly
-// same as /tv but only horizontal" — one big horizontal box per court
-// (3 real courts = 3 boxes) for who's on/up now, matching /tv's own
-// bold per-court treatment just horizontal instead of a grid cell, PLUS
-// small boxes underneath each one for that court's own upcoming queue —
-// same "Next up / After that / Then" labels /tv's Open Play queue
-// section already uses, just scoped per court instead of one global
-// queue ("the next players who will play in the designated courts").
-const NEXT_SLOT_LABELS = ["Next up", "After that", "Then"] as const;
-
-function CourtRow({ courtName, matches }: { courtName: string; matches: TournamentDisplayMatch[] }) {
-  const [current, ...rest] = matches;
+// Owner request (2026-08-15), final form: "exactly like this" (a real
+// screenshot of /tv's own Court Status board) — tall cards side by
+// side, one per real court (always shown, even with nothing assigned
+// yet — see tournament-display.service.ts's own comment on that), big
+// bold centered state. Same shape as /tv's own CourtCard: header label,
+// big center content — no per-card footer here, "these 3 boxes will be
+// only at the bottom, not after the court [each court]" — the shared
+// Next up/After that/Then row lives once, after all 3 cards (see
+// NextUpRow below), not repeated per card.
+function CourtCard({ courtName, matches }: { courtName: string; matches: TournamentDisplayMatch[] }) {
+  const [current] = matches;
   const badge = current ? queueBadge(current) : null;
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="border-green/50 bg-navy-800 flex flex-col gap-2 rounded-2xl border-2 p-6 md:flex-row md:items-center md:gap-6">
-        <div className="flex shrink-0 items-center gap-3 md:w-44">
-          <span className="font-jetbrains text-green text-xl font-extrabold uppercase">{courtName}</span>
-          {badge ? (
-            <span
-              className={
-                badge.tone === "now"
-                  ? "bg-green/15 text-green rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
-                  : "bg-court-blue/15 text-court-blue rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
-              }
-            >
-              {badge.label}
-            </span>
-          ) : (
-            <span className="bg-slate/15 text-slate rounded-full px-2 py-0.5 text-xs font-semibold uppercase">
-              Empty
-            </span>
-          )}
-        </div>
-        {current ? (
-          <div className="flex flex-1 flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-            <TeamsLine match={current} size="lg" />
-            <span className="text-slate text-xs">{current.categoryLabel}</span>
-          </div>
+    <div className="border-green/60 bg-navy-800 flex flex-1 flex-col rounded-2xl border-2 p-6">
+      <div className="flex items-center justify-between">
+        <span className="font-jetbrains text-lg font-extrabold tracking-widest uppercase">{courtName}</span>
+        {badge ? (
+          <span
+            className={
+              badge.tone === "now"
+                ? "bg-green/15 text-green rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
+                : "bg-court-blue/15 text-court-blue rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
+            }
+          >
+            {badge.label}
+          </span>
         ) : null}
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        {NEXT_SLOT_LABELS.map((label, index) => {
-          const match = rest[index] ?? null;
-          return (
-            <div key={label} className="border-line bg-navy-800/60 flex flex-col gap-1 rounded-xl border p-3">
-              <span className="text-slate text-[10px] font-bold tracking-widest uppercase">{label}</span>
-              {match ? <TeamsLine match={match} size="sm" /> : <span className="text-slate/50 text-sm">—</span>}
-            </div>
-          );
-        })}
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 py-10 text-center">
+        {current ? (
+          <>
+            <TeamsLine match={current} size="lg" />
+            <span className="text-slate text-xs">{current.categoryLabel}</span>
+          </>
+        ) : (
+          <span className="text-green text-[clamp(32px,5vw,56px)] leading-none font-extrabold uppercase">
+            Available
+          </span>
+        )}
       </div>
+    </div>
+  );
+}
+
+const NEXT_SLOT_LABELS = ["Next up", "After that", "Then"] as const;
+
+// One shared row, after all 3 court cards — not per court (owner
+// correction, 2026-08-15). Owner request (2026-08-15): "add also in the
+// dropdown the next up after that and then. then we will just manually
+// transfer them to court numbers" — these 3 boxes now read directly from
+// staff's own manual staging (Match.stagedSlot via the Scoresheet
+// dropdown) instead of auto-deriving overflow from each court's queue,
+// so what's on screen always matches what staff actually staged. No
+// court name shown (a staged match has none yet — that's the point).
+function NextUpRow({ staged }: { staged: TournamentDisplayMatch[] }) {
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {NEXT_SLOT_LABELS.map((label, index) => {
+        const match = staged[index] ?? null;
+        return (
+          <div key={label} className="border-line bg-navy-800/60 flex flex-col gap-1 rounded-xl border p-4">
+            <span className="text-slate text-[10px] font-bold tracking-widest uppercase">{label}</span>
+            {match ? (
+              <TeamsLine match={match} size="sm" />
+            ) : (
+              <span className="text-slate/50 text-sm">—</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

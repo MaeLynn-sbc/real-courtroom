@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { Printer } from "lucide-react";
+import { Megaphone, Printer } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { scheduleMatchAction } from "@/actions/tournament.actions";
+import { scheduleMatchAction, stageMatchAction } from "@/actions/tournament.actions";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+type StagedSlot = "NEXT_UP" | "AFTER_THAT" | "THEN";
 
 interface ScoresheetMatch {
   id: string;
@@ -18,6 +20,17 @@ interface ScoresheetMatch {
   team2Name: string;
   courtId: string | null;
   courtName: string | null;
+  stagedSlot: StagedSlot | null;
+}
+
+interface ScoresheetCourtOption {
+  id: string;
+  name: string;
+  // Owner request (2026-08-15): "remove the court 1 if it is filled
+  // already" — the id of whichever match currently occupies this court
+  // (playing now or up next), null if it's open. A row still offers ITS
+  // OWN court even when occupiedByMatchId equals its own match id.
+  occupiedByMatchId: string | null;
 }
 
 interface ScoresheetViewProps {
@@ -26,10 +39,15 @@ interface ScoresheetViewProps {
   categoryName: string;
   tournamentName: string;
   matches: ScoresheetMatch[];
-  courts: { id: string; name: string }[];
+  courts: ScoresheetCourtOption[];
 }
 
 const NO_COURT_VALUE = "__none__";
+const STAGE_OPTIONS: { value: StagedSlot; label: string }[] = [
+  { value: "NEXT_UP", label: "Next up" },
+  { value: "AFTER_THAT", label: "After that" },
+  { value: "THEN", label: "Then" },
+];
 
 function groupByPool(matches: ScoresheetMatch[]): Map<string | null, ScoresheetMatch[]> {
   const groups = new Map<string | null, ScoresheetMatch[]>();
@@ -148,23 +166,60 @@ function ScoresheetRow({
   tournamentId: string;
   categoryId: string;
   match: ScoresheetMatch;
-  courts: { id: string; name: string }[];
+  courts: ScoresheetCourtOption[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [courtId, setCourtId] = useState(match.courtId ?? NO_COURT_VALUE);
+  const [selected, setSelected] = useState<string>(match.courtId ?? match.stagedSlot ?? NO_COURT_VALUE);
+
+  // A court already occupied by ANOTHER match is hidden from the
+  // dropdown ("remove the court 1 if it is filled already"); this row's
+  // own current court always stays offered.
+  const availableCourts = courts.filter(
+    (court) => court.occupiedByMatchId === null || court.occupiedByMatchId === match.id,
+  );
+  const isStageOption = STAGE_OPTIONS.some((option) => option.value === selected);
+
+  function selectedLabel(): string {
+    if (selected === NO_COURT_VALUE) return "No court";
+    const stageOption = STAGE_OPTIONS.find((option) => option.value === selected);
+    if (stageOption) return stageOption.label;
+    return courts.find((court) => court.id === selected)?.name ?? "No court";
+  }
 
   function handleSave() {
     startTransition(async () => {
+      const result = isStageOption
+        ? await stageMatchAction(tournamentId, categoryId, match.id, { slot: selected as StagedSlot })
+        : await scheduleMatchAction(tournamentId, categoryId, match.id, {
+            courtId: selected === NO_COURT_VALUE ? undefined : selected,
+          });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(isStageOption ? "Match staged." : "Match scheduled.");
+      router.refresh();
+    });
+  }
+
+  // Owner request (2026-08-15): "add here announce button. to repeat it
+  // incase they did not hear it the first time" — re-fires the same
+  // scheduleMatch call with the match's CURRENTLY SAVED court (not
+  // whatever's newly picked but unsaved in the dropdown above), which
+  // re-bumps announcementRequestedAt and re-triggers the TV's TTS. Only
+  // meaningful once a match is actually on a real court.
+  function handleAnnounce() {
+    if (!match.courtId) return;
+    startTransition(async () => {
       const result = await scheduleMatchAction(tournamentId, categoryId, match.id, {
-        courtId: courtId === NO_COURT_VALUE ? undefined : courtId,
+        courtId: match.courtId!,
       });
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      toast.success("Match scheduled.");
-      router.refresh();
+      toast.success("Announcement repeated.");
     });
   }
 
@@ -182,23 +237,36 @@ function ScoresheetRow({
       <td className="py-2">
         <span className="hidden print:inline">{match.courtName ?? "—"}</span>
         <div className="flex flex-wrap items-center gap-1.5 print:hidden">
-          <Select value={courtId} onValueChange={(value) => value && setCourtId(value)}>
+          <Select value={selected} onValueChange={(value) => value && setSelected(value)}>
             <SelectTrigger className="h-8 w-32 text-xs">
-              <SelectValue>
-                {courtId === NO_COURT_VALUE ? "No court" : (courts.find((c) => c.id === courtId)?.name ?? "No court")}
-              </SelectValue>
+              <SelectValue>{selectedLabel()}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NO_COURT_VALUE}>No court</SelectItem>
-              {courts.map((court) => (
+              {availableCourts.map((court) => (
                 <SelectItem key={court.id} value={court.id}>
                   {court.name}
+                </SelectItem>
+              ))}
+              {STAGE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={handleSave}>
             Save
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={isPending || !match.courtId}
+            onClick={handleAnnounce}
+            title="Repeat the TV announcement for this match"
+          >
+            <Megaphone className="size-3.5" />
           </Button>
         </div>
       </td>

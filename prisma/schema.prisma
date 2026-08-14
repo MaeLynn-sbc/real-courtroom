@@ -2390,6 +2390,17 @@ model Match {
   // tournaments the way Open Play has one, since assigning the court IS
   // the staff action that already exists.
   announcementRequestedAt DateTime?
+  // Owner request (2026-08-15): "add also in the dropdown the next up
+  // after that and then. then we will just manually transfer them to
+  // court numbers. no voice announcements for next up after that and
+  // then" — staging a match here is a pure scheduling holding-pen
+  // (reuses StagedGroupSlot, the same enum Special Open Play's own
+  // stagedSlot already uses), independent of courtId/announcement:
+  // scheduleMatch clears this when a real court is assigned, and
+  // staging never touches announcementRequestedAt at all. Multiple
+  // matches can share the same slot value (no uniqueness constraint) —
+  // display-layer concern, not enforced here.
+  stagedSlot              StagedGroupSlot?
   createdAt               DateTime    @default(now())
   updatedAt               DateTime    @updatedAt
 

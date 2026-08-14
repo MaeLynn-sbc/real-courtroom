@@ -1,4 +1,6 @@
+import type { StagedGroupSlot } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { courtService } from "@/services/court/court.service";
 import { formatTeamPoolNumber } from "@/services/tournaments/bracket-generator";
 
 // Owner request (2026-08-09): a TV display for tournaments (/tourtv),
@@ -37,6 +39,11 @@ export interface TournamentDisplayMatch {
   // the courtId/status itself. See Match.announcementRequestedAt's own
   // schema comment.
   announcementRequestedAt: string | null;
+  // Owner request (2026-08-15): staff manually stages a match into a
+  // holding pen from the Scoresheet dropdown, ahead of assigning it a
+  // real court — see Match.stagedSlot's own schema comment. Null for
+  // every match on a real court or still fully unscheduled.
+  stagedSlot: StagedGroupSlot | null;
 }
 
 export interface TournamentDisplayCourt {
@@ -53,8 +60,16 @@ export interface TournamentDisplayData {
   courts: TournamentDisplayCourt[];
   // Every match that hasn't been assigned a court yet — owner request
   // (2026-08-15): "i want every match to be shown in /tourtv," not just
-  // the ones already on a court.
+  // the ones already on a court. Excludes staged matches (see `staged`
+  // below) — a match is either staged or truly unscheduled, never both.
   unscheduled: TournamentDisplayMatch[];
+  // Owner request (2026-08-15): "add also in the dropdown the next up
+  // after that and then... no voice announcements for next up after
+  // that and then" — matches staff manually staged from the Scoresheet,
+  // one array entry per staged match, in NEXT_UP/AFTER_THAT/THEN order.
+  // NextUpRow reads this directly instead of auto-deriving overflow from
+  // each court's own queue, now that staging is an explicit staff action.
+  staged: TournamentDisplayMatch[];
   // Owner request (2026-08-15): "use their logo" — the organizer's own
   // branding (Tournament.logoUrl), shown alongside The Courtroom's own
   // logo in the header, emphasized. Null whenever this feed spans
@@ -107,6 +122,7 @@ export class TournamentDisplayService {
   // shown half-empty; COMPLETED/CANCELLED/WALKOVER stay excluded too —
   // nothing left to queue or announce for those.
   async getDisplayData(): Promise<TournamentDisplayData> {
+    const activeCourts = await courtService.listCourts();
     const matches = await prisma.match.findMany({
       where: {
         team2Id: { not: null },
@@ -177,6 +193,7 @@ export class TournamentDisplayService {
         : "Tournament",
       status: match.status === "IN_PROGRESS" ? "IN_PROGRESS" : "SCHEDULED",
       announcementRequestedAt: match.announcementRequestedAt?.toISOString() ?? null,
+      stagedSlot: match.stagedSlot,
     });
 
     // Grouped by court, not one flat list — "queue in every court the
@@ -185,8 +202,19 @@ export class TournamentDisplayService {
     // announcementRequestedAt) already puts each court's own matches in
     // the right queue order as they're encountered here, so no re-sort
     // is needed within a group.
-    const courtsByName = new Map<string, TournamentDisplayMatch[]>();
+    //
+    // Seeded with EVERY real, active court up front (owner report,
+    // 2026-08-15, live on the real screen: "where are the steady boxes
+    // for courts 1 2 and 3" — a court with nothing assigned yet used to
+    // not appear at all, since it was only ever added to this map when
+    // a match referenced it). Matches an empty court to "no games
+    // assigned," same as /tv's own AVAILABLE state for a court with no
+    // bookings — the box itself is always there.
+    const courtsByName = new Map<string, TournamentDisplayMatch[]>(
+      activeCourts.map((court) => [court.name, []]),
+    );
     const unscheduled: TournamentDisplayMatch[] = [];
+    const staged: TournamentDisplayMatch[] = [];
     for (const match of filtered) {
       const displayMatch = toDisplayMatch(match);
       if (match.court) {
@@ -196,10 +224,14 @@ export class TournamentDisplayService {
         } else {
           courtsByName.set(match.court.name, [displayMatch]);
         }
+      } else if (match.stagedSlot) {
+        staged.push(displayMatch);
       } else {
         unscheduled.push(displayMatch);
       }
     }
+    const stagedSlotOrder: Record<StagedGroupSlot, number> = { NEXT_UP: 0, AFTER_THAT: 1, THEN: 2 };
+    staged.sort((a, b) => stagedSlotOrder[a.stagedSlot!] - stagedSlotOrder[b.stagedSlot!]);
 
     const courts: TournamentDisplayCourt[] = Array.from(courtsByName.entries())
       .map(([courtName, courtMatches]) => ({ courtName, matches: courtMatches }))
@@ -217,6 +249,7 @@ export class TournamentDisplayService {
       generatedAt: new Date().toISOString(),
       courts,
       unscheduled,
+      staged,
       tournamentName: soleTournament?.name ?? null,
       tournamentLogoUrl: soleTournament?.logoUrl ?? null,
     };

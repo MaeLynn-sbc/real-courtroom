@@ -121,6 +121,12 @@ export const scheduleMatchSchema = z.object({
 
 export type ScheduleMatchInput = z.infer<typeof scheduleMatchSchema>;
 
+export const stageMatchSchema = z.object({
+  slot: z.enum(["NEXT_UP", "AFTER_THAT", "THEN"]),
+});
+
+export type StageMatchInput = z.infer<typeof stageMatchSchema>;
+
 export const recordScoreSchema = z.object({
   setNumber: z.coerce.number().int().positive(),
   team1Score: z.coerce.number().int().nonnegative(),
