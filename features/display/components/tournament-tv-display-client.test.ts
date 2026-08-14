@@ -16,30 +16,28 @@ function match(team1Names: string[], team2Names: string[], courtName = "Court 2"
 
 describe("formatMatchAnnouncement", () => {
   it("reads 'Attention: <team1>, versus <team2>, please proceed to <court>.'", () => {
-    expect(formatMatchAnnouncement(match(["Mae T."], ["John A."], "Court 3"))).toBe(
-      "Attention: Mae, versus John, please proceed to Court 3.",
+    expect(formatMatchAnnouncement(match(["Mae Tanaka"], ["John Alba"], "Court 3"))).toBe(
+      "Attention: Mae Tanaka, versus John Alba, please proceed to Court 3.",
     );
   });
 
   it("joins a doubles pair with 'and', on both sides", () => {
-    expect(formatMatchAnnouncement(match(["Mae T.", "Jane C."], ["John A.", "Ben B."], "Court 1"))).toBe(
-      "Attention: Mae and Jane, versus John and Ben, please proceed to Court 1.",
-    );
+    expect(
+      formatMatchAnnouncement(match(["Mae Tanaka", "Jane Cruz"], ["John Alba", "Ben Bautista"], "Court 1")),
+    ).toBe("Attention: Mae Tanaka and Jane Cruz, versus John Alba and Ben Bautista, please proceed to Court 1.");
   });
 
-  // Owner decision (2026-08-09): spoken names are bare first names only
-  // — the on-screen card still shows "First L.", but a trailing initial
-  // can read oddly through text-to-speech.
-  it("speaks bare first names only, dropping the last-initial the on-screen card shows", () => {
-    const text = formatMatchAnnouncement(match(["Mae Tan"], ["John Alba"]));
-    expect(text).toContain("Mae");
-    expect(text).toContain("John");
-    expect(text).not.toContain("Tan");
-    expect(text).not.toContain("Alba");
+  // Owner request (2026-08-15): "can the voice announcement read the
+  // complete names as well?" — speaks whatever's in match.team1/2.names
+  // as-is, no first-name-only trimming.
+  it("speaks the complete name, not just the first name", () => {
+    const text = formatMatchAnnouncement(match(["Mae Tanaka"], ["John Alba"]));
+    expect(text).toContain("Mae Tanaka");
+    expect(text).toContain("John Alba");
   });
 
   it("returns an empty string when either side has no names (nothing to announce)", () => {
-    expect(formatMatchAnnouncement(match([], ["John A."]))).toBe("");
-    expect(formatMatchAnnouncement(match(["Mae T."], []))).toBe("");
+    expect(formatMatchAnnouncement(match([], ["John Alba"]))).toBe("");
+    expect(formatMatchAnnouncement(match(["Mae Tanaka"], []))).toBe("");
   });
 });

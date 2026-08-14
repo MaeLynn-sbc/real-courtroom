@@ -43,15 +43,6 @@ function joinNamesForSpeech(names: string[]): string {
   return `${names[0]} and ${names[1]}`;
 }
 
-// Spoken names are bare first names only (owner decision, 2026-08-09) —
-// the on-screen card still shows the full "First L." shortened name;
-// only the VOICE reads first names, same reasoning as
-// tv-display-client.tsx's own firstNameOnly (an initial can read oddly
-// through text-to-speech).
-function firstNameOnly(name: string): string {
-  return name.split(" ")[0] ?? name;
-}
-
 // Same formatters as tv-display-client.tsx's own clock (owner request,
 // 2026-08-15: "i want it to be the same as /tv").
 const clockFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
@@ -61,9 +52,14 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
 });
 
+// Owner request (2026-08-15): "can the voice announcement read the
+// complete names as well?" — reads match.team1/team2.names as-is now
+// (already full names since tournament-display.service.ts's own
+// shortDisplayName stopped abbreviating, see that file's comment),
+// no longer trimmed down to bare first names for speech.
 export function formatMatchAnnouncement(match: TournamentDisplayMatch): string {
-  const team1 = joinNamesForSpeech(match.team1.names.map(firstNameOnly));
-  const team2 = joinNamesForSpeech(match.team2.names.map(firstNameOnly));
+  const team1 = joinNamesForSpeech(match.team1.names);
+  const team2 = joinNamesForSpeech(match.team2.names);
   // courtName is only ever null for an unscheduled match, which can
   // never have a real announcementRequestedAt token in the first place
   // (scheduleMatch is what stamps it, and that always sets a court at
