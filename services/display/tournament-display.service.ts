@@ -81,9 +81,13 @@ export interface TournamentDisplayData {
   tournamentLogoUrl: string | null;
 }
 
-// Mirrors display.service.ts's shortDisplayName exactly (see that
-// file's own comment) — "First L." only; this display has no /phone-
-// style stricter-privacy variant to support, unlike Open Play's.
+// Owner request (2026-08-15): "i want u to maximize the space so u can
+// input all the complete names" — full names now, not the "First L."
+// shortened form display.service.ts's own shortDisplayName still uses
+// (see that file's own comment on the general public-display privacy
+// convention) — the owner explicitly wants full names on THIS screen
+// specifically, for THIS tournament's own audience, overriding that
+// default here only.
 function shortDisplayName(fullName: string | null | undefined): string {
   const trimmed = (fullName ?? "").trim();
   if (!trimmed) {
@@ -92,11 +96,7 @@ function shortDisplayName(fullName: string | null | undefined): string {
   if (trimmed.includes("@")) {
     return trimmed.split("@")[0] || "Guest";
   }
-  const parts = trimmed.split(/\s+/);
-  if (parts.length === 1) {
-    return parts[0];
-  }
-  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+  return trimmed;
 }
 
 type MatchTeam = {

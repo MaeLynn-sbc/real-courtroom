@@ -427,17 +427,37 @@ function queueBadge(match: TournamentDisplayMatch): { label: string; tone: "now"
   return match.status === "IN_PROGRESS" ? { label: "In progress", tone: "now" } : { label: "Up now", tone: "next" };
 }
 
+// Owner request (2026-08-15): "1 team per line" — the main court box
+// (size "lg") stacks each team on its own full line instead of
+// squeezing both onto one "vs" line, so a complete (non-abbreviated)
+// name always has room. NextUpRow's small side boxes (size "sm") stay
+// compact and inline — there isn't room to stack there and the owner's
+// "fill this space" complaint was about the big court boxes, not those.
 function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" | "sm" }) {
-  return (
-    <span className={size === "lg" ? "text-[clamp(20px,3vw,34px)] leading-tight font-bold" : "text-sm leading-snug font-semibold"}>
-      {match.team1.number ? <span className="text-green mr-1.5">{match.team1.number}</span> : null}
-      {match.team1.names.join(" & ")}
-      <span className={size === "lg" ? "text-slate mx-3 text-base font-normal uppercase" : "text-slate mx-1.5 text-xs uppercase"}>
-        vs
+  if (size === "sm") {
+    return (
+      <span className="text-sm leading-snug font-semibold">
+        {match.team1.number ? <span className="text-green mr-1.5">{match.team1.number}</span> : null}
+        {match.team1.names.join(" & ")}
+        <span className="text-slate mx-1.5 text-xs uppercase">vs</span>
+        {match.team2.number ? <span className="text-green mr-1.5">{match.team2.number}</span> : null}
+        {match.team2.names.join(" & ")}
       </span>
-      {match.team2.number ? <span className="text-green mr-1.5">{match.team2.number}</span> : null}
-      {match.team2.names.join(" & ")}
-    </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span className="text-[clamp(24px,3.4vw,44px)] leading-tight font-bold">
+        {match.team1.number ? <span className="text-green mr-2">{match.team1.number}</span> : null}
+        {match.team1.names.join(" & ")}
+      </span>
+      <span className="text-slate text-sm font-normal uppercase">vs</span>
+      <span className="text-[clamp(24px,3.4vw,44px)] leading-tight font-bold">
+        {match.team2.number ? <span className="text-green mr-2">{match.team2.number}</span> : null}
+        {match.team2.names.join(" & ")}
+      </span>
+    </div>
   );
 }
 
@@ -446,19 +466,22 @@ function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" 
 // be used accordingly" — one full-width row per real court, stacked
 // (always shown, even with nothing assigned yet — see
 // tournament-display.service.ts's own comment on that), court label +
-// badge on the left, teams laid out in a single wide horizontal line
-// on the right where long doubles names have room to breathe, instead
-// of the earlier 3-column tall-card grid which squeezed names into a
-// narrow column. No per-card footer here, "these 3 boxes will be only
-// at the bottom, not after the court [each court]" — the shared Next
-// up/After that/Then row lives once, after all 3 rows (see NextUpRow
-// below), not repeated per row.
+// badge on the left, teams laid out in the center where long doubles
+// names have room to breathe, instead of the earlier 3-column
+// tall-card grid which squeezed names into a narrow column. `flex-1`
+// on the root — not sized to content — so the 3 rows evenly split
+// whatever vertical space the parent container has, instead of
+// shrink-wrapping and leaving a dead gap above NextUpRow ("fill this
+// space", owner report 2026-08-15). No per-card footer here, "these 3
+// boxes will be only at the bottom, not after the court [each court]"
+// — the shared Next up/After that/Then row lives once, after all 3
+// rows (see NextUpRow below), not repeated per row.
 function CourtCard({ courtName, matches }: { courtName: string; matches: TournamentDisplayMatch[] }) {
   const [current] = matches;
   const badge = current ? queueBadge(current) : null;
 
   return (
-    <div className="border-green/60 bg-navy-800 flex flex-wrap items-center gap-4 rounded-2xl border-2 p-6">
+    <div className="border-green/60 bg-navy-800 flex flex-1 items-center gap-6 rounded-2xl border-2 p-8">
       <div className="flex w-40 shrink-0 flex-col items-start gap-1.5">
         <span className="font-jetbrains text-lg font-extrabold tracking-widest uppercase">{courtName}</span>
         {badge ? (
@@ -474,14 +497,14 @@ function CourtCard({ courtName, matches }: { courtName: string; matches: Tournam
         ) : null}
       </div>
 
-      <div className="flex flex-1 items-center justify-center gap-4 py-2 text-center">
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
         {current ? (
           <>
             <TeamsLine match={current} size="lg" />
-            <span className="text-slate hidden text-xs sm:inline">{current.categoryLabel}</span>
+            <span className="text-slate text-xs">{current.categoryLabel}</span>
           </>
         ) : (
-          <span className="text-green text-[clamp(24px,3.5vw,36px)] leading-none font-extrabold uppercase">
+          <span className="text-green text-[clamp(32px,5vw,64px)] leading-none font-extrabold uppercase">
             Available
           </span>
         )}

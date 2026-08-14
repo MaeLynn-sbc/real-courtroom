@@ -15,8 +15,13 @@
  *      fresh, later timestamp — freely re-triggerable, same shape as
  *      Open Play's manual re-announce.
  *   3. tournamentDisplayService.getDisplayData() surfaces a court-
- *      assigned, non-bye, SCHEDULED/IN_PROGRESS match with correctly
- *      shortened ("First L.") team names on both sides, under its court.
+ *      assigned, non-bye, SCHEDULED/IN_PROGRESS match with full (not
+ *      abbreviated) team names on both sides, under its court. Owner
+ *      request (2026-08-15): "i want u to maximize the space so u can
+ *      input all the complete names" — full names, overriding the
+ *      general public-display "First L." shortening convention for
+ *      this screen specifically (see tournament-display.service.ts's
+ *      own comment on shortDisplayName).
  *   4. A match with NO court assigned appears in `unscheduled`, not
  *      dropped — and a second match on the SAME court queues behind the
  *      first, in order, instead of replacing it.
@@ -165,14 +170,14 @@ async function main(): Promise<void> {
       `expected courtName to be the most recently assigned court (${courtB.name}), got ${displayedMatch!.courtName}`,
     );
     assert(
-      displayedMatch!.team1.names.join(",") === "Mae T.,Jane C.",
-      `expected team1 names shortened to "First L.", got ${displayedMatch!.team1.names.join(",")}`,
+      displayedMatch!.team1.names.join(",") === `Mae Tanaka${suffix},Jane Cruz${suffix}`,
+      `expected team1 names shown in full, got ${displayedMatch!.team1.names.join(",")}`,
     );
     assert(
-      displayedMatch!.team2.names.join(",") === "John A.,Ben B.",
-      `expected team2 names shortened to "First L.", got ${displayedMatch!.team2.names.join(",")}`,
+      displayedMatch!.team2.names.join(",") === `John Alba${suffix},Ben Bautista${suffix}`,
+      `expected team2 names shown in full, got ${displayedMatch!.team2.names.join(",")}`,
     );
-    console.log("PASS: the match surfaces in the display feed with correctly shortened team names on both sides.");
+    console.log("PASS: the match surfaces in the display feed with full (non-abbreviated) team names on both sides.");
 
     // ============== 3b. Team numbers ("1a"/"2a") surface too ==============
     // Set directly, not via setTeamPool — that service method correctly
