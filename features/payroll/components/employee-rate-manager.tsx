@@ -38,6 +38,11 @@ interface EmployeeRateManagerProps {
   employees: RosterEmployee[];
   selectedEmployeeId: string;
   rates: RateRow[];
+  // The per-employee payroll profile page already shows the employee's
+  // name in its own header — a one-option "Employee" dropdown here would
+  // just be noise. /dashboard/payroll/rates (multi-employee) still shows
+  // it; this defaults to false so that page is untouched.
+  hideEmployeePicker?: boolean;
 }
 
 const dateFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" });
@@ -47,7 +52,12 @@ function toDateValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-export function EmployeeRateManager({ employees, selectedEmployeeId, rates }: EmployeeRateManagerProps) {
+export function EmployeeRateManager({
+  employees,
+  selectedEmployeeId,
+  rates,
+  hideEmployeePicker = false,
+}: EmployeeRateManagerProps) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -143,23 +153,25 @@ export function EmployeeRateManager({ employees, selectedEmployeeId, rates }: Em
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="employeeId">Employee</Label>
-        <Select value={selectedEmployeeId} onValueChange={(value) => value && onSelectEmployee(value)}>
-          <SelectTrigger id="employeeId" className="w-full max-w-sm">
-            <SelectValue placeholder="Select an employee">
-              {(value: string) => employees.find((e) => e.id === value)?.name ?? "Select an employee"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {employees.map((employee) => (
-              <SelectItem key={employee.id} value={employee.id}>
-                {employee.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {hideEmployeePicker ? null : (
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="employeeId">Employee</Label>
+          <Select value={selectedEmployeeId} onValueChange={(value) => value && onSelectEmployee(value)}>
+            <SelectTrigger id="employeeId" className="w-full max-w-sm">
+              <SelectValue placeholder="Select an employee">
+                {(value: string) => employees.find((e) => e.id === value)?.name ?? "Select an employee"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {employees.map((employee) => (
+                <SelectItem key={employee.id} value={employee.id}>
+                  {employee.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {selectedEmployeeId ? (
         <>

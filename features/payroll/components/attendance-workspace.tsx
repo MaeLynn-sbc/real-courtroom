@@ -44,6 +44,10 @@ type AttendanceEntries = Awaited<ReturnType<typeof attendanceRecordService.listE
 interface AttendanceWorkspaceProps {
   employees: AttendanceEmployee[];
   entries: AttendanceEntries;
+  // Same reasoning as EmployeeRateManager's own hideEmployeePicker — the
+  // per-employee payroll profile page passes a single-employee roster and
+  // already shows that name in its own header.
+  hideEmployeePicker?: boolean;
 }
 
 function toLocalDateValue(date: Date): string {
@@ -64,7 +68,13 @@ function combineDateAndTime(dateValue: string, timeValue: string): Date | null {
   return new Date(year, month - 1, day, hours, minutes);
 }
 
-function NewEntryForm({ employees }: { employees: AttendanceEmployee[] }) {
+function NewEntryForm({
+  employees,
+  hideEmployeePicker = false,
+}: {
+  employees: AttendanceEmployee[];
+  hideEmployeePicker?: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [employeeId, setEmployeeId] = useState(employees[0]?.id ?? "");
@@ -110,23 +120,25 @@ function NewEntryForm({ employees }: { employees: AttendanceEmployee[] }) {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="attendanceEmployee">Employee</Label>
-            <Select value={employeeId} onValueChange={(value) => value && setEmployeeId(value)}>
-              <SelectTrigger id="attendanceEmployee">
-                <SelectValue placeholder="Select an employee">
-                  {employees.find((employee) => employee.id === employeeId)?.name}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {employees.map((employee) => (
-                  <SelectItem key={employee.id} value={employee.id}>
-                    {employee.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {hideEmployeePicker ? null : (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="attendanceEmployee">Employee</Label>
+              <Select value={employeeId} onValueChange={(value) => value && setEmployeeId(value)}>
+                <SelectTrigger id="attendanceEmployee">
+                  <SelectValue placeholder="Select an employee">
+                    {employees.find((employee) => employee.id === employeeId)?.name}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map((employee) => (
+                    <SelectItem key={employee.id} value={employee.id}>
+                      {employee.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="attendanceWorkDate">Work date</Label>
@@ -286,10 +298,14 @@ function CorrectEntryRow({ entry }: { entry: AttendanceEntries[number] }) {
   );
 }
 
-export function AttendanceWorkspace({ employees, entries }: AttendanceWorkspaceProps) {
+export function AttendanceWorkspace({
+  employees,
+  entries,
+  hideEmployeePicker = false,
+}: AttendanceWorkspaceProps) {
   return (
     <div className="flex flex-col gap-6">
-      <NewEntryForm employees={employees} />
+      <NewEntryForm employees={employees} hideEmployeePicker={hideEmployeePicker} />
 
       <Card>
         <CardHeader>
@@ -302,7 +318,7 @@ export function AttendanceWorkspace({ employees, entries }: AttendanceWorkspaceP
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Employee</TableHead>
+                  {hideEmployeePicker ? null : <TableHead>Employee</TableHead>}
                   <TableHead>Work date</TableHead>
                   <TableHead>Clock in</TableHead>
                   <TableHead>Clock out</TableHead>
@@ -313,9 +329,11 @@ export function AttendanceWorkspace({ employees, entries }: AttendanceWorkspaceP
               <TableBody>
                 {entries.map((entry) => (
                   <TableRow key={entry.id}>
-                    <TableCell className="font-medium">
-                      {entry.employee.firstName} {entry.employee.lastName}
-                    </TableCell>
+                    {hideEmployeePicker ? null : (
+                      <TableCell className="font-medium">
+                        {entry.employee.firstName} {entry.employee.lastName}
+                      </TableCell>
+                    )}
                     <TableCell>{dateFormatter.format(entry.workDate)}</TableCell>
                     <TableCell>{timeFormatter.format(entry.clockIn)}</TableCell>
                     <TableCell>

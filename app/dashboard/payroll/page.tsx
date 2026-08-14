@@ -31,6 +31,9 @@ export default async function PayrollPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link href="/dashboard/payroll/employees" className={buttonVariants({ variant: "outline" })}>
+            Employees
+          </Link>
           <Link href="/dashboard/payroll/schedule" className={buttonVariants({ variant: "outline" })}>
             Schedule
           </Link>
