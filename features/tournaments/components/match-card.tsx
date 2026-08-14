@@ -103,8 +103,38 @@ export function MatchCard({ tournamentId, categoryId, match, teamPoolNumbers }: 
     );
   }
 
+  // Owner report (2026-08-14): "cannot do it since it's scheduled" —
+  // typing both scores into the Set input and clicking "Complete match"
+  // directly (without first clicking that set's own small "Save" button)
+  // left the match's status at SCHEDULED with no Score row in the
+  // database at all, so completeMatch's transition guard rejected it —
+  // and even relaxing that guard wouldn't have helped, since
+  // completeMatch separately refuses to complete a match with no
+  // decisive score recorded. Nothing here is actually about court/time
+  // scheduling (that moved to the Scoresheet page entirely, see the
+  // 2026-08-11 comment above) — "SCHEDULED" is just Match.status's
+  // not-started-yet value. Fix: save every set that has both scores
+  // typed in (recordScore upserts, so this is safe to re-run on an
+  // already-saved set) before completing, so "Complete match" works
+  // directly from a cold card exactly like the owner expects.
   function handleComplete() {
-    handleAction(() => completeMatchAction(tournamentId, categoryId, match.id), "Match completed.");
+    handleAction(async () => {
+      for (let index = 0; index < setScores.length; index += 1) {
+        const row = setScores[index];
+        if (row.team1.trim() === "" || row.team2.trim() === "") {
+          continue;
+        }
+        const result = await recordScoreAction(tournamentId, categoryId, match.id, {
+          setNumber: index + 1,
+          team1Score: Number(row.team1),
+          team2Score: Number(row.team2),
+        });
+        if (result.error) {
+          return result;
+        }
+      }
+      return completeMatchAction(tournamentId, categoryId, match.id);
+    }, "Match completed.");
   }
 
   function handleWalkover(winnerTeamId: string) {
