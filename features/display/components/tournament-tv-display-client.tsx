@@ -382,36 +382,24 @@ export function TournamentTvDisplayClient({
         </div>
       </div>
 
-      {data.courts.length === 0 && data.unscheduled.length === 0 ? (
+      {/* Owner request (2026-08-15): "the list of players that are not
+          playing shouldnt be visible in the tv. only those who will
+          play or playing needs to be on display" — the unscheduled
+          bucket is still fetched (courtsDisplayService still returns
+          it, still useful for a future combined match-card reference
+          view), just never rendered here. Reversal of the earlier
+          "show every match" ask specifically for the AUDIENCE-facing TV
+          — a long list of who hasn't been called yet isn't useful to
+          someone watching the venue screen, only who's on court or
+          queued up next. */}
+      {data.courts.length === 0 ? (
         <p className="text-slate text-lg">No matches right now.</p>
       ) : (
-        <>
-          {data.courts.length > 0 ? (
-            <div className="flex flex-col gap-8">
-              {data.courts.map((court) => (
-                <div key={court.courtName} className="flex flex-col gap-3">
-                  <h2 className="font-jetbrains text-green text-lg font-bold tracking-widest uppercase">
-                    {court.courtName}
-                  </h2>
-                  <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-                    {court.matches.map((match, index) => (
-                      <MatchCard
-                        key={match.id}
-                        match={match}
-                        courtName={court.courtName}
-                        queuePosition={index}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {data.unscheduled.length > 0 ? (
-            <UnscheduledSection matches={data.unscheduled} />
-          ) : null}
-        </>
+        <div className="flex flex-col gap-6">
+          {data.courts.map((court) => (
+            <CourtRow key={court.courtName} courtName={court.courtName} matches={court.matches} />
+          ))}
+        </div>
       )}
 
       {speechSupported ? (
@@ -428,104 +416,84 @@ export function TournamentTvDisplayClient({
   );
 }
 
-// Badge reflects POSITION IN THIS COURT'S QUEUE, not just the match's
-// own status — only the queue's first slot can ever read "In progress"
-// or "Up now"; anything queued behind it ("the next teams who would
-// play," owner request 2026-08-15) reads "Then #N" regardless of its
-// own SCHEDULED status, since that status alone can't distinguish "next
-// on this court" from "third in line."
-function queueBadge(match: TournamentDisplayMatch, queuePosition: number): { label: string; tone: "now" | "next" | "then" } {
-  if (queuePosition === 0) {
-    return match.status === "IN_PROGRESS" ? { label: "In progress", tone: "now" } : { label: "Up now", tone: "next" };
-  }
-  return { label: `Then #${queuePosition + 1}`, tone: "then" };
+// The badge for whichever match is first in this court's queue — only
+// that slot is ever "In progress"/"Up now"; anything queued behind it
+// shows as the smaller "Next up" line inside CourtRow instead of its
+// own badge.
+function queueBadge(match: TournamentDisplayMatch): { label: string; tone: "now" | "next" } {
+  return match.status === "IN_PROGRESS" ? { label: "In progress", tone: "now" } : { label: "Up now", tone: "next" };
 }
 
-function MatchCard({
-  match,
-  courtName,
-  queuePosition,
-}: {
-  match: TournamentDisplayMatch;
-  courtName: string;
-  queuePosition: number;
-}) {
-  const badge = queueBadge(match, queuePosition);
+function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" | "sm" }) {
   return (
-    <div className="border-line bg-navy-800 flex flex-col gap-3 rounded-2xl border p-6">
-      <div className="flex items-center justify-between">
-        <span className="font-jetbrains text-green text-sm font-bold tracking-widest uppercase">
-          {courtName}
-        </span>
-        <span
-          className={
-            badge.tone === "now"
-              ? "bg-green/15 text-green rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
-              : badge.tone === "next"
-                ? "bg-court-blue/15 text-court-blue rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
-                : "bg-slate/15 text-slate rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
-          }
-        >
-          {badge.label}
-        </span>
-      </div>
-      <div className="flex flex-col gap-1 text-2xl font-bold">
-        <span>
-          {match.team1.number ? <span className="text-green mr-2">{match.team1.number}</span> : null}
-          {match.team1.names.join(" & ")}
-        </span>
-        <span className="text-slate text-sm font-normal uppercase">vs</span>
-        <span>
-          {match.team2.number ? <span className="text-green mr-2">{match.team2.number}</span> : null}
-          {match.team2.names.join(" & ")}
-        </span>
-      </div>
-      <span className="text-slate text-xs">{match.categoryLabel}</span>
-    </div>
+    <span className={size === "lg" ? "text-[clamp(20px,3vw,34px)] leading-tight font-bold" : "text-sm leading-snug font-semibold"}>
+      {match.team1.number ? <span className="text-green mr-1.5">{match.team1.number}</span> : null}
+      {match.team1.names.join(" & ")}
+      <span className={size === "lg" ? "text-slate mx-3 text-base font-normal uppercase" : "text-slate mx-1.5 text-xs uppercase"}>
+        vs
+      </span>
+      {match.team2.number ? <span className="text-green mr-1.5">{match.team2.number}</span> : null}
+      {match.team2.names.join(" & ")}
+    </span>
   );
 }
 
-// "i want every match to be shown in /tourtv" (owner request,
-// 2026-08-15) — a compact reference list for matches with no court
-// assigned yet, grouped by category, deliberately plainer than
-// MatchCard's big queue cards above (this is a glance-at-it reference,
-// not the flashy now-playing centerpiece a live TV is actually for).
-function UnscheduledSection({ matches }: { matches: TournamentDisplayMatch[] }) {
-  const byCategory = new Map<string, TournamentDisplayMatch[]>();
-  for (const match of matches) {
-    const existing = byCategory.get(match.categoryLabel);
-    if (existing) {
-      existing.push(match);
-    } else {
-      byCategory.set(match.categoryLabel, [match]);
-    }
-  }
+// Owner request (2026-08-15), final form after a few rounds: "not
+// single box. 3 boxes for courts. and small boxes for next up. exactly
+// same as /tv but only horizontal" — one big horizontal box per court
+// (3 real courts = 3 boxes) for who's on/up now, matching /tv's own
+// bold per-court treatment just horizontal instead of a grid cell, PLUS
+// small boxes underneath each one for that court's own upcoming queue —
+// same "Next up / After that / Then" labels /tv's Open Play queue
+// section already uses, just scoped per court instead of one global
+// queue ("the next players who will play in the designated courts").
+const NEXT_SLOT_LABELS = ["Next up", "After that", "Then"] as const;
+
+function CourtRow({ courtName, matches }: { courtName: string; matches: TournamentDisplayMatch[] }) {
+  const [current, ...rest] = matches;
+  const badge = current ? queueBadge(current) : null;
 
   return (
-    <div className="flex flex-col gap-4">
-      <h2 className="text-slate text-2xl font-bold tracking-widest uppercase">Not yet on a court</h2>
-      {/* Bumped from text-sm/text-xs and a 3-column cap (owner report,
-          2026-08-15: "quite long"/mostly-empty on a real TV) — bigger
-          text and fewer, wider columns so this actually fills the
-          screen instead of sitting as a narrow strip of small type. */}
-      <div className="grid grid-cols-1 gap-x-10 gap-y-6 xl:grid-cols-2">
-        {Array.from(byCategory.entries()).map(([categoryLabel, categoryMatches]) => (
-          <div key={categoryLabel} className="flex flex-col gap-2">
-            <span className="text-slate text-base font-semibold tracking-wide uppercase">{categoryLabel}</span>
-            <ul className="flex flex-col gap-2">
-              {categoryMatches.map((match) => (
-                <li key={match.id} className="text-[clamp(16px,1.6vw,22px)] leading-snug">
-                  {match.team1.number ? <span className="text-green mr-1.5 font-bold">{match.team1.number}</span> : null}
-                  {match.team1.names.join(" & ")}
-                  <span className="text-slate mx-2 text-sm uppercase">vs</span>
-                  {match.team2.number ? <span className="text-green mr-1.5 font-bold">{match.team2.number}</span> : null}
-                  {match.team2.names.join(" & ")}
-                </li>
-              ))}
-            </ul>
+    <div className="flex flex-col gap-3">
+      <div className="border-green/50 bg-navy-800 flex flex-col gap-2 rounded-2xl border-2 p-6 md:flex-row md:items-center md:gap-6">
+        <div className="flex shrink-0 items-center gap-3 md:w-44">
+          <span className="font-jetbrains text-green text-xl font-extrabold uppercase">{courtName}</span>
+          {badge ? (
+            <span
+              className={
+                badge.tone === "now"
+                  ? "bg-green/15 text-green rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
+                  : "bg-court-blue/15 text-court-blue rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
+              }
+            >
+              {badge.label}
+            </span>
+          ) : (
+            <span className="bg-slate/15 text-slate rounded-full px-2 py-0.5 text-xs font-semibold uppercase">
+              Empty
+            </span>
+          )}
+        </div>
+        {current ? (
+          <div className="flex flex-1 flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+            <TeamsLine match={current} size="lg" />
+            <span className="text-slate text-xs">{current.categoryLabel}</span>
           </div>
-        ))}
+        ) : null}
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        {NEXT_SLOT_LABELS.map((label, index) => {
+          const match = rest[index] ?? null;
+          return (
+            <div key={label} className="border-line bg-navy-800/60 flex flex-col gap-1 rounded-xl border p-3">
+              <span className="text-slate text-[10px] font-bold tracking-widest uppercase">{label}</span>
+              {match ? <TeamsLine match={match} size="sm" /> : <span className="text-slate/50 text-sm">—</span>}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
+
