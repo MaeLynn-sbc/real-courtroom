@@ -433,6 +433,13 @@ function queueBadge(match: TournamentDisplayMatch): { label: string; tone: "now"
 // actual rendered size — bounded by the flex layout above it, see
 // CourtCard's own comment — and re-measures on any resize (court
 // count changing, a name wrapping differently, window resize).
+// `w-full` on the outer element is load-bearing: its parent (CourtCard's
+// content div) is a flex-col with `items-center`, which does NOT
+// stretch a child to the parent's available width by default — without
+// `w-full` this box would just shrink-wrap to its own unscaled content
+// width, making `outer.clientWidth` always equal `inner.scrollWidth`
+// and the width-based scale-down silently never fire (owner report,
+// 2026-08-15: text running off the edge of the screen unshrunk).
 function AutoFitBox({ children, className }: { children: React.ReactNode; className?: string }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -464,7 +471,10 @@ function AutoFitBox({ children, className }: { children: React.ReactNode; classN
   }, [children]);
 
   return (
-    <div ref={outerRef} className={cn("flex min-h-0 flex-1 items-center justify-center overflow-hidden", className)}>
+    <div
+      ref={outerRef}
+      className={cn("flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden", className)}
+    >
       <div ref={innerRef} style={{ transform: `scale(${scale})` }}>
         {children}
       </div>
@@ -531,8 +541,17 @@ function CourtCard({ courtName, matches }: { courtName: string; matches: Tournam
   const badge = current ? queueBadge(current) : null;
 
   return (
-    <div className="border-green/60 bg-navy-800 flex min-h-0 flex-1 items-center gap-6 rounded-2xl border-2 p-8">
-      <div className="flex w-40 shrink-0 flex-col items-start gap-1.5">
+    // No `items-center` here (default items-stretch instead) — same
+    // reasoning as AutoFitBox's own comment on its `w-full`: a row flex
+    // with `items-center` would let the content div's height shrink-wrap
+    // to its own content instead of stretching to this card's real
+    // height, breaking AutoFitBox's height-based scale-down the same
+    // way `items-center` on its parent broke the width-based one.
+    // Stretching means the label column also needs its own
+    // `justify-center` (below) to stay vertically centered now that it
+    // spans the card's full height.
+    <div className="border-green/60 bg-navy-800 flex min-h-0 flex-1 gap-6 rounded-2xl border-2 p-8">
+      <div className="flex w-40 shrink-0 flex-col items-start justify-center gap-1.5">
         <span className="font-jetbrains text-lg font-extrabold tracking-widest uppercase">{courtName}</span>
         {badge ? (
           <span

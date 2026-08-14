@@ -243,7 +243,27 @@ export class TournamentDisplayService {
         .filter((tournament): tournament is NonNullable<typeof tournament> => Boolean(tournament))
         .map((tournament) => [tournament.id, tournament]),
     );
-    const soleTournament = distinctTournaments.size === 1 ? [...distinctTournaments.values()][0] : null;
+    let soleTournament = distinctTournaments.size === 1 ? [...distinctTournaments.values()][0] : null;
+
+    // Owner report (2026-08-15): "the sayans and friends logo and the
+    // text... is gone" — happens during a genuine lull with zero
+    // matches currently SCHEDULED/IN_PROGRESS anywhere (e.g. between
+    // rounds, before the next round's matches exist yet), so there's no
+    // match at all to derive a tournament from. Falls back to whichever
+    // Tournament is itself marked IN_PROGRESS — only resolved when
+    // there's exactly one, same "don't guess when ambiguous" precedent
+    // as the match-derived path above (more than one IN_PROGRESS
+    // tournament stays null, same as more than one distinct tournament
+    // in the match feed already does).
+    if (!soleTournament && distinctTournaments.size === 0) {
+      const inProgressTournaments = await prisma.tournament.findMany({
+        where: { status: "IN_PROGRESS" },
+        select: { id: true, name: true, logoUrl: true },
+      });
+      if (inProgressTournaments.length === 1) {
+        soleTournament = inProgressTournaments[0];
+      }
+    }
 
     return {
       generatedAt: new Date().toISOString(),

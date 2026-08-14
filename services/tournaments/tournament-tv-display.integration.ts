@@ -33,6 +33,9 @@
  *      `unscheduled`; assigning a real court afterwards clears
  *      stagedSlot back out; `staged` is always ordered NEXT_UP, then
  *      AFTER_THAT, then THEN regardless of creation order.
+ *   8. When no match anywhere is currently visible (a lull between
+ *      rounds), tournamentName/tournamentLogoUrl fall back to the sole
+ *      Tournament marked IN_PROGRESS instead of going blank.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -313,6 +316,36 @@ async function main(): Promise<void> {
       "expected a COMPLETED match to be excluded even though it still has a court assigned",
     );
     console.log("PASS: a COMPLETED match is excluded even though it still has a court assigned.");
+
+    // ============== 8. Logo/name fallback during a match-less lull ==============
+    // Owner report (2026-08-15): "the sayans and friends logo and the
+    // text... is gone" — during a genuine lull (no match anywhere is
+    // currently SCHEDULED/IN_PROGRESS), getDisplayData falls back to
+    // whichever Tournament is itself marked IN_PROGRESS, so the header
+    // doesn't blank out just because nothing's actively on court right
+    // now. Deletes every match this fixture created so it contributes
+    // nothing to the feed, then only asserts the fallback fired when the
+    // system-wide feed happens to be genuinely empty (skips, rather than
+    // flaking, if some other tournament's match is active in the dev DB
+    // at the same time this runs).
+    await prisma.match.deleteMany({ where: { tournamentCategoryId: category.id } });
+    await prisma.tournament.update({ where: { id: tournament.id }, data: { status: "IN_PROGRESS" } });
+    const duringLull = await tournamentDisplayService.getDisplayData();
+    const feedIsGloballyEmpty =
+      duringLull.courts.every((court) => court.matches.length === 0) &&
+      duringLull.staged.length === 0 &&
+      duringLull.unscheduled.length === 0;
+    if (feedIsGloballyEmpty) {
+      assert(
+        duringLull.tournamentName === tournament.name,
+        `expected the sole IN_PROGRESS tournament's name as a fallback when no matches are visible, got ${duringLull.tournamentName}`,
+      );
+      console.log("PASS: falls back to the sole IN_PROGRESS tournament's name/logo when no matches are currently visible.");
+    } else {
+      console.log(
+        "SKIP: another match is active elsewhere in the dev DB right now, can't deterministically prove the zero-match fallback this run.",
+      );
+    }
 
     await cleanUp(tournamentId);
     console.log("\nPASS: tournament TV display (/tourtv) proven against real rows.");
