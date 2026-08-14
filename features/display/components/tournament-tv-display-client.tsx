@@ -392,7 +392,7 @@ export function TournamentTvDisplayClient({
         <p className="text-slate text-lg">No matches right now.</p>
       ) : (
         <>
-          <div className="flex flex-1 flex-col gap-4">
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
             {data.courts.map((court) => (
               <CourtCard key={court.courtName} courtName={court.courtName} matches={court.matches} />
             ))}
@@ -423,6 +423,55 @@ function queueBadge(match: TournamentDisplayMatch): { label: string; tone: "now"
   return match.status === "IN_PROGRESS" ? { label: "In progress", tone: "now" } : { label: "Up now", tone: "next" };
 }
 
+// Owner request (2026-08-15): "now it wont fit on the screen. can it
+// auto adjust?" — full (non-abbreviated) names vary wildly in length,
+// and the page is a fixed h-dvh with no scrollbar (a kiosk TV, nobody's
+// there to scroll it), so content that would overflow its box gets
+// scaled DOWN (never up past 1x) to fit exactly, instead of being
+// clipped by the box's own overflow-hidden. Measures the wrapped
+// content at its natural (unscaled) size against the outer box's
+// actual rendered size — bounded by the flex layout above it, see
+// CourtCard's own comment — and re-measures on any resize (court
+// count changing, a name wrapping differently, window resize).
+function AutoFitBox({ children, className }: { children: React.ReactNode; className?: string }) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+
+    function recalc() {
+      if (!outer || !inner) return;
+      inner.style.transform = "scale(1)";
+      const availableHeight = outer.clientHeight;
+      const availableWidth = outer.clientWidth;
+      const contentHeight = inner.scrollHeight;
+      const contentWidth = inner.scrollWidth;
+      const heightRatio = contentHeight > 0 ? availableHeight / contentHeight : 1;
+      const widthRatio = contentWidth > 0 ? availableWidth / contentWidth : 1;
+      const next = Math.min(1, heightRatio, widthRatio);
+      setScale(Number.isFinite(next) && next > 0 ? next : 1);
+    }
+
+    recalc();
+    const observer = new ResizeObserver(recalc);
+    observer.observe(outer);
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [children]);
+
+  return (
+    <div ref={outerRef} className={cn("flex min-h-0 flex-1 items-center justify-center overflow-hidden", className)}>
+      <div ref={innerRef} style={{ transform: `scale(${scale})` }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // Owner request (2026-08-15): "1 team per line" — the main court box
 // (size "lg") stacks each team on its own full line instead of
 // squeezing both onto one "vs" line, so a complete (non-abbreviated)
@@ -442,14 +491,19 @@ function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" 
     );
   }
 
+  // Owner request (2026-08-15): "just make 1 team a 1 liner only" —
+  // whitespace-nowrap forces each team onto a single line no matter how
+  // long the full name is; AutoFitBox (see CourtCard) then shrinks the
+  // whole block down to whatever width/height actually fits, so a long
+  // name gets smaller text instead of wrapping to a second line.
   return (
     <div className="flex flex-col items-center gap-1">
-      <span className="text-[clamp(24px,3.4vw,44px)] leading-tight font-bold">
+      <span className="text-[clamp(24px,3.4vw,44px)] leading-tight font-bold whitespace-nowrap">
         {match.team1.number ? <span className="text-green mr-2">{match.team1.number}</span> : null}
         {match.team1.names.join(" & ")}
       </span>
       <span className="text-slate text-sm font-normal uppercase">vs</span>
-      <span className="text-[clamp(24px,3.4vw,44px)] leading-tight font-bold">
+      <span className="text-[clamp(24px,3.4vw,44px)] leading-tight font-bold whitespace-nowrap">
         {match.team2.number ? <span className="text-green mr-2">{match.team2.number}</span> : null}
         {match.team2.names.join(" & ")}
       </span>
@@ -477,7 +531,7 @@ function CourtCard({ courtName, matches }: { courtName: string; matches: Tournam
   const badge = current ? queueBadge(current) : null;
 
   return (
-    <div className="border-green/60 bg-navy-800 flex flex-1 items-center gap-6 rounded-2xl border-2 p-8">
+    <div className="border-green/60 bg-navy-800 flex min-h-0 flex-1 items-center gap-6 rounded-2xl border-2 p-8">
       <div className="flex w-40 shrink-0 flex-col items-start gap-1.5">
         <span className="font-jetbrains text-lg font-extrabold tracking-widest uppercase">{courtName}</span>
         {badge ? (
@@ -493,12 +547,14 @@ function CourtCard({ courtName, matches }: { courtName: string; matches: Tournam
         ) : null}
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">
         {current ? (
-          <>
-            <span className="text-slate text-xs">{current.categoryLabel}</span>
-            <TeamsLine match={current} size="lg" />
-          </>
+          <AutoFitBox>
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-slate text-xs whitespace-nowrap">{current.categoryLabel}</span>
+              <TeamsLine match={current} size="lg" />
+            </div>
+          </AutoFitBox>
         ) : (
           <span className="text-green text-[clamp(32px,5vw,64px)] leading-none font-extrabold uppercase">
             Available
