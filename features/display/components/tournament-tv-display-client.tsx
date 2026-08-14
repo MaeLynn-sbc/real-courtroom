@@ -337,15 +337,21 @@ export function TournamentTvDisplayClient({
         <div className="flex items-center gap-4">
           <Logo size="sm" className="opacity-70" />
           {data.tournamentLogoUrl ? (
-            <Image
-              src={data.tournamentLogoUrl}
-              alt={data.tournamentName ?? "Tournament logo"}
-              width={64}
-              height={64}
-              className="size-16 shrink-0 rounded-lg object-contain"
-              unoptimized
-              priority
-            />
+            // A fixed-height, wider-than-tall box (not a square) —
+            // organizer logos are commonly wide banner wordmarks (a
+            // real one confirmed this: ~3:1), and object-contain inside
+            // a square would shrink one down to an unreadable sliver.
+            // Still centers/contains a genuinely square logo fine too.
+            <div className="relative h-20 w-64 shrink-0">
+              <Image
+                src={data.tournamentLogoUrl}
+                alt={data.tournamentName ?? "Tournament logo"}
+                fill
+                className="object-contain object-left"
+                unoptimized
+                priority
+              />
+            </div>
           ) : null}
           <h1 className="font-display text-[clamp(28px,4vw,44px)] leading-none font-extrabold uppercase">
             {data.tournamentName ?? "Tournament — Now Playing"}
@@ -496,19 +502,23 @@ function UnscheduledSection({ matches }: { matches: TournamentDisplayMatch[] }) 
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <h2 className="text-slate text-lg font-bold tracking-widest uppercase">Not yet on a court</h2>
-      <div className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="flex flex-col gap-4">
+      <h2 className="text-slate text-2xl font-bold tracking-widest uppercase">Not yet on a court</h2>
+      {/* Bumped from text-sm/text-xs and a 3-column cap (owner report,
+          2026-08-15: "quite long"/mostly-empty on a real TV) — bigger
+          text and fewer, wider columns so this actually fills the
+          screen instead of sitting as a narrow strip of small type. */}
+      <div className="grid grid-cols-1 gap-x-10 gap-y-6 xl:grid-cols-2">
         {Array.from(byCategory.entries()).map(([categoryLabel, categoryMatches]) => (
-          <div key={categoryLabel} className="flex flex-col gap-1.5">
-            <span className="text-slate text-xs font-semibold tracking-wide uppercase">{categoryLabel}</span>
-            <ul className="flex flex-col gap-1">
+          <div key={categoryLabel} className="flex flex-col gap-2">
+            <span className="text-slate text-base font-semibold tracking-wide uppercase">{categoryLabel}</span>
+            <ul className="flex flex-col gap-2">
               {categoryMatches.map((match) => (
-                <li key={match.id} className="text-sm">
-                  {match.team1.number ? <span className="text-green mr-1">{match.team1.number}</span> : null}
+                <li key={match.id} className="text-[clamp(16px,1.6vw,22px)] leading-snug">
+                  {match.team1.number ? <span className="text-green mr-1.5 font-bold">{match.team1.number}</span> : null}
                   {match.team1.names.join(" & ")}
-                  <span className="text-slate mx-1.5 uppercase">vs</span>
-                  {match.team2.number ? <span className="text-green mr-1">{match.team2.number}</span> : null}
+                  <span className="text-slate mx-2 text-sm uppercase">vs</span>
+                  {match.team2.number ? <span className="text-green mr-1.5 font-bold">{match.team2.number}</span> : null}
                   {match.team2.names.join(" & ")}
                 </li>
               ))}
