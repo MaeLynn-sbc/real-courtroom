@@ -33,6 +33,17 @@ interface ScoresheetCourtOption {
   occupiedByMatchId: string | null;
 }
 
+// Owner report (2026-08-15): "next up and others are not filtered out
+// after using it and clicking on save" — a staging slot can only ever
+// hold one match at a time (mirrors the TV's own single Next up/After
+// that/Then boxes), so it needs the exact same occupied-hides-from-
+// other-rows treatment as a real court.
+interface ScoresheetStageOption {
+  value: StagedSlot;
+  label: string;
+  occupiedByMatchId: string | null;
+}
+
 interface ScoresheetViewProps {
   tournamentId: string;
   categoryId: string;
@@ -40,14 +51,10 @@ interface ScoresheetViewProps {
   tournamentName: string;
   matches: ScoresheetMatch[];
   courts: ScoresheetCourtOption[];
+  stageOptions: ScoresheetStageOption[];
 }
 
 const NO_COURT_VALUE = "__none__";
-const STAGE_OPTIONS: { value: StagedSlot; label: string }[] = [
-  { value: "NEXT_UP", label: "Next up" },
-  { value: "AFTER_THAT", label: "After that" },
-  { value: "THEN", label: "Then" },
-];
 
 function groupByPool(matches: ScoresheetMatch[]): Map<string | null, ScoresheetMatch[]> {
   const groups = new Map<string | null, ScoresheetMatch[]>();
@@ -72,6 +79,7 @@ export function ScoresheetView({
   tournamentName,
   matches,
   courts,
+  stageOptions,
 }: ScoresheetViewProps) {
   const pools = Array.from(groupByPool(matches).entries()).sort(([a], [b]) =>
     (a ?? "").localeCompare(b ?? ""),
@@ -123,6 +131,7 @@ export function ScoresheetView({
                       categoryId={categoryId}
                       match={match}
                       courts={courts}
+                      stageOptions={stageOptions}
                     />
                   ))}
                 </tbody>
@@ -162,11 +171,13 @@ function ScoresheetRow({
   categoryId,
   match,
   courts,
+  stageOptions,
 }: {
   tournamentId: string;
   categoryId: string;
   match: ScoresheetMatch;
   courts: ScoresheetCourtOption[];
+  stageOptions: ScoresheetStageOption[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -174,15 +185,20 @@ function ScoresheetRow({
 
   // A court already occupied by ANOTHER match is hidden from the
   // dropdown ("remove the court 1 if it is filled already"); this row's
-  // own current court always stays offered.
+  // own current court always stays offered. Same treatment for a
+  // staging slot already taken by another match ("next up and others
+  // are not filtered out after using it").
   const availableCourts = courts.filter(
     (court) => court.occupiedByMatchId === null || court.occupiedByMatchId === match.id,
   );
-  const isStageOption = STAGE_OPTIONS.some((option) => option.value === selected);
+  const availableStageOptions = stageOptions.filter(
+    (option) => option.occupiedByMatchId === null || option.occupiedByMatchId === match.id,
+  );
+  const isStageOption = stageOptions.some((option) => option.value === selected);
 
   function selectedLabel(): string {
     if (selected === NO_COURT_VALUE) return "No court";
-    const stageOption = STAGE_OPTIONS.find((option) => option.value === selected);
+    const stageOption = stageOptions.find((option) => option.value === selected);
     if (stageOption) return stageOption.label;
     return courts.find((court) => court.id === selected)?.name ?? "No court";
   }
@@ -248,7 +264,7 @@ function ScoresheetRow({
                   {court.name}
                 </SelectItem>
               ))}
-              {STAGE_OPTIONS.map((option) => (
+              {availableStageOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>

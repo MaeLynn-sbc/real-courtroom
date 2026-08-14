@@ -61,6 +61,22 @@ export default async function ScoresheetPage({ params }: ScoresheetPageProps) {
       .map((court) => [court.courtName, court.matches[0]!.id]),
   );
 
+  // Owner report (2026-08-15): "next up and others are not filtered out
+  // after using it and clicking on save" — each staging slot (like a
+  // court) can only ever hold one match at a time on the TV's own Next
+  // up/After that/Then row, so it needs the exact same "hide from other
+  // rows, keep visible on the one that owns it" filtering as courts.
+  // displayData.staged is already ordered NEXT_UP/AFTER_THAT/THEN with
+  // at most the first match per slot ever shown on the TV (see
+  // tournament-display.service.ts's own sort), so the first match seen
+  // per slot here is exactly the one that "owns" it.
+  const occupyingMatchIdByStagedSlot = new Map<string, string>();
+  for (const match of displayData.staged) {
+    if (match.stagedSlot && !occupyingMatchIdByStagedSlot.has(match.stagedSlot)) {
+      occupyingMatchIdByStagedSlot.set(match.stagedSlot, match.id);
+    }
+  }
+
   // Owner request (2026-08-12): "can the team has numbers. like what
   // number they are in the pool or bracket" — a court official reading
   // this printed sheet should be able to tell teams apart by number,
@@ -106,6 +122,15 @@ export default async function ScoresheetPage({ params }: ScoresheetPageProps) {
       tournamentName={category.tournament.name}
       matches={scheduledMatches}
       courts={courtOptions}
+      stageOptions={[
+        { value: "NEXT_UP", label: "Next up", occupiedByMatchId: occupyingMatchIdByStagedSlot.get("NEXT_UP") ?? null },
+        {
+          value: "AFTER_THAT",
+          label: "After that",
+          occupiedByMatchId: occupyingMatchIdByStagedSlot.get("AFTER_THAT") ?? null,
+        },
+        { value: "THEN", label: "Then", occupiedByMatchId: occupyingMatchIdByStagedSlot.get("THEN") ?? null },
+      ]}
     />
   );
 }
