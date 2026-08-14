@@ -1,5 +1,6 @@
 "use client";
 
+import { Mic } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -9,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { teamNamesForSpeech } from "@/features/tournaments/lib/match-announcement";
 import type { MatchStatus } from "@/lib/generated/prisma/enums";
 import type { matchService } from "@/services/tournaments/match.service";
 
@@ -137,6 +139,31 @@ export function MatchCard({ tournamentId, categoryId, match, teamPoolNumbers }: 
     }, "Match completed.");
   }
 
+  // Two separate utterances, not one run-on sentence — the browser's
+  // Owner request (2026-08-15): "add here announce button... please
+  // announce the players then announce who are the winners. put a mic
+  // button" — clarified to fire manually, not automatically on
+  // "Complete match", and to speak locally via this browser's own
+  // speechSynthesis rather than through the TV/PA relay the
+  // Scoresheet's Announce button uses — the laptop running this
+  // score-entry card is itself plugged into the venue's speakers.
+  // Two separate utterances, not one run-on sentence — the browser's
+  // speech queue plays them back to back with a natural pause between,
+  // so it genuinely reads as "announce the players, THEN announce the
+  // winner" rather than everything blurring into one line.
+  function handleAnnounceWinner() {
+    if (!match.winnerTeamId || typeof window === "undefined" || !("speechSynthesis" in window)) {
+      return;
+    }
+    const winnerTeam = match.winnerTeamId === match.team1Id ? match.team1 : match.team2;
+    const team1Speech = teamNamesForSpeech(match.team1);
+    const team2Speech = teamNamesForSpeech(match.team2);
+    const winnerSpeech = teamNamesForSpeech(winnerTeam);
+    if (!team1Speech || !team2Speech || !winnerSpeech) return;
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(`${team1Speech}, versus ${team2Speech}.`));
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(`The winner is ${winnerSpeech}.`));
+  }
+
   function handleWalkover(winnerTeamId: string) {
     handleAction(
       () => markWalkoverAction(tournamentId, categoryId, match.id, { winnerTeamId }),
@@ -246,12 +273,23 @@ export function MatchCard({ tournamentId, categoryId, match, teamPoolNumbers }: 
             ) : null}
 
             {match.winnerTeamId ? (
-              <p className="text-sm font-medium">
-                Winner:{" "}
-                {match.winnerTeamId === match.team1Id
-                  ? teamLabel(match.team1, team1Number)
-                  : teamLabel(match.team2, team2Number)}
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium">
+                  Winner:{" "}
+                  {match.winnerTeamId === match.team1Id
+                    ? teamLabel(match.team1, team1Number)
+                    : teamLabel(match.team2, team2Number)}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleAnnounceWinner}
+                  title="Announce the players and the winner"
+                >
+                  <Mic className="size-3.5" />
+                </Button>
+              </div>
             ) : null}
           </>
         )}
