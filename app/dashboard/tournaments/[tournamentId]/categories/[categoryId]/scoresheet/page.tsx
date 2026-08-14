@@ -75,7 +75,6 @@ export default async function ScoresheetPage({ params }: ScoresheetPageProps) {
       team2Name: withNumber(match.team2, match.team2Id),
       courtId: match.courtId,
       courtName: match.court?.name ?? null,
-      scheduledAt: match.scheduledAt ? match.scheduledAt.toISOString() : null,
     }));
   const courtOptions = courts
     .filter((court) => court.status !== "DISABLED")

@@ -8,7 +8,6 @@ import { toast } from "sonner";
 
 import { scheduleMatchAction } from "@/actions/tournament.actions";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface ScoresheetMatch {
@@ -19,7 +18,6 @@ interface ScoresheetMatch {
   team2Name: string;
   courtId: string | null;
   courtName: string | null;
-  scheduledAt: string | null;
 }
 
 interface ScoresheetViewProps {
@@ -32,7 +30,6 @@ interface ScoresheetViewProps {
 }
 
 const NO_COURT_VALUE = "__none__";
-const timeFormatter = new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit" });
 
 function groupByPool(matches: ScoresheetMatch[]): Map<string | null, ScoresheetMatch[]> {
   const groups = new Map<string | null, ScoresheetMatch[]>();
@@ -42,14 +39,6 @@ function groupByPool(matches: ScoresheetMatch[]): Map<string | null, ScoresheetM
     groups.set(match.poolLabel, list);
   }
   return groups;
-}
-
-function toLocalInputValue(iso: string): string {
-  const date = new Date(iso);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`;
 }
 
 // Owner request (2026-08-11): "i want it to be lines only so that the
@@ -105,7 +94,7 @@ export function ScoresheetView({
                     <th className="py-1.5 text-center font-medium">Score</th>
                     <th className="py-1.5 text-left font-medium">Team 2</th>
                     <th className="py-1.5 text-center font-medium">Score</th>
-                    <th className="py-1.5 text-left font-medium">Court &amp; time</th>
+                    <th className="py-1.5 text-left font-medium">Court</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -137,14 +126,19 @@ export function ScoresheetView({
 }
 
 // Owner request (2026-08-11): "remove this and put it on other tabs.
-// the schedule. it shouldnt conflict with the score cards" — court +
-// scheduled-at assignment lives here now instead of on the score-entry
-// match card. Each row keeps its own local court/time state (same
-// shape match-card.tsx used to have) so editing one match never
-// touches another's unsaved input. The editor is print:hidden; a plain-
-// text duplicate of the same court/time (hidden on screen, shown only
-// on print) is what actually prints, so the printed sheet stays a
-// clean line, not a form control.
+// the schedule. it shouldnt conflict with the score cards" — court
+// assignment lives here now instead of on the score-entry match card.
+// Each row keeps its own local court state (same shape match-card.tsx
+// used to have) so editing one match never touches another's unsaved
+// input. The editor is print:hidden; a plain-text duplicate of the same
+// court (hidden on screen, shown only on print) is what actually
+// prints, so the printed sheet stays a clean line, not a form control.
+// Owner request (2026-08-15): "remove the scheduling. i dont need it.
+// all games doesnt have real schedule" — dropped the scheduledAt time
+// input entirely; court assignment alone is what's left. scheduleMatch
+// still technically accepts a scheduledAt (Match.scheduledAt stays in
+// the schema, untouched — no migration, nothing reads it once this form
+// stops sending it), just nothing here calls it anymore.
 function ScoresheetRow({
   tournamentId,
   categoryId,
@@ -159,15 +153,11 @@ function ScoresheetRow({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [courtId, setCourtId] = useState(match.courtId ?? NO_COURT_VALUE);
-  const [scheduledAt, setScheduledAt] = useState(
-    match.scheduledAt ? toLocalInputValue(match.scheduledAt) : "",
-  );
 
   function handleSave() {
     startTransition(async () => {
       const result = await scheduleMatchAction(tournamentId, categoryId, match.id, {
         courtId: courtId === NO_COURT_VALUE ? undefined : courtId,
-        scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
       });
       if (result.error) {
         toast.error(result.error);
@@ -177,13 +167,6 @@ function ScoresheetRow({
       router.refresh();
     });
   }
-
-  const printText = [
-    match.courtName,
-    match.scheduledAt ? timeFormatter.format(new Date(match.scheduledAt)) : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
 
   return (
     <tr className="border-b">
@@ -197,7 +180,7 @@ function ScoresheetRow({
         <span className="inline-block w-16 border-b border-dotted">&nbsp;</span>
       </td>
       <td className="py-2">
-        <span className="hidden print:inline">{printText || "—"}</span>
+        <span className="hidden print:inline">{match.courtName ?? "—"}</span>
         <div className="flex flex-wrap items-center gap-1.5 print:hidden">
           <Select value={courtId} onValueChange={(value) => value && setCourtId(value)}>
             <SelectTrigger className="h-8 w-32 text-xs">
@@ -214,12 +197,6 @@ function ScoresheetRow({
               ))}
             </SelectContent>
           </Select>
-          <Input
-            type="datetime-local"
-            value={scheduledAt}
-            onChange={(event) => setScheduledAt(event.target.value)}
-            className="h-8 w-44 text-xs"
-          />
           <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={handleSave}>
             Save
           </Button>
