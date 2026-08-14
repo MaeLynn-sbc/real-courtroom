@@ -331,7 +331,6 @@ export function TournamentTvDisplayClient({
             only ever set when every match on screen belongs to the same
             one, see tournament-display.service.ts's own comment. */}
         <div className="flex items-center gap-4">
-          <Logo size="sm" className="opacity-70" />
           {data.tournamentLogoUrl ? (
             // A fixed-height, wider-than-tall box (not a square) —
             // organizer logos are commonly wide banner wordmarks (a
@@ -352,6 +351,11 @@ export function TournamentTvDisplayClient({
           <h1 className="font-display text-[clamp(28px,4vw,44px)] leading-none font-extrabold uppercase">
             {data.tournamentName ?? "Tournament — Now Playing"}
           </h1>
+          {/* Owner request (2026-08-15): "put the courtroom logo after
+              the tournament text. its barely visible right now" — moved
+              from leading (where it got lost next to the much bigger
+              tournament logo) to trailing instead. */}
+          <Logo size="sm" className="opacity-70" />
         </div>
 
         {/* Owner request (2026-08-15): "put this above live updates
