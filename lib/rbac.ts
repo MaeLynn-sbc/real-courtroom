@@ -152,5 +152,23 @@ export function canAccessRoute(
     return "unauthenticated";
   }
 
+  // Real incident (2026-08-14): CHANGE_PASSWORD_PATH's own comment above
+  // has always claimed this is "the only page a must-change-password
+  // account may reach under /dashboard" — but nothing here actually
+  // enforced that. It fell under the generic /dashboard rule (requires
+  // DASHBOARD_ACCESS), same as every other page, so a role missing that
+  // one permission (found live: production's TOURNAMENT_DIRECTOR role,
+  // drifted from its own seeded default of
+  // [DASHBOARD_ACCESS, TOURNAMENTS_MANAGE] at some point via the Roles
+  // admin page) got trapped: mustChangePassword redirects it here, but
+  // reaching the page it was just redirected to gets rejected as
+  // forbidden — an inescapable loop with no way to ever change the
+  // password and unlock anything else. Any authenticated account must
+  // always be able to reach this one page, regardless of what
+  // permissions its role does or doesn't currently hold.
+  if (pathname.startsWith(CHANGE_PASSWORD_PATH)) {
+    return "allowed";
+  }
+
   return hasPermission(permissions, rule.permission) ? "allowed" : "forbidden";
 }

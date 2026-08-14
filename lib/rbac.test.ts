@@ -140,6 +140,24 @@ describe("canAccessRoute", () => {
   // their mutations — so the trailing-slash prefix rule covers exactly
   // those sub-routes without loosening the bare defaults page, which
   // has no trailing segment and so never matches a ".../" prefix.
+  // Real incident (2026-08-14): requiresPasswordChangeRedirect forces a
+  // must-change account here, but canAccessRoute used to gate this page
+  // like any other under /dashboard's generic DASHBOARD_ACCESS rule — a
+  // role missing that one permission (production's TOURNAMENT_DIRECTOR,
+  // in practice) got trapped: redirected here by the password check,
+  // then rejected as forbidden for lacking DASHBOARD_ACCESS, with no way
+  // out. Any authenticated session must always be able to reach this
+  // page, regardless of its permissions — that's the whole point of it
+  // being the one place a must-change account is allowed to land.
+  it("always allows an authenticated session onto the change-password page, even with zero permissions", () => {
+    expect(canAccessRoute(CHANGE_PASSWORD_PATH, true, [])).toBe("allowed");
+    expect(canAccessRoute(`${CHANGE_PASSWORD_PATH}/confirm`, true, [])).toBe("allowed");
+  });
+
+  it("still requires authentication for the change-password page — the exemption is permission-only", () => {
+    expect(canAccessRoute(CHANGE_PASSWORD_PATH, false, [])).toBe("unauthenticated");
+  });
+
   it("gates open-play-capacity's day-to-day sub-routes on OPEN_PLAY_MANAGE, while the bare defaults page stays SYSTEM_ADMIN-only", () => {
     const openPlayManage = [PERMISSIONS.OPEN_PLAY_MANAGE];
 
