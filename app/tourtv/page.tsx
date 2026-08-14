@@ -1,43 +1,33 @@
 import type { Metadata } from "next";
 
-import { SpecialOpenPlayTvClient } from "@/features/display/components/special-open-play-tv-client";
-import { computeBusinessDate } from "@/lib/business-date";
+import { TournamentTvDisplayClient } from "@/features/display/components/tournament-tv-display-client";
 import { settingsService } from "@/services/settings/settings.service";
-import { specialDisplayService } from "@/services/display/special-display.service";
+import { tournamentDisplayService } from "@/services/display/tournament-display.service";
 
 export const metadata: Metadata = {
-  title: "Special Open Play — Now Playing",
+  title: "Tournament — Now Playing",
   robots: { index: false, follow: false },
 };
 
 export const dynamic = "force-dynamic";
 
-// Owner request (2026-08-09): "ill use the /tourtv url and reuse it
-// after" — this route is TEMPORARILY repurposed to show the Special
-// Open Play display instead of the tournament one, for as long as the
-// outside special court is running. The real tournament display code
-// (tournamentDisplayService, TournamentTvDisplayClient,
-// /api/tournament-display) is untouched and still fully working — only
-// THIS page's own render target changed. To switch back: swap the
-// import/JSX below back to tournamentDisplayService +
-// TournamentTvDisplayClient (see git history for the exact prior
-// version of this file), and revert the metadata title.
+// Owner request (2026-08-15): switched back from the temporary Special
+// Open Play repurposing (see git history around 2026-08-09) — this is a
+// real tournament now, and TournamentTvDisplayClient has no game
+// timer/countdown at all (see its own comment), matching the explicit
+// "no timer needed" ask. The Special Open Play display code is untouched
+// and still fully working, just no longer this route's render target.
 export default async function TourTvPage() {
-  // Owner-directed consolidation (2026-08-12): rollover-hour aware, not
-  // literal calendar midnight.
-  const courtHours = await settingsService.getCourtHours();
-  const today = computeBusinessDate(new Date(), courtHours.businessDateRolloverHour);
-
   const [initialData, announcementRepeatCount, announcementVoice, refreshIntervalSeconds] =
     await Promise.all([
-      specialDisplayService.getDisplayData(today),
+      tournamentDisplayService.getDisplayData(),
       settingsService.getAnnouncementRepeatCount(),
       settingsService.getAnnouncementVoice(),
       settingsService.getDisplayRefreshIntervalSeconds(),
     ]);
 
   return (
-    <SpecialOpenPlayTvClient
+    <TournamentTvDisplayClient
       initialData={initialData}
       announcementRepeatCount={announcementRepeatCount}
       announcementVoice={announcementVoice}
