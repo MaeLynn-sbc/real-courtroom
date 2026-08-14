@@ -35,7 +35,22 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/unauthorized", nextUrl));
   }
 
-  return NextResponse.next();
+  // Real incident (2026-08-14): middleware runs on the Edge runtime
+  // (auth.config.ts's own comment — no Prisma, no jwt() callback), so the
+  // session it reads here is whatever was already baked into the
+  // request's JWT cookie. A password reset or permission change updates
+  // the database immediately, but an already-signed-in browser keeps
+  // presenting its OLD cookie until that session naturally re-issues —
+  // this middleware layer has no way to know it's stale. The forwarded
+  // pathname lets app/dashboard/layout.tsx (a real Node Server Component,
+  // where auth()'s jwt() callback DOES re-check the database on every
+  // call — see auth.ts's own "re-checked on every call" comment) run the
+  // exact same two checks again with a guaranteed-fresh session, so a
+  // reset/revocation/deactivation takes effect on the very next request
+  // instead of only after the affected account happens to sign out.
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", nextUrl.pathname);
+  return NextResponse.next({ request: { headers: requestHeaders } });
 });
 
 export const config = {

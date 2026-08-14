@@ -114,10 +114,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return token;
       }
 
-      // v1.2: re-checked on every call (not gated behind `!token.role` like
-      // the heavier fetch below) — a single-row, indexed lookup (plus its
-      // 1:1 Employee join), cheap enough to run every request. Two things
-      // ride on this same check:
+      // v1.2, widened 2026-08-14: re-checked on every call — a single-row,
+      // indexed lookup (plus its 1:1 Employee join and role/permissions
+      // join), cheap enough to run every request. Three things ride on
+      // this same query:
       //   - passwordChangedAt: a mismatch means the token predates the
       //     most recent password change (a reset elsewhere, or this same
       //     user changing it from another device) — see
@@ -129,7 +129,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       //     included — until it naturally expired. Same "isActive false
       //     blocks it" rule as authorize(), just re-applied on every
       //     request instead of only at sign-in.
-      // Either condition discards the token outright by returning null.
+      //   - role/permissions: previously only refetched on a fresh sign-in
+      //     or when the token had never carried a role at all (`!token.role`)
+      //     — meaning an owner revoking a permission, or reassigning
+      //     someone's role, from the Roles admin page had NO effect on
+      //     anyone already signed in until their token happened to expire
+      //     (up to 30 days). Real incident (2026-08-14): a staff account's
+      //     password was reset from the Employees page, which correctly
+      //     bumped passwordChangedAt (invalidating the old token below) —
+      //     but a plain permission change alone, with no password reset,
+      //     would have kept the old permission set live indefinitely. Now
+      //     refetched on every call, same as the deletedAt/mustChangePassword
+      //     checks above — a role/permission change now takes effect on
+      //     this account's very next request, not at its next sign-in.
+      // deletedAt discards the token outright by returning null;
+      // passwordChangedAt mismatch does the same (a reset elsewhere means
+      // this token's own credentials are no longer trusted at all, not
+      // just "needs a password change" — mustChangePassword is a
+      // separate, milder flag carried on the token below).
       const accountState = await prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -137,6 +154,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           mustChangePassword: true,
           passwordChangedAt: true,
           employee: { select: { isActive: true } },
+          role: { select: { name: true, permissions: { select: { permission: { select: { key: true } } } } } },
         },
       });
 
@@ -153,22 +171,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return null;
       }
 
+      token.id = userId;
       token.mustChangePassword = accountState.mustChangePassword;
-
-      if (user || !token.role) {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: userId },
-          include: {
-            role: { include: { permissions: { include: { permission: true } } } },
-          },
-        });
-
-        token.id = userId;
-        token.role = dbUser?.role ? dbUser.role.name : null;
-        token.permissions = dbUser?.role
-          ? dbUser.role.permissions.map((rolePermission) => rolePermission.permission.key)
-          : [];
-      }
+      token.role = accountState.role ? accountState.role.name : null;
+      token.permissions = accountState.role
+        ? accountState.role.permissions.map((rolePermission) => rolePermission.permission.key)
+        : [];
 
       return token;
     },

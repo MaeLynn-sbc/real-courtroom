@@ -1,9 +1,17 @@
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+
 import { auth } from "@/auth";
 import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
 import { StaleHoldsBanner } from "@/features/dashboard/components/stale-holds-banner";
 import { VerificationBanner } from "@/features/dashboard/components/verification-banner";
-import { hasPermission } from "@/lib/rbac";
+import {
+  CHANGE_PASSWORD_PATH,
+  canAccessRoute,
+  hasPermission,
+  requiresPasswordChangeRedirect,
+} from "@/lib/rbac";
 import { bookingPaymentProofService } from "@/services/booking/booking-payment-proof.service";
 import { bookingService } from "@/services/booking/booking.service";
 import { openPlayRegistrationPaymentProofService } from "@/services/open-play/open-play-registration-payment-proof.service";
@@ -44,6 +52,29 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // empty array) specifically to distinguish "not permitted, hide the
   // indicator" from "permitted, nobody's clocked in right now."
   const session = await auth();
+
+  // Real incident (2026-08-14): middleware.ts's own gate runs on the Edge
+  // runtime against whatever session cookie the browser already had —
+  // it has no way to notice a password reset or permission change made
+  // AFTER that cookie was issued (see middleware.ts's own comment on the
+  // header this reads). auth() here is the full Node instance, whose
+  // jwt() callback re-checks the database on every call — so re-running
+  // the exact same two decisions middleware already made, but against
+  // THIS guaranteed-fresh session, catches anything middleware's stale
+  // copy missed. Cheap: no extra query, session is already fetched above
+  // for canViewOnDuty and everything else this layout needs.
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  if (requiresPasswordChangeRedirect(pathname, Boolean(session?.user.mustChangePassword))) {
+    redirect(CHANGE_PASSWORD_PATH);
+  }
+  const routeDecision = canAccessRoute(pathname, Boolean(session?.user), session?.user.permissions ?? []);
+  if (routeDecision === "forbidden") {
+    redirect("/unauthorized");
+  }
+  if (routeDecision === "unauthenticated") {
+    redirect("/login");
+  }
+
   const canViewOnDuty = hasPermission(session?.user.permissions ?? [], PERMISSIONS.SYSTEM_ADMIN);
 
   const [
