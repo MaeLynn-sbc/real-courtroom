@@ -250,18 +250,23 @@ export class TournamentDisplayService {
     // matches currently SCHEDULED/IN_PROGRESS anywhere (e.g. between
     // rounds, before the next round's matches exist yet), so there's no
     // match at all to derive a tournament from. Falls back to whichever
-    // Tournament is itself marked IN_PROGRESS — only resolved when
-    // there's exactly one, same "don't guess when ambiguous" precedent
-    // as the match-derived path above (more than one IN_PROGRESS
-    // tournament stays null, same as more than one distinct tournament
-    // in the match feed already does).
+    // Tournament is still "live" — deliberately NOT narrowed to just the
+    // IN_PROGRESS status: real usage confirmed a tournament can be
+    // actively being played on real courts while the owner never
+    // clicked the separate status control to flip it to IN_PROGRESS
+    // (production had "Sayans and Friends" sitting at REGISTRATION_OPEN
+    // the whole time). Anything that isn't DRAFT (not started) or a
+    // finished/dead state (COMPLETED, CANCELLED) counts as "the one
+    // currently happening." Only resolved when there's exactly one, same
+    // "don't guess when ambiguous" precedent as the match-derived path
+    // above.
     if (!soleTournament && distinctTournaments.size === 0) {
-      const inProgressTournaments = await prisma.tournament.findMany({
-        where: { status: "IN_PROGRESS" },
+      const liveTournaments = await prisma.tournament.findMany({
+        where: { status: { notIn: ["DRAFT", "COMPLETED", "CANCELLED"] } },
         select: { id: true, name: true, logoUrl: true },
       });
-      if (inProgressTournaments.length === 1) {
-        soleTournament = inProgressTournaments[0];
+      if (liveTournaments.length === 1) {
+        soleTournament = liveTournaments[0];
       }
     }
 

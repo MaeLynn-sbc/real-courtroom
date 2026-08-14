@@ -423,71 +423,24 @@ function queueBadge(match: TournamentDisplayMatch): { label: string; tone: "now"
   return match.status === "IN_PROGRESS" ? { label: "In progress", tone: "now" } : { label: "Up now", tone: "next" };
 }
 
-// Owner request (2026-08-15): "now it wont fit on the screen. can it
-// auto adjust?" — full (non-abbreviated) names vary wildly in length,
-// and the page is a fixed h-dvh with no scrollbar (a kiosk TV, nobody's
-// there to scroll it), so content that would overflow its box gets
-// scaled DOWN (never up past 1x) to fit exactly, instead of being
-// clipped by the box's own overflow-hidden. Measures the wrapped
-// content at its natural (unscaled) size against the outer box's
-// actual rendered size — bounded by the flex layout above it, see
-// CourtCard's own comment — and re-measures on any resize (court
-// count changing, a name wrapping differently, window resize).
-// `w-full` on the outer element is load-bearing: its parent (CourtCard's
-// content div) is a flex-col with `items-center`, which does NOT
-// stretch a child to the parent's available width by default — without
-// `w-full` this box would just shrink-wrap to its own unscaled content
-// width, making `outer.clientWidth` always equal `inner.scrollWidth`
-// and the width-based scale-down silently never fire (owner report,
-// 2026-08-15: text running off the edge of the screen unshrunk).
-function AutoFitBox({ children, className }: { children: React.ReactNode; className?: string }) {
-  const outerRef = useRef<HTMLDivElement>(null);
-  const innerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-
-  useEffect(() => {
-    const outer = outerRef.current;
-    const inner = innerRef.current;
-    if (!outer || !inner) return;
-
-    function recalc() {
-      if (!outer || !inner) return;
-      inner.style.transform = "scale(1)";
-      const availableHeight = outer.clientHeight;
-      const availableWidth = outer.clientWidth;
-      const contentHeight = inner.scrollHeight;
-      const contentWidth = inner.scrollWidth;
-      const heightRatio = contentHeight > 0 ? availableHeight / contentHeight : 1;
-      const widthRatio = contentWidth > 0 ? availableWidth / contentWidth : 1;
-      const next = Math.min(1, heightRatio, widthRatio);
-      setScale(Number.isFinite(next) && next > 0 ? next : 1);
-    }
-
-    recalc();
-    const observer = new ResizeObserver(recalc);
-    observer.observe(outer);
-    observer.observe(inner);
-    return () => observer.disconnect();
-  }, [children]);
-
-  return (
-    <div
-      ref={outerRef}
-      className={cn("flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden", className)}
-    >
-      <div ref={innerRef} style={{ transform: `scale(${scale})` }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 // Owner request (2026-08-15): "1 team per line" — the main court box
 // (size "lg") stacks each team on its own full line instead of
 // squeezing both onto one "vs" line, so a complete (non-abbreviated)
 // name always has room. NextUpRow's small side boxes (size "sm") stay
 // compact and inline — there isn't room to stack there and the owner's
 // "fill this space" complaint was about the big court boxes, not those.
+// Owner request (2026-08-15): "just make 1 team a 1 liner only" then
+// "now it wont fit on the screen. can it auto adjust?" — a JS
+// ResizeObserver + CSS transform-scale approach was tried and reverted
+// (2026-08-15) after it caused a visible flicker (its effect re-ran on
+// every parent render, including the header clock ticking every
+// second, briefly resetting the scale) and, in a later iteration, text
+// disappearing entirely — too fragile to keep patching live. Settled on
+// a plain CSS-only approach instead: a smaller fixed font size (proven
+// to fit 3 stacked full-width rows even with long full names) plus
+// `overflow-hidden`+`text-ellipsis` as a hard backstop so a name that's
+// STILL too long truncates cleanly with "…" — never overflows, never
+// disappears, no JS timing to get wrong.
 function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" | "sm" }) {
   if (size === "sm") {
     return (
@@ -501,19 +454,14 @@ function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" 
     );
   }
 
-  // Owner request (2026-08-15): "just make 1 team a 1 liner only" —
-  // whitespace-nowrap forces each team onto a single line no matter how
-  // long the full name is; AutoFitBox (see CourtCard) then shrinks the
-  // whole block down to whatever width/height actually fits, so a long
-  // name gets smaller text instead of wrapping to a second line.
   return (
-    <div className="flex flex-col items-center gap-1">
-      <span className="text-[clamp(24px,3.4vw,44px)] leading-tight font-bold whitespace-nowrap">
+    <div className="flex w-full flex-col items-center gap-1">
+      <span className="block max-w-full overflow-hidden text-[clamp(18px,2.4vw,30px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
         {match.team1.number ? <span className="text-green mr-2">{match.team1.number}</span> : null}
         {match.team1.names.join(" & ")}
       </span>
       <span className="text-slate text-sm font-normal uppercase">vs</span>
-      <span className="text-[clamp(24px,3.4vw,44px)] leading-tight font-bold whitespace-nowrap">
+      <span className="block max-w-full overflow-hidden text-[clamp(18px,2.4vw,30px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
         {match.team2.number ? <span className="text-green mr-2">{match.team2.number}</span> : null}
         {match.team2.names.join(" & ")}
       </span>
@@ -541,15 +489,10 @@ function CourtCard({ courtName, matches }: { courtName: string; matches: Tournam
   const badge = current ? queueBadge(current) : null;
 
   return (
-    // No `items-center` here (default items-stretch instead) — same
-    // reasoning as AutoFitBox's own comment on its `w-full`: a row flex
-    // with `items-center` would let the content div's height shrink-wrap
-    // to its own content instead of stretching to this card's real
-    // height, breaking AutoFitBox's height-based scale-down the same
-    // way `items-center` on its parent broke the width-based one.
-    // Stretching means the label column also needs its own
-    // `justify-center` (below) to stay vertically centered now that it
-    // spans the card's full height.
+    // No `items-center` (default items-stretch) so both the label
+    // column and the content area stretch to this card's full height —
+    // the label column gets its own `justify-center` (below) to stay
+    // vertically centered now that it spans the taller box.
     <div className="border-green/60 bg-navy-800 flex min-h-0 flex-1 gap-6 rounded-2xl border-2 p-8">
       <div className="flex w-40 shrink-0 flex-col items-start justify-center gap-1.5">
         <span className="font-jetbrains text-lg font-extrabold tracking-widest uppercase">{courtName}</span>
@@ -566,14 +509,14 @@ function CourtCard({ courtName, matches }: { courtName: string; matches: Tournam
         ) : null}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-2 overflow-hidden text-center">
         {current ? (
-          <AutoFitBox>
-            <div className="flex flex-col items-center gap-2">
-              <span className="text-slate text-xs whitespace-nowrap">{current.categoryLabel}</span>
-              <TeamsLine match={current} size="lg" />
-            </div>
-          </AutoFitBox>
+          <>
+            <span className="max-w-full overflow-hidden text-xs text-ellipsis whitespace-nowrap text-slate">
+              {current.categoryLabel}
+            </span>
+            <TeamsLine match={current} size="lg" />
+          </>
         ) : (
           <span className="text-green text-[clamp(32px,5vw,64px)] leading-none font-extrabold uppercase">
             Available

@@ -35,7 +35,10 @@
  *      AFTER_THAT, then THEN regardless of creation order.
  *   8. When no match anywhere is currently visible (a lull between
  *      rounds), tournamentName/tournamentLogoUrl fall back to the sole
- *      Tournament marked IN_PROGRESS instead of going blank.
+ *      "live" Tournament (any status except DRAFT/COMPLETED/CANCELLED)
+ *      instead of going blank — confirmed against REGISTRATION_OPEN
+ *      specifically, since that's the real status production's actual
+ *      tournament sat at the whole time the owner reported this bug.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -321,15 +324,19 @@ async function main(): Promise<void> {
     // Owner report (2026-08-15): "the sayans and friends logo and the
     // text... is gone" — during a genuine lull (no match anywhere is
     // currently SCHEDULED/IN_PROGRESS), getDisplayData falls back to
-    // whichever Tournament is itself marked IN_PROGRESS, so the header
-    // doesn't blank out just because nothing's actively on court right
-    // now. Deletes every match this fixture created so it contributes
-    // nothing to the feed, then only asserts the fallback fired when the
-    // system-wide feed happens to be genuinely empty (skips, rather than
-    // flaking, if some other tournament's match is active in the dev DB
-    // at the same time this runs).
+    // whichever Tournament is itself "live" (not DRAFT/COMPLETED/
+    // CANCELLED), so the header doesn't blank out just because nothing's
+    // actively on court right now. Uses REGISTRATION_OPEN specifically —
+    // that's the real status production's tournament was sitting at when
+    // this bug was reported live, confirming the fallback isn't narrowly
+    // scoped to only IN_PROGRESS. Deletes every match this fixture
+    // created so it contributes nothing to the feed, then only asserts
+    // the fallback fired when the system-wide feed happens to be
+    // genuinely empty (skips, rather than flaking, if some other
+    // tournament's match is active in the dev DB at the same time this
+    // runs).
     await prisma.match.deleteMany({ where: { tournamentCategoryId: category.id } });
-    await prisma.tournament.update({ where: { id: tournament.id }, data: { status: "IN_PROGRESS" } });
+    await prisma.tournament.update({ where: { id: tournament.id }, data: { status: "REGISTRATION_OPEN" } });
     const duringLull = await tournamentDisplayService.getDisplayData();
     const feedIsGloballyEmpty =
       duringLull.courts.every((court) => court.matches.length === 0) &&
@@ -338,9 +345,9 @@ async function main(): Promise<void> {
     if (feedIsGloballyEmpty) {
       assert(
         duringLull.tournamentName === tournament.name,
-        `expected the sole IN_PROGRESS tournament's name as a fallback when no matches are visible, got ${duringLull.tournamentName}`,
+        `expected the sole live tournament's name as a fallback when no matches are visible, got ${duringLull.tournamentName}`,
       );
-      console.log("PASS: falls back to the sole IN_PROGRESS tournament's name/logo when no matches are currently visible.");
+      console.log("PASS: falls back to the sole live (REGISTRATION_OPEN) tournament's name/logo when no matches are currently visible.");
     } else {
       console.log(
         "SKIP: another match is active elsewhere in the dev DB right now, can't deterministically prove the zero-match fallback this run.",
