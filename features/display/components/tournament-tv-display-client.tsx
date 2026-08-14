@@ -5,6 +5,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createAnnouncementRepeater } from "@/features/display/lib/announcement-repeater";
 import type { TournamentDisplayData, TournamentDisplayMatch } from "@/services/display/tournament-display.service";
 
+// Every match the service returns, across every court's queue plus the
+// not-yet-scheduled bucket — used for the announcement token diff and
+// for the "any matches at all?" empty state, now that the data isn't
+// one flat array anymore (owner request, 2026-08-15: real per-court
+// queues, not just a single match per court).
+function flattenMatches(data: TournamentDisplayData): TournamentDisplayMatch[] {
+  return [...data.courts.flatMap((court) => court.matches), ...data.unscheduled];
+}
+
 // Tournament twin of tv-display-client.tsx — same poll-loop/speech-queue/
 // token-diff architecture, trimmed to what a tournament actually needs:
 // no game timer/countdown (a match has no fixed target duration the way
@@ -43,7 +52,11 @@ function firstNameOnly(name: string): string {
 export function formatMatchAnnouncement(match: TournamentDisplayMatch): string {
   const team1 = joinNamesForSpeech(match.team1.names.map(firstNameOnly));
   const team2 = joinNamesForSpeech(match.team2.names.map(firstNameOnly));
-  if (!team1 || !team2) return "";
+  // courtName is only ever null for an unscheduled match, which can
+  // never have a real announcementRequestedAt token in the first place
+  // (scheduleMatch is what stamps it, and that always sets a court at
+  // the same time) — this guard is just for the type, not a real case.
+  if (!team1 || !team2 || !match.courtName) return "";
   return `Attention: ${team1}, versus ${team2}, please proceed to ${match.courtName}.`;
 }
 
@@ -75,7 +88,7 @@ export function TournamentTvDisplayClient({
   // the TV was turned on. Same pattern as tv-display-client.tsx.
   const previousTokensRef = useRef<Record<string, string>>(
     Object.fromEntries(
-      initialData.matches
+      flattenMatches(initialData)
         .map((match) => [match.id, matchAnnouncementToken(match)] as const)
         .filter((entry): entry is [string, string] => entry[1] !== null),
     ),
@@ -201,7 +214,7 @@ export function TournamentTvDisplayClient({
         const json = (await response.json()) as TournamentDisplayData;
         if (cancelled) return;
 
-        for (const match of json.matches) {
+        for (const match of flattenMatches(json)) {
           const token = matchAnnouncementToken(match);
           const previousToken = previousTokensRef.current[match.id];
           if (token && token !== previousToken) {
@@ -299,14 +312,36 @@ export function TournamentTvDisplayClient({
         </div>
       </div>
 
-      {data.matches.length === 0 ? (
-        <p className="text-slate text-lg">No matches currently assigned to a court.</p>
+      {data.courts.length === 0 && data.unscheduled.length === 0 ? (
+        <p className="text-slate text-lg">No matches right now.</p>
       ) : (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {data.matches.map((match) => (
-            <MatchCard key={match.id} match={match} />
-          ))}
-        </div>
+        <>
+          {data.courts.length > 0 ? (
+            <div className="flex flex-col gap-8">
+              {data.courts.map((court) => (
+                <div key={court.courtName} className="flex flex-col gap-3">
+                  <h2 className="font-jetbrains text-green text-lg font-bold tracking-widest uppercase">
+                    {court.courtName}
+                  </h2>
+                  <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                    {court.matches.map((match, index) => (
+                      <MatchCard
+                        key={match.id}
+                        match={match}
+                        courtName={court.courtName}
+                        queuePosition={index}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {data.unscheduled.length > 0 ? (
+            <UnscheduledSection matches={data.unscheduled} />
+          ) : null}
+        </>
       )}
 
       {speechSupported ? (
@@ -323,21 +358,45 @@ export function TournamentTvDisplayClient({
   );
 }
 
-function MatchCard({ match }: { match: TournamentDisplayMatch }) {
+// Badge reflects POSITION IN THIS COURT'S QUEUE, not just the match's
+// own status — only the queue's first slot can ever read "In progress"
+// or "Up now"; anything queued behind it ("the next teams who would
+// play," owner request 2026-08-15) reads "Then #N" regardless of its
+// own SCHEDULED status, since that status alone can't distinguish "next
+// on this court" from "third in line."
+function queueBadge(match: TournamentDisplayMatch, queuePosition: number): { label: string; tone: "now" | "next" | "then" } {
+  if (queuePosition === 0) {
+    return match.status === "IN_PROGRESS" ? { label: "In progress", tone: "now" } : { label: "Up now", tone: "next" };
+  }
+  return { label: `Then #${queuePosition + 1}`, tone: "then" };
+}
+
+function MatchCard({
+  match,
+  courtName,
+  queuePosition,
+}: {
+  match: TournamentDisplayMatch;
+  courtName: string;
+  queuePosition: number;
+}) {
+  const badge = queueBadge(match, queuePosition);
   return (
     <div className="border-line bg-navy-800 flex flex-col gap-3 rounded-2xl border p-6">
       <div className="flex items-center justify-between">
         <span className="font-jetbrains text-green text-sm font-bold tracking-widest uppercase">
-          {match.courtName}
+          {courtName}
         </span>
         <span
           className={
-            match.status === "IN_PROGRESS"
+            badge.tone === "now"
               ? "bg-green/15 text-green rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
-              : "bg-court-blue/15 text-court-blue rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
+              : badge.tone === "next"
+                ? "bg-court-blue/15 text-court-blue rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
+                : "bg-slate/15 text-slate rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
           }
         >
-          {match.status === "IN_PROGRESS" ? "In progress" : "Up next"}
+          {badge.label}
         </span>
       </div>
       <div className="flex flex-col gap-1 text-2xl font-bold">
@@ -352,6 +411,47 @@ function MatchCard({ match }: { match: TournamentDisplayMatch }) {
         </span>
       </div>
       <span className="text-slate text-xs">{match.categoryLabel}</span>
+    </div>
+  );
+}
+
+// "i want every match to be shown in /tourtv" (owner request,
+// 2026-08-15) — a compact reference list for matches with no court
+// assigned yet, grouped by category, deliberately plainer than
+// MatchCard's big queue cards above (this is a glance-at-it reference,
+// not the flashy now-playing centerpiece a live TV is actually for).
+function UnscheduledSection({ matches }: { matches: TournamentDisplayMatch[] }) {
+  const byCategory = new Map<string, TournamentDisplayMatch[]>();
+  for (const match of matches) {
+    const existing = byCategory.get(match.categoryLabel);
+    if (existing) {
+      existing.push(match);
+    } else {
+      byCategory.set(match.categoryLabel, [match]);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <h2 className="text-slate text-lg font-bold tracking-widest uppercase">Not yet on a court</h2>
+      <div className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-2">
+        {Array.from(byCategory.entries()).map(([categoryLabel, categoryMatches]) => (
+          <div key={categoryLabel} className="flex flex-col gap-1.5">
+            <span className="text-slate text-xs font-semibold tracking-wide uppercase">{categoryLabel}</span>
+            <ul className="flex flex-col gap-1">
+              {categoryMatches.map((match) => (
+                <li key={match.id} className="text-sm">
+                  {match.team1.number ? <span className="text-green mr-1">{match.team1.number}</span> : null}
+                  {match.team1.names.join(" & ")}
+                  <span className="text-slate mx-1.5 uppercase">vs</span>
+                  {match.team2.number ? <span className="text-green mr-1">{match.team2.number}</span> : null}
+                  {match.team2.names.join(" & ")}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -2,6 +2,10 @@
  * Owner request (2026-08-09): a TV display for tournaments (/tourtv),
  * auto-calling doubles matches to a court the moment staff assign one —
  * same concept as Open Play's TV, for Match instead of GameAssignment.
+ * Widened 2026-08-15: every not-yet-finished match now shows somewhere
+ * (grouped into a real per-court queue, or a courtId, or an "unscheduled"
+ * bucket if there's no court assigned yet), not just a single match per
+ * court.
  *
  * Proves, against real rows:
  *   1. scheduleMatch stamps a real, non-null announcementRequestedAt the
@@ -12,8 +16,10 @@
  *      Open Play's manual re-announce.
  *   3. tournamentDisplayService.getDisplayData() surfaces a court-
  *      assigned, non-bye, SCHEDULED/IN_PROGRESS match with correctly
- *      shortened ("First L.") team names on both sides.
- *   4. A match with NO court assigned is excluded.
+ *      shortened ("First L.") team names on both sides, under its court.
+ *   4. A match with NO court assigned appears in `unscheduled`, not
+ *      dropped — and a second match on the SAME court queues behind the
+ *      first, in order, instead of replacing it.
  *   5. A bye (team2Id null) is excluded even if it somehow has a court.
  *   6. A COMPLETED match is excluded even though it still has a court.
  *
@@ -25,11 +31,24 @@ import { prisma } from "../../lib/prisma";
 import { matchService } from "./match.service";
 import { tournamentService } from "./tournament.service";
 import { tournamentDisplayService } from "../display/tournament-display.service";
+import type { TournamentDisplayData } from "../display/tournament-display.service";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(`FAIL: ${message}`);
   }
+}
+
+function findInFeed(data: TournamentDisplayData, matchId: string) {
+  for (const court of data.courts) {
+    const found = court.matches.find((m) => m.id === matchId);
+    if (found) return found;
+  }
+  return data.unscheduled.find((m) => m.id === matchId);
+}
+
+function existsInFeed(data: TournamentDisplayData, matchId: string): boolean {
+  return findInFeed(data, matchId) !== undefined;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -133,7 +152,7 @@ async function main(): Promise<void> {
 
     // ============== 3. Surfaces correctly in the display feed ==============
     const displayed = await tournamentDisplayService.getDisplayData();
-    const displayedMatch = displayed.matches.find((m) => m.id === match.id);
+    const displayedMatch = findInFeed(displayed, match.id);
     assert(displayedMatch, "expected the court-assigned match to appear in tournamentDisplayService.getDisplayData()");
     assert(
       displayedMatch!.courtName === courtB.name,
@@ -163,7 +182,7 @@ async function main(): Promise<void> {
       data: { poolLabel: "A", poolPosition: 2 },
     });
     const displayedWithPools = await tournamentDisplayService.getDisplayData();
-    const matchWithPools = displayedWithPools.matches.find((m) => m.id === match.id);
+    const matchWithPools = findInFeed(displayedWithPools, match.id);
     assert(matchWithPools, "expected the match to still appear after pool assignment");
     assert(
       matchWithPools!.team1.number === "1a",
@@ -175,16 +194,38 @@ async function main(): Promise<void> {
     );
     console.log("PASS: getDisplayData surfaces each team's real pool number (\"1a\"/\"2a\"), scoped by category.");
 
-    // ============== 4. No court assigned — excluded ==============
+    // ============== 4. No court assigned — appears in `unscheduled` ==============
     const unassignedMatch = await prisma.match.create({
       data: { tournamentCategoryId: category.id, team1Id: reg1.teamId, team2Id: reg2.teamId, status: "SCHEDULED" },
     });
     const afterUnassigned = await tournamentDisplayService.getDisplayData();
     assert(
-      !afterUnassigned.matches.some((m) => m.id === unassignedMatch.id),
-      "expected a match with no court assigned to be excluded from the display feed",
+      afterUnassigned.unscheduled.some((m) => m.id === unassignedMatch.id),
+      "expected a match with no court assigned to appear in the unscheduled bucket, not be dropped",
     );
-    console.log("PASS: a match with no court assigned is excluded.");
+    assert(
+      !afterUnassigned.courts.some((court) => court.matches.some((m) => m.id === unassignedMatch.id)),
+      "expected an unscheduled match to never appear under a court group",
+    );
+    console.log("PASS: a match with no court assigned appears in the unscheduled bucket, not dropped.");
+
+    // ============== 4b. A second match on the SAME court queues behind the first ==============
+    const queuedMatch = await prisma.match.create({
+      data: { tournamentCategoryId: category.id, team1Id: reg1.teamId, team2Id: reg2.teamId, status: "SCHEDULED" },
+    });
+    await matchService.scheduleMatch(queuedMatch.id, { courtId: courtB.id }, owner.id);
+    const afterQueued = await tournamentDisplayService.getDisplayData();
+    const courtBGroup = afterQueued.courts.find((court) => court.courtName === courtB.name);
+    assert(courtBGroup, `expected a court group for ${courtB.name}`);
+    assert(
+      courtBGroup!.matches.length === 2,
+      `expected 2 matches queued on ${courtB.name} (the original + this one), got ${courtBGroup!.matches.length}`,
+    );
+    assert(
+      courtBGroup!.matches[0].id === match.id && courtBGroup!.matches[1].id === queuedMatch.id,
+      "expected the original match to stay first in the queue, the newly-scheduled one queued behind it",
+    );
+    console.log("PASS: a second match scheduled to the same court queues behind the first, in order.");
 
     // ============== 5. A bye (team2Id null) is excluded even with a court ==============
     const byeMatch = await prisma.match.create({
@@ -192,7 +233,7 @@ async function main(): Promise<void> {
     });
     const afterBye = await tournamentDisplayService.getDisplayData();
     assert(
-      !afterBye.matches.some((m) => m.id === byeMatch.id),
+      !existsInFeed(afterBye, byeMatch.id),
       "expected a bye (no opposing team) to be excluded even with a court assigned",
     );
     console.log("PASS: a bye with no opposing team is excluded even with a court assigned.");
@@ -210,7 +251,7 @@ async function main(): Promise<void> {
     });
     const afterCompleted = await tournamentDisplayService.getDisplayData();
     assert(
-      !afterCompleted.matches.some((m) => m.id === completedMatch.id),
+      !existsInFeed(afterCompleted, completedMatch.id),
       "expected a COMPLETED match to be excluded even though it still has a court assigned",
     );
     console.log("PASS: a COMPLETED match is excluded even though it still has a court assigned.");

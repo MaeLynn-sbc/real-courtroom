@@ -26,7 +26,8 @@ export interface TournamentDisplayTeam {
 
 export interface TournamentDisplayMatch {
   id: string;
-  courtName: string;
+  // Null for a match in `unscheduled` below — no court to name yet.
+  courtName: string | null;
   team1: TournamentDisplayTeam;
   team2: TournamentDisplayTeam;
   categoryLabel: string;
@@ -38,9 +39,22 @@ export interface TournamentDisplayMatch {
   announcementRequestedAt: string | null;
 }
 
+export interface TournamentDisplayCourt {
+  courtName: string;
+  // [0] is playing now (IN_PROGRESS) or up first (earliest SCHEDULED) on
+  // this court; anything after it is queued behind — "the next teams who
+  // would play" (owner request, 2026-08-15), not just a single match per
+  // court like before.
+  matches: TournamentDisplayMatch[];
+}
+
 export interface TournamentDisplayData {
   generatedAt: string;
-  matches: TournamentDisplayMatch[];
+  courts: TournamentDisplayCourt[];
+  // Every match that hasn't been assigned a court yet — owner request
+  // (2026-08-15): "i want every match to be shown in /tourtv," not just
+  // the ones already on a court.
+  unscheduled: TournamentDisplayMatch[];
 }
 
 // Mirrors display.service.ts's shortDisplayName exactly (see that
@@ -75,17 +89,17 @@ function toDisplayTeam(team: MatchTeam, number: string | null): TournamentDispla
 }
 
 export class TournamentDisplayService {
-  // Only matches with a real court assigned — court assignment is 100%
-  // staff-driven (matchService.scheduleMatch, no auto-assignment exists),
-  // so "has a courtId" already means "imminent/current," same as how
-  // Open Play's board only shows what's actually been proposed to a
-  // court. A bye (team2Id null — Single Elimination odd-team-count slot)
-  // has nothing to display against, so it's excluded outright, not shown
-  // half-empty.
+  // Every not-yet-finished match with a real opponent — widened
+  // 2026-08-15 from "only matches with a court assigned" (owner request:
+  // "i want every match to be shown," plus a real per-court queue, not
+  // just whichever single match happens to be on court right now). A
+  // bye (team2Id null — Single Elimination odd-team-count slot) has
+  // nothing to display against, so it's still excluded outright, not
+  // shown half-empty; COMPLETED/CANCELLED/WALKOVER stay excluded too —
+  // nothing left to queue or announce for those.
   async getDisplayData(): Promise<TournamentDisplayData> {
     const matches = await prisma.match.findMany({
       where: {
-        courtId: { not: null },
         team2Id: { not: null },
         status: { in: ["SCHEDULED", "IN_PROGRESS"] },
       },
@@ -138,25 +152,54 @@ export class TournamentDisplayService {
       );
     }
 
+    const toDisplayMatch = (match: (typeof filtered)[number]): TournamentDisplayMatch => ({
+      id: match.id,
+      courtName: match.court?.name ?? null,
+      team1: toDisplayTeam(
+        match.team1,
+        numberByCategoryAndTeam.get(`${match.tournamentCategoryId}:${match.team1Id}`) ?? null,
+      ),
+      team2: toDisplayTeam(
+        match.team2,
+        numberByCategoryAndTeam.get(`${match.tournamentCategoryId}:${match.team2Id}`) ?? null,
+      ),
+      categoryLabel: match.tournamentCategory
+        ? `${match.tournamentCategory.tournament.name} — ${match.tournamentCategory.name}`
+        : "Tournament",
+      status: match.status === "IN_PROGRESS" ? "IN_PROGRESS" : "SCHEDULED",
+      announcementRequestedAt: match.announcementRequestedAt?.toISOString() ?? null,
+    });
+
+    // Grouped by court, not one flat list — "queue in every court the
+    // next teams who would play" (owner request, 2026-08-15). The SQL
+    // ORDER BY above (status, then scheduledAt, then
+    // announcementRequestedAt) already puts each court's own matches in
+    // the right queue order as they're encountered here, so no re-sort
+    // is needed within a group.
+    const courtsByName = new Map<string, TournamentDisplayMatch[]>();
+    const unscheduled: TournamentDisplayMatch[] = [];
+    for (const match of filtered) {
+      const displayMatch = toDisplayMatch(match);
+      if (match.court) {
+        const existing = courtsByName.get(match.court.name);
+        if (existing) {
+          existing.push(displayMatch);
+        } else {
+          courtsByName.set(match.court.name, [displayMatch]);
+        }
+      } else {
+        unscheduled.push(displayMatch);
+      }
+    }
+
+    const courts: TournamentDisplayCourt[] = Array.from(courtsByName.entries())
+      .map(([courtName, courtMatches]) => ({ courtName, matches: courtMatches }))
+      .sort((a, b) => a.courtName.localeCompare(b.courtName));
+
     return {
       generatedAt: new Date().toISOString(),
-      matches: filtered.map((match) => ({
-        id: match.id,
-        courtName: match.court?.name ?? "Court",
-        team1: toDisplayTeam(
-          match.team1,
-          numberByCategoryAndTeam.get(`${match.tournamentCategoryId}:${match.team1Id}`) ?? null,
-        ),
-        team2: toDisplayTeam(
-          match.team2,
-          numberByCategoryAndTeam.get(`${match.tournamentCategoryId}:${match.team2Id}`) ?? null,
-        ),
-        categoryLabel: match.tournamentCategory
-          ? `${match.tournamentCategory.tournament.name} — ${match.tournamentCategory.name}`
-          : "Tournament",
-        status: match.status === "IN_PROGRESS" ? "IN_PROGRESS" : "SCHEDULED",
-        announcementRequestedAt: match.announcementRequestedAt?.toISOString() ?? null,
-      })),
+      courts,
+      unscheduled,
     };
   }
 }
