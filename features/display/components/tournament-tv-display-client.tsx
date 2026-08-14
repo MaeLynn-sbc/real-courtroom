@@ -396,7 +396,7 @@ export function TournamentTvDisplayClient({
         <p className="text-slate text-lg">No matches right now.</p>
       ) : (
         <>
-          <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="flex flex-1 flex-col gap-4">
             {data.courts.map((court) => (
               <CourtCard key={court.courtName} courtName={court.courtName} matches={court.matches} />
             ))}
@@ -441,22 +441,25 @@ function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" 
   );
 }
 
-// Owner request (2026-08-15), final form: "exactly like this" (a real
-// screenshot of /tv's own Court Status board) — tall cards side by
-// side, one per real court (always shown, even with nothing assigned
-// yet — see tournament-display.service.ts's own comment on that), big
-// bold centered state. Same shape as /tv's own CourtCard: header label,
-// big center content — no per-card footer here, "these 3 boxes will be
-// only at the bottom, not after the court [each court]" — the shared
-// Next up/After that/Then row lives once, after all 3 cards (see
-// NextUpRow below), not repeated per card.
+// Owner request (2026-08-15): "the 3 boxes should be on horizontal
+// display. so that the names will be more visible and the space will
+// be used accordingly" — one full-width row per real court, stacked
+// (always shown, even with nothing assigned yet — see
+// tournament-display.service.ts's own comment on that), court label +
+// badge on the left, teams laid out in a single wide horizontal line
+// on the right where long doubles names have room to breathe, instead
+// of the earlier 3-column tall-card grid which squeezed names into a
+// narrow column. No per-card footer here, "these 3 boxes will be only
+// at the bottom, not after the court [each court]" — the shared Next
+// up/After that/Then row lives once, after all 3 rows (see NextUpRow
+// below), not repeated per row.
 function CourtCard({ courtName, matches }: { courtName: string; matches: TournamentDisplayMatch[] }) {
   const [current] = matches;
   const badge = current ? queueBadge(current) : null;
 
   return (
-    <div className="border-green/60 bg-navy-800 flex flex-1 flex-col rounded-2xl border-2 p-6">
-      <div className="flex items-center justify-between">
+    <div className="border-green/60 bg-navy-800 flex flex-wrap items-center gap-4 rounded-2xl border-2 p-6">
+      <div className="flex w-40 shrink-0 flex-col items-start gap-1.5">
         <span className="font-jetbrains text-lg font-extrabold tracking-widest uppercase">{courtName}</span>
         {badge ? (
           <span
@@ -471,14 +474,14 @@ function CourtCard({ courtName, matches }: { courtName: string; matches: Tournam
         ) : null}
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 py-10 text-center">
+      <div className="flex flex-1 items-center justify-center gap-4 py-2 text-center">
         {current ? (
           <>
             <TeamsLine match={current} size="lg" />
-            <span className="text-slate text-xs">{current.categoryLabel}</span>
+            <span className="text-slate hidden text-xs sm:inline">{current.categoryLabel}</span>
           </>
         ) : (
-          <span className="text-green text-[clamp(32px,5vw,56px)] leading-none font-extrabold uppercase">
+          <span className="text-green text-[clamp(24px,3.5vw,36px)] leading-none font-extrabold uppercase">
             Available
           </span>
         )}
