@@ -124,6 +124,10 @@ const PAY_PERIOD_CSV_COLUMNS: CsvColumn<PayPeriodDay>[] = [
   { header: "Night diff minutes", value: (r) => r.nightDiffMinutes },
   { header: "Late deducted minutes", value: (r) => r.lateDeductedMinutes },
   { header: "Undertime minutes (not deducted)", value: (r) => r.undertimeMinutes },
+  { header: "Base pay (cents)", value: (r) => (r.excludedFromTotal ? "" : Math.round(r.basePayCents)) },
+  { header: "OT pay (cents)", value: (r) => (r.excludedFromTotal ? "" : Math.round(r.otPayCents)) },
+  { header: "Night diff pay (cents)", value: (r) => (r.excludedFromTotal ? "" : Math.round(r.nightDiffPayCents)) },
+  { header: "Late deduction (cents)", value: (r) => (r.excludedFromTotal ? "" : Math.round(r.lateDeductionCents)) },
   { header: "Day gross (cents)", value: (r) => (r.excludedFromTotal ? "" : Math.round(r.dayGrossCents)) },
   { header: "Flags", value: (r) => r.flags.map((f) => f.code).join("; ") },
 ];

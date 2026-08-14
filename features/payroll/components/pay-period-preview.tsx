@@ -40,6 +40,7 @@ interface DayRow {
   nightDiffMinutes: number;
   lateDeductedMinutes: number;
   undertimeMinutes: number;
+  basePayCents: number;
   dayGrossCents: number;
   excludedFromTotal: boolean;
   flags: FlagRow[];
@@ -51,6 +52,10 @@ interface Totals {
   nightDiffMinutes: number;
   lateDeductedMinutes: number;
   undertimeMinutes: number;
+  basePayCents: number;
+  otPayCents: number;
+  nightDiffPayCents: number;
+  lateDeductionCents: number;
   grossCents: number;
 }
 
@@ -114,6 +119,16 @@ export function PayPeriodPreview({
   }
 
   const allFlags = days.flatMap((day) => day.flags.map((flag) => ({ workDate: day.workDate, ...flag })));
+
+  // "N days × ₱rate" only reads correctly when every counted day paid the
+  // same daily rate — a mid-period rate change (EmployeeRate is
+  // effective-dated, see employee-rate.service.ts) means no single rate
+  // describes the period, so the caption falls back to a plain count
+  // instead of showing a formula that would be wrong for some of the days.
+  const workedDays = days.filter((day) => day.basePayCents > 0);
+  const workedDaysCount = workedDays.length;
+  const uniqueDailyRates = new Set(workedDays.map((day) => day.basePayCents));
+  const constantDailyRateCents = uniqueDailyRates.size === 1 ? (workedDays[0]?.basePayCents ?? null) : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -180,10 +195,46 @@ export function PayPeriodPreview({
         )}
       </div>
 
-      <div className="flex flex-col items-start gap-1 rounded-xl border p-4">
-        <span className="text-3xl font-semibold tracking-tight">GROSS: {formatCurrency(totals.grossCents)}</span>
+      <div className="flex flex-col gap-3 rounded-xl border p-4">
+        <h2 className="text-sm font-medium">Payslip breakdown</h2>
+        <dl className="flex flex-col gap-2 text-sm">
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-muted-foreground">
+              Base pay
+              {constantDailyRateCents !== null
+                ? ` (${workedDaysCount} ${workedDaysCount === 1 ? "day" : "days"} × ${formatCurrency(constantDailyRateCents)})`
+                : ` (${workedDaysCount} ${workedDaysCount === 1 ? "day" : "days"} worked)`}
+            </dt>
+            <dd className="font-medium tabular-nums">{formatCurrency(totals.basePayCents)}</dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-muted-foreground">+ Overtime ({formatMinutes(totals.otMinutes)} min)</dt>
+            <dd className="font-medium tabular-nums">{formatCurrency(totals.otPayCents)}</dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-muted-foreground">
+              + Night differential ({formatMinutes(totals.nightDiffMinutes)} min)
+            </dt>
+            <dd className="font-medium tabular-nums">{formatCurrency(totals.nightDiffPayCents)}</dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-muted-foreground">
+              − Late deductions ({formatMinutes(totals.lateDeductedMinutes)} min)
+            </dt>
+            <dd className="text-destructive font-medium tabular-nums">
+              {totals.lateDeductionCents > 0 ? `-${formatCurrency(totals.lateDeductionCents)}` : formatCurrency(0)}
+            </dd>
+          </div>
+          <div className="mt-1 flex items-baseline justify-between gap-3 border-t pt-2">
+            <dt className="text-base font-semibold">GROSS</dt>
+            <dd className="text-2xl font-semibold tracking-tight tabular-nums">
+              {formatCurrency(totals.grossCents)}
+            </dd>
+          </div>
+        </dl>
         <p className="text-muted-foreground text-xs">
-          Gross pay only — no SSS/PhilHealth/Pag-IBIG/withholding/cash-advance deductions applied.
+          Gross pay only — no SSS/PhilHealth/Pag-IBIG/withholding/cash-advance deductions applied. Undertime is
+          tracked below but never deducted.
         </p>
       </div>
 

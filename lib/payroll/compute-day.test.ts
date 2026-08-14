@@ -31,6 +31,41 @@ describe("computeDay — a plain on-time, full 8-hour day", () => {
     expect(result.excludedFromTotal).toBe(false);
     expect(result.flags).toHaveLength(0);
   });
+
+  it("reports the pay breakdown as base pay only, no OT/night-diff/late components", () => {
+    const result = computeDay(baseInput());
+    expect(result.basePayCents).toBe(DAILY_RATE_CENTS);
+    expect(result.otPayCents).toBe(0);
+    expect(result.nightDiffPayCents).toBe(0);
+    expect(result.lateDeductionCents).toBe(0);
+  });
+});
+
+describe("computeDay — pay breakdown components sum to dayGrossCents", () => {
+  // ₱480/day → ₱1/min (DAILY_RATE_CENTS's own comment) — chosen so every
+  // component below is a clean, hand-checkable number. Scheduled
+  // 14:00–22:00; clocked in 11 min late (1 min deducted past the 10-min
+  // grace) and out at 22:41 — 510 worked minutes (30 min OT) with a
+  // 41-minute overlap into the 22:00 night-diff window.
+  it("computes base + OT (1.25x) + night-diff (10%) − late as separate peso lines, and they sum to dayGrossCents", () => {
+    const result = computeDay(
+      baseInput({
+        scheduleAssignment: { scheduledStart: at(14), scheduledEnd: at(22) },
+        attendanceRecord: { clockIn: at(14, 11), clockOut: at(22, 41), correctedAt: null },
+      }),
+    );
+    expect(result.lateDeductedMinutes).toBe(1);
+    expect(result.otMinutes).toBe(30);
+    expect(result.nightDiffMinutes).toBe(41);
+    // perMinuteRate is in CENTS: 48000 / 480 = 100 (₱1/min).
+    expect(result.basePayCents).toBe(DAILY_RATE_CENTS);
+    expect(result.otPayCents).toBe(30 * 100 * 1.25);
+    expect(result.nightDiffPayCents).toBe(41 * 100 * 0.1);
+    expect(result.lateDeductionCents).toBe(1 * 100);
+    expect(result.basePayCents + result.otPayCents + result.nightDiffPayCents - result.lateDeductionCents).toBe(
+      result.dayGrossCents,
+    );
+  });
 });
 
 describe("computeDay — late grace period boundary", () => {

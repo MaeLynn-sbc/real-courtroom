@@ -45,6 +45,15 @@ export interface DayComputation {
   nightDiffMinutes: number;
   lateDeductedMinutes: number;
   undertimeMinutes: number;
+  // The peso value of each component that dayGrossCents is built from —
+  // basePayCents + otPayCents + nightDiffPayCents - lateDeductionCents
+  // always equals dayGrossCents exactly (see compute-day.test.ts's own
+  // consistency check). Exists so a payslip can show "why" a day's total
+  // is what it is, not just the final number.
+  basePayCents: number;
+  otPayCents: number;
+  nightDiffPayCents: number;
+  lateDeductionCents: number;
   dayGrossCents: number;
   // A day with nothing to compute (MISSING_CLOCK_OUT, NO_RATE_IN_EFFECT, or
   // simply no schedule and no attendance) contributes 0 to the period
@@ -92,6 +101,10 @@ export function computeDay(input: DayComputationInput): DayComputation {
       nightDiffMinutes: 0,
       lateDeductedMinutes: 0,
       undertimeMinutes: 0,
+      basePayCents: 0,
+      otPayCents: 0,
+      nightDiffPayCents: 0,
+      lateDeductionCents: 0,
       dayGrossCents: 0,
       excludedFromTotal: true,
       flags: [
@@ -114,6 +127,10 @@ export function computeDay(input: DayComputationInput): DayComputation {
         nightDiffMinutes: 0,
         lateDeductedMinutes: 0,
         undertimeMinutes: 0,
+        basePayCents: 0,
+        otPayCents: 0,
+        nightDiffPayCents: 0,
+        lateDeductionCents: 0,
         dayGrossCents: 0,
         excludedFromTotal: false,
         flags: [
@@ -133,6 +150,10 @@ export function computeDay(input: DayComputationInput): DayComputation {
       nightDiffMinutes: 0,
       lateDeductedMinutes: 0,
       undertimeMinutes: 0,
+      basePayCents: 0,
+      otPayCents: 0,
+      nightDiffPayCents: 0,
+      lateDeductionCents: 0,
       dayGrossCents: 0,
       excludedFromTotal: true,
       flags: [],
@@ -147,6 +168,10 @@ export function computeDay(input: DayComputationInput): DayComputation {
       nightDiffMinutes: 0,
       lateDeductedMinutes: 0,
       undertimeMinutes: 0,
+      basePayCents: 0,
+      otPayCents: 0,
+      nightDiffPayCents: 0,
+      lateDeductionCents: 0,
       dayGrossCents: 0,
       excludedFromTotal: true,
       flags: [
@@ -199,11 +224,11 @@ export function computeDay(input: DayComputationInput): DayComputation {
   // Undertime never reduces pay (owner override — "undertime is ok since
   // sometimes there's no more people in the court"); it's computed and
   // shown, contributing nothing to dayGrossCents.
-  const dayGrossCents =
-    input.dailyRateCents +
-    otMinutes * perMinuteRate * OT_MULTIPLIER +
-    nightDiffMinutes * perMinuteRate * NIGHT_DIFF_MULTIPLIER -
-    lateDeductedMinutes * perMinuteRate;
+  const basePayCents = input.dailyRateCents;
+  const otPayCents = otMinutes * perMinuteRate * OT_MULTIPLIER;
+  const nightDiffPayCents = nightDiffMinutes * perMinuteRate * NIGHT_DIFF_MULTIPLIER;
+  const lateDeductionCents = lateDeductedMinutes * perMinuteRate;
+  const dayGrossCents = basePayCents + otPayCents + nightDiffPayCents - lateDeductionCents;
 
   return {
     workDate: input.workDate,
@@ -212,6 +237,10 @@ export function computeDay(input: DayComputationInput): DayComputation {
     nightDiffMinutes,
     lateDeductedMinutes,
     undertimeMinutes,
+    basePayCents,
+    otPayCents,
+    nightDiffPayCents,
+    lateDeductionCents,
     dayGrossCents,
     excludedFromTotal: false,
     flags,

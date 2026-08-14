@@ -77,6 +77,10 @@ export default async function PayPeriodDetailPage({ params, searchParams }: PayP
               nightDiffMinutes: 0,
               lateDeductedMinutes: 0,
               undertimeMinutes: 0,
+              basePayCents: 0,
+              otPayCents: 0,
+              nightDiffPayCents: 0,
+              lateDeductionCents: 0,
               grossCents: 0,
             }
           }

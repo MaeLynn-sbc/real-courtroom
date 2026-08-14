@@ -17,6 +17,14 @@ export interface PayPeriodTotals {
   nightDiffMinutes: number;
   lateDeductedMinutes: number;
   undertimeMinutes: number;
+  // Peso breakdown backing the payslip card — sums of each day's
+  // basePayCents/otPayCents/nightDiffPayCents/lateDeductionCents (see
+  // compute-day.ts), rounded once here in the same step as grossCents
+  // below (rule 10) — not before.
+  basePayCents: number;
+  otPayCents: number;
+  nightDiffPayCents: number;
+  lateDeductionCents: number;
   // The only rounded number in the whole computation (rule 10) — every
   // per-day dayGrossCents stays an exact fraction until summed here.
   grossCents: number;
@@ -114,16 +122,38 @@ export class PayrollComputationService {
         nightDiffMinutes: acc.nightDiffMinutes + day.nightDiffMinutes,
         lateDeductedMinutes: acc.lateDeductedMinutes + day.lateDeductedMinutes,
         undertimeMinutes: acc.undertimeMinutes + day.undertimeMinutes,
+        basePayCents: acc.basePayCents + day.basePayCents,
+        otPayCents: acc.otPayCents + day.otPayCents,
+        nightDiffPayCents: acc.nightDiffPayCents + day.nightDiffPayCents,
+        lateDeductionCents: acc.lateDeductionCents + day.lateDeductionCents,
         grossCents: acc.grossCents + day.dayGrossCents,
       }),
-      { regularMinutes: 0, otMinutes: 0, nightDiffMinutes: 0, lateDeductedMinutes: 0, undertimeMinutes: 0, grossCents: 0 },
+      {
+        regularMinutes: 0,
+        otMinutes: 0,
+        nightDiffMinutes: 0,
+        lateDeductedMinutes: 0,
+        undertimeMinutes: 0,
+        basePayCents: 0,
+        otPayCents: 0,
+        nightDiffPayCents: 0,
+        lateDeductionCents: 0,
+        grossCents: 0,
+      },
     );
 
     return {
       period,
       employeeId,
       days,
-      totals: { ...rawTotals, grossCents: Math.round(rawTotals.grossCents) },
+      totals: {
+        ...rawTotals,
+        basePayCents: Math.round(rawTotals.basePayCents),
+        otPayCents: Math.round(rawTotals.otPayCents),
+        nightDiffPayCents: Math.round(rawTotals.nightDiffPayCents),
+        lateDeductionCents: Math.round(rawTotals.lateDeductionCents),
+        grossCents: Math.round(rawTotals.grossCents),
+      },
     };
   }
 }
