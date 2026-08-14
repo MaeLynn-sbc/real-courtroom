@@ -331,7 +331,13 @@ function ConfirmBalanceCard({
 
         {/* Live — shown BEFORE the confirmed count, same reasoning as
             shift cash reconciliation's "Expected cash." */}
-        <div className="bg-muted/40 flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
+        {/* bg-muted/40 was unreadable here — same fix, same reasoning as
+            cash-reconciliation-workspace.tsx's identical "Expected
+            balance" row (see its own comment): --muted/--muted-foreground
+            are calibrated for the dark PAGE background, not this
+            always-white Card, and compositing them together left the
+            background and text at nearly the same light-gray tone. */}
+        <div className="flex items-center justify-between rounded-lg border bg-gray-100 px-3 py-2 text-sm">
           <span className="text-muted-foreground">
             Expected balance (starting + today&apos;s GCash sales − today&apos;s GCash expenses)
           </span>

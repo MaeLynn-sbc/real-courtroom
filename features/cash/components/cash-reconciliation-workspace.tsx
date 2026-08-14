@@ -334,7 +334,16 @@ function ConfirmBalanceCard({
 
         {/* Live — shown BEFORE the confirmed count, same reasoning as
             GCash reconciliation's own "Expected balance." */}
-        <div className="bg-muted/40 flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
+        {/* bg-muted/40 was unreadable here: --muted/--muted-foreground are
+            calibrated for the dark PAGE background (app/layout.tsx's
+            defaultTheme="dark"), but this Card is pinned opaque white in
+            both themes (see globals.css) — compositing the dark-mode
+            --muted background at 40% opacity onto white landed almost
+            exactly on --muted-foreground's own light-gray text color,
+            near-zero contrast. Fixed, theme-independent gray instead —
+            same "Card is always white, so use pinned colors inside it"
+            fix as todays-revenue-panel.tsx and schedule-roster.tsx. */}
+        <div className="flex items-center justify-between rounded-lg border bg-gray-100 px-3 py-2 text-sm">
           <span className="text-muted-foreground">
             Expected balance (starting + today&apos;s cash sales − today&apos;s cash expenses)
           </span>
