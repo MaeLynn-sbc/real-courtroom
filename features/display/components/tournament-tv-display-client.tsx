@@ -500,8 +500,8 @@ function CourtCard({ courtName, matches }: { courtName: string; matches: Tournam
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
         {current ? (
           <>
-            <TeamsLine match={current} size="lg" />
             <span className="text-slate text-xs">{current.categoryLabel}</span>
+            <TeamsLine match={current} size="lg" />
           </>
         ) : (
           <span className="text-green text-[clamp(32px,5vw,64px)] leading-none font-extrabold uppercase">
