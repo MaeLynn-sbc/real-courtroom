@@ -306,7 +306,7 @@ export function TournamentTvDisplayClient({
   return (
     <div
       ref={containerRef}
-      className="bg-navy-900 text-bone relative flex min-h-screen flex-col gap-6 p-8"
+      className="bg-navy-900 text-bone relative flex h-dvh flex-col gap-6 overflow-hidden p-8"
     >
       {!started && (
         <div className="bg-navy-900/95 absolute inset-0 z-10 flex items-center justify-center">
