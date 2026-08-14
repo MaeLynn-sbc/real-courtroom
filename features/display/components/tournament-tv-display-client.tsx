@@ -458,14 +458,23 @@ function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" 
     );
   }
 
+  // Font size deliberately tied to viewport HEIGHT (dvh), not width —
+  // the real constraint is 3 court rows stacked vertically sharing a
+  // fixed-height page, not the row's own width. Owner report
+  // (2026-08-15): with all 3 courts occupied at once, the earlier
+  // width-tied (vw) size made this block taller than each row's actual
+  // share of height, clipping top and bottom. A smaller dvh-capped size
+  // plus "vs" folded onto team2's own line instead of its own separate
+  // line ("the vs is taking some space. put it before the 2nd team")
+  // trims a whole line off the stack, leaving a wide safety margin.
   return (
-    <div className="flex w-full flex-col items-center gap-1">
-      <span className="block max-w-full overflow-hidden text-[clamp(18px,2.4vw,30px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
+    <div className="flex w-full flex-col items-center gap-0.5">
+      <span className="block max-w-full overflow-hidden text-[clamp(14px,2.2dvh,22px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
         {match.team1.number ? <span className="text-green mr-2">{match.team1.number}</span> : null}
         {match.team1.names.join(" & ")}
       </span>
-      <span className="text-slate text-sm font-normal uppercase">vs</span>
-      <span className="block max-w-full overflow-hidden text-[clamp(18px,2.4vw,30px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
+      <span className="block max-w-full overflow-hidden text-[clamp(14px,2.2dvh,22px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
+        <span className="text-slate mr-2 text-xs font-normal uppercase">vs</span>
         {match.team2.number ? <span className="text-green mr-2">{match.team2.number}</span> : null}
         {match.team2.names.join(" & ")}
       </span>
@@ -497,7 +506,7 @@ function CourtCard({ courtName, matches }: { courtName: string; matches: Tournam
     // column and the content area stretch to this card's full height —
     // the label column gets its own `justify-center` (below) to stay
     // vertically centered now that it spans the taller box.
-    <div className="border-green/60 bg-navy-800 flex min-h-0 flex-1 gap-6 rounded-2xl border-2 p-8">
+    <div className="border-green/60 bg-navy-800 flex min-h-0 flex-1 gap-6 rounded-2xl border-2 p-4">
       <div className="flex w-40 shrink-0 flex-col items-start justify-center gap-1.5">
         <span className="font-jetbrains text-lg font-extrabold tracking-widest uppercase">{courtName}</span>
         {badge ? (
@@ -513,7 +522,7 @@ function CourtCard({ courtName, matches }: { courtName: string; matches: Tournam
         ) : null}
       </div>
 
-      <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-2 overflow-hidden text-center">
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-0.5 overflow-hidden text-center">
         {current ? (
           <>
             <span className="max-w-full overflow-hidden text-xs text-ellipsis whitespace-nowrap text-slate">
