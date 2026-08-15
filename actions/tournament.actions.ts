@@ -731,3 +731,26 @@ export async function markWalkoverAction(
     return { error: toActionError(error, { action: "markWalkoverAction", userId: authz.userId }) };
   }
 }
+
+// Owner request (2026-08-15), LIVE during the tournament: "manual match
+// ups and auto match ups. kindly make a button or option to delete" —
+// see matchService.deleteMatch's own comment for the safety guard
+// (refuses only an already-advanced Single Elimination match).
+export async function deleteMatchAction(
+  tournamentId: string,
+  categoryId: string,
+  matchId: string,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  try {
+    await matchService.deleteMatch(matchId, authz.userId);
+    revalidateCategory(tournamentId, categoryId);
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "deleteMatchAction", userId: authz.userId }) };
+  }
+}

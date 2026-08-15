@@ -1,11 +1,11 @@
 "use client";
 
-import { Mic } from "lucide-react";
+import { Mic, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { completeMatchAction, markWalkoverAction, recordScoreAction } from "@/actions/tournament.actions";
+import { completeMatchAction, deleteMatchAction, markWalkoverAction, recordScoreAction } from "@/actions/tournament.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -171,6 +171,20 @@ export function MatchCard({ tournamentId, categoryId, match, teamPoolNumbers }: 
     );
   }
 
+  // Owner request (2026-08-15), LIVE during the tournament: "manual
+  // match ups and auto match ups. kindly make a button or option to
+  // delete" — works for any match (manually created or auto-generated
+  // by the bracket); the service itself refuses only the one genuinely
+  // unsafe case (an already-advanced Single Elimination match), so the
+  // button here doesn't need to duplicate that logic client-side, just
+  // a confirmation before a destructive action.
+  function handleDelete() {
+    if (!window.confirm("Delete this match? This cannot be undone.")) {
+      return;
+    }
+    handleAction(() => deleteMatchAction(tournamentId, categoryId, match.id), "Match deleted.");
+  }
+
   return (
     <Card size="sm">
       <CardHeader>
@@ -269,6 +283,16 @@ export function MatchCard({ tournamentId, categoryId, match, teamPoolNumbers }: 
                 >
                   Walkover: {teamLabel(match.team2, team2Number)}
                 </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={isPending}
+                  onClick={handleDelete}
+                  title="Delete this match"
+                >
+                  <Trash2 className="text-destructive size-3.5" />
+                </Button>
               </div>
             ) : null}
 
@@ -288,6 +312,16 @@ export function MatchCard({ tournamentId, categoryId, match, teamPoolNumbers }: 
                   title="Announce the players and the winner"
                 >
                   <Mic className="size-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={isPending}
+                  onClick={handleDelete}
+                  title="Delete this match"
+                >
+                  <Trash2 className="text-destructive size-3.5" />
                 </Button>
               </div>
             ) : null}

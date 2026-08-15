@@ -228,6 +228,62 @@ export class MatchService {
     return match;
   }
 
+  // Owner request (2026-08-15), LIVE during the tournament: "manual
+  // match ups and auto match ups. kindly make a button or option to
+  // delete" — one delete path for both: a manually-created match
+  // (createManualMatch, tournament.service.ts) never has a
+  // bracketPosition and is fully isolated from bracket advancement, so
+  // it's always safe to remove outright. An auto-generated
+  // SINGLE_ELIMINATION match DOES have a bracketPosition and could have
+  // already fed tryAdvanceBracket's next-round creation — deleting it
+  // at that point would leave the next round's match referencing a
+  // slot whose source row no longer exists, silently stalling that
+  // whole branch of the bracket the next time its sibling completes.
+  // Refuses only that specific unsafe case; every other match (any
+  // Round Robin match, any not-yet-advanced Single Elimination match,
+  // any manual match regardless of status) deletes cleanly. Scores
+  // cascade-delete automatically (Score.match has onDelete: Cascade,
+  // see prisma/schema.prisma).
+  async deleteMatch(matchId: string, actorUserId: string): Promise<void> {
+    const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
+
+    if (match.tournamentCategoryId && match.round !== null && match.bracketPosition !== null) {
+      const category = await prisma.tournamentCategory.findUnique({
+        where: { id: match.tournamentCategoryId },
+      });
+      if (category?.format === "SINGLE_ELIMINATION") {
+        const nextMatch = await prisma.match.findFirst({
+          where: {
+            tournamentCategoryId: match.tournamentCategoryId,
+            round: match.round + 1,
+            bracketPosition: Math.floor(match.bracketPosition / 2),
+          },
+        });
+        if (nextMatch) {
+          throw new Error(
+            "Cannot delete this match — it has already advanced to the next round. Reset the bracket instead if you need to redo it.",
+          );
+        }
+      }
+    }
+
+    await prisma.match.delete({ where: { id: matchId } });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.match_deleted",
+      entityType: "Match",
+      entityId: matchId,
+      oldValues: {
+        team1Id: match.team1Id,
+        team2Id: match.team2Id,
+        round: match.round,
+        bracketPosition: match.bracketPosition,
+        status: match.status,
+      },
+    });
+  }
+
   // Single Elimination only — Round Robin matches have no bracketPosition
   // and nothing to advance into. Progresses one pair at a time: as soon as
   // both matches feeding a bracket slot are decided, creates the next
