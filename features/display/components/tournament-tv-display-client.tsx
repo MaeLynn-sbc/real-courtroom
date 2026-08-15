@@ -359,7 +359,7 @@ export function TournamentTvDisplayClient({
               friends on the left"): sized up from "lg" to the new "xl"
               preset (see logo.tsx) to read closer to scale against the
               ~80px-tall tournament logo box next to it. */}
-          <Logo size="xl" className="opacity-70" />
+          <Logo size="xl" className="ml-3 opacity-70" />
         </div>
 
         {/* Owner request (2026-08-15): "put this above live updates
@@ -462,27 +462,24 @@ function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" 
     );
   }
 
-  // Font size deliberately tied to viewport HEIGHT (dvh), not width —
-  // the real constraint is 3 court rows stacked vertically sharing a
-  // fixed-height page, not the row's own width. Owner report
-  // (2026-08-15): with all 3 courts occupied at once, the earlier
-  // width-tied (vw) size made this block taller than each row's actual
-  // share of height, clipping top and bottom. Folding "vs" onto team2's
-  // own line instead of its own separate line ("the vs is taking some
-  // space. put it before the 2nd team") trims a whole line off the
-  // stack. Owner follow-up ("this is too small. can we atleast maximize
-  // the space?"): a real screenshot showed the 3-line block using only
-  // a fraction of each box's actual height even with genuinely long
-  // full names on both sides — sized up aggressively; overflow-hidden +
-  // text-ellipsis (still present) remain the hard backstop for any name
-  // longer than these real ones.
+  // Owner report, LIVE during the actual tournament (2026-08-15): the
+  // viewport-relative min(dvh,vw) sizing overflowed the box ("the text
+  // names gone wild", "its over the box") — vw is relative to the WHOLE
+  // screen width, not this box's own (narrower) available width, so a
+  // long name at "6% of screen width" could need more room than the box
+  // actually has, and the ellipsis backstop didn't reliably engage
+  // either. Reverted to a small, plain FIXED size (no clamp/vw/dvh
+  // math) that's unambiguously safe on any real screen — stability over
+  // "maximize the space" while the event is live. `w-full` (not just
+  // max-w-full) added on each span so text-overflow:ellipsis has an
+  // unambiguous, definite width to truncate against as a hard backstop.
   return (
     <div className="flex w-full flex-col items-center gap-1.5">
-      <span className="block max-w-full overflow-hidden text-[clamp(24px,min(7dvh,6vw),72px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
+      <span className="block w-full max-w-full overflow-hidden text-[26px] leading-tight font-bold text-ellipsis whitespace-nowrap">
         {match.team1.number ? <span className="text-green mr-2">{match.team1.number}</span> : null}
         {match.team1.names.join(" & ")}
       </span>
-      <span className="block max-w-full overflow-hidden text-[clamp(24px,min(7dvh,6vw),72px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
+      <span className="block w-full max-w-full overflow-hidden text-[26px] leading-tight font-bold text-ellipsis whitespace-nowrap">
         <span className="text-slate mr-2 text-xs font-normal uppercase">vs</span>
         {match.team2.number ? <span className="text-green mr-2">{match.team2.number}</span> : null}
         {match.team2.names.join(" & ")}
