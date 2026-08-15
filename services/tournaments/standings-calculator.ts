@@ -15,6 +15,14 @@ export interface StandingsMatchInput {
 
 export interface RoundRobinStandingRow {
   teamId: string;
+  // Owner request (2026-08-15): "can we fix first the standing? can we
+  // sort it by pool and not the whole roster" — set by
+  // standings.service.ts after calling calculateRoundRobinStandings
+  // once PER pool (a pooled round robin never has cross-pool matches,
+  // so ranking must happen within each pool, not across the whole
+  // category); always null here since this pure function itself has no
+  // pool concept, just a field the caller tags on afterward.
+  poolLabel: string | null;
   played: number;
   wins: number;
   losses: number;
@@ -264,6 +272,7 @@ export function calculateRoundRobinStandings(
       teamId,
       {
         teamId,
+        poolLabel: null,
         played: 0,
         wins: 0,
         losses: 0,
