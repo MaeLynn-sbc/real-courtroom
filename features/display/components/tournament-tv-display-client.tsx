@@ -331,6 +331,16 @@ export function TournamentTvDisplayClient({
             only ever set when every match on screen belongs to the same
             one, see tournament-display.service.ts's own comment. */}
         <div className="flex items-center gap-4">
+          {/* Owner report, LIVE during the tournament (2026-08-15):
+              repositioning/resizing this logo (trailing + "xl") caused
+              real layout problems ("the text sayans and friends
+              adjusted, not in the center anymore... courtroom logo not
+              in good place. near the text and big blank space") —
+              reverted back to the original, simple, well-tested
+              arrangement (leading, small, dimmed) rather than keep
+              iterating blind on a cosmetic detail during the live
+              event. */}
+          <Logo size="sm" className="opacity-70" />
           {data.tournamentLogoUrl ? (
             // A fixed-height, wider-than-tall box (not a square) —
             // organizer logos are commonly wide banner wordmarks (a
@@ -351,15 +361,6 @@ export function TournamentTvDisplayClient({
           <h1 className="font-display text-[clamp(28px,4vw,44px)] leading-none font-extrabold uppercase">
             {data.tournamentName ?? "Tournament — Now Playing"}
           </h1>
-          {/* Owner request (2026-08-15): "put the courtroom logo after
-              the tournament text. its barely visible right now" — moved
-              from leading (where it got lost next to the much bigger
-              tournament logo) to trailing instead. Follow-up ("the logo
-              seems so cute. not proportional with the sayans and
-              friends on the left"): sized up from "lg" to the new "xl"
-              preset (see logo.tsx) to read closer to scale against the
-              ~80px-tall tournament logo box next to it. */}
-          <Logo size="xl" className="ml-3 opacity-70" />
         </div>
 
         {/* Owner request (2026-08-15): "put this above live updates
