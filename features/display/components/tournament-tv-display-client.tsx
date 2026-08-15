@@ -463,17 +463,20 @@ function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" 
   // fixed-height page, not the row's own width. Owner report
   // (2026-08-15): with all 3 courts occupied at once, the earlier
   // width-tied (vw) size made this block taller than each row's actual
-  // share of height, clipping top and bottom. A smaller dvh-capped size
-  // plus "vs" folded onto team2's own line instead of its own separate
-  // line ("the vs is taking some space. put it before the 2nd team")
-  // trims a whole line off the stack, leaving a wide safety margin.
+  // share of height, clipping top and bottom. Folding "vs" onto team2's
+  // own line instead of its own separate line ("the vs is taking some
+  // space. put it before the 2nd team") trims a whole line off the
+  // stack, freeing up enough headroom to size the dvh-capped text back
+  // up a bit ("we can maximize the space and larger the text") while
+  // still landing well under the original 4-line footprint that caused
+  // the clipping in the first place.
   return (
     <div className="flex w-full flex-col items-center gap-0.5">
-      <span className="block max-w-full overflow-hidden text-[clamp(14px,2.2dvh,22px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
+      <span className="block max-w-full overflow-hidden text-[clamp(16px,2.8dvh,26px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
         {match.team1.number ? <span className="text-green mr-2">{match.team1.number}</span> : null}
         {match.team1.names.join(" & ")}
       </span>
-      <span className="block max-w-full overflow-hidden text-[clamp(14px,2.2dvh,22px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
+      <span className="block max-w-full overflow-hidden text-[clamp(16px,2.8dvh,26px)] leading-tight font-bold text-ellipsis whitespace-nowrap">
         <span className="text-slate mr-2 text-xs font-normal uppercase">vs</span>
         {match.team2.number ? <span className="text-green mr-2">{match.team2.number}</span> : null}
         {match.team2.names.join(" & ")}
