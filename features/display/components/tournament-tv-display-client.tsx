@@ -542,7 +542,19 @@ function CourtCard({ courtName, matches }: { courtName: string; matches: Tournam
       <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-0.5 overflow-hidden text-center">
         {current ? (
           <>
-            <span className="max-w-full overflow-hidden text-xs text-ellipsis whitespace-nowrap text-slate">
+            {/* Owner request (2026-08-15): "we can 2x it and put it 1x
+                higher. give space before team names" — doubled from
+                text-xs (12px), with its own margin-bottom so it
+                visibly separates from the team names below instead of
+                sitting right on top of them. Follow-ups ("it's too
+                small and theres a lot of space in the box... the team
+                names looks perfect already" — team names untouched;
+                "make it a space between the label and the team
+                names"): sized up further to 32px (same flat-fixed-size
+                pattern, no vw/dvh math, as the team names) and the gap
+                widened from mb-3 to mb-6 for a clearly visible
+                separation. */}
+            <span className="mb-6 max-w-full overflow-hidden text-[32px] text-ellipsis whitespace-nowrap text-slate">
               {current.categoryLabel}
             </span>
             <TeamsLine match={current} size="lg" />
