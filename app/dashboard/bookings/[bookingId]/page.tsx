@@ -9,6 +9,7 @@ import { BookingQrCode } from "@/features/bookings/components/booking-qr-code";
 import { BookingSourceBadge } from "@/features/bookings/components/booking-source-badge";
 import { BookingStatusActions } from "@/features/bookings/components/booking-status-actions";
 import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
+import { CorrectSalePaymentMethodForm } from "@/features/bookings/components/correct-sale-payment-method-form";
 import { RecordGcashPaymentForm } from "@/features/bookings/components/record-gcash-payment-form";
 import { RegenerateQrButton } from "@/features/bookings/components/regenerate-qr-button";
 import { SettleBookingForm } from "@/features/bookings/components/settle-booking-form";
@@ -272,6 +273,21 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
               : ""}
             {booking.gcashReference ? ` (ref: ${booking.gcashReference})` : ""}
           </p>
+          {/* Owner report (2026-08-15): "digging deeper" into account
+              reconciliation variances found the real root cause — a
+              website "Pay at Venue" booking's Sale never got reflected
+              in cash/GCash reconciliation once the guest actually paid,
+              with no way to fix it. This correction control closes that
+              gap (and doubles as the Cash⇄GCash miskey fix). */}
+          <CorrectSalePaymentMethodForm
+            saleId={booking.sale.id}
+            currentPaymentMethodId={booking.sale.paymentMethodId}
+            currentPaymentMethodLabel={
+              paymentMethods.find((method) => method.id === booking.sale!.paymentMethodId)?.label ??
+              "an unknown method"
+            }
+            paymentMethods={paymentMethodOptions}
+          />
         </section>
       ) : showSettleForm ? (
         <section>

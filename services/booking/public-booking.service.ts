@@ -48,13 +48,17 @@ export async function createPublicBooking(input: CreatePublicBookingInput): Prom
 
   // THE hard boundary. Read fresh on every call (never cached), and
   // checked here, in ONE place — no other code path decides this
-  // independently. Default is OFF (settingsService.
-  // getBookingRequirePrepayment's own "absence of a row means false"), so
-  // until an owner explicitly flips this on, execution always takes the
+  // independently. Default is ON as of commit 65818b6 (2026-07-28) —
+  // settingsService.getBookingRequirePrepayment's own "absence of a row
+  // means true" — so a fresh install requires GCash prepayment unless an
+  // owner explicitly flips it off; only then does execution take the
   // `else` branch below: the exact same call to bookingService.
   // createBooking(), with the exact same bookingInput shape, that ran
   // before this phase existed. createBooking's own source is untouched by
-  // this whole phase; only this branch is new.
+  // this whole phase; only this branch is new. Owner report (2026-08-15):
+  // when this branch DOES run, the resulting PAY_AT_VENUE Sale is
+  // invisible to cash/GCash reconciliation until corrected — see
+  // features/bookings/components/correct-sale-payment-method-form.tsx.
   const requiresPrepayment = await settingsService.getBookingRequirePrepayment();
 
   if (requiresPrepayment) {
