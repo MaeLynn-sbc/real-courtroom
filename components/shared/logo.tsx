@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 // already wired for when the light/dark-specific files are added — it
 // currently resolves to the same source for both.
 export interface LogoProps {
-  size?: "sm" | "default" | "lg";
+  size?: "sm" | "default" | "lg" | "xl";
   showWordmark?: boolean;
   variant?: "auto" | "light" | "dark";
   className?: string;
@@ -20,6 +20,10 @@ const SIZE_PX: Record<NonNullable<LogoProps["size"]>, number> = {
   sm: 24,
   default: 32,
   lg: 48,
+  // Owner request (2026-08-15): the tourtv header's Courtroom logo
+  // looked disproportionately tiny next to the ~80px-tall tournament
+  // logo box next to it — "lg" (48px) wasn't a big enough jump.
+  xl: 64,
 };
 
 // Not yet swapped to logo-light.png/logo-dark.png (only logo.png ships

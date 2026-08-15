@@ -354,8 +354,12 @@ export function TournamentTvDisplayClient({
           {/* Owner request (2026-08-15): "put the courtroom logo after
               the tournament text. its barely visible right now" — moved
               from leading (where it got lost next to the much bigger
-              tournament logo) to trailing instead. */}
-          <Logo size="lg" className="opacity-70" />
+              tournament logo) to trailing instead. Follow-up ("the logo
+              seems so cute. not proportional with the sayans and
+              friends on the left"): sized up from "lg" to the new "xl"
+              preset (see logo.tsx) to read closer to scale against the
+              ~80px-tall tournament logo box next to it. */}
+          <Logo size="xl" className="opacity-70" />
         </div>
 
         {/* Owner request (2026-08-15): "put this above live updates
