@@ -14,6 +14,11 @@
  *   2. Re-scheduling (even to the same court) bumps it again, to a
  *      fresh, later timestamp — freely re-triggerable, same shape as
  *      Open Play's manual re-announce.
+ *   2b. scheduleMatch({ courtId: null }) actually clears the court
+ *      (Prisma treats undefined as "leave unchanged," not null — a
+ *      real live bug, "reassign again to court 1 it doesnt go thru"),
+ *      the court frees up in getDisplayData afterward, and reassigning
+ *      to a court after clearing works cleanly.
  *   3. tournamentDisplayService.getDisplayData() surfaces a court-
  *      assigned, non-bye, SCHEDULED/IN_PROGRESS match with full (not
  *      abbreviated) team names on both sides, under its court. Owner
@@ -166,6 +171,38 @@ async function main(): Promise<void> {
       "expected re-scheduling to bump announcementRequestedAt forward, freely re-triggerable",
     );
     console.log("PASS: re-scheduling (even to a different court) re-announces with a fresh timestamp.");
+
+    // ============== 2b. Clearing a court with courtId: null actually clears it ==============
+    // Owner report (2026-08-15), LIVE during the tournament: "if i put
+    // the team to no court from court 1 and then reassign again to
+    // court 1 it doesnt go thru... court 1 is not available for other
+    // teams" — root cause was the Scoresheet's "No court" option
+    // sending courtId: undefined, which Prisma treats as "leave
+    // unchanged," not "clear it." Proves the real fix: courtId: null
+    // (now accepted by scheduleMatchSchema) actually nulls the column,
+    // and the court genuinely frees up for another match afterward.
+    const clearedFromCourt = await matchService.scheduleMatch(match.id, { courtId: null }, owner.id);
+    assert(
+      clearedFromCourt.courtId === null,
+      `expected courtId: null to actually clear the court, got ${clearedFromCourt.courtId}`,
+    );
+    const afterClearing = await tournamentDisplayService.getDisplayData();
+    const courtBAfterClearing = afterClearing.courts.find((court) => court.courtName === courtB.name);
+    assert(
+      courtBAfterClearing && courtBAfterClearing.matches.length === 0,
+      `expected ${courtB.name} to have zero matches after clearing, got ${courtBAfterClearing?.matches.length}`,
+    );
+    console.log("PASS: scheduleMatch with courtId: null actually clears the court, freeing it up for other matches.");
+
+    // Reassigning to a court afterward (the second half of the reported
+    // bug: "reassign again to court 1 it doesnt go thru") works cleanly
+    // once the field was genuinely cleared.
+    const reassigned = await matchService.scheduleMatch(match.id, { courtId: courtB.id }, owner.id);
+    assert(
+      reassigned.courtId === courtB.id,
+      `expected reassigning to ${courtB.name} after clearing to succeed, got courtId=${reassigned.courtId}`,
+    );
+    console.log("PASS: reassigning to a court after clearing it works correctly.");
 
     // ============== 3. Surfaces correctly in the display feed ==============
     const displayed = await tournamentDisplayService.getDisplayData();

@@ -331,16 +331,6 @@ export function TournamentTvDisplayClient({
             only ever set when every match on screen belongs to the same
             one, see tournament-display.service.ts's own comment. */}
         <div className="flex items-center gap-4">
-          {/* Owner report, LIVE during the tournament (2026-08-15):
-              repositioning/resizing this logo (trailing + "xl") caused
-              real layout problems ("the text sayans and friends
-              adjusted, not in the center anymore... courtroom logo not
-              in good place. near the text and big blank space") —
-              reverted back to the original, simple, well-tested
-              arrangement (leading, small, dimmed) rather than keep
-              iterating blind on a cosmetic detail during the live
-              event. */}
-          <Logo size="sm" className="opacity-70" />
           {data.tournamentLogoUrl ? (
             // A fixed-height, wider-than-tall box (not a square) —
             // organizer logos are commonly wide banner wordmarks (a
@@ -362,6 +352,15 @@ export function TournamentTvDisplayClient({
             {data.tournamentName ?? "Tournament — Now Playing"}
           </h1>
         </div>
+
+        {/* Owner request (2026-08-15), LIVE during the tournament: "can
+            we center the courtroom logo in this area. between the
+            tournament text and the time... i mean after the tournament
+            text" — a real sibling of the title group and the clock
+            group (not nested inside either), so the row's own
+            justify-between naturally centers it in the gap between
+            them instead of crowding either side. */}
+        <Logo size="sm" className="opacity-70" />
 
         {/* Owner request (2026-08-15): "put this above live updates
             every 10 seconds to save space" — clock stacked on top,
@@ -469,18 +468,21 @@ function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" 
   // screen width, not this box's own (narrower) available width, so a
   // long name at "6% of screen width" could need more room than the box
   // actually has, and the ellipsis backstop didn't reliably engage
-  // either. Reverted to a small, plain FIXED size (no clamp/vw/dvh
-  // math) that's unambiguously safe on any real screen — stability over
-  // "maximize the space" while the event is live. `w-full` (not just
-  // max-w-full) added on each span so text-overflow:ellipsis has an
+  // either. Reverted to a plain FIXED size (no clamp/vw/dvh math) that's
+  // unambiguously safe on any real screen — stability over "maximize
+  // the space" while the event is live. Bumped from the initial
+  // conservative 26px to 39px ("the text became too small... add half
+  // the size to actual size") — still a flat value, no viewport
+  // relativity, so no risk of the same overflow bug recurring. `w-full`
+  // (not just max-w-full) on each span so text-overflow:ellipsis has an
   // unambiguous, definite width to truncate against as a hard backstop.
   return (
     <div className="flex w-full flex-col items-center gap-1.5">
-      <span className="block w-full max-w-full overflow-hidden text-[26px] leading-tight font-bold text-ellipsis whitespace-nowrap">
+      <span className="block w-full max-w-full overflow-hidden text-[39px] leading-tight font-bold text-ellipsis whitespace-nowrap">
         {match.team1.number ? <span className="text-green mr-2">{match.team1.number}</span> : null}
         {match.team1.names.join(" & ")}
       </span>
-      <span className="block w-full max-w-full overflow-hidden text-[26px] leading-tight font-bold text-ellipsis whitespace-nowrap">
+      <span className="block w-full max-w-full overflow-hidden text-[39px] leading-tight font-bold text-ellipsis whitespace-nowrap">
         <span className="text-slate mr-2 text-xs font-normal uppercase">vs</span>
         {match.team2.number ? <span className="text-green mr-2">{match.team2.number}</span> : null}
         {match.team2.names.join(" & ")}

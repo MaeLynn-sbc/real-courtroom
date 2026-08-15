@@ -205,10 +205,17 @@ function ScoresheetRow({
 
   function handleSave() {
     startTransition(async () => {
+      // Owner report (2026-08-15), LIVE during the tournament: "make
+      // sure that everytime i click on no court it will clear it up and
+      // the courts will be usable again" — courtId: null (not
+      // undefined) is what actually clears the court; Prisma treats
+      // undefined as "leave unchanged," so the old undefined here
+      // silently never cleared anything (see scheduleMatchSchema's own
+      // comment).
       const result = isStageOption
         ? await stageMatchAction(tournamentId, categoryId, match.id, { slot: selected as StagedSlot })
         : await scheduleMatchAction(tournamentId, categoryId, match.id, {
-            courtId: selected === NO_COURT_VALUE ? undefined : selected,
+            courtId: selected === NO_COURT_VALUE ? null : selected,
           });
       if (result.error) {
         toast.error(result.error);

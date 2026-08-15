@@ -114,8 +114,17 @@ export type UpdateRegistrationPlayerNamesInput = z.infer<
   typeof updateRegistrationPlayerNamesSchema
 >;
 
+// Owner report (2026-08-15), LIVE during the tournament: "if i put the
+// team to no court from court 1 and then reassign again to court 1 it
+// doesnt go thru... court 1 is not available for other teams" —
+// courtId used to only be `optional()` (allows undefined, not null),
+// but Prisma treats an `undefined` field as "leave unchanged," not
+// "clear it." The Scoresheet's "No court" option sends courtId: null
+// specifically to clear it — nullable() lets that through so
+// match.service.ts's scheduleMatch can pass it straight to Prisma,
+// which DOES respect an explicit null as "set this column to NULL."
 export const scheduleMatchSchema = z.object({
-  courtId: z.string().optional(),
+  courtId: z.string().nullable().optional(),
   scheduledAt: z.coerce.date().optional(),
 });
 
