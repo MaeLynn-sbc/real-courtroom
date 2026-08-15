@@ -355,7 +355,7 @@ export function TournamentTvDisplayClient({
               the tournament text. its barely visible right now" — moved
               from leading (where it got lost next to the much bigger
               tournament logo) to trailing instead. */}
-          <Logo size="sm" className="opacity-70" />
+          <Logo size="lg" className="opacity-70" />
         </div>
 
         {/* Owner request (2026-08-15): "put this above live updates
