@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 // already wired for when the light/dark-specific files are added — it
 // currently resolves to the same source for both.
 export interface LogoProps {
-  size?: "sm" | "default" | "lg" | "xl";
+  size?: "sm" | "default" | "lg" | "xl" | "2xl";
   showWordmark?: boolean;
   variant?: "auto" | "light" | "dark";
   className?: string;
@@ -24,6 +24,10 @@ const SIZE_PX: Record<NonNullable<LogoProps["size"]>, number> = {
   // looked disproportionately tiny next to the ~80px-tall tournament
   // logo box next to it — "lg" (48px) wasn't a big enough jump.
   xl: 64,
+  // Owner follow-up (2026-08-15): once standing alone centered in the
+  // header (not squeezed against other elements), even "xl" still read
+  // as too small — "i think we can 4x it" (4x the "sm" 24px baseline).
+  "2xl": 96,
 };
 
 // Not yet swapped to logo-light.png/logo-dark.png (only logo.png ships

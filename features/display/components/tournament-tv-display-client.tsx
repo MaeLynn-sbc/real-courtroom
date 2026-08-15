@@ -360,7 +360,7 @@ export function TournamentTvDisplayClient({
             group (not nested inside either), so the row's own
             justify-between naturally centers it in the gap between
             them instead of crowding either side. */}
-        <Logo size="sm" className="opacity-70" />
+        <Logo size="2xl" className="opacity-70" />
 
         {/* Owner request (2026-08-15): "put this above live updates
             every 10 seconds to save space" — clock stacked on top,
@@ -451,14 +451,22 @@ function queueBadge(match: TournamentDisplayMatch): { label: string; tone: "now"
 // disappears, no JS timing to get wrong.
 function TeamsLine({ match, size }: { match: TournamentDisplayMatch; size: "lg" | "sm" }) {
   if (size === "sm") {
+    // Owner request (2026-08-15): "in the next up and so on. can we put
+    // the vs and the 2nd team on the 2nd line" — same 2-line pattern as
+    // the main court boxes (team1 alone, "vs" folded onto team2's own
+    // line) instead of squeezing all three onto one inline line here.
     return (
-      <span className="text-sm leading-snug font-semibold">
-        {match.team1.number ? <span className="text-green mr-1.5">{match.team1.number}</span> : null}
-        {match.team1.names.join(" & ")}
-        <span className="text-slate mx-1.5 text-xs uppercase">vs</span>
-        {match.team2.number ? <span className="text-green mr-1.5">{match.team2.number}</span> : null}
-        {match.team2.names.join(" & ")}
-      </span>
+      <div className="flex w-full flex-col gap-0.5">
+        <span className="block w-full max-w-full overflow-hidden text-sm leading-snug font-semibold text-ellipsis whitespace-nowrap">
+          {match.team1.number ? <span className="text-green mr-1.5">{match.team1.number}</span> : null}
+          {match.team1.names.join(" & ")}
+        </span>
+        <span className="block w-full max-w-full overflow-hidden text-sm leading-snug font-semibold text-ellipsis whitespace-nowrap">
+          <span className="text-slate mr-1.5 text-xs uppercase">vs</span>
+          {match.team2.number ? <span className="text-green mr-1.5">{match.team2.number}</span> : null}
+          {match.team2.names.join(" & ")}
+        </span>
+      </div>
     );
   }
 
