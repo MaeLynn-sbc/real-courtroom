@@ -5,7 +5,7 @@ import type {
 import type { Match, Prisma, Score, StagedGroupSlot } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
-import { pairNextRound } from "@/services/tournaments/bracket-generator";
+import { BRONZE_BRACKET_POSITION, pairNextRound } from "@/services/tournaments/bracket-generator";
 import { canTransitionMatchStatus, determineMatchWinner } from "@/services/tournaments/match-status";
 
 function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
@@ -42,6 +42,62 @@ interface AuditLogEntry {
   entityId: string;
   oldValues?: unknown;
   newValues?: unknown;
+}
+
+// The team that LOST a decided match. Returns null for a bye (no second
+// team) or an undecided match — a bronze match can't be built from either,
+// and inventing a placeholder opponent would be worse than not creating it.
+function loserTeamId(match: Pick<Match, "team1Id" | "team2Id" | "winnerTeamId">): string | null {
+  if (!match.winnerTeamId || !match.team2Id) {
+    return null;
+  }
+  return match.winnerTeamId === match.team1Id ? match.team2Id : match.team1Id;
+}
+
+// Shared by tryAdvanceBracket (creating it alongside the final) and
+// setThirdPlaceMatch (turning it on after the semis are already done).
+// Idempotent: returns null if the slot is taken or either loser is
+// unavailable, so a retry or a double-toggle can't duplicate it.
+async function createThirdPlaceMatch(
+  client: Prisma.TransactionClient,
+  args: {
+    tournamentCategoryId: string;
+    finalRound: number;
+    semifinals: Pick<Match, "team1Id" | "team2Id" | "winnerTeamId" | "bracketPosition">[];
+  },
+): Promise<Match | null> {
+  const { tournamentCategoryId, finalRound, semifinals } = args;
+  if (semifinals.length !== 2) {
+    return null;
+  }
+
+  const existing = await client.match.findFirst({
+    where: { tournamentCategoryId, round: finalRound, bracketPosition: BRONZE_BRACKET_POSITION },
+  });
+  if (existing) {
+    return null;
+  }
+
+  // Ordered by the semifinals' own bracket positions so the bronze match
+  // reads "loser of SF1 vs loser of SF2", not whichever finished first.
+  const ordered = [...semifinals].sort(
+    (a, b) => (a.bracketPosition ?? 0) - (b.bracketPosition ?? 0),
+  );
+  const [loser1, loser2] = ordered.map(loserTeamId);
+  if (!loser1 || !loser2) {
+    return null;
+  }
+
+  return client.match.create({
+    data: {
+      tournamentCategoryId,
+      round: finalRound,
+      bracketPosition: BRONZE_BRACKET_POSITION,
+      team1Id: loser1,
+      team2Id: loser2,
+      status: "SCHEDULED",
+    },
+  });
 }
 
 const teamInclude = {
@@ -313,6 +369,87 @@ export class MatchService {
   // next-round slot twice. A conflict from either guard is swallowed here
   // (not rethrown) since this is an idempotent side effect: if another
   // concurrent call already created the slot, there's nothing to do.
+  // Owner-facing toggle. Turning it ON after the semifinals are already
+  // decided creates the bronze match retroactively rather than silently
+  // doing nothing — that's the common case here, since the decision to
+  // play for third often gets made once the semis are over.
+  //
+  // Turning it OFF removes the match only while it's untouched. Once it
+  // has a score or a result it's real history, and deleting it would erase
+  // a played game; that case is refused with a clear message instead.
+  async setThirdPlaceMatch(
+    categoryId: string,
+    enabled: boolean,
+    actorUserId: string,
+  ): Promise<void> {
+    const category = await prisma.tournamentCategory.findUniqueOrThrow({
+      where: { id: categoryId },
+    });
+    if (category.format !== "SINGLE_ELIMINATION") {
+      throw new Error("A third-place match only applies to a single-elimination bracket.");
+    }
+
+    const bracketMatches = await prisma.match.findMany({
+      where: { tournamentCategoryId: categoryId, round: { not: null }, bracketPosition: { not: null } },
+    });
+    const finalRound = bracketMatches.length
+      ? Math.max(...bracketMatches.map((m) => m.round as number))
+      : null;
+    const existingBronze =
+      finalRound === null
+        ? null
+        : (bracketMatches.find(
+            (m) => m.round === finalRound && m.bracketPosition === BRONZE_BRACKET_POSITION,
+          ) ?? null);
+
+    if (!enabled && existingBronze) {
+      if (existingBronze.status !== "SCHEDULED" || existingBronze.winnerTeamId) {
+        throw new Error(
+          "This third-place match has already been played — it can't be removed. Delete it from the match list if that's really what you want.",
+        );
+      }
+      await prisma.match.delete({ where: { id: existingBronze.id } });
+    }
+
+    await prisma.tournamentCategory.update({
+      where: { id: categoryId },
+      data: { hasThirdPlaceMatch: enabled },
+    });
+
+    // Retroactive creation: the semifinals are the round that feeds the
+    // final, i.e. finalRound - 1, and there must be exactly two of them.
+    if (enabled && !existingBronze && finalRound !== null) {
+      const semifinals = bracketMatches.filter((m) => m.round === finalRound - 1);
+      if (semifinals.length === 2) {
+        const created = await prisma.$transaction((tx) =>
+          createThirdPlaceMatch(tx, {
+            tournamentCategoryId: categoryId,
+            finalRound,
+            semifinals,
+          }),
+        );
+        if (created) {
+          await this.writeAuditLog({
+            actorUserId,
+            action: "tournament.third_place_match_created",
+            entityType: "Match",
+            entityId: created.id,
+            newValues: { round: created.round, bracketPosition: created.bracketPosition },
+          });
+        }
+      }
+    }
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.third_place_match_setting_changed",
+      entityType: "TournamentCategory",
+      entityId: categoryId,
+      oldValues: { hasThirdPlaceMatch: category.hasThirdPlaceMatch },
+      newValues: { hasThirdPlaceMatch: enabled },
+    });
+  }
+
   private async tryAdvanceBracket(match: Match, actorUserId: string): Promise<void> {
     if (match.tournamentCategoryId === null || match.round === null || match.bracketPosition === null) {
       return;
@@ -366,7 +503,7 @@ export class MatchService {
             return null;
           }
 
-          return tx.match.create({
+          const created = await tx.match.create({
             data: {
               tournamentCategoryId,
               round: nextRound,
@@ -376,6 +513,36 @@ export class MatchService {
               status: "SCHEDULED",
             },
           });
+
+          // Third-place playoff (owner request 2026-08-17). Created in
+          // the SAME transaction as the final, from the two matches that
+          // just produced it — i.e. the semifinal LOSERS, which nothing
+          // else in this service ever looks at.
+          //
+          // "Is this the semifinal round?" is answered by counting: the
+          // round that feeds a single next match is the semifinal, so
+          // exactly 2 matches in `round` means nextRound is the final.
+          // That holds for any draw size without hardcoding round numbers.
+          //
+          // Sits at the final's own round, bracketPosition 1 (final is 0),
+          // so it needs no new columns and can't collide. Deliberately
+          // outside advancement: tryAdvanceBracket looks for a sibling at
+          // position 0/1 of a round it is advancing FROM, and nothing ever
+          // advances out of the final round, so this row is inert there.
+          if (category.hasThirdPlaceMatch) {
+            const roundMatchCount = await tx.match.count({
+              where: { tournamentCategoryId, round },
+            });
+            if (roundMatchCount === 2) {
+              await createThirdPlaceMatch(tx, {
+                tournamentCategoryId,
+                finalRound: nextRound,
+                semifinals: [match, sibling],
+              });
+            }
+          }
+
+          return created;
         },
         { isolationLevel: "Serializable" },
       );

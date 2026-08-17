@@ -16,6 +16,7 @@ import {
   stageMatchSchema,
   updateCategoryMaxTeamsSchema,
   updateRegistrationPlayerNamesSchema,
+  setThirdPlaceMatchSchema,
   updateTournamentPaymentSettingSchema,
   updateTournamentSlugSchema,
   updateTournamentStatusSchema,
@@ -32,6 +33,7 @@ import {
   type StageMatchInput,
   type UpdateCategoryMaxTeamsInput,
   type UpdateRegistrationPlayerNamesInput,
+  type SetThirdPlaceMatchInput,
   type UpdateTournamentPaymentSettingInput,
   type UpdateTournamentSlugInput,
   type UpdateTournamentStatusInput,
@@ -150,6 +152,36 @@ export async function updateTournamentSlugAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "updateTournamentSlugAction", userId: authz.userId }),
+    };
+  }
+}
+
+// Owner request (2026-08-17): the bronze slot from the reference bracket.
+// Turning it on after the semis are decided creates the match
+// retroactively — see matchService.setThirdPlaceMatch.
+export async function setThirdPlaceMatchAction(
+  tournamentId: string,
+  categoryId: string,
+  input: SetThirdPlaceMatchInput,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = setThirdPlaceMatchSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid setting." };
+  }
+
+  try {
+    await matchService.setThirdPlaceMatch(categoryId, parsed.data.enabled, authz.userId);
+    revalidateCategory(tournamentId, categoryId);
+    revalidatePath("/");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "setThirdPlaceMatchAction", userId: authz.userId }),
     };
   }
 }

@@ -1,5 +1,6 @@
 import type { MatchWithTeams } from "@/features/tournaments/components/match-card";
 import { PublicMatchCard } from "@/features/tournaments/components/public-match-card";
+import { BRONZE_BRACKET_POSITION } from "@/services/tournaments/bracket-generator";
 
 // Owner request (2026-08-17), against a reference bracket: named round
 // columns (Quarterfinals / Semifinals / Final), short match codes
@@ -58,9 +59,11 @@ function PlaceholderCard({ code, feeders }: { code: string; feeders: [string, st
 export function PublicEliminationBracket({
   matches,
   teamPoolNumbers,
+  hasThirdPlaceMatch = false,
 }: {
   matches: MatchWithTeams[];
   teamPoolNumbers: Record<string, string | null>;
+  hasThirdPlaceMatch?: boolean;
 }) {
   // Manually-added matches carry no bracketPosition (see createManualMatch)
   // — they aren't part of the generated draw and are listed separately
@@ -88,11 +91,16 @@ export function PublicEliminationBracket({
 
   const columns = [];
   for (let round = firstRound; round < totalRounds; round += 1) {
-    const slotCount = Math.max(1, firstRoundCount >> (round - firstRound));
+    const isFinalRound = round === totalRounds - 1;
+    // The last column carries the final AND, when enabled, the bronze
+    // playoff beside it — hence "Final · Bronze" in the reference.
+    const slotCount =
+      isFinalRound && hasThirdPlaceMatch ? 2 : Math.max(1, firstRoundCount >> (round - firstRound));
     const cells = [];
     for (let position = 0; position < slotCount; position += 1) {
+      const isBronze = isFinalRound && position === BRONZE_BRACKET_POSITION;
       const match = bySlot.get(`${round}:${position}`);
-      const code = matchCode(round, position, totalRounds - 1);
+      const code = isBronze ? "BRONZE" : matchCode(round, position, totalRounds - 1);
       if (match) {
         cells.push(
           <div key={code} className="flex flex-col gap-1.5">
@@ -106,12 +114,16 @@ export function PublicEliminationBracket({
         // Not played yet — name the two matches that will feed it.
         // Inverse of deleteMatch's own (r + 1, floor(p / 2)) rule.
         const feederRound = round - 1;
+        const outcome = isBronze ? "Loser" : "Winner";
+        // The bronze match is fed by BOTH semifinals (their losers), not
+        // by the 2p / 2p+1 pair a normal slot inherits.
+        const feederPositions: [number, number] = isBronze ? [0, 1] : [position * 2, position * 2 + 1];
         const feeders: [string, string] =
           feederRound < firstRound
             ? ["To be determined", "To be determined"]
             : [
-                `Winner ${matchCode(feederRound, position * 2, totalRounds - 1)}`,
-                `Winner ${matchCode(feederRound, position * 2 + 1, totalRounds - 1)}`,
+                `${outcome} ${matchCode(feederRound, feederPositions[0], totalRounds - 1)}`,
+                `${outcome} ${matchCode(feederRound, feederPositions[1], totalRounds - 1)}`,
               ];
         cells.push(<PlaceholderCard key={code} code={code} feeders={feeders} />);
       }
@@ -120,7 +132,7 @@ export function PublicEliminationBracket({
     columns.push(
       <div key={round} className="flex min-w-[240px] flex-1 flex-col gap-3">
         <h4 className="font-jetbrains text-slate text-[11px] font-bold tracking-[0.18em] uppercase">
-          {roundName(round, totalRounds - 1)}
+          {isFinalRound && hasThirdPlaceMatch ? "Final · Bronze" : roundName(round, totalRounds - 1)}
         </h4>
         {/* Centred within the column so later rounds sit beside the middle
             of the pair that feeds them, the way a drawn bracket reads. */}

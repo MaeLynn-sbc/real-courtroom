@@ -45,6 +45,15 @@ export const updateTournamentSlugSchema = z.object({
 
 export type UpdateTournamentSlugInput = z.infer<typeof updateTournamentSlugSchema>;
 
+// Owner request (2026-08-17): opt-in third-place ("bronze") playoff
+// between the two semifinal losers — see TournamentCategory
+// .hasThirdPlaceMatch's own schema comment.
+export const setThirdPlaceMatchSchema = z.object({
+  enabled: z.boolean(),
+});
+
+export type SetThirdPlaceMatchInput = z.infer<typeof setThirdPlaceMatchSchema>;
+
 export const updateTournamentPaymentSettingSchema = z.object({
   collectsPaymentOnSite: z.boolean(),
 });

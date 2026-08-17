@@ -9,6 +9,7 @@ import {
 } from "@/features/tournaments/components/generate-bracket-button";
 import { ManualMatchForm } from "@/features/tournaments/components/manual-match-form";
 import { MaxTeamsField } from "@/features/tournaments/components/max-teams-field";
+import { ThirdPlaceMatchToggle } from "@/features/tournaments/components/third-place-match-toggle";
 import { PoolAssignmentForm } from "@/features/tournaments/components/pool-assignment-form";
 import { RegistrationForm } from "@/features/tournaments/components/registration-form";
 import { RegistrationList } from "@/features/tournaments/components/registration-list";
@@ -138,6 +139,16 @@ export default async function CategoryDetailPage({ params }: CategoryDetailPageP
             confirmedCount={confirmedCount}
           />
         </div>
+        {/* Knockout only — a round robin has no semifinals to lose. */}
+        {isRoundRobin ? null : (
+          <div className="mt-3">
+            <ThirdPlaceMatchToggle
+              tournamentId={tournamentId}
+              categoryId={categoryId}
+              hasThirdPlaceMatch={category.hasThirdPlaceMatch}
+            />
+          </div>
+        )}
       </div>
 
       <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">

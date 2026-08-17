@@ -84,7 +84,7 @@ export default async function PublicTournamentPage({ params }: TournamentPagePro
           registration.poolPosition,
         );
       }
-      return { category, matches, standings, teamNames, teamPoolNumbers };
+      return { category, matches, standings, teamNames, teamPoolNumbers, fullCategory };
     }),
   );
 
@@ -116,7 +116,7 @@ export default async function PublicTournamentPage({ params }: TournamentPagePro
           </div>
         </section>
       ) : (
-        categoryData.map(({ category, matches, standings, teamNames, teamPoolNumbers }) => (
+        categoryData.map(({ category, matches, standings, teamNames, teamPoolNumbers, fullCategory }) => (
           <section key={category.id} className="border-line border-t px-6 py-[clamp(32px,5vw,56px)]">
             <div className="mx-auto max-w-5xl">
               <h2 className="font-display text-bone text-2xl font-extrabold tracking-[-0.01em] uppercase">
@@ -135,6 +135,7 @@ export default async function PublicTournamentPage({ params }: TournamentPagePro
                     matches={matches}
                     teamPoolNumbers={teamPoolNumbers}
                     format={category.format}
+                    hasThirdPlaceMatch={fullCategory?.hasThirdPlaceMatch ?? false}
                   />
                 </div>
                 <div>

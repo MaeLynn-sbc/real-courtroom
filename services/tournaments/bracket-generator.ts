@@ -1,3 +1,9 @@
+// The final sits at bracketPosition 0 of the last round; the optional
+// third-place ("bronze") playoff sits beside it at 1. Lives here, in the
+// pure/prisma-free module, so the public bracket view can import it
+// without pulling the whole match service (and Prisma) into its graph.
+export const BRONZE_BRACKET_POSITION = 1;
+
 // Pure and dependency-free (no Prisma import) so it's unit-testable without
 // a database — same pattern as services/court/court-availability.ts and
 // services/booking/booking-availability.ts. tournament.service.ts and

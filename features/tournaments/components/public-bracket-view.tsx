@@ -70,10 +70,12 @@ export function PublicBracketView({
   matches,
   teamPoolNumbers,
   format,
+  hasThirdPlaceMatch,
 }: {
   matches: MatchWithTeams[];
   teamPoolNumbers: Record<string, string | null>;
   format?: string;
+  hasThirdPlaceMatch?: boolean;
 }) {
   if (matches.length === 0) {
     return null;
@@ -83,7 +85,13 @@ export function PublicBracketView({
   // match codes, "Winner QF1" placeholders). Round robin — pooled or not —
   // keeps the flat round grouping below, which is the right shape for it.
   if (format === "SINGLE_ELIMINATION") {
-    return <PublicEliminationBracket matches={matches} teamPoolNumbers={teamPoolNumbers} />;
+    return (
+      <PublicEliminationBracket
+        matches={matches}
+        teamPoolNumbers={teamPoolNumbers}
+        hasThirdPlaceMatch={hasThirdPlaceMatch}
+      />
+    );
   }
 
   const pools = Array.from(groupByPool(matches).entries()).sort(([a], [b]) =>

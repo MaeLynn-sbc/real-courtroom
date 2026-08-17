@@ -2320,6 +2320,19 @@ model TournamentCategory {
   skillLevel   SkillLevel?
   feeCents     Int                @default(0)
   maxTeams     Int?
+  // Owner request (2026-08-17), against a reference bracket showing a
+  // "BRONZE" slot beside the final: a third-place playoff between the two
+  // SEMIFINAL LOSERS. Opt-in per category rather than automatic — plenty
+  // of categories here finish at the final, and auto-creating a match
+  // nobody intends to play would clutter the bracket and the TV display.
+  // Defaults false so no existing category's behaviour changes.
+  //
+  // The match itself needs no new columns: it lives at the final's own
+  // round with bracketPosition 1 (the final is 0), which the existing
+  // @@unique([tournamentCategoryId, round, bracketPosition]) already
+  // accommodates. It is deliberately NOT part of winner advancement —
+  // nothing ever advances out of it.
+  hasThirdPlaceMatch Boolean         @default(false)
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   deletedAt    DateTime?
