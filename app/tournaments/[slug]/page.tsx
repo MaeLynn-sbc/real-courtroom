@@ -34,7 +34,17 @@ interface TournamentPageProps {
 export async function generateMetadata({ params }: TournamentPageProps): Promise<Metadata> {
   const { slug } = await params;
   const tournament = await tournamentService.getTournamentBySlugOrId(slug);
-  return { title: tournament ? `${tournament.name} — The Courtroom` : "Tournament" };
+  // Bail HERE, not only in the component below. This page is
+  // force-dynamic, so once metadata resolves successfully Next has already
+  // committed a 200 and started streaming — a later notFound() then renders
+  // the not-found page under a 200 (a "soft 404"). Verified against
+  // production: /tournaments/<unknown> returned 200 while a genuinely
+  // unrouted path returned a real 404. Public tournament URLs get shared
+  // and crawled, so an unknown one has to answer 404 properly.
+  if (!tournament || tournament.deletedAt || tournament.status === "DRAFT") {
+    notFound();
+  }
+  return { title: `${tournament.name} — The Courtroom` };
 }
 
 // Public, no login. Bracketing-is-done gate (owner, 2026-08-04): a
