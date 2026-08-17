@@ -328,6 +328,52 @@ async function main(): Promise<void> {
     );
     console.log("PASS: assigning a real court to a staged match clears stagedSlot and moves it out of `staged`.");
 
+    // Regression (reported live 2026-08-17): "when u choose and u select
+    // to no court it's still on then, next up and all." Picking "No
+    // court" on a STAGED match must take it off the board entirely —
+    // scheduleMatch used to test input.courtId for truthiness, so an
+    // explicit null cleared the court but silently left stagedSlot set,
+    // stranding the match in Next up / After that / Then with no way out.
+    const stagedThenCleared = await matchService.stageMatch(thenMatch.id, "AFTER_THAT", owner.id);
+    assert(
+      stagedThenCleared.stagedSlot === "AFTER_THAT",
+      "fixture check: expected the match to be staged before clearing it",
+    );
+    const clearedToNoCourt = await matchService.scheduleMatch(
+      thenMatch.id,
+      { courtId: null },
+      owner.id,
+    );
+    assert(
+      clearedToNoCourt.courtId === null,
+      "expected 'No court' to clear the court assignment",
+    );
+    assert(
+      clearedToNoCourt.stagedSlot === null,
+      "expected 'No court' to ALSO clear the staging slot — a match taken off the board must not stay in Next up/After that/Then",
+    );
+    const afterNoCourt = await tournamentDisplayService.getDisplayData();
+    assert(
+      !afterNoCourt.staged.some((m) => m.id === thenMatch.id),
+      "expected a match set to 'No court' to disappear from the staged list on the TV display",
+    );
+    console.log("PASS: 'No court' clears the staging slot too — the match leaves Next up/After that/Then.");
+
+    // The other direction must NOT change: an update that never mentions
+    // the court (scheduledAt only) leaves staging exactly as it was.
+    const restaged = await matchService.stageMatch(thenMatch.id, "THEN", owner.id);
+    assert(restaged.stagedSlot === "THEN", "fixture check: expected the match to be staged again");
+    const timeOnlyUpdate = await matchService.scheduleMatch(
+      thenMatch.id,
+      { scheduledAt: new Date() },
+      owner.id,
+    );
+    assert(
+      timeOnlyUpdate.stagedSlot === "THEN",
+      "expected an update that doesn't mention the court to leave the staging slot untouched",
+    );
+    console.log("PASS: an update with no court field leaves staging alone — only an explicit court/No-court changes it.");
+
     // ============== 5. A bye (team2Id null) is excluded even with a court ==============
     const byeMatch = await prisma.match.create({
       data: { tournamentCategoryId: category.id, team1Id: reg1.teamId, team2Id: null, courtId: courtA.id, status: "SCHEDULED" },

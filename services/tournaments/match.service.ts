@@ -83,7 +83,22 @@ export class MatchService {
         scheduledAt: input.scheduledAt,
         // A real court assignment always supersedes a staging slot —
         // see stageMatch's own comment for the reverse direction.
-        ...(input.courtId ? { stagedSlot: null } : {}),
+        //
+        // Reported live (2026-08-17): "when u choose and u select to no
+        // court it's still on then, next up and all." This used to test
+        // `input.courtId` for truthiness, so picking "No court"
+        // (courtId: null) fell into the empty spread and left stagedSlot
+        // untouched — the match cleared off its court but stayed sitting
+        // in Next up / After that / Then on the TV, with no way to get
+        // it out. Same family as the earlier "No court" bug (a null that
+        // needed handling and got treated as absent), one layer up.
+        //
+        // The distinction that matters is null vs undefined, NOT truthy
+        // vs falsy: an explicit null means "take this match off the
+        // board", which has to clear staging too, while undefined means
+        // the caller never mentioned the court (e.g. updating only
+        // scheduledAt) and staging must be left alone.
+        ...(input.courtId !== undefined ? { stagedSlot: null } : {}),
         // Owner request (2026-08-09): the tournament TV (/tourtv) auto-
         // announces the moment a match is assigned a real court — see
         // Match.announcementRequestedAt's own schema comment. Bumped
