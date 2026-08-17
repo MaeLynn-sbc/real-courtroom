@@ -100,6 +100,38 @@ async function createThirdPlaceMatch(
   });
 }
 
+// Has this match's result already been built on? True once the next-round
+// match it feeds exists — at which point its winner is already sitting in
+// that match (and, for a semifinal, its loser in the bronze match beside
+// the final, which is created in the same transaction).
+//
+// Same (round + 1, floor(position / 2)) feed rule deleteMatch guards on,
+// and the same rule the public bracket inverts to label placeholders.
+// Only meaningful for a single-elimination bracket: a round robin advances
+// nothing, and a manual match has no bracketPosition at all.
+async function hasFedNextRound(
+  client: Prisma.TransactionClient,
+  match: Pick<Match, "tournamentCategoryId" | "round" | "bracketPosition">,
+): Promise<boolean> {
+  if (match.tournamentCategoryId === null || match.round === null || match.bracketPosition === null) {
+    return false;
+  }
+  const category = await client.tournamentCategory.findUnique({
+    where: { id: match.tournamentCategoryId },
+  });
+  if (category?.format !== "SINGLE_ELIMINATION") {
+    return false;
+  }
+  const next = await client.match.findFirst({
+    where: {
+      tournamentCategoryId: match.tournamentCategoryId,
+      round: match.round + 1,
+      bracketPosition: Math.floor(match.bracketPosition / 2),
+    },
+  });
+  return next !== null;
+}
+
 const teamInclude = {
   team1: {
     include: {
@@ -208,6 +240,17 @@ export class MatchService {
   async recordScore(matchId: string, input: RecordScoreInput, actorUserId: string): Promise<Score> {
     const existingMatch = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
 
+    // Owner request (2026-08-17): "also add edit in the scorecards" — a
+    // finished match's score could not be corrected at all. Unlocking the
+    // inputs alone would have been worse than leaving it locked:
+    // winnerTeamId is frozen by completeMatch and never recomputed, so a
+    // corrected score would have sat under the OLD winner, on the public
+    // bracket, indefinitely. Correcting a decided match is therefore its
+    // own guarded path.
+    if (existingMatch.status === "COMPLETED") {
+      return this.correctScoreOnCompletedMatch(existingMatch, input, actorUserId);
+    }
+
     if (existingMatch.status === "SCHEDULED") {
       await prisma.match.update({
         where: { id: matchId },
@@ -232,6 +275,82 @@ export class MatchService {
       entityType: "Score",
       entityId: score.id,
       newValues: score,
+    });
+
+    return score;
+  }
+
+  // Correcting the score of an already-COMPLETED match, with the winner
+  // recomputed from the corrected scores.
+  //
+  // A correction that leaves the same team winning is always allowed —
+  // fixing "11-9" to "11-8" is the ordinary case and mustn't be blocked.
+  // A correction that FLIPS the winner is only allowed while nothing has
+  // been built on top of that result: once the next round exists, the
+  // winner is already sitting in it (and, for a semifinal, the loser is
+  // sitting in the bronze match), so silently flipping it here would leave
+  // the wrong team in a match that has possibly already been played. That
+  // case is refused and pointed at reset-bracket, the same reasoning
+  // deleteMatch's own guard uses.
+  //
+  // The whole thing runs in one transaction, and the refusal happens AFTER
+  // the upsert but inside it — so a rejected correction rolls the score
+  // back out rather than persisting a score whose winner was never applied.
+  private async correctScoreOnCompletedMatch(
+    match: Match,
+    input: RecordScoreInput,
+    actorUserId: string,
+  ): Promise<Score> {
+    const { score, previousWinnerTeamId, newWinnerTeamId } = await prisma.$transaction(
+      async (tx) => {
+        const upserted = await tx.score.upsert({
+          where: { matchId_setNumber: { matchId: match.id, setNumber: input.setNumber } },
+          update: { team1Score: input.team1Score, team2Score: input.team2Score },
+          create: {
+            matchId: match.id,
+            setNumber: input.setNumber,
+            team1Score: input.team1Score,
+            team2Score: input.team2Score,
+          },
+        });
+
+        const scores = await tx.score.findMany({ where: { matchId: match.id } });
+        const recomputed = determineMatchWinner(scores, match.team1Id, match.team2Id);
+        if (!recomputed) {
+          throw new Error(
+            "That correction leaves the match without a decisive result — adjust the scores so one side clearly wins.",
+          );
+        }
+
+        if (recomputed !== match.winnerTeamId) {
+          if (await hasFedNextRound(tx, match)) {
+            throw new Error(
+              "This correction would change who won, but the next round has already been created from this result. Reset the bracket if the result really needs to change.",
+            );
+          }
+          await tx.match.update({ where: { id: match.id }, data: { winnerTeamId: recomputed } });
+        }
+
+        return {
+          score: upserted,
+          previousWinnerTeamId: match.winnerTeamId,
+          newWinnerTeamId: recomputed,
+        };
+      },
+    );
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.completed_match_score_corrected",
+      entityType: "Match",
+      entityId: match.id,
+      oldValues: { winnerTeamId: previousWinnerTeamId },
+      newValues: {
+        setNumber: input.setNumber,
+        team1Score: input.team1Score,
+        team2Score: input.team2Score,
+        winnerTeamId: newWinnerTeamId,
+      },
     });
 
     return score;

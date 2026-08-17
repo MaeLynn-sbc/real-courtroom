@@ -75,6 +75,15 @@ export function MatchCard({ tournamentId, categoryId, match, teamPoolNumbers }: 
   );
 
   const isEditable = match.status === "SCHEDULED" || match.status === "IN_PROGRESS";
+  // Owner request (2026-08-17): "also add edit in the scorecards" — a
+  // finished match's score can now be corrected too. Kept separate from
+  // isEditable because a COMPLETED match must still NOT offer "Complete
+  // match" or the walkover buttons; only the set inputs and their Save
+  // reopen. The winner is recomputed server-side from the corrected
+  // scores (matchService.recordScore -> correctScoreOnCompletedMatch),
+  // which also refuses a correction that would flip the winner once the
+  // next round has been built on it.
+  const isScoreCorrectable = isEditable || match.status === "COMPLETED";
   const isBye = match.team2 === null;
 
   function handleAction(action: () => Promise<{ error: string | null }>, successMessage?: string) {
@@ -225,7 +234,7 @@ export function MatchCard({ tournamentId, categoryId, match, teamPoolNumbers }: 
                     min={0}
                     className="w-16"
                     value={row.team1}
-                    disabled={!isEditable}
+                    disabled={!isScoreCorrectable}
                     onChange={(event) => {
                       const next = [...setScores];
                       next[index] = { ...next[index], team1: event.target.value };
@@ -238,14 +247,14 @@ export function MatchCard({ tournamentId, categoryId, match, teamPoolNumbers }: 
                     min={0}
                     className="w-16"
                     value={row.team2}
-                    disabled={!isEditable}
+                    disabled={!isScoreCorrectable}
                     onChange={(event) => {
                       const next = [...setScores];
                       next[index] = { ...next[index], team2: event.target.value };
                       setSetScores(next);
                     }}
                   />
-                  {isEditable ? (
+                  {isScoreCorrectable ? (
                     <Button
                       type="button"
                       size="sm"
