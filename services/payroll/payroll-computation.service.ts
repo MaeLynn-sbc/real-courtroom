@@ -1,4 +1,5 @@
 import { computeDay, type DayComputation } from "@/lib/payroll/compute-day";
+import { resolveRateForDay } from "@/lib/payroll/resolve-rate-for-day";
 import type { PayPeriod } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { payrollMarkedDateService } from "@/services/payroll/payroll-marked-date.service";
@@ -77,16 +78,6 @@ export class PayrollComputationService {
     const scheduleByDate = new Map(scheduleAssignments.map((r) => [toMidnight(r.workDate).getTime(), r]));
     const markedByDate = new Set(markedDates.map((m) => toMidnight(m.date).getTime()));
 
-    // Same "most recent row with effectiveFrom <= day" resolution as
-    // employee-rate.service.ts's resolveRateForDate, just done in memory
-    // against the one batch of rows already fetched above instead of one
-    // query per day.
-    function rateForDate(date: Date): number | null {
-      const target = date.getTime();
-      const applicable = rates.find((r) => r.effectiveFrom.getTime() <= target);
-      return applicable?.dailyRateCents ?? null;
-    }
-
     const days: PayPeriodDay[] = [];
     for (let cursor = periodStart; cursor <= periodEnd; cursor = addDays(cursor, 1)) {
       const key = cursor.getTime();
@@ -101,7 +92,12 @@ export class PayrollComputationService {
         attendanceRecord: attendance
           ? { clockIn: attendance.clockIn, clockOut: attendance.clockOut, correctedAt: attendance.correctedAt }
           : null,
-        dailyRateCents: rateForDate(cursor),
+        // Same "most recent row with effectiveFrom <= day" resolution as
+        // employee-rate.service.ts's resolveRateForDate, run in memory
+        // against the one batch fetched above rather than a query per day.
+        // resolveRateForDay normalises both sides to midnight itself, so
+        // this no longer depends on `cursor` happening to be midnight.
+        dailyRateCents: resolveRateForDay(rates, cursor),
         periodEndDate: periodEnd,
         isMarkedDate: markedByDate.has(key),
       });
