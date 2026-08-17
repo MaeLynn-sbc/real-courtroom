@@ -195,6 +195,37 @@ describe("computeDay — night differential window boundary", () => {
   });
 });
 
+// The night-diff boundary tests above build BOTH the clock times and the
+// 22:00 window from local components, so they shift together and pass in
+// any zone — they pin the boundary, but not the zone.
+//
+// This one pins the zone. Clock times are real UTC instants, exactly as
+// Postgres hands back a timestamptz, and the expectation is stated in
+// Manila terms. 13:00Z-15:00Z is 21:00-23:00 in Manila (UTC+8), so one
+// hour falls inside the 22:00-06:00 night window. Run under TZ=UTC the
+// same instants read 13:00-15:00, nowhere near the window, and this
+// returns 0 — which is what it did before jest pinned the zone.
+//
+// lib/env.ts asserts UTC+8/non-DST at boot and the Dockerfile sets
+// TZ=Asia/Manila, but neither guards the test run; jest.config.ts now
+// does. Verified red under TZ=UTC before that pin existed.
+describe("computeDay — night differential is interpreted in Manila time", () => {
+  it("counts the Manila-evening hour of a UTC-stored shift, not the UTC hour", () => {
+    const result = computeDay(
+      baseInput({
+        scheduleAssignment: null,
+        attendanceRecord: {
+          clockIn: new Date("2031-04-07T13:00:00Z"), // 21:00 Manila
+          clockOut: new Date("2031-04-07T15:00:00Z"), // 23:00 Manila
+          correctedAt: null,
+        },
+      }),
+    );
+    // 22:00-23:00 Manila overlaps the night window; 21:00-22:00 does not.
+    expect(result.nightDiffMinutes).toBe(60);
+  });
+});
+
 describe("computeDay — overtime threshold boundary", () => {
   it("counts 0 OT minutes for exactly 480 worked minutes", () => {
     const result = computeDay(
