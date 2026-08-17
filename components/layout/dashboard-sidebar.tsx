@@ -1,35 +1,6 @@
 "use client";
 
-import {
-  Activity,
-  BarChart3,
-  Banknote,
-  CalendarDays,
-  CalendarRange,
-  Clock,
-  CreditCard,
-  Dumbbell,
-  FileText,
-  Globe,
-  GraduationCap,
-  History,
-  Landmark,
-  LayoutDashboard,
-  Lock,
-  MapPin,
-  Megaphone,
-  Receipt,
-  Settings,
-  ShieldCheck,
-  ShoppingBag,
-  Sun,
-  TrendingDown,
-  Trophy,
-  Tv,
-  UserCog,
-  Users,
-  Wallet,
-} from "lucide-react";
+import { NAV_ICONS } from "@/components/layout/nav-icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -39,42 +10,6 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 import { dashboardNavGroups, dashboardNavItems } from "@/lib/config";
 import { isFridayOrSaturday } from "@/lib/court-hours";
 import { cn } from "@/lib/utils";
-
-const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
-  "/dashboard": LayoutDashboard,
-  "/dashboard/shift": Clock,
-  // Both Open Play entries were absent from this map, so they rendered
-  // as the only two nav items in the whole sidebar with no icon at all —
-  // their labels sat unaligned against every other row's icon gutter.
-  // Icon choice only; hrefs, titles and ordering are untouched.
-  "/dashboard/admin/open-play-capacity/today": Sun,
-  "/dashboard/admin/open-play-capacity": CalendarRange,
-  "/dashboard/courts": MapPin,
-  "/dashboard/bookings": CalendarDays,
-  "/dashboard/bookings/verify-payments": Receipt,
-  "/dashboard/admin/open-play-capacity/verify-payments": Banknote,
-  "/dashboard/coaching": GraduationCap,
-  "/dashboard/tournaments": Trophy,
-  "/dashboard/players": Users,
-  "/dashboard/memberships": CreditCard,
-  "/dashboard/equipment": Dumbbell,
-  "/dashboard/lockers": Lock,
-  "/dashboard/products": ShoppingBag,
-  "/dashboard/reports": FileText,
-  "/dashboard/analytics": BarChart3,
-  "/dashboard/announcements": Megaphone,
-  "/dashboard/admin/employees": UserCog,
-  "/dashboard/admin/roles": ShieldCheck,
-  "/dashboard/admin/payment-methods": Wallet,
-  "/dashboard/admin/expenses": TrendingDown,
-  "/dashboard/admin/products": ShoppingBag,
-  "/dashboard/admin/website": Globe,
-  "/dashboard/admin/audit-logs": History,
-  "/dashboard/admin/settings": Settings,
-  "/dashboard/admin/diagnostics": Activity,
-  "/dashboard/admin/gcash-reconciliation": Landmark,
-  "/dashboard/admin/openplayspecial": Tv,
-};
 
 // Owner request (2026-08-09): "visible only to me" — the one deliberate
 // exception to this file's own "not visually permission-filtered" rule

@@ -1,34 +1,15 @@
 "use client";
 
 import {
-  Activity,
-  BarChart3,
   Banknote,
-  CalendarDays,
-  Clock,
-  CreditCard,
-  Dumbbell,
-  FileText,
-  Globe,
-  History,
-  Landmark,
-  LayoutDashboard,
-  Lock,
-  MapPin,
-  Megaphone,
   Menu,
   Receipt,
-  Settings,
-  ShieldCheck,
-  ShoppingBag,
-  TrendingDown,
-  Trophy,
   UserCheck,
-  UserCog,
-  Users,
-  Wallet,
 } from "lucide-react";
+import { NAV_ICONS } from "@/components/layout/nav-icons";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import { UserNav } from "@/components/layout/user-nav";
 import { Logo } from "@/components/shared/logo";
@@ -55,34 +36,6 @@ const onDutyTimeFormatter = new Intl.DateTimeFormat("en-PH", { hour: "numeric", 
 // differently below (indicator hidden vs. shown with a 0).
 type OnDutyShifts = Awaited<ReturnType<typeof shiftService.listOpenShiftsWithEmployee>> | null;
 
-const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
-  "/dashboard": LayoutDashboard,
-  "/dashboard/shift": Clock,
-  "/dashboard/courts": MapPin,
-  "/dashboard/bookings": CalendarDays,
-  "/dashboard/bookings/verify-payments": Receipt,
-  "/dashboard/admin/open-play-capacity/verify-payments": Banknote,
-  "/dashboard/tournaments": Trophy,
-  "/dashboard/players": Users,
-  "/dashboard/memberships": CreditCard,
-  "/dashboard/equipment": Dumbbell,
-  "/dashboard/lockers": Lock,
-  "/dashboard/products": ShoppingBag,
-  "/dashboard/reports": FileText,
-  "/dashboard/analytics": BarChart3,
-  "/dashboard/announcements": Megaphone,
-  "/dashboard/admin/employees": UserCog,
-  "/dashboard/admin/roles": ShieldCheck,
-  "/dashboard/admin/payment-methods": Wallet,
-  "/dashboard/admin/expenses": TrendingDown,
-  "/dashboard/admin/products": ShoppingBag,
-  "/dashboard/admin/website": Globe,
-  "/dashboard/admin/audit-logs": History,
-  "/dashboard/admin/settings": Settings,
-  "/dashboard/admin/diagnostics": Activity,
-  "/dashboard/admin/gcash-reconciliation": Landmark,
-};
-
 interface DashboardHeaderProps {
   pendingVerificationCount: number;
   pendingOpenPlayVerificationCount: number;
@@ -94,9 +47,28 @@ export function DashboardHeader({
   pendingOpenPlayVerificationCount,
   onDutyShifts,
 }: DashboardHeaderProps) {
+  // Reported on mobile (2026-08-17): "when u press menu and then bookings,
+  // it doesnt go to bookings right away." The Sheet was uncontrolled, so
+  // nothing ever closed it — tapping a nav link DID navigate, but the
+  // drawer stayed open on top of the new page, so it read as "nothing
+  // happened" until you closed it by hand.
+  //
+  // Closing on pathname change rather than only in each link's onClick:
+  // it fires when the navigation actually commits, covers every link
+  // automatically (including any added later), and also closes the drawer
+  // on browser back/forward. The onClick below is the companion case —
+  // tapping the page you're already on leaves pathname unchanged, so
+  // there'd be no change to react to.
+  const pathname = usePathname();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
   return (
     <header className="border-border/60 bg-background/80 sticky top-0 z-40 flex h-16 items-center gap-3 border-b px-4 backdrop-blur-md md:px-6">
-      <Sheet>
+      <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetTrigger
           render={
             <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu">
@@ -122,6 +94,7 @@ export function DashboardHeader({
                     <Link
                       key={item.href}
                       href={item.href}
+                      onClick={() => setMenuOpen(false)}
                       className="hover:bg-accent hover:text-accent-foreground flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium"
                     >
                       {Icon ? <Icon className="size-4" aria-hidden="true" /> : null}
