@@ -10,8 +10,25 @@
 // read-only; nothing here writes to the database.
 
 const MINUTES_PER_STANDARD_DAY = 480; // 8 hours
-const LATE_GRACE_MINUTES = 10;
+// Exported so the tests can express the grace period symbolically rather
+// than hardcoding its peso value — see the "shifted day" test, whose whole
+// point is that the residual it asserts IS this constant.
+export const LATE_GRACE_MINUTES = 10;
 const OT_MULTIPLIER = 1.25;
+// Owner decision (2026-08-18): late minutes are deducted at the OT rate,
+// NOT the base rate. Before this, late came off at bare perMinuteRate
+// while OT was paid at 1.25x, so shifting a day earned MORE than working
+// it as scheduled — scheduled 07:00-15:00 but worked 08:00-17:00 took home
+// ₱505 against ₱480 for the same nine hours on time. Pricing both sides at
+// the same multiplier means the hour skipped costs exactly what the hour
+// added earns.
+//
+// Deliberately its own constant rather than an alias of OT_MULTIPLIER:
+// the two are equal today by policy, not by definition, and every rate in
+// this system is meant to become owner-editable. Aliasing would silently
+// couple "what late costs" to "what overtime pays" the first time one of
+// them is tuned.
+export const LATE_DEDUCTION_MULTIPLIER = 1.25;
 const NIGHT_DIFF_MULTIPLIER = 0.1;
 const NIGHT_DIFF_START_HOUR = 22; // 10:00 PM
 const NIGHT_DIFF_END_HOUR = 6; // 6:00 AM the following day
@@ -227,7 +244,7 @@ export function computeDay(input: DayComputationInput): DayComputation {
   const basePayCents = input.dailyRateCents;
   const otPayCents = otMinutes * perMinuteRate * OT_MULTIPLIER;
   const nightDiffPayCents = nightDiffMinutes * perMinuteRate * NIGHT_DIFF_MULTIPLIER;
-  const lateDeductionCents = lateDeductedMinutes * perMinuteRate;
+  const lateDeductionCents = lateDeductedMinutes * perMinuteRate * LATE_DEDUCTION_MULTIPLIER;
   const dayGrossCents = basePayCents + otPayCents + nightDiffPayCents - lateDeductionCents;
 
   return {

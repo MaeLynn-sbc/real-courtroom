@@ -1,4 +1,9 @@
-import { computeDay, type DayComputationInput } from "@/lib/payroll/compute-day";
+import {
+  computeDay,
+  LATE_DEDUCTION_MULTIPLIER,
+  LATE_GRACE_MINUTES,
+  type DayComputationInput,
+} from "@/lib/payroll/compute-day";
 
 const WORK_DATE = new Date(2031, 3, 7); // Monday, distinct from other fixture dates this session.
 const PERIOD_END = new Date(2031, 3, 15);
@@ -41,6 +46,76 @@ describe("computeDay — a plain on-time, full 8-hour day", () => {
   });
 });
 
+// Owner decision (2026-08-18). Late used to be deducted at the base rate
+// while OT was paid at 1.25x, so a shifted day earned MORE than a punctual
+// one: scheduled 07:00-15:00 but worked 08:00-17:00 took home ₱505 against
+// ₱480 for the same nine hours on time. Both sides are now priced at the
+// same multiplier.
+//
+// These four pin the policy. Verified failing before the change:
+// the shifted-day and late-without-OT cases both came out 1250 cents high.
+describe("computeDay — late is deducted at the OT rate, not the base rate", () => {
+  const PER_MINUTE_CENTS = DAILY_RATE_CENTS / 480; // 100 cents/min
+
+  // THE policy test. Not an exact equality: the 10-minute grace is real and
+  // unconditional, so an hour-shifted day loses 60 minutes but is charged
+  // for only 50, while all 60 come back as OT. The gap is the grace itself,
+  // priced at the same multiplier — it is the deliberate cost of having a
+  // grace period at all, not slack in the calculation.
+  it("a shifted day nets exactly the grace period, by design — nothing more", () => {
+    const punctual = computeDay(baseInput());
+    const shifted = computeDay(
+      baseInput({
+        attendanceRecord: { clockIn: at(8), clockOut: at(17), correctedAt: null },
+      }),
+    );
+
+    expect(shifted.lateDeductedMinutes).toBe(50); // 60 late, less the 10-min grace
+    expect(shifted.otMinutes).toBe(60); // 540 worked - 480
+
+    const graceResidual = LATE_GRACE_MINUTES * PER_MINUTE_CENTS * LATE_DEDUCTION_MULTIPLIER;
+    expect(shifted.dayGrossCents).toBe(punctual.dayGrossCents + graceResidual);
+
+    // And the charged minutes cost precisely what the same number of
+    // earned minutes pay — the actual point of the change.
+    expect(shifted.lateDeductionCents).toBe(50 * PER_MINUTE_CENTS * LATE_DEDUCTION_MULTIPLIER);
+  });
+
+  it("leaves genuine OT on a punctual day untouched — full 1.25x, no deduction", () => {
+    const result = computeDay(
+      baseInput({ attendanceRecord: { clockIn: at(7), clockOut: at(17), correctedAt: null } }),
+    );
+    expect(result.lateDeductedMinutes).toBe(0);
+    expect(result.lateDeductionCents).toBe(0);
+    expect(result.otMinutes).toBe(120);
+    expect(result.otPayCents).toBe(120 * PER_MINUTE_CENTS * 1.25);
+    expect(result.dayGrossCents).toBe(DAILY_RATE_CENTS + 120 * PER_MINUTE_CENTS * 1.25);
+  });
+
+  it("still deducts nothing at all for lateness inside the 10-minute grace", () => {
+    const result = computeDay(
+      baseInput({ attendanceRecord: { clockIn: at(7, 10), clockOut: at(15), correctedAt: null } }),
+    );
+    expect(result.lateDeductedMinutes).toBe(0);
+    expect(result.lateDeductionCents).toBe(0);
+    expect(result.dayGrossCents).toBe(DAILY_RATE_CENTS);
+  });
+
+  // No OT to mask it, so this is where the rate change is plainly visible:
+  // 50 minutes cost 6250 rather than the old 5000.
+  it("deducts late at the OT rate even on a day with no overtime to offset it", () => {
+    const result = computeDay(
+      baseInput({ attendanceRecord: { clockIn: at(8), clockOut: at(15), correctedAt: null } }),
+    );
+    expect(result.otMinutes).toBe(0);
+    expect(result.lateDeductedMinutes).toBe(50);
+    expect(result.lateDeductionCents).toBe(50 * PER_MINUTE_CENTS * LATE_DEDUCTION_MULTIPLIER);
+    expect(result.dayGrossCents).toBe(
+      DAILY_RATE_CENTS - 50 * PER_MINUTE_CENTS * LATE_DEDUCTION_MULTIPLIER,
+    );
+  });
+});
+
 describe("computeDay — pay breakdown components sum to dayGrossCents", () => {
   // ₱480/day → ₱1/min (DAILY_RATE_CENTS's own comment) — chosen so every
   // component below is a clean, hand-checkable number. Scheduled
@@ -61,7 +136,7 @@ describe("computeDay — pay breakdown components sum to dayGrossCents", () => {
     expect(result.basePayCents).toBe(DAILY_RATE_CENTS);
     expect(result.otPayCents).toBe(30 * 100 * 1.25);
     expect(result.nightDiffPayCents).toBe(41 * 100 * 0.1);
-    expect(result.lateDeductionCents).toBe(1 * 100);
+    expect(result.lateDeductionCents).toBe(1 * 100 * LATE_DEDUCTION_MULTIPLIER); // 125 — late now priced at the OT rate
     expect(result.basePayCents + result.otPayCents + result.nightDiffPayCents - result.lateDeductionCents).toBe(
       result.dayGrossCents,
     );
