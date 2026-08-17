@@ -1,3 +1,4 @@
+import { PublicEliminationBracket } from "@/features/tournaments/components/public-elimination-bracket";
 import { PublicMatchCard } from "@/features/tournaments/components/public-match-card";
 import type { MatchWithTeams } from "@/features/tournaments/components/match-card";
 
@@ -68,12 +69,21 @@ function RoundGroups({
 export function PublicBracketView({
   matches,
   teamPoolNumbers,
+  format,
 }: {
   matches: MatchWithTeams[];
   teamPoolNumbers: Record<string, string | null>;
+  format?: string;
 }) {
   if (matches.length === 0) {
     return null;
+  }
+
+  // A knockout draw gets the real bracket treatment (named round columns,
+  // match codes, "Winner QF1" placeholders). Round robin — pooled or not —
+  // keeps the flat round grouping below, which is the right shape for it.
+  if (format === "SINGLE_ELIMINATION") {
+    return <PublicEliminationBracket matches={matches} teamPoolNumbers={teamPoolNumbers} />;
   }
 
   const pools = Array.from(groupByPool(matches).entries()).sort(([a], [b]) =>

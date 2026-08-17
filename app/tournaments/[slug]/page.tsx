@@ -131,7 +131,11 @@ export default async function PublicTournamentPage({ params }: TournamentPagePro
                   <h3 className="font-jetbrains text-slate mb-3 text-[11px] font-bold tracking-[0.18em] uppercase">
                     Bracket
                   </h3>
-                  <PublicBracketView matches={matches} teamPoolNumbers={teamPoolNumbers} />
+                  <PublicBracketView
+                    matches={matches}
+                    teamPoolNumbers={teamPoolNumbers}
+                    format={category.format}
+                  />
                 </div>
                 <div>
                   <h3 className="font-jetbrains text-slate mb-3 text-[11px] font-bold tracking-[0.18em] uppercase">
