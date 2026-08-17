@@ -21,6 +21,19 @@
  *      since the caller loaded it) is rejected, not silently applied on
  *      top of the new value.
  *   7. A VOID sale can't be corrected.
+ *   8. Regression (audit 2026-08-16): a sale rung up at 1:30 AM belongs to
+ *      the PREVIOUS business day (rollover hour 3) — the confirmed-day
+ *      block must key off that day, not createdAt's calendar date.
+ *   9. Regression (audit 2026-08-16): an Open Play tab settled the NEXT
+ *      day belongs to the night it was opened (Sale.businessDate is taken
+ *      from PlayerTab.date, not from createdAt) — same block, same
+ *      reasoning, and a case the rollover hour alone can't explain.
+ *
+ * Cases 8-9 both FAILED before the fix. assertReconciliationDayNotConfirmed
+ * derived the day from sale.createdAt, while every reconciliation sum keys
+ * off sale.businessDate — so a correction could silently rewrite the total
+ * of a day staff had already signed off on, which is the exact invariant
+ * this block exists to protect.
  *
  * Uses fixed, far-past isolated dates (safely outside any real business
  * date this app has ever operated on) — same convention as
@@ -43,13 +56,41 @@ const DAY_CONFIRMED_CASH = new Date(2021, 5, 1);
 const DAY_CONFIRMED_GCASH = new Date(2021, 5, 2);
 const DAY_OPEN = new Date(2021, 5, 3);
 
+// Cases 8-9: the business day the sale really belongs to (what
+// CashDailyBalance.date holds — always midnight-normalized) deliberately
+// differs from its createdAt calendar date.
+const NIGHT_ROLLOVER = new Date(2021, 5, 5);
+const SALE_AFTER_MIDNIGHT = new Date(2021, 5, 6, 1, 30, 0, 0);
+const NIGHT_TAB = new Date(2021, 5, 7);
+const TAB_SETTLED_NEXT_DAY = new Date(2021, 5, 8, 14, 0, 0, 0);
+
+const ALL_FIXTURE_DATES = [
+  DAY_CONFIRMED_CASH,
+  DAY_CONFIRMED_GCASH,
+  DAY_OPEN,
+  NIGHT_ROLLOVER,
+  NIGHT_TAB,
+];
+
+// Cases 1-7 are about a day's CONFIRMED/OPEN status, NOT about the
+// rollover boundary — so their sales are stamped at midday, where
+// createdAt's calendar date and the derived businessDate agree. Left at
+// bare midnight these fixtures silently landed on the PREVIOUS business
+// day (rollover hour 3), which is the very confusion cases 8-9 pin down.
+function atMidday(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
+}
+
 async function cleanUpDates(): Promise<void> {
-  await prisma.cashDailyBalance.deleteMany({
-    where: { date: { in: [DAY_CONFIRMED_CASH, DAY_CONFIRMED_GCASH, DAY_OPEN] } },
-  });
-  await prisma.gcashDailyBalance.deleteMany({
-    where: { date: { in: [DAY_CONFIRMED_CASH, DAY_CONFIRMED_GCASH, DAY_OPEN] } },
-  });
+  await prisma.cashDailyBalance.deleteMany({ where: { date: { in: ALL_FIXTURE_DATES } } });
+  await prisma.gcashDailyBalance.deleteMany({ where: { date: { in: ALL_FIXTURE_DATES } } });
+}
+
+// Deleted before the registration it points at, and after the shift
+// cleanup that removes the Sale referencing the tab.
+async function cleanUpOpenPlayFixtures(): Promise<void> {
+  await prisma.playerTab.deleteMany({ where: { date: NIGHT_TAB } });
+  await prisma.openPlayNightRegistration.deleteMany({ where: { date: NIGHT_TAB } });
 }
 
 async function cleanUpShift(shiftId: string): Promise<void> {
@@ -76,7 +117,7 @@ async function main(): Promise<void> {
       paymentMethodId: cashMethod.id,
       employeeId: employee.id,
       shiftId: shift.id,
-      createdAt: DAY_OPEN,
+      createdAt: atMidday(DAY_OPEN),
       description: "Mis-tapped as Cash, should have been GCash",
     });
 
@@ -126,7 +167,7 @@ async function main(): Promise<void> {
       paymentMethodId: cashMethod.id,
       employeeId: employee.id,
       shiftId: shift.id,
-      createdAt: DAY_OPEN,
+      createdAt: atMidday(DAY_OPEN),
     });
     let reasonRejected = false;
     try {
@@ -150,7 +191,7 @@ async function main(): Promise<void> {
       paymentMethodId: cashMethod.id,
       employeeId: employee.id,
       shiftId: shift.id,
-      createdAt: DAY_CONFIRMED_CASH,
+      createdAt: atMidday(DAY_CONFIRMED_CASH),
     });
     let blockedOnFrom = false;
     try {
@@ -179,7 +220,7 @@ async function main(): Promise<void> {
       paymentMethodId: cashMethod.id,
       employeeId: employee.id,
       shiftId: shift.id,
-      createdAt: DAY_CONFIRMED_GCASH,
+      createdAt: atMidday(DAY_CONFIRMED_GCASH),
     });
     let blockedOnTo = false;
     try {
@@ -243,7 +284,7 @@ async function main(): Promise<void> {
       paymentMethodId: cashMethod.id,
       employeeId: employee.id,
       shiftId: shift.id,
-      createdAt: DAY_OPEN,
+      createdAt: atMidday(DAY_OPEN),
     });
     await saleService.voidSale(sale5.id);
     let voidRejected = false;
@@ -263,11 +304,111 @@ async function main(): Promise<void> {
     assert(voidRejected, "expected a VOID sale to be rejected");
     console.log("PASS: a VOID sale can't have its payment method corrected.");
 
+    // ============== 8. Rollover boundary — a 1:30 AM sale belongs to the PREVIOUS business day ==============
+    // The night of Jun 5 is confirmed and signed off. A sale rung up at
+    // 1:30 AM on Jun 6 is still part of THAT night's takings (rollover
+    // hour 3), and getCashSalesForDate counts it under Jun 5. Jun 6
+    // deliberately has no balance row at all, so a guard that keys off
+    // createdAt's calendar date finds nothing and waves the correction through.
+    await prisma.cashDailyBalance.create({
+      data: { date: NIGHT_ROLLOVER, startingBalanceCents: 0, status: "CONFIRMED" },
+    });
+    const saleAfterMidnight = await saleService.createSale({
+      category: "OTHER",
+      amountCents: 30000,
+      paymentMethodId: cashMethod.id,
+      employeeId: employee.id,
+      shiftId: shift.id,
+      createdAt: SALE_AFTER_MIDNIGHT,
+    });
+    assert(
+      saleAfterMidnight.businessDate?.getTime() === NIGHT_ROLLOVER.getTime(),
+      `fixture check: expected businessDate ${NIGHT_ROLLOVER.toDateString()}, got ${saleAfterMidnight.businessDate?.toDateString()}`,
+    );
+    let afterMidnightBlocked = false;
+    try {
+      await saleService.correctPaymentMethod(
+        saleAfterMidnight.id,
+        cashMethod.id,
+        gcashMethod.id,
+        "Should be blocked — this sale is counted in Jun 5's confirmed cash.",
+        employee.id,
+        owner.id,
+      );
+    } catch (error) {
+      afterMidnightBlocked = true;
+      assert(String(error).includes("already confirmed"), `expected an already-confirmed error, got ${error}`);
+    }
+    assert(
+      afterMidnightBlocked,
+      "expected a 1:30 AM sale to be blocked by the PREVIOUS business day's confirmed cash reconciliation",
+    );
+    console.log("PASS: a post-midnight sale is blocked by its own business day, not its createdAt calendar date.");
+
+    // ============== 9. An Open Play tab settled the next day belongs to the night it was opened ==============
+    // Not a rollover-hour case at all: createSale takes businessDate
+    // straight from PlayerTab.date, so a tab opened on the night of
+    // Jun 7 and settled at 2 PM on Jun 8 is counted under Jun 7 — a full
+    // 14 hours past any rollover boundary.
+    await prisma.cashDailyBalance.create({
+      data: { date: NIGHT_TAB, startingBalanceCents: 0, status: "CONFIRMED" },
+    });
+    const registration = await prisma.openPlayNightRegistration.create({
+      data: {
+        date: NIGHT_TAB,
+        playerName: "Regression Fixture Player",
+        phone: "09170000001",
+        skillLevel: "INTERMEDIATE",
+        source: "WALK_IN",
+      },
+    });
+    const tab = await prisma.playerTab.create({
+      data: {
+        date: NIGHT_TAB,
+        registrationId: registration.id,
+        playerName: registration.playerName,
+        gameRateCents: 3500,
+      },
+    });
+    const tabSale = await saleService.createSale({
+      category: "OPEN_PLAY",
+      amountCents: 10500,
+      paymentMethodId: cashMethod.id,
+      employeeId: employee.id,
+      shiftId: shift.id,
+      playerTabId: tab.id,
+      createdAt: TAB_SETTLED_NEXT_DAY,
+    });
+    assert(
+      tabSale.businessDate?.getTime() === NIGHT_TAB.getTime(),
+      `fixture check: expected businessDate ${NIGHT_TAB.toDateString()}, got ${tabSale.businessDate?.toDateString()}`,
+    );
+    let tabSaleBlocked = false;
+    try {
+      await saleService.correctPaymentMethod(
+        tabSale.id,
+        cashMethod.id,
+        gcashMethod.id,
+        "Should be blocked — this tab is counted in Jun 7's confirmed cash.",
+        employee.id,
+        owner.id,
+      );
+    } catch (error) {
+      tabSaleBlocked = true;
+      assert(String(error).includes("already confirmed"), `expected an already-confirmed error, got ${error}`);
+    }
+    assert(
+      tabSaleBlocked,
+      "expected an Open Play tab settled the next day to be blocked by its own night's confirmed cash reconciliation",
+    );
+    console.log("PASS: an Open Play tab settled the next day is blocked by the night it belongs to.");
+
     console.log(
       "\nPASS: payment-method correction is real, audit-logged, and correctly blocked by a confirmed reconciliation day.",
     );
   } finally {
     await cleanUpShift(shift.id);
+    await cleanUpOpenPlayFixtures();
     await cleanUpDates();
   }
 

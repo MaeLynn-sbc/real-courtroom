@@ -289,8 +289,9 @@ export class SaleService {
       prisma.paymentMethod.findUniqueOrThrow({ where: { id: toPaymentMethodId } }),
     ]);
 
-    await this.assertReconciliationDayNotConfirmed(sale.createdAt, fromMethod.key);
-    await this.assertReconciliationDayNotConfirmed(sale.createdAt, toMethod.key);
+    const reconciliationDate = await this.resolveReconciliationDate(sale);
+    await this.assertReconciliationDayNotConfirmed(reconciliationDate, fromMethod.key);
+    await this.assertReconciliationDayNotConfirmed(reconciliationDate, toMethod.key);
 
     const claim = await prisma.sale.updateMany({
       where: { id: saleId, status: "COMPLETED", paymentMethodId: fromPaymentMethodId },
@@ -354,7 +355,10 @@ export class SaleService {
     const paymentMethod = await prisma.paymentMethod.findUniqueOrThrow({
       where: { id: sale.paymentMethodId },
     });
-    await this.assertReconciliationDayNotConfirmed(sale.createdAt, paymentMethod.key);
+    await this.assertReconciliationDayNotConfirmed(
+      await this.resolveReconciliationDate(sale),
+      paymentMethod.key,
+    );
 
     const claim = await prisma.sale.updateMany({
       where: { id: saleId, status: "COMPLETED" },
@@ -383,21 +387,51 @@ export class SaleService {
     return updated;
   }
 
-  // Cash/GCash daily reconciliation is keyed by calendar date
+  // Which business day's reconciliation actually counts this sale — the
+  // ONLY correct basis for the confirmed-day block below.
+  //
+  // Audit fix (2026-08-16): this used to be derived from sale.createdAt's
+  // raw calendar date, while every reconciliation sum
+  // (getCashSalesForDate/getGcashSalesForDate) keys off Sale.businessDate.
+  // Those two disagree in two routine cases here:
+  //   1. A sale rung up between midnight and the rollover hour (default 3
+  //      AM) belongs to the PREVIOUS business day — a nightly occurrence
+  //      at a venue that runs late.
+  //   2. An Open Play tab / night registration settled on a later day
+  //      belongs to the night it was opened (see createSale's own comment)
+  //      — which the rollover hour alone can't explain at all.
+  // In both, the guard checked a day the sale isn't counted in, so a
+  // correction or void could silently rewrite the total of a day staff
+  // had already signed off on — precisely what this block exists to
+  // prevent. Falls back to computeBusinessDate only for a row predating
+  // the businessDate column (migration 69); every live path sets it.
+  private async resolveReconciliationDate(sale: Sale): Promise<Date> {
+    if (sale.businessDate) {
+      return sale.businessDate;
+    }
+    const courtHours = await settingsService.getCourtHours();
+    return computeBusinessDate(sale.createdAt, courtHours.businessDateRolloverHour);
+  }
+
+  // Cash/GCash daily reconciliation is keyed by business date
   // (CashDailyBalance/GcashDailyBalance.date, midnight-normalized) — a
   // payment method with no daily-balance concept (Bank Transfer, Card,
   // Pay at Venue) has nothing to check here and is always allowed through.
   private async assertReconciliationDayNotConfirmed(
-    saleCreatedAt: Date,
+    saleBusinessDate: Date,
     paymentMethodKey: string,
   ): Promise<void> {
     if (paymentMethodKey !== "CASH" && paymentMethodKey !== "GCASH") {
       return;
     }
+    // Already midnight-normalized on every path that reaches here
+    // (createSale writes it that way, computeBusinessDate returns it that
+    // way) — re-normalized defensively so a hand-written or backfilled
+    // row carrying a time component still matches the balance row's key.
     const date = new Date(
-      saleCreatedAt.getFullYear(),
-      saleCreatedAt.getMonth(),
-      saleCreatedAt.getDate(),
+      saleBusinessDate.getFullYear(),
+      saleBusinessDate.getMonth(),
+      saleBusinessDate.getDate(),
     );
     if (paymentMethodKey === "CASH") {
       const balance = await prisma.cashDailyBalance.findUnique({ where: { date } });
