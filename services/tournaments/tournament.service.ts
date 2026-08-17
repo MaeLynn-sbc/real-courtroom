@@ -20,6 +20,7 @@ import {
   generateRoundRobinPairings,
   generateSingleEliminationRound1,
 } from "@/services/tournaments/bracket-generator";
+import { looksLikeCuid, slugifyTournamentName } from "@/services/tournaments/tournament-slug";
 import { canTransitionTournamentStatus } from "@/services/tournaments/tournament-status";
 import { getUploadService } from "@/services/upload/upload-service.factory";
 import { SYSTEM_ROLES } from "@/types/roles";
@@ -89,6 +90,121 @@ export class TournamentService {
     });
   }
 
+  // Powers the public /tournaments/[slug] route. Accepts EITHER form on
+  // purpose: the readable slug is what's linked and shared now, but cuid
+  // URLs were the only ones that existed before migration 74 — some were
+  // handed out during the Aug 15 live event — so they keep resolving
+  // instead of 404ing. Slug is tried first: it's the canonical form, and
+  // looksLikeCuid only disambiguates the (theoretical) case of a slug
+  // shaped exactly like a cuid.
+  async getTournamentBySlugOrId(slugOrId: string) {
+    if (!looksLikeCuid(slugOrId)) {
+      const bySlug = await prisma.tournament.findUnique({
+        where: { slug: slugOrId },
+        include: {
+          categories: {
+            orderBy: { createdAt: "asc" },
+            include: { _count: { select: { registrations: true, matches: true } } },
+          },
+        },
+      });
+      if (bySlug) {
+        return bySlug;
+      }
+    }
+    return this.getTournamentById(slugOrId);
+  }
+
+  // Two different behaviours on purpose, because the two cases have
+  // opposite expectations:
+  //
+  //   Staff TYPED a URL  -> use exactly what they asked for (normalized),
+  //     and REFUSE if it's taken. Silently handing back
+  //     "sayansandfriends-2" when they deliberately chose
+  //     "sayansandfriends" would put a URL on a poster that nobody
+  //     intended.
+  //   Left BLANK -> derive from the name and auto-number duplicates
+  //     -2, -3, ... exactly as migration 74's own SQL does, so a
+  //     backfilled and a newly-created "Summer Open" number alike.
+  //
+  // excludeTournamentId lets a tournament keep its own slug when the
+  // owner re-saves without changing it.
+  private async resolveSlug(
+    name: string,
+    requestedSlug: string | undefined,
+    excludeTournamentId?: string,
+  ): Promise<string> {
+    const isChosen = Boolean(requestedSlug?.trim());
+    const base = slugifyTournamentName(isChosen ? requestedSlug! : name);
+
+    const conflict = await prisma.tournament.findFirst({
+      where: { slug: base, ...(excludeTournamentId ? { id: { not: excludeTournamentId } } : {}) },
+      select: { id: true },
+    });
+
+    if (isChosen) {
+      if (conflict) {
+        throw new Error(`The URL "${base}" is already used by another tournament — pick another.`);
+      }
+      return base;
+    }
+
+    if (!conflict) {
+      return base;
+    }
+    const taken = new Set(
+      (
+        await prisma.tournament.findMany({
+          where: {
+            slug: { startsWith: `${base}-` },
+            ...(excludeTournamentId ? { id: { not: excludeTournamentId } } : {}),
+          },
+          select: { slug: true },
+        })
+      ).map((tournament) => tournament.slug),
+    );
+    for (let suffix = 2; suffix <= 1000; suffix += 1) {
+      const candidate = `${base}-${suffix}`;
+      if (!taken.has(candidate)) {
+        return candidate;
+      }
+    }
+    // 1000 tournaments sharing one name is not a real scenario — failing
+    // loudly beats looping forever or inventing a slug nobody can predict.
+    throw new Error(`Could not generate a unique URL for "${name}" — too many with the same name.`);
+  }
+
+  // Changing a live tournament's public URL breaks any previously shared
+  // link to the OLD slug — the cuid fallback in getTournamentBySlugOrId
+  // doesn't help there, since the old slug simply stops resolving. That's
+  // an accepted, owner-initiated tradeoff (they asked to shorten an
+  // already-created tournament's URL); the confirmation copy in
+  // TournamentSlugForm says so plainly rather than hiding it.
+  async updateTournamentSlug(
+    tournamentId: string,
+    requestedSlug: string,
+    actorUserId: string,
+  ): Promise<Tournament> {
+    const existing = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } });
+    const slug = await this.resolveSlug(existing.name, requestedSlug, tournamentId);
+
+    const tournament = await prisma.tournament.update({
+      where: { id: tournamentId },
+      data: { slug },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "tournament.slug_updated",
+      entityType: "Tournament",
+      entityId: tournament.id,
+      oldValues: { slug: existing.slug },
+      newValues: { slug: tournament.slug },
+    });
+
+    return tournament;
+  }
+
   // Public home-page teaser + /tournaments/[id] page (owner, 2026-08-04):
   // "bracketing is done" reuses the exact same signal the staff dashboard
   // already computes (bracketGenerated = matches.length > 0) rather than
@@ -143,6 +259,7 @@ export class TournamentService {
     const tournament = await prisma.tournament.create({
       data: {
         name: input.name,
+        slug: await this.resolveSlug(input.name, input.slug),
         description: input.description,
         createdById: actorUserId,
         startDate: input.startDate,

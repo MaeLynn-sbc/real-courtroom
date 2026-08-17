@@ -17,6 +17,7 @@ import {
   updateCategoryMaxTeamsSchema,
   updateRegistrationPlayerNamesSchema,
   updateTournamentPaymentSettingSchema,
+  updateTournamentSlugSchema,
   updateTournamentStatusSchema,
   type CorrectTeamPoolAssignmentInput,
   type CreateCategoryInput,
@@ -32,6 +33,7 @@ import {
   type UpdateCategoryMaxTeamsInput,
   type UpdateRegistrationPlayerNamesInput,
   type UpdateTournamentPaymentSettingInput,
+  type UpdateTournamentSlugInput,
   type UpdateTournamentStatusInput,
 } from "@/features/tournaments/schemas/tournament.schema";
 import { requireEmployee, requireEmployeeWithOpenShift, requirePermission } from "@/lib/action-auth";
@@ -115,6 +117,39 @@ export async function updateTournamentAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "updateTournamentAction", userId: authz.userId }),
+    };
+  }
+}
+
+// Owner request (2026-08-17): shorten an already-created tournament's
+// public URL ("sayansandfriends", not the auto-derived
+// "sayans-and-friends-pickleball-tournament"). Its own narrow action
+// rather than updateTournamentAction — that one has no UI, and this
+// needs to change exactly one field on a live tournament.
+// revalidatePath("/") too, since the homepage teaser links by slug and
+// would otherwise keep serving the old URL from its cached render.
+export async function updateTournamentSlugAction(
+  tournamentId: string,
+  input: UpdateTournamentSlugInput,
+): Promise<TournamentActionState> {
+  const authz = await requireTournamentsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = updateTournamentSlugSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid URL." };
+  }
+
+  try {
+    await tournamentService.updateTournamentSlug(tournamentId, parsed.data.slug, authz.userId);
+    revalidateTournament(tournamentId);
+    revalidatePath("/");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "updateTournamentSlugAction", userId: authz.userId }),
     };
   }
 }

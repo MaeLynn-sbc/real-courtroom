@@ -28,12 +28,12 @@ function formatDateRange(startDate: Date, endDate: Date): string {
 }
 
 interface TournamentPageProps {
-  params: Promise<{ tournamentId: string }>;
+  params: Promise<{ slug: string }>;
 }
 
 export async function generateMetadata({ params }: TournamentPageProps): Promise<Metadata> {
-  const { tournamentId } = await params;
-  const tournament = await tournamentService.getTournamentById(tournamentId);
+  const { slug } = await params;
+  const tournament = await tournamentService.getTournamentBySlugOrId(slug);
   return { title: tournament ? `${tournament.name} — The Courtroom` : "Tournament" };
 }
 
@@ -44,8 +44,10 @@ export async function generateMetadata({ params }: TournamentPageProps): Promise
 // here since a single tournament can have a mix (one category bracketed,
 // another still in registration).
 export default async function PublicTournamentPage({ params }: TournamentPageProps) {
-  const { tournamentId } = await params;
-  const tournament = await tournamentService.getTournamentById(tournamentId);
+  const { slug } = await params;
+  // Resolves the readable slug, and still accepts a bare cuid so links
+  // shared before migration 74 keep working — see getTournamentBySlugOrId.
+  const tournament = await tournamentService.getTournamentBySlugOrId(slug);
   if (!tournament || tournament.deletedAt || tournament.status === "DRAFT") {
     notFound();
   }

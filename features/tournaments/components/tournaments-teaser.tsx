@@ -57,6 +57,7 @@ export async function TournamentsTeaser() {
     await Promise.all(
       tournaments.map(async (tournament) => ({
         tournamentId: tournament.id,
+        tournamentSlug: tournament.slug,
         tournamentName: tournament.name,
         categories: await Promise.all(
           tournament.categories.map(async (category) => ({
@@ -115,7 +116,7 @@ export async function TournamentsTeaser() {
                   {group.categories.map((category) => (
                     <Link
                       key={category.categoryId}
-                      href={`/tournaments/${group.tournamentId}`}
+                      href={`/tournaments/${group.tournamentSlug}`}
                       className="border-line bg-navy-900 hover:border-green/45 rounded-xl border p-5 transition-colors"
                     >
                       <h4 className="font-display text-xl font-extrabold tracking-[0.01em] uppercase">
@@ -131,7 +132,7 @@ export async function TournamentsTeaser() {
                     the old flat grid had to hide this CTA entirely in that
                     case, since it couldn't tell which tournament it meant. */}
                 <Link
-                  href={`/tournaments/${group.tournamentId}`}
+                  href={`/tournaments/${group.tournamentSlug}`}
                   className="border-line text-bone hover:border-green focus-visible:outline-green mt-6 inline-flex items-center gap-2 rounded-full border px-6 py-3 text-sm font-bold transition-transform hover:-translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
                   See live bracket &amp; standings

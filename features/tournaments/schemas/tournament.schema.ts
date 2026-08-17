@@ -3,6 +3,16 @@ import { z } from "zod";
 export const createTournamentSchema = z
   .object({
     name: z.string().min(1, "Enter a tournament name.").max(200),
+    // Owner request (2026-08-17): the auto-derived slug from the full name
+    // was too long for a poster ("sayans-and-friends-pickleball-
+    // tournament"), and the short form they wanted ("sayansandfriends")
+    // can't be derived by any general rule — dropping "Pickleball
+    // Tournament" isn't something code can guess for the next tournament.
+    // So staff choose it. Optional: left blank, the service falls back to
+    // deriving it from the name exactly as before. Normalized service-side
+    // (tournament-slug.ts), so typing "Sayans And Friends" is accepted and
+    // becomes "sayans-and-friends" rather than being rejected.
+    slug: z.string().trim().max(80, "Keep the URL under 80 characters.").optional(),
     description: z.string().max(2000).optional(),
     startDate: z.coerce.date(),
     endDate: z.coerce.date(),
@@ -20,6 +30,20 @@ export const createTournamentSchema = z
   });
 
 export type CreateTournamentInput = z.infer<typeof createTournamentSchema>;
+
+// Changing a live tournament's public URL is deliberately its own small
+// action rather than part of the (still UI-less) updateTournamentAction —
+// the owner needs to shorten an ALREADY-CREATED tournament's URL, and
+// nothing else about it.
+export const updateTournamentSlugSchema = z.object({
+  slug: z
+    .string()
+    .trim()
+    .min(1, "Enter a URL for this tournament.")
+    .max(80, "Keep the URL under 80 characters."),
+});
+
+export type UpdateTournamentSlugInput = z.infer<typeof updateTournamentSlugSchema>;
 
 export const updateTournamentPaymentSettingSchema = z.object({
   collectsPaymentOnSite: z.boolean(),

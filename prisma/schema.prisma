@@ -2262,8 +2262,22 @@ enum MatchStatus {
 }
 
 model Tournament {
-  id                    String           @id @default(cuid())
-  name                  String
+  id   String @id @default(cuid())
+  name String
+  // Owner request (2026-08-17): "can u create a good url for it. like
+  // /tournament/sayans and friends" — the public page was reachable only
+  // by cuid (/tournaments/clx8f2a9k...), which is impossible to read out
+  // loud, type, or put on a poster. Derived from `name` at creation
+  // (tournament-slug.ts) and then FROZEN: renaming a tournament
+  // deliberately does NOT re-slug it, because the URL may already be
+  // shared/printed by then and a silently-moving public link is worse
+  // than a slug that no longer matches a later rename.
+  //
+  // Backfilled inside migration 74's own SQL rather than by a separate
+  // one-off script — see that migration for why (the Sale.businessDate
+  // backfill was promised in a comment, never committed, and could only
+  // be verified after the fact).
+  slug                  String           @unique
   description           String?
   createdById           String
   status                TournamentStatus @default(DRAFT)

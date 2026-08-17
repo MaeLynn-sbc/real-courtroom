@@ -5,6 +5,7 @@ import { CategoryForm } from "@/features/tournaments/components/category-form";
 import { CategoryList } from "@/features/tournaments/components/category-list";
 import { TournamentLogoUpload } from "@/features/tournaments/components/tournament-logo-upload";
 import { TournamentPaymentSettingToggle } from "@/features/tournaments/components/tournament-payment-setting-toggle";
+import { TournamentSlugForm } from "@/features/tournaments/components/tournament-slug-form";
 import { TournamentStatusActions } from "@/features/tournaments/components/tournament-status-actions";
 import { TournamentStatusBadge } from "@/features/tournaments/components/tournament-status-badge";
 import { tournamentService } from "@/services/tournaments/tournament.service";
@@ -56,6 +57,14 @@ export default async function TournamentDetailPage({ params }: TournamentDetailP
           Shown on /tourtv alongside The Courtroom&apos;s own logo.
         </p>
         <TournamentLogoUpload tournamentId={tournament.id} logoUrl={tournament.logoUrl} />
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-medium">Public page</h2>
+        <p className="text-muted-foreground text-sm">
+          The address the public bracket and standings live at.
+        </p>
+        <TournamentSlugForm tournamentId={tournament.id} slug={tournament.slug} />
       </section>
 
       <section className="flex flex-col gap-3">

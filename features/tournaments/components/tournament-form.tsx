@@ -12,9 +12,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { createTournamentSchema } from "@/features/tournaments/schemas/tournament.schema";
+import { slugifyTournamentName } from "@/services/tournaments/tournament-slug";
 
 interface TournamentFormValues {
   name: string;
+  slug: string;
   description: string;
   venueInfo: string;
   startDate: string;
@@ -36,10 +38,12 @@ export function TournamentForm() {
     register,
     handleSubmit,
     control,
+    watch,
     formState: { errors },
   } = useForm<TournamentFormValues>({
     defaultValues: {
       name: "",
+      slug: "",
       description: "",
       venueInfo: "",
       startDate: toLocalDateValue(new Date()),
@@ -48,11 +52,18 @@ export function TournamentForm() {
     },
   });
 
+  // Drives the URL field's placeholder so staff can see what the
+  // automatic slug would be before deciding to shorten it.
+  const nameValue = watch("name");
+
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
 
     const parsed = createTournamentSchema.safeParse({
       name: values.name.trim(),
+      // Left blank, the service derives it from the name exactly as
+      // before — the field is a shortcut, not a new requirement.
+      slug: values.slug.trim() || undefined,
       description: values.description.trim() || undefined,
       venueInfo: values.venueInfo.trim() || undefined,
       startDate: new Date(`${values.startDate}T00:00:00`),
@@ -83,6 +94,26 @@ export function TournamentForm() {
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="name">Name</Label>
         <Input id="name" placeholder="e.g. Summer Slam 2026" {...register("name")} />
+      </div>
+
+      {/* Owner request (2026-08-17): the auto-derived URL uses the whole
+          name, which is too long for a poster. Suggested from the name as
+          you type, and overwritable — leaving it blank keeps the old
+          automatic behaviour. */}
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="slug">Public URL (optional)</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground shrink-0 text-sm">/tournaments/</span>
+          <Input
+            id="slug"
+            placeholder={slugifyTournamentName(nameValue || "") || "summer-slam-2026"}
+            className="w-56"
+            {...register("slug")}
+          />
+        </div>
+        <p className="text-muted-foreground text-xs">
+          Leave blank to use the tournament name. Keep it short — it goes on posters.
+        </p>
       </div>
 
       <div className="flex flex-col gap-1.5">
