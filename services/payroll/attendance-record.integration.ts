@@ -28,7 +28,7 @@ import { prisma } from "../../lib/prisma";
 import { PERMISSIONS } from "../../types/permissions";
 import {
   attendanceRecordService,
-  AttendanceRecordAlreadyExistsError,
+  AttendanceRecordOverlapError,
 } from "./attendance-record.service";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -60,7 +60,7 @@ async function main(): Promise<void> {
       0,
     );
     const created = await attendanceRecordService.createManualEntry(
-      { employeeId: employee.id, workDate, clockIn, clockOut },
+      { employeeId: employee.id, clockIn, clockOut },
       owner.id,
     );
     assert(created.source === "MANUAL", `expected source MANUAL, got ${created.source}`);
@@ -77,22 +77,28 @@ async function main(): Promise<void> {
       "PASS: a manual entry captures rawClockIn/rawClockOut from clockIn/clockOut at creation, source=MANUAL, uncorrected.",
     );
 
-    // ============== 2. Duplicate employee+workDate rejected ==============
+    // ============== 2. Re-entering the SAME shift is rejected as an overlap ==============
+    // Batch 1 closeout: @@unique([employeeId, workDate]) is gone, so this
+    // is no longer "one record per day" — a split day is legitimate. What
+    // is still rejected is a record covering minutes already logged, which
+    // is what double-entering the same shift does. See
+    // attendance-overnight-and-overlap.integration.ts for the companion
+    // case: two NON-overlapping shifts in one day both save.
     let rejectedDuplicate = false;
     try {
       await attendanceRecordService.createManualEntry(
-        { employeeId: employee.id, workDate, clockIn, clockOut },
+        { employeeId: employee.id, clockIn, clockOut },
         owner.id,
       );
     } catch (error) {
-      rejectedDuplicate = error instanceof AttendanceRecordAlreadyExistsError;
+      rejectedDuplicate = error instanceof AttendanceRecordOverlapError;
     }
     assert(
       rejectedDuplicate,
-      "expected a second entry for the same employee/workDate to be rejected",
+      "expected re-entering the same shift to be rejected as an overlap",
     );
     console.log(
-      "PASS: a second attendance entry for the same employee and work date is rejected — @@unique enforced.",
+      "PASS: re-entering the same shift is rejected as an overlap — the invariant that replaced @@unique.",
     );
 
     // ============== 3. Correction updates clockIn/clockOut, leaves raw* untouched ==============

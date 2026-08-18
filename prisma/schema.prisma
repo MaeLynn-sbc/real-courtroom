@@ -559,7 +559,17 @@ model AttendanceRecord {
   shift       Shift?   @relation(fields: [shiftId], references: [id])
   correctedBy User?    @relation(fields: [correctedByUserId], references: [id])
 
-  @@unique([employeeId, workDate])
+  // Payroll Batch 1 closeout (migration 76): @@unique([employeeId,
+  // workDate]) was DROPPED here. It made a split day impossible — an
+  // employee working an opening AND a closing shift could only ever have
+  // one record. The invariant actually worth protecting is that two
+  // records must not cover the same MINUTES, which a database unique
+  // constraint can't express; attendanceRecordService enforces it as an
+  // overlap check instead.
+  //
+  // Also carries a hand-written CHECK from that migration, invisible to
+  // Prisma: clockOut IS NULL OR clockOut > clockIn.
+  @@index([employeeId, workDate])
   @@index([workDate])
 }
 

@@ -3,7 +3,9 @@ import { z } from "zod";
 export const createManualAttendanceEntrySchema = z
   .object({
     employeeId: z.string().min(1, "Select an employee."),
-    workDate: z.coerce.date(),
+    // No workDate: it is derived at the service from clockIn via
+    // computeBusinessDate (Batch 1 closeout). The form no longer decides
+    // which business day a shift belongs to.
     clockIn: z.coerce.date(),
     clockOut: z.coerce.date().optional(),
   })

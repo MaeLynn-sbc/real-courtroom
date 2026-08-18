@@ -29,6 +29,14 @@ const OT_MULTIPLIER = 1.25;
 // couple "what late costs" to "what overtime pays" the first time one of
 // them is tuned.
 export const LATE_DEDUCTION_MULTIPLIER = 1.25;
+// Soft threshold only — the attendance form warns above this and still
+// lets the entry through, because a genuinely long shift happens and
+// blocking it would just teach staff to enter a wrong time instead. It
+// exists to catch the typo the overnight auto-roll makes possible:
+// entering 05:00 when 15:00 was meant silently becomes a 14-hour shift.
+// Lives beside the pay rates because it is the same kind of number — a
+// venue policy figure meant to become owner-editable, not a code detail.
+export const LONG_SHIFT_WARNING_HOURS = 14;
 const NIGHT_DIFF_MULTIPLIER = 0.1;
 const NIGHT_DIFF_START_HOUR = 22; // 10:00 PM
 const NIGHT_DIFF_END_HOUR = 6; // 6:00 AM the following day

@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { LONG_SHIFT_WARNING_HOURS } from "@/lib/payroll/compute-day";
+
 import {
   correctAttendanceEntryAction,
   createManualAttendanceEntryAction,
@@ -68,6 +70,70 @@ function combineDateAndTime(dateValue: string, timeValue: string): Date | null {
   return new Date(year, month - 1, day, hours, minutes);
 }
 
+// Owner decision (2026-08-18): a shift whose clock-out is at or before its
+// clock-in is an OVERNIGHT shift, not an error — 23:00-01:00 is one night's
+// work. The form rolls the end to the next day rather than asking staff for
+// a second date on every ordinary shift.
+//
+// The roll is never silent. resolveShiftWindow returns `rolled` so the form
+// can state what it did BEFORE submit: entering 05:00 when 15:00 was meant
+// would otherwise become a 14-hour shift that nobody notices until payroll.
+function resolveShiftWindow(
+  dateValue: string,
+  clockInTime: string,
+  clockOutTime: string,
+): { clockIn: Date | null; clockOut: Date | null; rolled: boolean; spanHours: number | null } {
+  const clockIn = combineDateAndTime(dateValue, clockInTime);
+  if (!clockIn) {
+    return { clockIn: null, clockOut: null, rolled: false, spanHours: null };
+  }
+  let clockOut = clockOutTime ? combineDateAndTime(dateValue, clockOutTime) : null;
+  let rolled = false;
+  if (clockOut && clockOut.getTime() <= clockIn.getTime()) {
+    clockOut = new Date(clockOut.getTime() + 24 * 60 * 60 * 1000);
+    rolled = true;
+  }
+  const spanHours = clockOut ? (clockOut.getTime() - clockIn.getTime()) / 3_600_000 : null;
+  return { clockIn, clockOut, rolled, spanHours };
+}
+
+const nextDayFormatter = new Intl.DateTimeFormat("en-PH", { day: "numeric", month: "short" });
+
+// Shown inline under the clock-out field. Two separate messages on purpose:
+// the roll is a statement of fact, the long span is a caution.
+function ShiftWindowNote({
+  clockOut,
+  rolled,
+  spanHours,
+}: {
+  clockOut: Date | null;
+  rolled: boolean;
+  spanHours: number | null;
+}) {
+  if (!clockOut) {
+    return null;
+  }
+  const isLong = spanHours !== null && spanHours > LONG_SHIFT_WARNING_HOURS;
+  if (!rolled && !isLong) {
+    return null;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      {rolled ? (
+        <p className="text-muted-foreground text-xs">
+          Ends {clockOut.toTimeString().slice(0, 5)} the next day, {nextDayFormatter.format(clockOut)}.
+        </p>
+      ) : null}
+      {isLong ? (
+        <p className="text-xs text-amber-600 dark:text-amber-500" role="status">
+          That is a {spanHours!.toFixed(1)}-hour shift — longer than {LONG_SHIFT_WARNING_HOURS} hours.
+          Double-check the times if that was not intended.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function NewEntryForm({
   employees,
   hideEmployeePicker = false,
@@ -83,21 +149,27 @@ function NewEntryForm({
   const [clockOutTime, setClockOutTime] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
 
+  // Recomputed on every keystroke so the note reflects what WILL be
+  // submitted, not what was submitted last time.
+  const preview = resolveShiftWindow(workDate, clockInTime, clockOutTime);
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setServerError(null);
 
-    const clockIn = combineDateAndTime(workDate, clockInTime);
+    const { clockIn, clockOut } = resolveShiftWindow(workDate, clockInTime, clockOutTime);
     if (!employeeId || !clockIn) {
       setServerError("Select an employee, work date, and clock-in time.");
       return;
     }
-    const clockOut = clockOutTime ? combineDateAndTime(workDate, clockOutTime) : null;
 
     startTransition(async () => {
+      // No workDate: the service derives which business day this belongs
+      // to from clockIn (computeBusinessDate), so the form no longer has to
+      // reason about it — which is what got overnight shifts filed under
+      // the wrong night before.
       const result = await createManualAttendanceEntryAction({
         employeeId,
-        workDate: new Date(`${workDate}T00:00:00`),
         clockIn,
         clockOut: clockOut ?? undefined,
       });
@@ -168,6 +240,11 @@ function NewEntryForm({
               />
             </div>
           </div>
+          <ShiftWindowNote
+            clockOut={preview.clockOut}
+            rolled={preview.rolled}
+            spanHours={preview.spanHours}
+          />
           {serverError ? (
             <p className="text-destructive text-sm" role="alert">
               {serverError}
@@ -194,11 +271,13 @@ function CorrectEntryRow({ entry }: { entry: AttendanceEntries[number] }) {
   const [reason, setReason] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
 
+  const preview = resolveShiftWindow(workDateValue, clockInTime, clockOutTime);
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setServerError(null);
 
-    const clockIn = combineDateAndTime(workDateValue, clockInTime);
+    const { clockIn, clockOut } = resolveShiftWindow(workDateValue, clockInTime, clockOutTime);
     if (!clockIn) {
       setServerError("Clock-in time is required.");
       return;
@@ -207,7 +286,6 @@ function CorrectEntryRow({ entry }: { entry: AttendanceEntries[number] }) {
       setServerError("Enter a reason for this correction.");
       return;
     }
-    const clockOut = clockOutTime ? combineDateAndTime(workDateValue, clockOutTime) : null;
 
     startTransition(async () => {
       const result = await correctAttendanceEntryAction({
@@ -253,6 +331,11 @@ function CorrectEntryRow({ entry }: { entry: AttendanceEntries[number] }) {
             onChange={(event) => setClockInTime(event.target.value)}
           />
         </div>
+      <ShiftWindowNote
+        clockOut={preview.clockOut}
+        rolled={preview.rolled}
+        spanHours={preview.spanHours}
+      />
         <div className="flex flex-col gap-1">
           <Label htmlFor={`correctClockOut-${entry.id}`} className="text-xs">
             Clock out
