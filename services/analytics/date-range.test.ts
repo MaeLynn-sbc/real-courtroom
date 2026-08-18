@@ -3,11 +3,18 @@ import {
   resolveDateRangeFromSearchParams,
 } from "@/services/analytics/date-range";
 
+// rolloverHour is now a REQUIRED parameter (it used to default to 0).
+// These cases predate the rollover concept and assert plain
+// midnight-boundary behaviour, so 0 is the assumption they were written
+// against — stated here instead of inherited from a default. The cases
+// that genuinely exercise the rollover pass 3 explicitly, below.
+const TEST_ROLLOVER_HOUR = 0;
+
 describe("resolveDateRange", () => {
   const now = new Date(2026, 6, 20, 15, 30); // Jul 20, 2026, 3:30pm
 
-  it("TODAY starts at midnight of the current day when no rolloverHour is given (default 0, old behavior)", () => {
-    const result = resolveDateRange("TODAY", undefined, now);
+  it("TODAY starts at midnight of the current day when rolloverHour is 0", () => {
+    const result = resolveDateRange("TODAY", undefined, now, TEST_ROLLOVER_HOUR);
     expect(result.from).toEqual(new Date(2026, 6, 20, 0, 0, 0, 0));
     expect(result.to).toEqual(now);
   });
@@ -31,19 +38,19 @@ describe("resolveDateRange", () => {
   });
 
   it("7_DAYS goes back 7 days from now", () => {
-    const result = resolveDateRange("7_DAYS", undefined, now);
+    const result = resolveDateRange("7_DAYS", undefined, now, TEST_ROLLOVER_HOUR);
     expect(result.from).toEqual(new Date(2026, 6, 13, 15, 30));
     expect(result.to).toEqual(now);
   });
 
   it("30_DAYS goes back 30 days from now", () => {
-    const result = resolveDateRange("30_DAYS", undefined, now);
+    const result = resolveDateRange("30_DAYS", undefined, now, TEST_ROLLOVER_HOUR);
     expect(result.from).toEqual(new Date(2026, 5, 20, 15, 30));
     expect(result.to).toEqual(now);
   });
 
   it("90_DAYS goes back 90 days from now", () => {
-    const result = resolveDateRange("90_DAYS", undefined, now);
+    const result = resolveDateRange("90_DAYS", undefined, now, TEST_ROLLOVER_HOUR);
     expect(result.from).toEqual(new Date(2026, 3, 21, 15, 30));
     expect(result.to).toEqual(now);
   });
@@ -51,12 +58,12 @@ describe("resolveDateRange", () => {
   it("CUSTOM uses the provided from/to", () => {
     const from = new Date(2026, 0, 1);
     const to = new Date(2026, 0, 31);
-    const result = resolveDateRange("CUSTOM", { from, to }, now);
+    const result = resolveDateRange("CUSTOM", { from, to }, now, TEST_ROLLOVER_HOUR);
     expect(result).toEqual({ from, to });
   });
 
   it("CUSTOM without a custom range falls back to 30 days", () => {
-    const result = resolveDateRange("CUSTOM", undefined, now);
+    const result = resolveDateRange("CUSTOM", undefined, now, TEST_ROLLOVER_HOUR);
     expect(result.from).toEqual(new Date(2026, 5, 20, 15, 30));
     expect(result.to).toEqual(now);
   });
@@ -64,17 +71,17 @@ describe("resolveDateRange", () => {
 
 describe("resolveDateRangeFromSearchParams", () => {
   it("defaults to 30_DAYS when no preset is given", () => {
-    const result = resolveDateRangeFromSearchParams({});
+    const result = resolveDateRangeFromSearchParams({}, TEST_ROLLOVER_HOUR);
     expect(result.to.getTime() - result.from.getTime()).toBeCloseTo(30 * 24 * 60 * 60 * 1000, -3);
   });
 
   it("parses a valid preset param", () => {
-    const result = resolveDateRangeFromSearchParams({ preset: "7_DAYS" });
+    const result = resolveDateRangeFromSearchParams({ preset: "7_DAYS" }, TEST_ROLLOVER_HOUR);
     expect(result.to.getTime() - result.from.getTime()).toBeCloseTo(7 * 24 * 60 * 60 * 1000, -3);
   });
 
   it("falls back to 30_DAYS for an unrecognized preset value", () => {
-    const result = resolveDateRangeFromSearchParams({ preset: "NOT_REAL" });
+    const result = resolveDateRangeFromSearchParams({ preset: "NOT_REAL" }, TEST_ROLLOVER_HOUR);
     expect(result.to.getTime() - result.from.getTime()).toBeCloseTo(30 * 24 * 60 * 60 * 1000, -3);
   });
 
@@ -87,7 +94,7 @@ describe("resolveDateRangeFromSearchParams", () => {
       preset: "CUSTOM",
       from: "2026-01-01",
       to: "2026-01-31",
-    });
+    }, TEST_ROLLOVER_HOUR);
     expect(result.from).toEqual(new Date(2026, 0, 1, 0, 0, 0, 0));
     expect(result.to).toEqual(new Date(2026, 0, 31, 23, 59, 59, 999));
   });
@@ -97,14 +104,14 @@ describe("resolveDateRangeFromSearchParams", () => {
       preset: "CUSTOM",
       from: "2026-08-01",
       to: "2026-08-01",
-    });
+    }, TEST_ROLLOVER_HOUR);
     expect(result.from).toEqual(new Date(2026, 7, 1, 0, 0, 0, 0));
     expect(result.to).toEqual(new Date(2026, 7, 1, 23, 59, 59, 999));
     expect(result.to.getTime() - result.from.getTime()).toBeCloseTo(24 * 60 * 60 * 1000, -3);
   });
 
   it("ignores an array-valued search param", () => {
-    const result = resolveDateRangeFromSearchParams({ preset: ["7_DAYS", "TODAY"] });
+    const result = resolveDateRangeFromSearchParams({ preset: ["7_DAYS", "TODAY"] }, TEST_ROLLOVER_HOUR);
     expect(result.to.getTime() - result.from.getTime()).toBeCloseTo(30 * 24 * 60 * 60 * 1000, -3);
   });
 

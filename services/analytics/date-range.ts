@@ -24,26 +24,35 @@ export interface DateRange {
 // are responsible for fetching the real rolloverHour via
 // settingsService.getCourtHours() — this function stays pure/DB-free,
 // same reasoning assertIsCurrentBusinessDate's own comment gives.
-// rolloverHour defaults to 0 (= literal midnight, the old behavior)
-// only so a caller that genuinely has no rollover-hour context handy
-// doesn't silently regress to garbage; every real caller in this app
-// now passes the actual setting.
+// rolloverHour is REQUIRED, with no default (owner decision 2026-08-18).
+// It previously defaulted to 0 — literal midnight — while
+// DEFAULT_COURT_HOURS says 3, so one concept had two different silent
+// fallbacks depending on which door you came through. No production
+// caller ever relied on the 0; only tests did. Making it required means
+// the setting is the single source of truth and a caller with no
+// rollover-hour context has to say so out loud rather than quietly
+// getting midnight.
 export function resolveDateRange(
   preset: DateRangePreset,
-  custom?: { from: Date; to: Date },
-  now: Date = new Date(),
-  rolloverHour = 0,
+  // custom and now are required POSITIONS that accept undefined, rather
+  // than optional parameters: a required parameter cannot follow an
+  // optional one, and rolloverHour is now required. Callers pass
+  // undefined explicitly — which every app caller already did.
+  custom: { from: Date; to: Date } | undefined,
+  now: Date | undefined,
+  rolloverHour: number,
 ): DateRange {
   if (preset === "CUSTOM" && custom) {
     return { from: custom.from, to: custom.to };
   }
 
-  const to = now;
-  const from = new Date(now);
+  const resolvedNow = now ?? new Date();
+  const to = resolvedNow;
+  const from = new Date(resolvedNow);
 
   switch (preset) {
     case "TODAY":
-      from.setTime(computeBusinessDate(now, rolloverHour).getTime());
+      from.setTime(computeBusinessDate(resolvedNow, rolloverHour).getTime());
       break;
     case "7_DAYS":
       from.setDate(from.getDate() - 7);
@@ -78,7 +87,7 @@ function isDateRangePreset(value: string): value is DateRangePreset {
 // alongside resolveDateRange rather than being copy-pasted three times.
 export function resolveDateRangeFromSearchParams(
   searchParams: Record<string, string | string[] | undefined>,
-  rolloverHour = 0,
+  rolloverHour: number,
 ): DateRange {
   const presetParam = searchParams.preset;
   const preset =

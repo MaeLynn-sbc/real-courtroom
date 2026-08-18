@@ -23,6 +23,14 @@ import { prisma } from "../../lib/prisma";
 import { resolveDateRange } from "../analytics/date-range";
 import { saleService } from "./sale.service";
 
+// rolloverHour stated explicitly (it used to default to 0). These
+// fixtures are built on literal midnight (setHours(0,0,0,0)), so 0 is
+// the assumption this test is actually written against — not the
+// venue's real rollover of 3. Preserved deliberately rather than
+// "corrected": switching to 3 would change what "TODAY" means when the
+// suite runs before 3am, making these time-of-day dependent.
+const TEST_ROLLOVER_HOUR = 0;
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(`FAIL: ${message}`);
@@ -45,7 +53,7 @@ async function main(): Promise<void> {
   yesterday.setDate(yesterday.getDate() - 1);
 
   try {
-    const before = await saleService.getSalesSummary(resolveDateRange("TODAY"));
+    const before = await saleService.getSalesSummary(resolveDateRange("TODAY", undefined, undefined, TEST_ROLLOVER_HOUR));
 
     // ============== 1. Regular (PlayerTab) — session was yesterday, settled today ==============
     const staleRegistration = await prisma.openPlayNightRegistration.create({
@@ -101,7 +109,7 @@ async function main(): Promise<void> {
       openPlayNightRegistrationId: staleUnliRegistration.id,
     });
 
-    const afterStale = await saleService.getSalesSummary(resolveDateRange("TODAY"));
+    const afterStale = await saleService.getSalesSummary(resolveDateRange("TODAY", undefined, undefined, TEST_ROLLOVER_HOUR));
     assert(
       afterStale.totalAmountCents === before.totalAmountCents,
       `expected today's total unchanged by yesterday's late-settled tabs, went from ${before.totalAmountCents} to ${afterStale.totalAmountCents}`,
@@ -160,7 +168,7 @@ async function main(): Promise<void> {
       playerTabId: freshTab.id,
     });
 
-    const afterFresh = await saleService.getSalesSummary(resolveDateRange("TODAY"));
+    const afterFresh = await saleService.getSalesSummary(resolveDateRange("TODAY", undefined, undefined, TEST_ROLLOVER_HOUR));
     assert(
       afterFresh.totalAmountCents === afterStale.totalAmountCents + 7000,
       `expected today's total to increase by 7000 for the same-night settlement, went from ${afterStale.totalAmountCents} to ${afterFresh.totalAmountCents}`,

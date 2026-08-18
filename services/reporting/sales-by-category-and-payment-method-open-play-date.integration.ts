@@ -24,6 +24,14 @@ import { resolveDateRange } from "../analytics/date-range";
 import { reportingService } from "./reporting.service";
 import { saleService } from "../sales/sale.service";
 
+// rolloverHour stated explicitly (it used to default to 0). These
+// fixtures are built on literal midnight (setHours(0,0,0,0)), so 0 is
+// the assumption this test is actually written against — not the
+// venue's real rollover of 3. Preserved deliberately rather than
+// "corrected": switching to 3 would change what "TODAY" means when the
+// suite runs before 3am, making these time-of-day dependent.
+const TEST_ROLLOVER_HOUR = 0;
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(`FAIL: ${message}`);
@@ -55,8 +63,8 @@ async function main(): Promise<void> {
   yesterday.setDate(yesterday.getDate() - 1);
 
   try {
-    const beforeByCategory = openPlayTotal(await reportingService.getSalesByCategoryReport(resolveDateRange("TODAY")));
-    const beforeByMethod = cashTotal(await reportingService.getSalesByPaymentMethodReport(resolveDateRange("TODAY")));
+    const beforeByCategory = openPlayTotal(await reportingService.getSalesByCategoryReport(resolveDateRange("TODAY", undefined, undefined, TEST_ROLLOVER_HOUR)));
+    const beforeByMethod = cashTotal(await reportingService.getSalesByPaymentMethodReport(resolveDateRange("TODAY", undefined, undefined, TEST_ROLLOVER_HOUR)));
 
     // ============== 1. Regular (PlayerTab) — session was yesterday, settled today ==============
     const staleRegistration = await prisma.openPlayNightRegistration.create({
@@ -112,8 +120,8 @@ async function main(): Promise<void> {
       openPlayNightRegistrationId: staleUnliRegistration.id,
     });
 
-    const afterStaleByCategory = openPlayTotal(await reportingService.getSalesByCategoryReport(resolveDateRange("TODAY")));
-    const afterStaleByMethod = cashTotal(await reportingService.getSalesByPaymentMethodReport(resolveDateRange("TODAY")));
+    const afterStaleByCategory = openPlayTotal(await reportingService.getSalesByCategoryReport(resolveDateRange("TODAY", undefined, undefined, TEST_ROLLOVER_HOUR)));
+    const afterStaleByMethod = cashTotal(await reportingService.getSalesByPaymentMethodReport(resolveDateRange("TODAY", undefined, undefined, TEST_ROLLOVER_HOUR)));
     assert(
       afterStaleByCategory === beforeByCategory,
       `expected Sales by category's OPEN_PLAY total unchanged by yesterday's late-settled tabs, went from ${beforeByCategory} to ${afterStaleByCategory}`,
@@ -159,8 +167,8 @@ async function main(): Promise<void> {
       playerTabId: freshTab.id,
     });
 
-    const afterFreshByCategory = openPlayTotal(await reportingService.getSalesByCategoryReport(resolveDateRange("TODAY")));
-    const afterFreshByMethod = cashTotal(await reportingService.getSalesByPaymentMethodReport(resolveDateRange("TODAY")));
+    const afterFreshByCategory = openPlayTotal(await reportingService.getSalesByCategoryReport(resolveDateRange("TODAY", undefined, undefined, TEST_ROLLOVER_HOUR)));
+    const afterFreshByMethod = cashTotal(await reportingService.getSalesByPaymentMethodReport(resolveDateRange("TODAY", undefined, undefined, TEST_ROLLOVER_HOUR)));
     assert(
       afterFreshByCategory === afterStaleByCategory + 7000,
       `expected Sales by category's OPEN_PLAY total to increase by exactly 7000, went from ${afterStaleByCategory} to ${afterFreshByCategory}`,
