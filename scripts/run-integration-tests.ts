@@ -1,4 +1,14 @@
 /**
+ * ⚠ KNOWN ISSUE (logged 2026-08-18, deliberately not fixed): this harness
+ * reports FILE counts, not case counts — its summary is "All N integration
+ * test file(s) passed". Adding five cases to an EXISTING file moves no
+ * counter at all, and adding one new file moves it by one regardless of
+ * how many cases are inside. So the number is not evidence that cases ran;
+ * only each script's own PASS lines are. Caused real confusion during the
+ * payroll batches, where "5 tests added" showed up as 143 -> 144. A jest-
+ * style per-case count would need each script to report its own case
+ * total, which is its own change.
+ *
  * Runs every *.integration.ts script in the repo in sequence (not
  * parallel — several of them share fixture dates/cleanup and shouldn't
  * race each other) and fails loudly if any of them exits non-zero. This
