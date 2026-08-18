@@ -19,6 +19,7 @@ import {
   WEBSITE_SYSTEM_USER_EMAIL,
 } from "../lib/system-identities";
 import { formatEmployeeNumber } from "../services/employee/employee-number";
+import { CMS_KEYS } from "../lib/cms-keys";
 import { formatShiftNumber } from "../services/shift/shift-number";
 import { PERMISSIONS, type PermissionKey } from "../types/permissions";
 import { SYSTEM_ROLES, type SystemRoleName } from "../types/roles";
@@ -966,6 +967,34 @@ async function main(): Promise<void> {
     });
   }
   logger.info({ count: SHIFT_TEMPLATE_DEFINITIONS.length }, "Seeded shift templates");
+
+  // Owner decision (2026-08-18): make the business-date rollover hour an
+  // EXPLICIT stored value instead of an implied one. Production was
+  // running with no cms.courtHours row at all, so every caller silently
+  // got DEFAULT_COURT_HOURS' 3 — indistinguishable from "the owner chose
+  // 3". That mattered little while it only shaped reports; it became
+  // load-bearing when attendance workDate started deriving from it.
+  //
+  // Deliberately a PARTIAL row: only businessDateRolloverHour. The seed
+  // must not commit facility/court close times nobody has verified, and
+  // getCourtHours merges field-by-field over DEFAULT_COURT_HOURS, so the
+  // rest keep resolving from defaults exactly as before. That merge is
+  // also why a partial row is safe rather than a landmine — it exists
+  // precisely to rescue rows saved before a field existed.
+  //
+  // update: {} matches ShiftTemplate above — re-seeding never overwrites
+  // a value the owner has since edited through the CMS panel.
+  await prisma.setting.upsert({
+    where: { key: CMS_KEYS.COURT_HOURS },
+    update: {},
+    create: {
+      key: CMS_KEYS.COURT_HOURS,
+      value: { businessDateRolloverHour: 3 },
+      description:
+        "Partial court-hours settings. Only businessDateRolloverHour is seeded; every other field resolves from DEFAULT_COURT_HOURS until an owner saves the CMS panel.",
+    },
+  });
+  logger.info({ businessDateRolloverHour: 3 }, "Seeded court hours (rollover hour only)");
 
   for (let i = 1; i <= COURT_COUNT; i += 1) {
     const name = `Court ${i}`;

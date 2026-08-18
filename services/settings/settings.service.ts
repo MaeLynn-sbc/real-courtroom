@@ -283,6 +283,40 @@ const DEFAULT_OPEN_PLAY_SETTINGS: OpenPlaySettings = {
 // written to by any service until now) rather than typed columns per
 // setting — this workspace is intentionally a small, generic editor; it
 // doesn't invent specific settings nobody asked for yet.
+// Owner decision (2026-08-18): a missing cms.courtHours row must be LOUD,
+// not silent. Production ran without one, so every caller got
+// DEFAULT_COURT_HOURS' rollover hour of 3 with no way to distinguish that
+// from a deliberate choice — tolerable while it only shaped reports,
+// not once attendance workDate began deriving from it.
+//
+// Deliberately NOT a throw and NOT process.exit, unlike lib/env.ts's
+// timezone guard. That guard protects a process-level invariant read once
+// at boot, where being wrong makes every date wrong and there is no
+// defensible reading. This is a per-request database read on a code path
+// public pages also use, and its fallback (3) is both defensible and
+// exactly what all existing data already assumes — so failing hard would
+// turn a benign, correct-by-accident state into an outage. It also has no
+// boot moment to assert at, and process.exit here would take a jest
+// worker down the way lib/env.ts already does.
+//
+// Logged once per process rather than per request: getCourtHours is called
+// on ordinary page loads, and a per-request log would bury the signal in
+// its own noise. Once per process still reappears on every restart until
+// somebody fixes it.
+let courtHoursRowMissingWarned = false;
+function warnCourtHoursRowMissing(): void {
+  if (courtHoursRowMissingWarned) {
+    return;
+  }
+  courtHoursRowMissingWarned = true;
+  logger.error(
+    { key: CMS_KEYS.COURT_HOURS, fallbackRolloverHour: DEFAULT_COURT_HOURS.businessDateRolloverHour },
+    "No cms.courtHours setting row exists — falling back to the built-in defaults, including the " +
+      "business-date rollover hour that attendance workDate and every report range derive from. " +
+      "Run the seed, or save the CMS court-hours panel, to make this an explicit configured value.",
+  );
+}
+
 export class SettingsService {
   async listSettings() {
     return prisma.setting.findMany({ orderBy: { key: "asc" } });
@@ -538,7 +572,14 @@ export class SettingsService {
   // today's "00:00" sentinel, so a stale stored value keeps working
   // instead of being silently misread as a literal cutoff.
   async getCourtHours(): Promise<CourtHoursSettings> {
-    const stored = await this.getJsonValue<Partial<CourtHoursSettings>>(CMS_KEYS.COURT_HOURS, {});
+    // Read the row directly rather than via getJsonValue so ABSENT can be
+    // told apart from PRESENT-BUT-PARTIAL. Only the first is a
+    // misconfiguration; the second is the merge doing its job.
+    const row = await prisma.setting.findUnique({ where: { key: CMS_KEYS.COURT_HOURS } });
+    if (!row) {
+      warnCourtHoursRowMissing();
+    }
+    const stored = (row?.value as Partial<CourtHoursSettings> | undefined) ?? {};
     const courtCloseTimes = { ...DEFAULT_COURT_HOURS.courtCloseTimes, ...stored.courtCloseTimes };
     for (const [court, time] of Object.entries(courtCloseTimes)) {
       if (time === "24:00") {
