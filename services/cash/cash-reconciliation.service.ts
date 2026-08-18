@@ -1,9 +1,10 @@
-import { computeBusinessDate } from "@/lib/business-date";
+import { computeBusinessDate, isWithinBusinessDay } from "@/lib/business-date";
 import type { CashDailyBalance, Prisma } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { expenseService } from "@/services/expenses/expense.service";
 import { saleService } from "@/services/sales/sale.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 // Cash's twin of GcashReconciliationService (services/gcash/gcash-
 // reconciliation.service.ts) — same date-scoped, one-shared-float
@@ -221,8 +222,32 @@ export class CashReconciliationService {
     previousDate.setDate(previousDate.getDate() - 1);
     const previousDay = await prisma.cashDailyBalance.findUnique({ where: { date: previousDate } });
 
+    // Owner decision (2026-08-18), option B. The cutoff is applied ONLY
+    // when the previous day was confirmed inside its OWN business-day
+    // window, using the STORED rollover hour rather than a literal 3.
+    //
+    // Why: this floor filters on raw createdAt while the day itself is
+    // selected by businessDate — two different axes. A day confirmed LATE
+    // puts that floor past the whole of this day's trading and excludes
+    // every sale. Production hit exactly that: business date 2026-08-04
+    // computed PHP 0.00 against PHP 4,580.00 of real cash sales because
+    // 2026-08-03 was not confirmed until five days afterwards, leaving
+    // staff unable to close the day at all.
+    //
+    // A timely close (the Aug 8 shape — a shift finishing 00:54, still
+    // inside its own window) keeps its cutoff, because that timestamp
+    // genuinely marks money already counted in that drawer. A confirm days
+    // later says nothing about what was physically counted, so it is
+    // ignored. See lib/business-date.ts's isWithinBusinessDay.
+    const { businessDateRolloverHour } = await settingsService.getCourtHours();
+    const rawCutoff = previousDay?.confirmedAt ?? null;
+    const cutoff =
+      rawCutoff && isWithinBusinessDay(rawCutoff, previousDate, businessDateRolloverHour)
+        ? rawCutoff
+        : undefined;
+
     const [cashSalesCents, cashExpensesCents] = await Promise.all([
-      saleService.getCashSalesForDate(balance.date, previousDay?.confirmedAt ?? undefined),
+      saleService.getCashSalesForDate(balance.date, cutoff),
       expenseService.getCashExpensesForDate(balance.date),
     ]);
     return balance.startingBalanceCents + cashSalesCents - cashExpensesCents;

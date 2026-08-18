@@ -1,6 +1,7 @@
 import {
   assertIsCurrentBusinessDate,
   computeBusinessDate,
+  isWithinBusinessDay,
   getBusinessDateRange,
   StaleBusinessDateError,
   widenToBusinessDateRangeStart,
@@ -104,5 +105,37 @@ describe("assertIsCurrentBusinessDate", () => {
     const now = new Date(2026, 6, 25, 1, 0);
     const fridayBusinessDate = new Date(2026, 6, 24);
     expect(() => assertIsCurrentBusinessDate(fridayBusinessDate, ROLLOVER_HOUR, now)).not.toThrow();
+  });
+});
+
+describe("isWithinBusinessDay", () => {
+  const DAY = new Date(2031, 6, 14); // Mon 14 Jul 2031
+  const ROLLOVER = 3;
+  // Under rollover 3 the window is [14 Jul 03:00, 15 Jul 03:00).
+
+  it("includes a confirm just after midnight the following calendar day", () => {
+    // The Aug 8 shape: a shift closed at 00:54 still belongs to the
+    // business day it was working.
+    expect(isWithinBusinessDay(new Date(2031, 6, 15, 0, 54), DAY, ROLLOVER)).toBe(true);
+  });
+
+  it("includes the window's own start and excludes the next day's rollover", () => {
+    expect(isWithinBusinessDay(new Date(2031, 6, 14, 3, 0), DAY, ROLLOVER)).toBe(true);
+    expect(isWithinBusinessDay(new Date(2031, 6, 15, 3, 0), DAY, ROLLOVER)).toBe(false);
+  });
+
+  it("excludes a confirm before the day even began", () => {
+    expect(isWithinBusinessDay(new Date(2031, 6, 14, 2, 59), DAY, ROLLOVER)).toBe(false);
+  });
+
+  it("excludes a confirm days later — the case that zeroed a full day", () => {
+    expect(isWithinBusinessDay(new Date(2031, 6, 19, 1, 17), DAY, ROLLOVER)).toBe(false);
+  });
+
+  it("tracks the rollover hour rather than assuming 3", () => {
+    // With rollover 0 the window is plain midnight-to-midnight, so the
+    // same 00:54 confirm now belongs to the NEXT day, not this one.
+    expect(isWithinBusinessDay(new Date(2031, 6, 15, 0, 54), DAY, 0)).toBe(false);
+    expect(isWithinBusinessDay(new Date(2031, 6, 15, 0, 54), DAY, 6)).toBe(true);
   });
 });

@@ -94,3 +94,29 @@ export function getBusinessDateRange(date: Date, rolloverHour: number): { start:
   end.setDate(end.getDate() + 1);
   return { start, end };
 }
+
+// Does `timestamp` fall inside `date`'s own business day?
+//
+// Added for the reconciliation cutoff fix (owner decision 2026-08-18,
+// option B). getExpectedEndingBalance passes the PREVIOUS day's
+// confirmedAt to the sales query as a raw createdAt floor — the day is
+// selected by businessDate but then filtered by a raw timestamp, two
+// different axes. When a day is confirmed LATE that floor lands past the
+// whole of the next day's trading and excludes every sale, so a fully
+// populated day reports zero and cannot be closed. Seen in production:
+// business date 2026-08-04 computed PHP 0.00 against PHP 4,580.00 of real
+// cash sales, because 2026-08-03 was not confirmed until five days later.
+//
+// The cutoff is only meaningful when the previous day was closed within
+// its OWN window — a timely close whose timestamp genuinely marks "this
+// was already physically counted". A confirm days afterwards says nothing
+// about what was in the drawer, so callers ignore it.
+//
+// Half-open [start, end), matching getBusinessDateRange, so a confirm at
+// exactly the next day's rollover belongs to that next day, not this one.
+// Shared rather than mirrored in each reconciliation service specifically
+// so the cash and GCash twins cannot drift apart on it.
+export function isWithinBusinessDay(timestamp: Date, date: Date, rolloverHour: number): boolean {
+  const { start, end } = getBusinessDateRange(date, rolloverHour);
+  return timestamp >= start && timestamp < end;
+}
