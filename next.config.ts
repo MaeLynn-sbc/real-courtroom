@@ -22,6 +22,20 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "10mb",
     },
   },
+
+  // Every URL already stored in the database points at the old static
+  // path (/uploads/<name>) — the GCash QR setting, tournament logoUrl
+  // columns, CMS gallery entries. Rewriting here fixes all of them
+  // without a backfill or a data migration.
+  //
+  // This is an `afterFiles` rewrite (the plain-array form), which is
+  // exactly what's wanted: a file that IS in the build index still gets
+  // served statically and fast, and only the ones Next would 404 on fall
+  // through to the route that reads from disk. Nothing that works today
+  // changes path or gets slower.
+  async rewrites() {
+    return [{ source: "/uploads/:key", destination: "/api/uploads/:key" }];
+  },
 };
 
 export default nextConfig;

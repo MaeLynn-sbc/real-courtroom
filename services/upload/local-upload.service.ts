@@ -33,7 +33,13 @@ export class LocalUploadService implements UploadService {
     await writeFile(filePath, input.data);
 
     const result: UploadResult = {
-      url: `/uploads/${fileName}`,
+      // Served by app/api/uploads/[key]/route.ts, which reads from disk on
+      // each request — NOT the bare /uploads/<name> static path this used
+      // to return. Next.js indexes public/ at BUILD time, so a file
+      // uploaded afterwards was never served: the GCash QR, tournament
+      // logos and gallery images all silently 404'd until the next deploy.
+      // See that route for the production evidence.
+      url: `/api/uploads/${fileName}`,
       path: filePath,
     };
 
