@@ -3,13 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import {
-  changeBookingCourtSchema,
   changeBookingSlotSchema,
   checkInByTokenSchema,
   createBookingSchema,
   settleBookingSchema,
   updateBookingStatusSchema,
-  type ChangeBookingCourtInput,
   type ChangeBookingSlotInput,
   type CheckInByTokenInput,
   type CreateBookingInput,
@@ -235,13 +233,14 @@ export async function settleBookingAction(input: SettleBookingInput): Promise<Bo
   }
 }
 
-// "Sometimes customer change their mind... rather play in further court"
-// — same time slot, a different court. Plain requireBookingsManage, not
-// requireEmployeeWithOpenShift: this never touches a Sale (blocked
-// entirely once one exists — see changeBookingCourt's own comment), so
-// it's not a money-moving action the way settleBookingAction is.
-// Owner request (2026-08-25). Supersedes changeBookingCourtAction for the
-// UI — that one stays for its existing callers and is still court-only.
+// "Sometimes customer change their mind... rather play in further court",
+// extended on 2026-08-25 to the time as well. Replaced the court-only
+// changeBookingCourtAction, removed once nothing referenced it.
+//
+// Plain requireBookingsManage, not requireEmployeeWithOpenShift: moving a
+// booking never moves money. It cannot even change the amount on a paid
+// booking — changeBookingSlot refuses any move that would — so this is
+// not a money-moving action the way settleBookingAction is.
 export async function changeBookingSlotAction(
   input: ChangeBookingSlotInput,
 ): Promise<BookingActionState> {
@@ -279,43 +278,6 @@ export async function changeBookingSlotAction(
   }
 }
 
-export async function changeBookingCourtAction(
-  input: ChangeBookingCourtInput,
-): Promise<BookingActionState> {
-  const authz = await requireBookingsManage();
-  if (!authz.ok) {
-    return { error: authz.error };
-  }
-
-  const parsed = changeBookingCourtSchema.safeParse(input);
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
-  }
-
-  try {
-    await bookingService.changeBookingCourt(
-      parsed.data.bookingId,
-      parsed.data.newCourtId,
-      authz.userId,
-    );
-    revalidatePath("/dashboard/bookings");
-    revalidatePath(`/dashboard/bookings/${parsed.data.bookingId}`);
-    // Matches the same public-facing revalidation public-booking.actions.ts
-    // and public-booking-payment-proof.actions.ts already do — both public
-    // routes rendering CourtAvailabilityGrid are already force-dynamic
-    // (confirmed: no caching layer serves stale data for this), so this is
-    // defense-in-depth for consistency, not fixing an active staleness bug.
-    revalidatePath("/availability");
-    return { error: null };
-  } catch (error) {
-    if (error instanceof BookingConflictError) {
-      return { error: error.message, conflict: error.conflict };
-    }
-    return {
-      error: toActionError(error, { action: "changeBookingCourtAction", userId: authz.userId }),
-    };
-  }
-}
 
 export async function regenerateBookingQrTokenAction(
   bookingId: string,

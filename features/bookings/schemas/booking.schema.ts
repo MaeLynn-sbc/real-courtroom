@@ -102,13 +102,6 @@ export type CheckInByTokenInput = z.infer<typeof checkInByTokenSchema>;
 
 // "Customer changed their mind... rather play in further court" — same
 // time slot, a different court.
-export const changeBookingCourtSchema = z.object({
-  bookingId: z.string().min(1),
-  newCourtId: z.string().min(1, "Choose a court."),
-});
-
-export type ChangeBookingCourtInput = z.infer<typeof changeBookingCourtSchema>;
-
 // Owner request (2026-08-25): staff move a booking's court AND/OR time,
 // including one paid through the website. Every field optional so the
 // caller sends only what changed; the service refuses a no-op, a past

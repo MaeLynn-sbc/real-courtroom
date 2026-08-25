@@ -743,28 +743,18 @@ export class BookingService {
     return booking.booking;
   }
 
-  // "Sometimes customer change their mind... rather play in further
-  // court which is court 3 if it's available." Same time slot, a
-  // different court — re-checks availability on the NEW court/time
-  // combo exactly like createBooking does (excludeBookingId so the
-  // booking doesn't conflict with its own current slot), and
-  // recomputes totalAmountCents/isAfterHours from the new court's own
-  // rate/operating-hours rather than assuming they're unchanged —
-  // Court.hourlyRateCents is genuinely per-court data, not guaranteed
-  // equal across courts even though today's seed happens to set them
-  // all the same. Blocked once a Sale already exists — an already-paid
-  // amount can't silently drift if the new court's rate differs;
-  // cancel and rebook covers that case instead of a one-off
-  // reconciliation path nobody asked for.
+  // Replaced the court-only changeBookingCourt, which this supersedes
+  // entirely (removed 2026-08-25 once nothing referenced it).
+  //
   // Owner request (2026-08-25): "can we make the staff change the court
   // even if it's booked thru website. also the time if possible" —
   // followed by the rule that decides the whole design: "once it's
   // already paid, make sure the changes can only be different time slot
   // diff court but same number of hours", and "not the past".
   //
-  // The website was never the blocker. changeBookingCourt already handles
-  // PUBLIC bookings (it passes source === "PUBLIC" into the availability
-  // check); what blocked them was `if (existing.sale) throw` — and a
+  // The website was never the blocker. The old court-only method already
+  // handled PUBLIC bookings (it passed source === "PUBLIC" into the
+  // availability check); what blocked them was `if (existing.sale) throw` — and a
   // website booking gets its Sale the moment staff approve the payment
   // proof, so every paid one was unmovable. That hit staff bookings too
   // once settled; 19 rows in production were stuck this way.
@@ -921,92 +911,6 @@ export class BookingService {
         endAt: updated.endAt,
         totalAmountCents: updated.totalAmountCents,
       },
-    });
-
-    return updated;
-  }
-
-  async changeBookingCourt(
-    bookingId: string,
-    newCourtId: string,
-    actorUserId: string,
-  ): Promise<Booking> {
-    const existing = await prisma.booking.findUniqueOrThrow({
-      where: { id: bookingId },
-      include: { court: true, sale: true },
-    });
-
-    if (existing.sale) {
-      throw new BookingAlreadySettledError();
-    }
-    const TERMINAL_STATUSES: BookingStatus[] = [
-      "CANCELLED",
-      "NO_SHOW",
-      "REJECTED",
-      "COMPLETED",
-      "REFUNDED",
-    ];
-    if (TERMINAL_STATUSES.includes(existing.status)) {
-      throw new Error(
-        `Can't change the court on a ${existing.status.toLowerCase().replace("_", " ")} booking.`,
-      );
-    }
-    if (newCourtId === existing.courtId) {
-      throw new Error("Already on that court.");
-    }
-
-    const updated = await runSerializableWithRetry(async (tx) => {
-      const availability = await this.checkAvailabilityWithClient(
-        tx,
-        newCourtId,
-        existing.startAt,
-        existing.endAt,
-        existing.id,
-        existing.source === "PUBLIC",
-      );
-      if (!availability.available && availability.conflict) {
-        throw new BookingConflictError(availability.conflict);
-      }
-
-      const newCourt = await tx.court.findUniqueOrThrow({
-        where: { id: newCourtId },
-        select: { name: true, hourlyRateCents: true, shortSessionPriceCents: true },
-      });
-      const durationMinutes = (existing.endAt.getTime() - existing.startAt.getTime()) / 60_000;
-      const durationHours = durationMinutes / 60;
-      const totalAmountCents =
-        durationMinutes === 30
-          ? newCourt.shortSessionPriceCents
-          : Math.round((newCourt.hourlyRateCents ?? 0) * durationHours);
-
-      const courtHours = await settingsService.getCourtHours();
-      const isAfterHours = !isWithinCourtBookingWindow(
-        courtHours,
-        newCourt.name,
-        existing.startAt,
-        existing.endAt,
-      );
-
-      return tx.booking.update({
-        where: { id: bookingId },
-        data: { courtId: newCourtId, totalAmountCents, isAfterHours },
-        include: { court: true },
-      });
-    });
-
-    await this.writeBookingHistory(
-      bookingId,
-      existing.status,
-      actorUserId,
-      `Switched from ${existing.court.name} to ${updated.court.name}`,
-    );
-    await this.writeAuditLog({
-      actorUserId,
-      action: "booking.court_changed",
-      entityType: "Booking",
-      entityId: bookingId,
-      oldValues: { courtId: existing.courtId, totalAmountCents: existing.totalAmountCents },
-      newValues: { courtId: updated.courtId, totalAmountCents: updated.totalAmountCents },
     });
 
     return updated;
