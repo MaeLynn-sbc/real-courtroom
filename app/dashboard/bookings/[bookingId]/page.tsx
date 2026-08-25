@@ -13,7 +13,7 @@ import { CorrectSalePaymentMethodForm } from "@/features/bookings/components/cor
 import { RecordGcashPaymentForm } from "@/features/bookings/components/record-gcash-payment-form";
 import { RegenerateQrButton } from "@/features/bookings/components/regenerate-qr-button";
 import { SettleBookingForm } from "@/features/bookings/components/settle-booking-form";
-import { SwitchCourtForm } from "@/features/bookings/components/switch-court-form";
+import { MoveBookingForm } from "@/features/bookings/components/move-booking-form";
 import { CoachSessionPanel } from "@/features/coaching/components/coach-session-panel";
 import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
@@ -96,43 +96,21 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
   const showSettleForm = !booking.sale && !UNSETTLEABLE_STATUSES.has(booking.status);
 
   // "Sometimes customer change their mind... rather play in further
-  // court" — pre-payment only (changeBookingCourt itself blocks once a
-  // Sale exists, same "cancel and rebook instead of a one-off
-  // reconciliation" reasoning as that method's own comment). A
-  // slightly wider status set than showSettleForm's UNSETTLEABLE_STATUSES
-  // deliberately — AWAITING_PAYMENT/PENDING_VERIFICATION are still
-  // unpaid holds, switching courts under either is fine.
+  // court", extended on 2026-08-25 to time as well, and — the change
+  // that matters — no longer hidden once a Sale exists. Website bookings
+  // get their Sale the moment staff approve the payment proof, so
+  // gating on `!booking.sale` hid this from precisely the bookings staff
+  // needed to move. changeBookingSlot enforces the paid-booking rule
+  // (same duration, not the past) server-side; MoveBookingForm locks the
+  // end time to match so it can't even be attempted.
+  //
+  // Terminal statuses stay excluded, and remain a slightly wider set than
+  // showSettleForm's UNSETTLEABLE_STATUSES on purpose —
+  // AWAITING_PAYMENT/PENDING_VERIFICATION are still live holds and moving
+  // under either is fine.
   const TERMINAL_STATUSES = new Set(["CANCELLED", "NO_SHOW", "REJECTED", "COMPLETED", "REFUNDED"]);
-  const showSwitchCourtForm = !booking.sale && !TERMINAL_STATUSES.has(booking.status);
+  const showMoveForm = !TERMINAL_STATUSES.has(booking.status);
 
-  // Owner request (2026-08-13): "make sure to remove the option to
-  // switch to the court that is not available" — the dropdown used to
-  // offer every other court regardless of real conflicts (an Open Play
-  // block, another booking, maintenance), only failing after the staff
-  // member already picked one and clicked Switch court. Same
-  // checkAvailability the staff booking form's own Time dropdown already
-  // uses as a live preview (not the real gate — changeBookingCourt's own
-  // check inside its transaction stays the actual source of truth), run
-  // once per other court, in parallel.
-  const switchableCourts = showSwitchCourtForm
-    ? (
-        await Promise.all(
-          courts
-            .filter((court) => court.id !== booking.courtId)
-            .map(async (court) => ({
-              court,
-              availability: await bookingService.checkAvailability(
-                court.id,
-                booking.startAt,
-                booking.endAt,
-                booking.id,
-              ),
-            })),
-        )
-      )
-        .filter((entry) => entry.availability.available)
-        .map((entry) => entry.court)
-    : [];
 
   return (
     <div className="flex flex-col gap-8">
@@ -160,12 +138,19 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
               {formatRelativeTime(booking.createdAt)}
             </span>
           </p>
-          {showSwitchCourtForm ? (
-            <div className="mt-2">
-              <SwitchCourtForm
+          {showMoveForm ? (
+            <div className="mt-3 max-w-2xl">
+              {/* Every court is offered, not just those free at the CURRENT
+                  time — the staff member may be moving to a different slot
+                  entirely, where a different set is free. The real check is
+                  changeBookingSlot's own, inside its transaction. */}
+              <MoveBookingForm
                 bookingId={booking.id}
                 currentCourtId={booking.courtId}
-                courts={switchableCourts.map((court) => ({ id: court.id, name: court.name }))}
+                currentStartAt={booking.startAt}
+                currentEndAt={booking.endAt}
+                courts={courts.map((court) => ({ id: court.id, name: court.name }))}
+                isPaid={Boolean(booking.sale)}
               />
             </div>
           ) : null}

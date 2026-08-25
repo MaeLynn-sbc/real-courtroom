@@ -4,11 +4,13 @@ import { revalidatePath } from "next/cache";
 
 import {
   changeBookingCourtSchema,
+  changeBookingSlotSchema,
   checkInByTokenSchema,
   createBookingSchema,
   settleBookingSchema,
   updateBookingStatusSchema,
   type ChangeBookingCourtInput,
+  type ChangeBookingSlotInput,
   type CheckInByTokenInput,
   type CreateBookingInput,
   type SettleBookingInput,
@@ -238,6 +240,45 @@ export async function settleBookingAction(input: SettleBookingInput): Promise<Bo
 // requireEmployeeWithOpenShift: this never touches a Sale (blocked
 // entirely once one exists — see changeBookingCourt's own comment), so
 // it's not a money-moving action the way settleBookingAction is.
+// Owner request (2026-08-25). Supersedes changeBookingCourtAction for the
+// UI — that one stays for its existing callers and is still court-only.
+export async function changeBookingSlotAction(
+  input: ChangeBookingSlotInput,
+): Promise<BookingActionState> {
+  const authz = await requireBookingsManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = changeBookingSlotSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await bookingService.changeBookingSlot(
+      parsed.data.bookingId,
+      {
+        newCourtId: parsed.data.newCourtId,
+        newStartAt: parsed.data.newStartAt,
+        newEndAt: parsed.data.newEndAt,
+      },
+      authz.userId,
+    );
+    revalidatePath("/dashboard/bookings");
+    revalidatePath(`/dashboard/bookings/${parsed.data.bookingId}`);
+    revalidatePath("/availability");
+    return { error: null };
+  } catch (error) {
+    if (error instanceof BookingConflictError) {
+      return { error: error.message, conflict: error.conflict };
+    }
+    return {
+      error: toActionError(error, { action: "changeBookingSlotAction", userId: authz.userId }),
+    };
+  }
+}
+
 export async function changeBookingCourtAction(
   input: ChangeBookingCourtInput,
 ): Promise<BookingActionState> {

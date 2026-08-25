@@ -756,6 +756,176 @@ export class BookingService {
   // amount can't silently drift if the new court's rate differs;
   // cancel and rebook covers that case instead of a one-off
   // reconciliation path nobody asked for.
+  // Owner request (2026-08-25): "can we make the staff change the court
+  // even if it's booked thru website. also the time if possible" —
+  // followed by the rule that decides the whole design: "once it's
+  // already paid, make sure the changes can only be different time slot
+  // diff court but same number of hours", and "not the past".
+  //
+  // The website was never the blocker. changeBookingCourt already handles
+  // PUBLIC bookings (it passes source === "PUBLIC" into the availability
+  // check); what blocked them was `if (existing.sale) throw` — and a
+  // website booking gets its Sale the moment staff approve the payment
+  // proof, so every paid one was unmovable. That hit staff bookings too
+  // once settled; 19 rows in production were stuck this way.
+  //
+  // Why relaxing it is safe: price depends on the court's rate and the
+  // DURATION only — there is no time-of-day term anywhere in this
+  // service, and isAfterHours is a stored flag that never touches money.
+  // So moving a booking to another court, another time, or both, cannot
+  // change the amount as long as the duration holds. Resizing CAN
+  // (30 minutes bills shortSessionPriceCents flat, anything else bills
+  // hourly), which is exactly the case the owner ruled out.
+  //
+  // Hence two guards on a paid booking, not one: the duration must match
+  // (the owner's stated rule, with a message that says so), AND the
+  // recomputed amount must still equal what was actually charged. The
+  // second is belt-and-braces — redundant while every court is priced
+  // alike, and the thing that keeps this correct if they ever aren't.
+  async changeBookingSlot(
+    bookingId: string,
+    input: { newCourtId?: string; newStartAt?: Date; newEndAt?: Date },
+    actorUserId: string,
+    now: Date = new Date(),
+  ): Promise<Booking> {
+    const existing = await prisma.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      include: { court: true, sale: true },
+    });
+
+    const TERMINAL_STATUSES: BookingStatus[] = [
+      "CANCELLED",
+      "NO_SHOW",
+      "REJECTED",
+      "COMPLETED",
+      "REFUNDED",
+    ];
+    if (TERMINAL_STATUSES.includes(existing.status)) {
+      throw new Error(
+        `Can't move a ${existing.status.toLowerCase().replace("_", " ")} booking.`,
+      );
+    }
+
+    const targetCourtId = input.newCourtId ?? existing.courtId;
+    const targetStartAt = input.newStartAt ?? existing.startAt;
+    const targetEndAt = input.newEndAt ?? existing.endAt;
+
+    if (
+      targetCourtId === existing.courtId &&
+      targetStartAt.getTime() === existing.startAt.getTime() &&
+      targetEndAt.getTime() === existing.endAt.getTime()
+    ) {
+      throw new Error("Nothing to change — pick a different court or time.");
+    }
+    if (targetEndAt.getTime() <= targetStartAt.getTime()) {
+      throw new Error("The end time must be after the start time.");
+    }
+    // Owner: "not the past". Judged on the new START, so a booking already
+    // under way can still be moved to a later slot today.
+    if (targetStartAt.getTime() < now.getTime()) {
+      throw new Error("Can't move a booking into the past.");
+    }
+
+    const existingDurationMs = existing.endAt.getTime() - existing.startAt.getTime();
+    const targetDurationMs = targetEndAt.getTime() - targetStartAt.getTime();
+
+    if (existing.sale && targetDurationMs !== existingDurationMs) {
+      const hours = (ms: number) => Math.round((ms / 3_600_000) * 100) / 100;
+      throw new Error(
+        `This booking is already paid, so it can move to a different time or court but must keep the same length (${hours(existingDurationMs)}h, not ${hours(targetDurationMs)}h). Refund and re-book to change the length.`,
+      );
+    }
+
+    const updated = await runSerializableWithRetry(async (tx) => {
+      const availability = await this.checkAvailabilityWithClient(
+        tx,
+        targetCourtId,
+        targetStartAt,
+        targetEndAt,
+        existing.id,
+        existing.source === "PUBLIC",
+      );
+      if (!availability.available && availability.conflict) {
+        throw new BookingConflictError(availability.conflict);
+      }
+
+      const newCourt = await tx.court.findUniqueOrThrow({
+        where: { id: targetCourtId },
+        select: { name: true, hourlyRateCents: true, shortSessionPriceCents: true },
+      });
+      const durationMinutes = targetDurationMs / 60_000;
+      const totalAmountCents =
+        durationMinutes === 30
+          ? newCourt.shortSessionPriceCents
+          : Math.round((newCourt.hourlyRateCents ?? 0) * (durationMinutes / 60));
+
+      // The money guard. Same duration on an identically-priced court
+      // always lands here unchanged; if it ever doesn't, refuse rather
+      // than let the booking and its Sale disagree.
+      if (existing.sale && totalAmountCents !== existing.sale.amountCents) {
+        throw new Error(
+          "That move would change the price of an already-paid booking. Refund and re-book instead.",
+        );
+      }
+
+      const courtHours = await settingsService.getCourtHours();
+      const isAfterHours = !isWithinCourtBookingWindow(
+        courtHours,
+        newCourt.name,
+        targetStartAt,
+        targetEndAt,
+      );
+
+      return tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          courtId: targetCourtId,
+          startAt: targetStartAt,
+          endAt: targetEndAt,
+          totalAmountCents,
+          isAfterHours,
+        },
+        include: { court: true },
+      });
+    });
+
+    const movedCourt = existing.courtId !== updated.courtId;
+    const movedTime = existing.startAt.getTime() !== updated.startAt.getTime();
+    const parts: string[] = [];
+    if (movedCourt) {
+      parts.push(`${existing.court.name} to ${updated.court.name}`);
+    }
+    if (movedTime) {
+      parts.push(`${existing.startAt.toISOString()} to ${updated.startAt.toISOString()}`);
+    }
+    await this.writeBookingHistory(
+      bookingId,
+      existing.status,
+      actorUserId,
+      `Moved ${parts.join(", ")}`,
+    );
+    await this.writeAuditLog({
+      actorUserId,
+      action: "booking.slot_changed",
+      entityType: "Booking",
+      entityId: bookingId,
+      oldValues: {
+        courtId: existing.courtId,
+        startAt: existing.startAt,
+        endAt: existing.endAt,
+        totalAmountCents: existing.totalAmountCents,
+      },
+      newValues: {
+        courtId: updated.courtId,
+        startAt: updated.startAt,
+        endAt: updated.endAt,
+        totalAmountCents: updated.totalAmountCents,
+      },
+    });
+
+    return updated;
+  }
+
   async changeBookingCourt(
     bookingId: string,
     newCourtId: string,

@@ -108,3 +108,25 @@ export const changeBookingCourtSchema = z.object({
 });
 
 export type ChangeBookingCourtInput = z.infer<typeof changeBookingCourtSchema>;
+
+// Owner request (2026-08-25): staff move a booking's court AND/OR time,
+// including one paid through the website. Every field optional so the
+// caller sends only what changed; the service refuses a no-op, a past
+// start, and — on an already-paid booking — any change of duration.
+export const changeBookingSlotSchema = z
+  .object({
+    bookingId: z.string().min(1),
+    newCourtId: z.string().min(1).optional(),
+    newStartAt: z.coerce.date().optional(),
+    newEndAt: z.coerce.date().optional(),
+  })
+  .refine((data) => Boolean(data.newStartAt) === Boolean(data.newEndAt), {
+    message: "Pick both a start and an end time.",
+    path: ["newEndAt"],
+  })
+  .refine((data) => data.newCourtId || data.newStartAt, {
+    message: "Choose a different court or time.",
+    path: ["newCourtId"],
+  });
+
+export type ChangeBookingSlotInput = z.infer<typeof changeBookingSlotSchema>;
