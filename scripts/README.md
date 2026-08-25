@@ -47,6 +47,7 @@ A script should:
 | Script | Purpose |
 | --- | --- |
 | `deploy-production.sh` | Source of truth for the droplet's `/opt/tcpms/deploy.sh`. Halts on pending migrations by design. |
+| `backup-production.sh` | Source of truth for the droplet's `/opt/tcpms/backup.sh`. Nightly `pg_dump -Fc`, verifies the archive before rotating, keeps 14 days. Scheduled at 03:30 UTC (11:30 Manila) via root crontab. |
 | `run-integration-tests.ts` | Runs every `*.integration.ts` in sequence. Refuses to run with `NODE_ENV=production`. |
 | `backfill-booking-source.ts` | One-off: populate `Booking.source` on pre-existing rows. |
 | `backfill-coaching-fee-sales.ts` | One-off: create the missing `COACHING` Sale rows for historical coach sessions. |
