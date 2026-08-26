@@ -42,6 +42,28 @@ A script should:
   validation applies — and if it deliberately bypasses one, say why
 - report what it changed, rather than exiting silently
 
+## Running a script against production
+
+Always source `.env` explicitly:
+
+```bash
+cd /opt/tcpms/app && set -a && . ./.env && set +a && npx tsx scripts/<name>.ts
+```
+
+Not a style preference — it bit us on 2026-08-26. `/etc/environment` on
+the droplet carried a SECOND `DATABASE_URL` with `sslmode=require`, while
+`.env` uses `sslmode=verify-full` with the DigitalOcean CA. Every login
+shell inherited the weaker one, and dotenv deliberately does not override
+an existing `process.env` value — so a script run by hand connected
+**without verifying the database's certificate**, while the app (systemd,
+`EnvironmentFile=.env`) verified correctly. The backfill script failed
+outright with a TLS error, which is how it surfaced; a script that merely
+connected would have downgraded silently.
+
+That `/etc/environment` line has been removed, but the habit is the real
+protection: `set -a && . ./.env` makes the file the source of truth
+regardless of what the shell already has.
+
 ## Files
 
 | Script | Purpose |
