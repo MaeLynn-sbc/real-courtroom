@@ -51,4 +51,5 @@ A script should:
 | `run-integration-tests.ts` | Runs every `*.integration.ts` in sequence. Refuses to run with `NODE_ENV=production`. |
 | `backfill-booking-source.ts` | One-off: populate `Booking.source` on pre-existing rows. |
 | `backfill-coaching-fee-sales.ts` | One-off: create the missing `COACHING` Sale rows for historical coach sessions. |
+| `backfill-attendance-from-shifts.ts` | One-off: recover AttendanceRecord rows from closed Shift rows for days missed before shift-close seeding existed. Idempotent, dry-run by default. |
 | `delete-legacy-roles.ts` | One-off: remove superseded role rows. **Currently untracked** — a live instance of exactly the problem described above. |

@@ -3,6 +3,7 @@ import type { Prisma, Shift } from "@/lib/generated/prisma/client";
 import { sumCashDenominationBreakdown } from "@/lib/cash-denominations";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { attendanceRecordService } from "@/services/payroll/attendance-record.service";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
 import { WEBSITE_SYSTEM_USER_EMAIL } from "@/lib/system-identities";
 import { saleService } from "@/services/sales/sale.service";
@@ -260,6 +261,27 @@ export class ShiftService {
       oldValues: existing,
       newValues: shift,
     });
+
+    // Owner incident (2026-08-26): payroll read PHP 0.00 for twelve
+    // straight days because AttendanceRecord had not been written since a
+    // one-off backfill, while these Shift rows carried the real times the
+    // whole time. Attendance is now a by-product of closing a shift
+    // rather than a separate daily chore nobody is reminded of.
+    //
+    // Deliberately AFTER the shift is committed and audit-logged, and
+    // deliberately swallowing its own errors: closing a shift is a
+    // cash-custody act, and it must never fail because a payroll record
+    // could not be written alongside it. seedFromShift is idempotent and
+    // already returns null for every "nothing to do" case; this catch is
+    // for the genuinely unexpected.
+    try {
+      await attendanceRecordService.seedFromShift(shift, actorUserId);
+    } catch (error) {
+      logger.error(
+        { err: error, shiftId: shift.id },
+        "Shift closed, but seeding its attendance record failed — enter it manually",
+      );
+    }
 
     return shift;
   }

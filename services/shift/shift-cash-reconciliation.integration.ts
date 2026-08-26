@@ -51,6 +51,12 @@ async function cleanUp(): Promise<void> {
   const shifts = await prisma.shift.findMany({ where: { employeeId: { in: employeeIds } }, select: { id: true } });
   const shiftIds = shifts.map((s) => s.id);
   await prisma.sale.deleteMany({ where: { shiftId: { in: shiftIds } } });
+  // Closing a shift now seeds an AttendanceRecord (see
+  // shiftService.endShift). It references both the shift and the
+  // employee, so it has to go before either — otherwise the employee
+  // delete below fails on AttendanceRecord_employeeId_fkey. Production
+  // never hits this: employees are soft-deleted there, never removed.
+  await prisma.attendanceRecord.deleteMany({ where: { employeeId: { in: employeeIds } } });
   await prisma.shift.deleteMany({ where: { id: { in: shiftIds } } });
   await prisma.employee.deleteMany({ where: { id: { in: employeeIds } } });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });

@@ -152,6 +152,90 @@ export class AttendanceRecordService {
     return record;
   }
 
+  // Closes the seam AttendanceRecord's own schema comment left open
+  // ("shiftId is the seam for a later batch to wire..."), and the
+  // AttendanceSource.LIVE value that until now nothing produced.
+  //
+  // Owner incident (2026-08-26): payroll showed PHP 0.00 and
+  // NO_ATTENDANCE for every day from Aug 15 onward, and the owner was
+  // certain staff had been there. They had. 22 closed Shift rows carried
+  // their real times all along — Dani Ace 07:40-15:19 on the 17th, and so
+  // on — while AttendanceRecord had not been written to since a one-off
+  // backfill on Aug 14. Two tables recording the same human fact, only
+  // one of them wired to pay.
+  //
+  // Manual entry was never going to hold: it is a separate daily chore
+  // nobody is reminded of, and its absence is invisible until payroll
+  // runs weeks later. Seeding from the shift makes attendance a
+  // by-product of work staff already do every day.
+  //
+  // The separation the schema insists on survives. This writes a NEW
+  // AttendanceRecord rather than reading Shift at payroll time, so
+  // correcting a clock time still cannot rewrite a cash-custody fact, and
+  // rawClockIn/rawClockOut preserve what the shift originally said even
+  // after a correction.
+  //
+  // Returns null rather than throwing on every "nothing to do" case —
+  // callers include endShift, where failing to seed attendance must never
+  // block a cash-custody close.
+  async seedFromShift(
+    shift: { id: string; employeeId: string; startedAt: Date; endedAt: Date | null },
+    actorUserId: string,
+  ): Promise<AttendanceRecord | null> {
+    if (!shift.endedAt) {
+      return null;
+    }
+    if (shift.endedAt.getTime() <= shift.startedAt.getTime()) {
+      logger.warn(
+        { shiftId: shift.id },
+        "Not seeding attendance: the shift ended at or before it started",
+      );
+      return null;
+    }
+
+    // Idempotent on the shift, so a re-run or a retry cannot duplicate.
+    const already = await prisma.attendanceRecord.findFirst({ where: { shiftId: shift.id } });
+    if (already) {
+      return null;
+    }
+
+    const workDate = await this.deriveWorkDate(shift.startedAt);
+
+    // A manually-entered record for the same hours already covers this —
+    // skip rather than throw, and leave the human's entry authoritative.
+    try {
+      await this.assertNoOverlap(shift.employeeId, shift.startedAt, shift.endedAt, workDate);
+    } catch {
+      logger.info(
+        { shiftId: shift.id, employeeId: shift.employeeId },
+        "Not seeding attendance: an existing record already covers these hours",
+      );
+      return null;
+    }
+
+    const record = await prisma.attendanceRecord.create({
+      data: {
+        employeeId: shift.employeeId,
+        workDate,
+        clockIn: shift.startedAt,
+        clockOut: shift.endedAt,
+        rawClockIn: shift.startedAt,
+        rawClockOut: shift.endedAt,
+        source: "LIVE",
+        shiftId: shift.id,
+      },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "attendance_record.seeded_from_shift",
+      entityId: record.id,
+      newValues: record,
+    });
+
+    return record;
+  }
+
   // Required reason, same "who/when/why" shape as GcashDailyBalance's
   // overrideStartingBalance and TimeLogEntry's own correction fields —
   // updates clockIn/clockOut (the payroll-editable value) but never
