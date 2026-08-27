@@ -231,6 +231,32 @@ const DEFAULT_BUSINESS_INFO: BusinessInfo = {
   mapsUrl: "",
 };
 
+// Owner decision: one static GCash QR + account name/number, shown to
+// every customer on the payment step (both court bookings and open
+// play). No row yet -> nulls/blanks, same "absence means not configured
+// yet" doctrine as every other CMS default here.
+const DEFAULT_GCASH_PAYMENT_INFO: GcashPaymentInfo = {
+  qrImageUrl: null,
+  accountName: "",
+  accountNumber: "",
+};
+
+// Owner decision (2026-08-03): banned every customer-facing string that
+// implies "not confirmed yet" ("pending verification," "unverified,"
+// "isn't reserved until...") in favor of stating what IS happening — see
+// features/bookings/components/public-booking-form.tsx's own
+// confirmation-screen comment for the full reasoning. Both copy defaults
+// below are exactly the wording the owner specified live;
+// {phone}/{reference}/{shortCode}/{court}/{date}/{time}/{duration} are
+// the only placeholders substituted at render/send time.
+const DEFAULT_BOOKING_COMMUNICATION: BookingCommunicationSettings = {
+  smsSenderName: "",
+  smsConfirmationTemplate:
+    "The Courtroom Kalibo: Booking {shortCode} CONFIRMED. {court}, {date}, {time}, {duration}. Payment received. See you then!",
+  pageConfirmationCopy:
+    "Your slot is reserved. We'll text you at {phone} to confirm — usually within an hour during opening hours (7AM–11PM). Bookings made late at night are confirmed the next morning.",
+};
+
 // BUILD-SPEC.md §0's confirmed business facts — facility open 7AM, close
 // 11PM every day; Court 1 until 6PM, Court 2 until 8PM, Court 3 has no
 // per-court cutoff of its own (runs until facility close); everyone until
@@ -418,7 +444,7 @@ export class SettingsService {
   }
 
   async getBookingHoldMinutes(): Promise<number> {
-    const stored = await this.getJsonValue<BookingHoldSettings>(
+    const stored = await this.getMergedJsonValue<BookingHoldSettings>(
       BOOKING_HOLD_KEY,
       DEFAULT_BOOKING_HOLD,
     );
@@ -494,7 +520,7 @@ export class SettingsService {
   // string or boolean — one fixed key per content section.
 
   async getHomepageHero(): Promise<HomepageHero> {
-    return this.getJsonValue(CMS_KEYS.HOMEPAGE_HERO, DEFAULT_HERO);
+    return this.getMergedJsonValue(CMS_KEYS.HOMEPAGE_HERO, DEFAULT_HERO);
   }
 
   async setHomepageHero(value: HomepageHero, actorUserId: string) {
@@ -502,7 +528,7 @@ export class SettingsService {
   }
 
   async getBusinessInfo(): Promise<BusinessInfo> {
-    return this.getJsonValue(CMS_KEYS.BUSINESS_INFO, DEFAULT_BUSINESS_INFO);
+    return this.getMergedJsonValue(CMS_KEYS.BUSINESS_INFO, DEFAULT_BUSINESS_INFO);
   }
 
   async setBusinessInfo(value: BusinessInfo, actorUserId: string) {
@@ -525,38 +551,16 @@ export class SettingsService {
     return this.setJsonValue(CMS_KEYS.GALLERY_IMAGES, value, actorUserId);
   }
 
-  // Owner decision: one static GCash QR + account name/number, shown to
-  // every customer on the payment step (both court bookings and open
-  // play). No row yet -> nulls/blanks, same "absence means not
-  // configured yet" doctrine as every other CMS default here.
   async getGcashPaymentInfo(): Promise<GcashPaymentInfo> {
-    return this.getJsonValue(CMS_KEYS.GCASH_PAYMENT_INFO, {
-      qrImageUrl: null,
-      accountName: "",
-      accountNumber: "",
-    } as GcashPaymentInfo);
+    return this.getMergedJsonValue(CMS_KEYS.GCASH_PAYMENT_INFO, DEFAULT_GCASH_PAYMENT_INFO);
   }
 
   async setGcashPaymentInfo(value: GcashPaymentInfo, actorUserId: string) {
     return this.setJsonValue(CMS_KEYS.GCASH_PAYMENT_INFO, value, actorUserId);
   }
 
-  // Owner decision (2026-08-03): banned every customer-facing string
-  // that implies "not confirmed yet" ("pending verification,"
-  // "unverified," "isn't reserved until…") in favor of stating what IS
-  // happening — see features/bookings/components/public-booking-form.tsx's
-  // own confirmation-screen comment for the full reasoning. Both
-  // defaults below are exactly the wording the owner specified live;
-  // {phone}/{reference}/{shortCode}/{court}/{date}/{time}/{duration}
-  // are the only placeholders substituted at render/send time.
   async getBookingCommunicationSettings(): Promise<BookingCommunicationSettings> {
-    return this.getJsonValue(CMS_KEYS.BOOKING_COMMUNICATION, {
-      smsSenderName: "",
-      smsConfirmationTemplate:
-        "The Courtroom Kalibo: Booking {shortCode} CONFIRMED. {court}, {date}, {time}, {duration}. Payment received. See you then!",
-      pageConfirmationCopy:
-        "Your slot is reserved. We'll text you at {phone} to confirm — usually within an hour during opening hours (7AM–11PM). Bookings made late at night are confirmed the next morning.",
-    } as BookingCommunicationSettings);
+    return this.getMergedJsonValue(CMS_KEYS.BOOKING_COMMUNICATION, DEFAULT_BOOKING_COMMUNICATION);
   }
 
   async setBookingCommunicationSettings(value: BookingCommunicationSettings, actorUserId: string) {
@@ -611,11 +615,7 @@ export class SettingsService {
   // `amountCents` being undefined — not hypothetical, reproduced via a
   // real browser smoke test against the actual dev database.
   async getOpenPlaySettings(): Promise<OpenPlaySettings> {
-    const stored = await this.getJsonValue<Partial<OpenPlaySettings>>(
-      CMS_KEYS.OPEN_PLAY_SETTINGS,
-      {},
-    );
-    return { ...DEFAULT_OPEN_PLAY_SETTINGS, ...stored };
+    return this.getMergedJsonValue(CMS_KEYS.OPEN_PLAY_SETTINGS, DEFAULT_OPEN_PLAY_SETTINGS);
   }
 
   async setOpenPlaySettings(value: OpenPlaySettings, actorUserId: string) {
@@ -685,7 +685,7 @@ export class SettingsService {
   }
 
   async getDisplayRefreshIntervalSeconds(): Promise<number> {
-    const stored = await this.getJsonValue<DisplayRefreshIntervalSettings>(
+    const stored = await this.getMergedJsonValue<DisplayRefreshIntervalSettings>(
       DISPLAY_REFRESH_INTERVAL_KEY,
       DEFAULT_DISPLAY_REFRESH_INTERVAL,
     );
@@ -697,7 +697,7 @@ export class SettingsService {
   }
 
   async getAnnouncementRepeatCount(): Promise<number> {
-    const stored = await this.getJsonValue<AnnouncementRepeatSettings>(
+    const stored = await this.getMergedJsonValue<AnnouncementRepeatSettings>(
       DISPLAY_ANNOUNCEMENT_REPEAT_KEY,
       DEFAULT_ANNOUNCEMENT_REPEAT,
     );
@@ -709,7 +709,7 @@ export class SettingsService {
   }
 
   async getTimeUpFlashDurationSeconds(): Promise<number> {
-    const stored = await this.getJsonValue<TimeUpFlashSettings>(
+    const stored = await this.getMergedJsonValue<TimeUpFlashSettings>(
       DISPLAY_TIME_UP_FLASH_KEY,
       DEFAULT_TIME_UP_FLASH,
     );
@@ -721,7 +721,7 @@ export class SettingsService {
   }
 
   async getAnnouncementVoice(): Promise<{ name: string; lang: string } | null> {
-    const stored = await this.getJsonValue<AnnouncementVoiceSettings>(
+    const stored = await this.getMergedJsonValue<AnnouncementVoiceSettings>(
       DISPLAY_ANNOUNCEMENT_VOICE_KEY,
       DEFAULT_ANNOUNCEMENT_VOICE,
     );
@@ -733,7 +733,7 @@ export class SettingsService {
   }
 
   async getAnnouncementRate(): Promise<number> {
-    const stored = await this.getJsonValue<AnnouncementRateSettings>(
+    const stored = await this.getMergedJsonValue<AnnouncementRateSettings>(
       DISPLAY_ANNOUNCEMENT_RATE_KEY,
       DEFAULT_ANNOUNCEMENT_RATE,
     );
@@ -745,7 +745,7 @@ export class SettingsService {
   }
 
   async getAnnouncementTemplate(): Promise<string> {
-    const stored = await this.getJsonValue<AnnouncementTemplateSettings>(
+    const stored = await this.getMergedJsonValue<AnnouncementTemplateSettings>(
       DISPLAY_ANNOUNCEMENT_TEMPLATE_KEY,
       DEFAULT_ANNOUNCEMENT_TEMPLATE,
     );
@@ -757,7 +757,7 @@ export class SettingsService {
   }
 
   async getTimesUpTemplate(): Promise<string> {
-    const stored = await this.getJsonValue<TimesUpTemplateSettings>(
+    const stored = await this.getMergedJsonValue<TimesUpTemplateSettings>(
       DISPLAY_TIMES_UP_TEMPLATE_KEY,
       DEFAULT_TIMES_UP_TEMPLATE,
     );
@@ -769,16 +769,51 @@ export class SettingsService {
   }
 
   async getGameWarningSettings(): Promise<GameWarningSettings> {
-    return this.getJsonValue<GameWarningSettings>(DISPLAY_GAME_WARNING_KEY, DEFAULT_GAME_WARNING);
+    return this.getMergedJsonValue<GameWarningSettings>(DISPLAY_GAME_WARNING_KEY, DEFAULT_GAME_WARNING);
   }
 
   async setGameWarningSettings(value: GameWarningSettings, actorUserId: string) {
     return this.setJsonValue(DISPLAY_GAME_WARNING_KEY, value, actorUserId);
   }
 
+  // Returns the stored row VERBATIM, defaults only when the row is
+  // absent. Correct for the settings whose value is an ARRAY
+  // (otherRates, galleryImages) or a bare string (the display slug).
+  // Object-shaped settings want getMergedJsonValue below instead.
   private async getJsonValue<T>(key: string, fallback: T): Promise<T> {
     const row = await prisma.setting.findUnique({ where: { key } });
     return row ? (row.value as T) : fallback;
+  }
+
+  // Sibling of getJsonValue for OBJECT-shaped settings: the stored row is
+  // merged OVER the defaults instead of replacing them, so a row saved
+  // before a field existed — or written partially by a script — comes
+  // back complete rather than with that field silently undefined.
+  //
+  // getCourtHours and getOpenPlaySettings each hit this and grew their own
+  // one-off merge (the latter after registerWalkIn crashed live on an
+  // undefined amountCents). This is that same fix made general, prompted
+  // by a partial write to cms.bookingCommunication that would have broken
+  // the booking-confirmation SMS and the public confirmation copy at once
+  // — see partial-settings-row-merge.integration.ts.
+  //
+  // Deliberately NOT folded into getJsonValue. Shallow-spreading an array
+  // ({ ...[], ...["a"] }) turns it into an object, so doing this blindly
+  // would corrupt otherRates and galleryImages; the caller picks.
+  //
+  // Shallow on purpose — every caller's shape is flat. courtHours is the
+  // one with nested maps, and it keeps its bespoke merge, which also
+  // carries the absent-row warning and the "24:00" sentinel migration.
+  //
+  // Spread semantics are exactly the rule wanted: only ABSENT keys fall
+  // back, so a deliberately-stored `false` or `null` still wins.
+  private async getMergedJsonValue<T extends object>(key: string, defaults: T): Promise<T> {
+    const row = await prisma.setting.findUnique({ where: { key } });
+    const stored = row?.value;
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
+      return defaults;
+    }
+    return { ...defaults, ...(stored as Partial<T>) };
   }
 
   // actorUserId is nullable for the one genuinely-system-initiated write
