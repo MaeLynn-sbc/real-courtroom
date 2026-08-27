@@ -983,6 +983,17 @@ model SmsLog {
   providerMessageId String?
   providerStatus    String?
 
+  // Failure forensics — see the migration for the full value list. The
+  // split that matters: REFUSED (401/403/429) is provably-not-sent and
+  // releases the dedupeKey; HTTP_ERROR/TIMEOUT/NETWORK are AMBIGUOUS and
+  // keep it, because a lost response is the likeliest way to have sent a
+  // message you believe failed.
+  failureKind String?
+  httpStatus  Int?
+  // Stamped immediately before the request leaves, so an ambiguous row can
+  // be matched against the provider's log by recipient and minute.
+  requestedAt DateTime?
+
   entityId  String?
   createdAt DateTime @default(now())
 
@@ -990,6 +1001,8 @@ model SmsLog {
   // business-day window on every single send.
   @@index([createdAt, status])
   @@index([trigger, entityId])
+  // Partial index behind the "what needs checking by hand?" query.
+  @@index([createdAt])
 }
 
 enum BookingSource {

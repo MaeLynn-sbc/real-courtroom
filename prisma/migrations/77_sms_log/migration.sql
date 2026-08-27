@@ -56,6 +56,21 @@ CREATE TABLE "SmsLog" (
   -- be reconciled one-to-one against the provider dashboard.
   "providerMessageId" TEXT,
   "providerStatus"    TEXT,
+  -- Failure forensics. A FAILED row is only actionable if a human can
+  -- tell an ambiguous timeout (the message MAY have gone out) from a flat
+  -- refusal (it demonstrably did not), and can then find the corresponding
+  -- entry in Semaphore's own message log.
+  --   REFUSED    401/403/429 - provably not sent, frees the dedupeKey
+  --   VALIDATION 400/422     - this recipient was rejected
+  --   HTTP_ERROR 5xx         - AMBIGUOUS, may have been queued
+  --   TIMEOUT                - AMBIGUOUS, the most likely to have sent
+  --   NETWORK                - AMBIGUOUS, request may not have left
+  --   REJECTED   200 + Failed/Refunded - provider declined delivery
+  "failureKind" TEXT,
+  "httpStatus"  INTEGER,
+  -- Stamped immediately BEFORE the request leaves, so an ambiguous row can
+  -- be matched against the provider dashboard by recipient and minute.
+  "requestedAt" TIMESTAMP(3),
   "entityId"  TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -75,3 +90,9 @@ CREATE INDEX "SmsLog_createdAt_status_idx" ON "SmsLog"("createdAt", "status");
 
 -- Serves "did we text this booking?" lookups from the admin side.
 CREATE INDEX "SmsLog_trigger_entityId_idx" ON "SmsLog"("trigger", "entityId");
+
+-- Serves the "which sends are ambiguous and need checking against the
+-- provider dashboard?" query. Partial, because these rows should be rare
+-- and the index should stay tiny.
+CREATE INDEX "SmsLog_ambiguous_idx" ON "SmsLog"("createdAt")
+  WHERE "status" = 'FAILED' AND "failureKind" IN ('HTTP_ERROR', 'TIMEOUT', 'NETWORK');

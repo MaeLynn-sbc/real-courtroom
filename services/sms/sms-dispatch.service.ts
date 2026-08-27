@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { analyzeSmsBody } from "@/lib/sms-encoding";
 import { settingsService } from "@/services/settings/settings.service";
 import { getSmsService } from "@/services/sms/sms-service.factory";
-import type { SmsSendResult } from "@/services/sms/sms-service.interface";
+import { SmsSendError, type SmsSendResult } from "@/services/sms/sms-service.interface";
 
 // The single chokepoint every outbound SMS passes through. No caller ever
 // touches getSmsService() directly — going through here is what makes the
@@ -126,13 +126,45 @@ export class SmsDispatchService {
       );
     }
 
+    // Stamped before the request leaves so an ambiguous row can be matched
+    // against the provider's own log by recipient and minute.
+    const requestedAt = new Date();
+    await prisma.smsLog.update({ where: { dedupeKey }, data: { requestedAt } });
+
     try {
       const result = await getSmsService().send(phone, input.body);
-      return this.settle(dedupeKey, "SENT", undefined, result);
+      return this.settle(dedupeKey, "SENT", { result });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.error({ error, dedupeKey }, "SMS send failed");
-      return this.settle(dedupeKey, "FAILED", message);
+      const sendError = error instanceof SmsSendError ? error : null;
+
+      // THE KEY DECISION. Release the dedupeKey only when the provider
+      // demonstrably never accepted the message — 401/403/429. Every
+      // ambiguous kind (5xx, timeout, reset) KEEPS the key, because a lost
+      // response is the likeliest way to have sent a message we believe
+      // failed, and a duplicate text is worse than a missing one. An
+      // unclassified error is treated as ambiguous by default.
+      const releaseKey = sendError?.provablyNotSent ?? false;
+
+      logger.error(
+        {
+          error,
+          dedupeKey,
+          failureKind: sendError?.kind ?? "UNKNOWN",
+          httpStatus: sendError?.httpStatus ?? null,
+          releaseKey,
+        },
+        releaseKey
+          ? "SMS send refused by the provider — key released, this entity can be retried"
+          : "SMS send failed ambiguously — key kept, needs checking against the provider log",
+      );
+
+      return this.settle(dedupeKey, "FAILED", {
+        error: message,
+        failureKind: sendError?.kind ?? "NETWORK",
+        httpStatus: sendError?.httpStatus ?? null,
+        releaseKey,
+      });
     }
   }
 
@@ -172,16 +204,26 @@ export class SmsDispatchService {
   private async settle(
     dedupeKey: string,
     status: SmsStatus,
-    error?: string,
-    result?: SmsSendResult,
+    outcome: {
+      result?: SmsSendResult;
+      error?: string;
+      failureKind?: string | null;
+      httpStatus?: number | null;
+      // Nulls the dedupeKey, so this entity becomes textable again. Only
+      // ever true for a provably-not-sent refusal.
+      releaseKey?: boolean;
+    } = {},
   ): Promise<SmsStatus> {
     await prisma.smsLog.update({
       where: { dedupeKey },
       data: {
         status,
-        error: error ?? null,
-        providerMessageId: result?.providerMessageId ?? null,
-        providerStatus: result?.providerStatus ?? null,
+        error: outcome.error ?? null,
+        failureKind: outcome.failureKind ?? null,
+        httpStatus: outcome.httpStatus ?? null,
+        providerMessageId: outcome.result?.providerMessageId ?? null,
+        providerStatus: outcome.result?.providerStatus ?? null,
+        ...(outcome.releaseKey ? { dedupeKey: null } : {}),
       },
     });
     return status;

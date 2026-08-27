@@ -1,9 +1,30 @@
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { settingsService } from "@/services/settings/settings.service";
-import type { SmsSendResult, SmsService } from "@/services/sms/sms-service.interface";
+import {
+  SmsSendError,
+  type SmsFailureKind,
+  type SmsSendResult,
+  type SmsService,
+} from "@/services/sms/sms-service.interface";
 
 const SEMAPHORE_ENDPOINT = "https://api.semaphore.co/api/v4/messages";
+// Bounded so a hung connection cannot hold a booking's post-commit side
+// effect open indefinitely. A timeout is reported as its own failure kind
+// because it is AMBIGUOUS — the message may already be queued.
+const REQUEST_TIMEOUT_MS = 15_000;
+
+// Maps an HTTP status onto what it tells us about whether the message was
+// accepted. Only 401/403/429 prove non-acceptance.
+function classifyHttpStatus(status: number): SmsFailureKind {
+  if (status === 401 || status === 403 || status === 429) {
+    return "REFUSED";
+  }
+  if (status === 400 || status === 422) {
+    return "VALIDATION";
+  }
+  return "HTTP_ERROR";
+}
 
 // Semaphore API v4 (form-encoded POST) response shape — one object per
 // recipient, even for a single-number send.
@@ -32,15 +53,32 @@ export class SemaphoreSmsService implements SmsService {
       body.set("sendername", smsSenderName);
     }
 
-    const response = await fetch(SEMAPHORE_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-    });
+    let response: Response;
+    try {
+      response = await fetch(SEMAPHORE_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      // A rejected fetch cannot tell us whether the request was processed.
+      // Both kinds below are AMBIGUOUS and keep the dedupeKey.
+      const isTimeout =
+        error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+      throw new SmsSendError(
+        `Semaphore SMS request did not complete: ${error instanceof Error ? error.message : String(error)}`,
+        isTimeout ? "TIMEOUT" : "NETWORK",
+      );
+    }
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(`Semaphore SMS request failed (${response.status}): ${text}`);
+      throw new SmsSendError(
+        `Semaphore SMS request failed (${response.status}): ${text}`,
+        classifyHttpStatus(response.status),
+        response.status,
+      );
     }
 
     // Rate-limit headers (owner requirement, 2026-08-28). Semaphore
@@ -80,7 +118,11 @@ export class SemaphoreSmsService implements SmsService {
     // arrived.
     const failed = results.find((result) => result.status === "Failed" || result.status === "Refunded");
     if (failed) {
-      throw new Error(`Semaphore SMS was not delivered — status: ${failed.status}`);
+      throw new SmsSendError(
+        `Semaphore SMS was not delivered — status: ${failed.status}`,
+        "REJECTED",
+        response.status,
+      );
     }
 
     const accepted = results[0];
