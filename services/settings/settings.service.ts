@@ -446,6 +446,38 @@ export class SettingsService {
   // touched) -> true; a row that exists reflects a real, later decision
   // (an owner explicitly toggling it via setBookingRequirePrepayment)
   // and always wins.
+  // ⚠ TURNING THIS OFF SILENTLY KILLS EVERY PUBLIC BOOKING CONFIRMATION SMS.
+  //
+  // The PUBLIC_BOOKING trigger fires from approveBookingPaymentProof —
+  // the moment a booking becomes genuinely confirmed. That is the ONLY
+  // place it fires. With prepayment ON (the default below, and the state
+  // production is in), every public booking routes
+  // createBookingHold -> proof -> approval, so every one gets its text.
+  //
+  // With prepayment OFF, createBooking writes status CONFIRMED directly,
+  // no BookingPaymentProof row is ever created, approveBookingPaymentProof
+  // never runs, and NO CONFIRMATION IS EVER SENT. There is nothing in
+  // SmsLog to show for it either — not a SKIPPED row, not a FAILED one —
+  // because no dispatch is attempted at all. The failure is invisible by
+  // construction, which is why this warning is here rather than in a
+  // dashboard nobody reads.
+  //
+  // If this is ever switched off and confirmations are still wanted, the
+  // fix is a dispatch inside createBooking gated on source === "PUBLIC".
+  // The dedupeKey ("PUBLIC_BOOKING:{bookingId}") makes that safe to add
+  // alongside the approval trigger — whichever fires first wins and the
+  // other returns DUPLICATE.
+  //
+  // ── Approval latency, measured against production (119 approved proofs,
+  //    2026-08-28). The confirmation lands whenever staff get to it:
+  //        median   9.9 min      p90  74.9 min
+  //        average 41.8 min      worst 9.3 hours
+  //    TWO of those 119 were approved AFTER the booking had already
+  //    started — the customer got "confirmed" for a slot in progress.
+  //    Tolerable while the owner is the only approver; it becomes a real
+  //    customer-experience problem the day approval is delegated to staff
+  //    who batch it. The submission acknowledgement SMS is what keeps the
+  //    customer from sitting in silence in the meantime.
   async getBookingRequirePrepayment(): Promise<boolean> {
     const row = await prisma.setting.findUnique({ where: { key: BOOKING_REQUIRE_PREPAYMENT_KEY } });
     if (!row) {

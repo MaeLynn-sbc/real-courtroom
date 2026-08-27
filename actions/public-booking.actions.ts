@@ -76,9 +76,17 @@ export interface PublicBookingActionState {
   // booking.
   shortCode?: string | null;
   // Phase 8 Gate 2 — only ever true when the owner-controlled prepayment
-  // switch is on (settingsService.getBookingRequirePrepayment). Default
-  // OFF means this is undefined/false for every booking today, and the
-  // rest of this action state is byte-for-byte what it always was.
+  // switch is on (settingsService.getBookingRequirePrepayment).
+  //
+  // CORRECTED 2026-08-28: this previously read "Default OFF means this is
+  // undefined/false for every booking today." That was wrong, and it is
+  // the opposite of the truth in a way that misleads anyone reasoning
+  // about the public flow. getBookingRequirePrepayment returns TRUE when
+  // the Setting row is absent, and production has no row — so prepayment
+  // is REQUIRED, and this is true for every public booking. Confirmed
+  // against the data: 105 of 105 COMPLETED public bookings carry a
+  // BookingPaymentProof. See that getter for what switching it off would
+  // do to confirmation SMS.
   requiresPayment?: boolean;
   holdExpiresAt?: Date;
   // Already computed and persisted server-side (pro-rata) — surfaced so
