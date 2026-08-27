@@ -881,6 +881,117 @@ enum BookingStatus {
 // authorization decision, which must read a field on the booking being
 // authorized, not walk a relation that might be missing. Set once, at
 // creation, in createBooking — never updated afterward.
+// ── SMS (Semaphore) ────────────────────────────────────────────────────
+
+// Which of the three approved triggers produced a message. Owner decision
+// (2026-08-28): SMS fires ONLY on the three PUBLIC/customer-initiated
+// paths. Staff-created bookings and walk-in open-play registrations send
+// nothing — deliberately, because the walk-in desk is where the bad phone
+// data lives (852 of 864 walk-in registrations carry an unsendable value,
+// 831 of them a single character, vs 2 of 267 on the public path). This
+// sidesteps that data rather than pretending to fix it.
+enum SmsTrigger {
+  // createPublicOpenPlayRegistration only. registerWalkIn sends nothing.
+  OPEN_PLAY_REGISTRATION
+  // createPublicBooking only. Staff-created bookings send nothing.
+  PUBLIC_BOOKING
+  // A coaching session being created — notifies the COACH on Employee.phone,
+  // not the customer.
+  COACH_SESSION
+  // Cancellations. Gated at the call site on a confirmation having
+  // actually been SENT for the same entity — telling someone their
+  // booking is cancelled when they were never told it was confirmed is
+  // noise at best and alarming at worst.
+  BOOKING_CANCELLED
+  COACH_SESSION_CANCELLED
+}
+
+enum SmsStatus {
+  // The CLAIM state. A row is inserted QUEUED to reserve its dedupeKey
+  // BEFORE the provider is called, then updated to SENT or FAILED. This
+  // ordering is what makes the unique constraint an actual guard: the key
+  // is taken before any money is spent, so a concurrent duplicate loses
+  // the insert and sends nothing. A row left at QUEUED means the process
+  // died mid-send — honest, and never a false SENT.
+  QUEUED
+  SENT
+  // The provider rejected it, or the request failed. The error is kept on
+  // the row so a failure is diagnosable without provider dashboard access.
+  FAILED
+  // The recipient's stored phone is not a valid PH mobile. Nothing was
+  // sent and no credit was spent. This is the EXPECTED outcome for a
+  // customer typo — recorded rather than swallowed so the rate stays
+  // visible instead of looking like silence.
+  SKIPPED_INVALID
+  // The 200/day cap was already reached. Nothing sent.
+  SKIPPED_CAP
+  // The CMS kill switch is off. Nothing sent.
+  SKIPPED_DISABLED
+}
+
+// One row per send ATTEMPT, including the ones that never reached the
+// provider. Exists because a text is money leaving the account and a
+// promise made to a customer, and neither was observable before this: the
+// three send paths that already shipped log to stdout and nowhere else.
+model SmsLog {
+  id      String     @id @default(cuid())
+  trigger SmsTrigger
+  status  SmsStatus
+
+  // THE IDEMPOTENCY KEY, "{trigger}:{entityId}" — the whole reason this
+  // table can be trusted. Unique, so a retried server action, a
+  // double-submitted form or a redeployed worker cannot text the same
+  // customer twice for the same booking: the second insert violates the
+  // constraint and the dispatcher treats that as "already handled."
+  //
+  // Deliberately carries NO nonce or attempt counter. That makes a failed
+  // send permanently un-retryable, which is the intended trade: a customer
+  // receiving nothing is a smaller failure than a customer receiving five
+  // identical texts, and the FAILED row makes the miss visible either way.
+  // NULLABLE on purpose — Postgres permits many NULLs under a unique
+  // index. A row recording a decision about THIS entity (SENT, FAILED,
+  // SKIPPED_INVALID) takes the key and blocks a second attempt forever.
+  // A row recording a SYSTEM state (SKIPPED_DISABLED, SKIPPED_CAP) stores
+  // NULL and blocks nothing — otherwise turning the kill switch on would
+  // find every entity created while it was off permanently un-textable.
+  dedupeKey String? @unique
+
+  // The normalised 09XXXXXXXXX actually dialled. Null when normalisation
+  // rejected the input — there was no number to send to.
+  phone String?
+  // Exactly what was stored on the entity, kept verbatim. This is the
+  // evidence for a SKIPPED_INVALID row: without it "we didn't text them"
+  // is unfalsifiable, and the junk-data picture can't be re-measured.
+  rawPhone String?
+
+  // The RENDERED body, after substitution — what the customer received,
+  // not the template it came from. A template edit must never rewrite
+  // history, the same reasoning AttendanceRecord.rawClockIn follows.
+  body String
+
+  // Billing evidence, from lib/sms-encoding.ts, computed on the rendered
+  // body. segments > 1 means this message cost double; recorded so the
+  // bill is explainable per-message rather than only in aggregate.
+  encoding String?
+  segments Int?
+
+  // Populated on FAILED. Provider status string or thrown message.
+  error String?
+
+  // Semaphore's own message id and status string, so an SmsLog row can be
+  // reconciled one-to-one against the provider dashboard.
+  providerMessageId String?
+  providerStatus    String?
+
+  entityId  String?
+  createdAt DateTime @default(now())
+
+  // Serves the 200/day cap count, which filters status = SENT over a
+  // business-day window on every single send.
+  @@index([createdAt, status])
+  @@index([trigger, entityId])
+}
+
 enum BookingSource {
   PUBLIC
   STAFF

@@ -1,7 +1,7 @@
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { settingsService } from "@/services/settings/settings.service";
-import type { SmsService } from "@/services/sms/sms-service.interface";
+import type { SmsSendResult, SmsService } from "@/services/sms/sms-service.interface";
 
 const SEMAPHORE_ENDPOINT = "https://api.semaphore.co/api/v4/messages";
 
@@ -20,7 +20,7 @@ interface SemaphoreMessageResult {
 // blocker to sending, only cosmetic (features/cms/schemas/cms.schema.ts's
 // smsSenderName: "Never required to have real SMS sending working").
 export class SemaphoreSmsService implements SmsService {
-  async send(phone: string, message: string): Promise<void> {
+  async send(phone: string, message: string): Promise<SmsSendResult> {
     const { smsSenderName } = await settingsService.getBookingCommunicationSettings();
 
     const body = new URLSearchParams({
@@ -43,6 +43,31 @@ export class SemaphoreSmsService implements SmsService {
       throw new Error(`Semaphore SMS request failed (${response.status}): ${text}`);
     }
 
+    // Rate-limit headers (owner requirement, 2026-08-28). Semaphore
+    // publishes remaining quota on every response. Read and logged, NOT
+    // acted on: there is deliberately no auto-retry and no backoff sleep
+    // here, because every caller is a post-commit side effect on a
+    // booking or registration — blocking one to wait out a rate limit
+    // would hold a request open for a message that is not worth it. A
+    // low remaining count is an operational signal for a human, and the
+    // 200/day cap in sms-dispatch.service.ts is the actual guard.
+    // Optional-chained: a real Response always carries headers, but the
+    // provider must not be the thing that throws if a mock or a proxy
+    // hands back a thinner object. Reading the quota is diagnostics — it
+    // can never be the reason a send fails.
+    const rateLimitRemaining = response.headers?.get("x-ratelimit-remaining") ?? null;
+    const rateLimitLimit = response.headers?.get("x-ratelimit-limit") ?? null;
+    const rateLimitReset = response.headers?.get("x-ratelimit-reset") ?? null;
+    if (rateLimitRemaining !== null) {
+      const remaining = Number(rateLimitRemaining);
+      const log = { rateLimitRemaining, rateLimitLimit, rateLimitReset };
+      if (Number.isFinite(remaining) && remaining <= 10) {
+        logger.error(log, "Semaphore rate limit nearly exhausted");
+      } else {
+        logger.info(log, "Semaphore rate limit status");
+      }
+    }
+
     const results = (await response.json()) as SemaphoreMessageResult[];
     // "Refunded" is Semaphore's own signal that delivery failed and the
     // credit was returned — treated as a failure here for the same reason
@@ -58,6 +83,15 @@ export class SemaphoreSmsService implements SmsService {
       throw new Error(`Semaphore SMS was not delivered — status: ${failed.status}`);
     }
 
-    logger.info({ phone, status: results[0]?.status }, "SMS sent via Semaphore");
+    const accepted = results[0];
+    logger.info(
+      { phone, status: accepted?.status, messageId: accepted?.message_id },
+      "SMS sent via Semaphore",
+    );
+
+    return {
+      providerMessageId: accepted?.message_id != null ? String(accepted.message_id) : null,
+      providerStatus: accepted?.status ?? null,
+    };
   }
 }

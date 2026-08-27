@@ -6,6 +6,16 @@
 // precedent for exactly this kind of swappable-provider concern) — a
 // small interface, one method, no provider-specific detail leaking into
 // callers.
+// What the provider said about the message it accepted. Both fields are
+// null for a provider that has nothing to report (the dev console logger).
+// Kept so an SmsLog row can be matched one-to-one against the Semaphore
+// dashboard — without the id, "did this actually go out?" is answerable
+// only by squinting at timestamps.
+export interface SmsSendResult {
+  providerMessageId: string | null;
+  providerStatus: string | null;
+}
+
 export interface SmsService {
-  send(phone: string, message: string): Promise<void>;
+  send(phone: string, message: string): Promise<SmsSendResult>;
 }

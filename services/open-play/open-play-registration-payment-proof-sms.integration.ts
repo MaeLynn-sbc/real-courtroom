@@ -51,6 +51,7 @@ async function main(): Promise<void> {
   const sentMessages: { phone: string; message: string }[] = [];
   smsService.send = async (phone: string, message: string) => {
     sentMessages.push({ phone, message });
+    return { providerMessageId: null, providerStatus: null };
   };
 
   try {

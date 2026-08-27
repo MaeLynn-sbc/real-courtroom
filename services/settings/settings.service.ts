@@ -195,6 +195,21 @@ const DEFAULT_GAME_WARNING: GameWarningSettings = { enabled: true, minutes: 1 };
 // single-point-of-control, required-OFF-by-default shape either way.
 const OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY = "openPlay.onlineRegistrationEnabled";
 
+// SMS master switch (owner decision, 2026-08-28, revised the same day).
+// Defaults to OFF. The owner wants TWO deliberate actions between a
+// deploy and a customer receiving a message — setting SMS_PROVIDER at the
+// host, and flipping this on in the CMS — so that neither one alone can
+// start traffic.
+//
+// It doubles as the kill switch: flipping it off stops every send
+// instantly, with no deploy and no restart, which is the only control
+// that is fast enough during an incident.
+//
+// Read directly rather than through getBooleanFlags only because that
+// helper is shared by every other flag; this needs its own explicit
+// "absent means off" so the default can never drift with someone else's.
+const SMS_ENABLED_KEY = "sms.enabled";
+
 // Equipment page toggle — hides just the LOW_STOCK alert type from the
 // Equipment page's own banner (services/inventory/inventory-alerts.service.ts's
 // fixed threshold flags any item with availableQuantity <= 2 as "low
@@ -518,6 +533,18 @@ export class SettingsService {
   // --- Website CMS (structured JSON) --------------------------------------
   // First real use of Setting.value as an object/array rather than a
   // string or boolean — one fixed key per content section.
+
+  // No row at all -> FALSE. Absence means "nobody has turned this on,"
+  // which is the only safe reading for something that spends money and
+  // texts customers.
+  async getSmsEnabled(): Promise<boolean> {
+    const row = await prisma.setting.findUnique({ where: { key: SMS_ENABLED_KEY } });
+    return row?.value === true;
+  }
+
+  async setSmsEnabled(value: boolean, actorUserId: string) {
+    return this.setBooleanFlag(SMS_ENABLED_KEY, value, actorUserId);
+  }
 
   async getHomepageHero(): Promise<HomepageHero> {
     return this.getMergedJsonValue(CMS_KEYS.HOMEPAGE_HERO, DEFAULT_HERO);

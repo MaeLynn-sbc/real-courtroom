@@ -87,6 +87,31 @@ describe("SemaphoreSmsService", () => {
     mockFetchOnce(200, [{ message_id: 1, status: "Sent", recipient: "09171234567" }]);
     const service = new SemaphoreSmsService();
 
-    await expect(service.send("09171234567", "Hi")).resolves.toBeUndefined();
+    await expect(service.send("09171234567", "Hi")).resolves.toEqual({
+      providerMessageId: "1",
+      providerStatus: "Sent",
+    });
+  });
+
+  // The id is what makes an SmsLog row reconcilable against the Semaphore
+  // dashboard, so it is asserted as a STRING — message_id arrives as a
+  // JSON number and must not reach the database as one.
+  it("returns the provider message id as a string", async () => {
+    mockFetchOnce(200, [{ message_id: 987654321, status: "Queued", recipient: "09171234567" }]);
+    const service = new SemaphoreSmsService();
+
+    const result = await service.send("09171234567", "Hi");
+    expect(result.providerMessageId).toBe("987654321");
+    expect(result.providerStatus).toBe("Queued");
+  });
+
+  it("survives a response with no recipients rather than throwing", async () => {
+    mockFetchOnce(200, []);
+    const service = new SemaphoreSmsService();
+
+    await expect(service.send("09171234567", "Hi")).resolves.toEqual({
+      providerMessageId: null,
+      providerStatus: null,
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import type { SmsService } from "@/services/sms/sms-service.interface";
+import type { SmsSendResult, SmsService } from "@/services/sms/sms-service.interface";
 
 // Dev implementation: logs the message instead of sending it. Swap
 // SMS_PROVIDER + sms-service.factory.ts to add a real provider (the
@@ -8,7 +8,8 @@ import type { SmsService } from "@/services/sms/sms-service.interface";
 // services/email/console-email.service.ts. No account/API key is wired
 // in this gate.
 export class ConsoleSmsService implements SmsService {
-  async send(phone: string, message: string): Promise<void> {
+  async send(phone: string, message: string): Promise<SmsSendResult> {
     logger.info({ phone, message }, "SMS (dev logger — not actually sent)");
+    return { providerMessageId: null, providerStatus: null };
   }
 }
