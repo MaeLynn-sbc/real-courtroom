@@ -14,6 +14,7 @@ import { openPlayCapacityService } from "./open-play-capacity.service";
 import { openPlayRegistrationService } from "./open-play-registration.service";
 import { openPlayRegistrationPaymentProofService } from "./open-play-registration-payment-proof.service";
 import { getSmsService } from "../sms/sms-service.factory";
+import { settingsService } from "../settings/settings.service";
 
 const TEST_DATE = new Date(2031, 5, 6); // Friday, Jun 6 2031 — distinct from other integration fixtures' dates
 
@@ -37,6 +38,10 @@ async function cleanUp(): Promise<void> {
 
 async function main(): Promise<void> {
   const owner = await prisma.user.findFirstOrThrow({ where: { username: "owner" } });
+  // The SMS master switch defaults OFF (two deliberate actions stand
+  // between a deploy and a customer). Turned on here so the dispatcher
+  // actually runs, and restored in the cleanup below.
+  await settingsService.setSmsEnabled(true, owner.id);
   const employee = await prisma.employee.findUniqueOrThrow({ where: { userId: owner.id } });
   let shift = await prisma.shift.findFirst({ where: { employeeId: employee.id, status: "OPEN" } });
   if (!shift) {
@@ -96,7 +101,18 @@ async function main(): Promise<void> {
     assert(approveCount === 1, `expected exactly 1 SMS sent on approval, got ${approveCount}`);
     assert(approveSent !== undefined, "expected a recorded SMS send");
     assert(approveSent.phone === "09171270001", `expected the approval SMS to go to the guest's phone, got ${approveSent.phone}`);
-    assert(approveSent.message.includes("confirmed"), "expected the approval SMS to say confirmed");
+    // Asserts the NEW template, which states the booking as a fact
+    // ("you're booked for Open Play on ...") rather than using the word
+    // "confirmed" — and carries no venue prefix, because the Semaphore
+    // sender name already reads CourtroomPH.
+    assert(
+      approveSent.message.includes("booked for Open Play"),
+      `expected the new open-play confirmation wording, got: ${approveSent.message}`,
+    );
+    assert(
+      !approveSent.message.includes("The Courtroom"),
+      `expected NO venue prefix in the body, got: ${approveSent.message}`,
+    );
     console.log("PASS: approving an open-play payment proof sends a confirmation SMS.");
 
     // --- 3. Rejection ---

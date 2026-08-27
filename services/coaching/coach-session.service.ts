@@ -1,12 +1,16 @@
 import type { CreateCoachSessionInput } from "@/features/coaching/schemas/coaching.schema";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import type { CoachSessionSource } from "@/lib/generated/prisma/enums";
+import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { smsDate, smsTimeRange } from "@/lib/sms-format";
+import { coachSessionBody, coachSessionCancelledBody } from "@/lib/sms-templates";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
 import { runSerializableWithRetry } from "@/lib/serializable-retry";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import { isSlotFullyCovered } from "@/services/coaching/coach-availability-match";
 import { formatCoachSessionReference } from "@/services/coaching/coach-session-reference";
+import { smsDispatchService } from "@/services/sms/sms-dispatch.service";
 
 export type CoachSessionConflictType =
   | "BOOKING_NOT_FOUND"
@@ -114,7 +118,7 @@ export class CoachSessionService {
   // check, and the insert together, so two concurrent requests can't
   // both read "available" before either writes.
   async createCoachSession(input: CreateCoachSessionInput, source: CoachSessionSource, actorUserId: string) {
-    return runSerializableWithRetry(async (tx) => {
+    const coachSession = await runSerializableWithRetry(async (tx) => {
       // Race protection (public coach-add vs. a concurrent payment-proof
       // submission): an explicit row lock, not just this transaction's
       // own Serializable isolation. Proven live (services/coaching/
@@ -277,6 +281,62 @@ export class CoachSessionService {
 
       return coachSession;
     });
+
+    // Trigger 3, POST-COMMIT. The recipient is the COACH, on
+    // Employee.phone — not the customer, who is told about their booking
+    // through the booking triggers. Both coaches on file have clean
+    // numbers.
+    //
+    // Deliberately outside the transaction above: a text that fails to
+    // send must never roll back a session that has already been created,
+    // and smsDispatchService performs network I/O, which has no business
+    // inside a Serializable transaction holding a row lock.
+    await this.sendCoachSessionSms(coachSession);
+
+    return coachSession;
+  }
+
+  // Best-effort. smsDispatchService never throws, but the lookups here
+  // can, so the whole body is guarded — a coach notification is not worth
+  // failing a booked session over.
+  private async sendCoachSessionSms(coachSession: {
+    id: string;
+    coachId: string;
+    bookingId: string;
+  }): Promise<void> {
+    try {
+      const [coach, booking] = await Promise.all([
+        prisma.employee.findUnique({
+          where: { id: coachSession.coachId },
+          select: { phone: true },
+        }),
+        prisma.booking.findUnique({
+          where: { id: coachSession.bookingId },
+          select: { guestName: true, startAt: true, endAt: true, court: { select: { name: true } } },
+        }),
+      ]);
+
+      if (!coach || !booking) {
+        return;
+      }
+
+      await smsDispatchService.dispatch({
+        trigger: "COACH_SESSION",
+        entityId: coachSession.id,
+        rawPhone: coach.phone,
+        body: coachSessionBody({
+          customer: booking.guestName ?? "a customer",
+          date: smsDate(booking.startAt),
+          time: smsTimeRange(booking.startAt, booking.endAt),
+          court: booking.court?.name ?? "the court",
+        }),
+      });
+    } catch (error) {
+      logger.error(
+        { error, coachSessionId: coachSession.id },
+        "Failed to dispatch coach session SMS",
+      );
+    }
   }
 
   async cancelCoachSession(coachSessionId: string, actorUserId: string, note?: string) {
@@ -289,7 +349,56 @@ export class CoachSessionService {
       data: { coachSessionId, status: "CANCELLED", changedById: actorUserId, note },
     });
 
+    // GATED: only tell the coach a session is off if they were actually
+    // told it was on. hasSentConfirmation checks for a SENT row, not merely
+    // an attempted one — a coach whose confirmation was SKIPPED_INVALID or
+    // FAILED must not receive a lone "cancelled" text about a session they
+    // were never notified of.
+    if (await smsDispatchService.hasSentConfirmation("COACH_SESSION", coachSessionId)) {
+      await this.sendCoachSessionCancelledSms(coachSession);
+    }
+
     return coachSession;
+  }
+
+  private async sendCoachSessionCancelledSms(coachSession: {
+    id: string;
+    coachId: string;
+    bookingId: string;
+  }): Promise<void> {
+    try {
+      const [coach, booking] = await Promise.all([
+        prisma.employee.findUnique({
+          where: { id: coachSession.coachId },
+          select: { phone: true },
+        }),
+        prisma.booking.findUnique({
+          where: { id: coachSession.bookingId },
+          select: { guestName: true, startAt: true, endAt: true, court: { select: { name: true } } },
+        }),
+      ]);
+
+      if (!coach || !booking) {
+        return;
+      }
+
+      await smsDispatchService.dispatch({
+        trigger: "COACH_SESSION_CANCELLED",
+        entityId: coachSession.id,
+        rawPhone: coach.phone,
+        body: coachSessionCancelledBody({
+          customer: booking.guestName ?? "a customer",
+          date: smsDate(booking.startAt),
+          time: smsTimeRange(booking.startAt, booking.endAt),
+          court: booking.court?.name ?? "the court",
+        }),
+      });
+    } catch (error) {
+      logger.error(
+        { error, coachSessionId: coachSession.id },
+        "Failed to dispatch coach session cancellation SMS",
+      );
+    }
   }
 
   // The public flow's own "remove" — only ever called from that path (see

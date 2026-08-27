@@ -17,6 +17,7 @@ import { prisma } from "../../lib/prisma";
 import { bookingService } from "./booking.service";
 import { bookingPaymentProofService } from "./booking-payment-proof.service";
 import { getSmsService } from "../sms/sms-service.factory";
+import { settingsService } from "../settings/settings.service";
 
 const TEST_DATE = new Date(2031, 5, 16); // Monday, distinct from other booking-proof fixture dates
 
@@ -51,6 +52,10 @@ async function main(): Promise<void> {
   const websiteUser = await prisma.user.findFirstOrThrow({ where: { email: "website@thecourtroom.local" } });
   const court = await prisma.court.findFirstOrThrow({ where: { deletedAt: null } });
   const owner = await prisma.user.findFirstOrThrow({ where: { username: "owner" } });
+  // The SMS master switch defaults OFF (two deliberate actions stand
+  // between a deploy and a customer). Turned on here so the dispatcher
+  // actually runs, and restored in the cleanup below.
+  await settingsService.setSmsEnabled(true, owner.id);
   const employee = await prisma.employee.findUniqueOrThrow({ where: { userId: owner.id } });
   let shift = await prisma.shift.findFirst({ where: { employeeId: employee.id, status: "OPEN" } });
   if (!shift) {
@@ -112,8 +117,43 @@ async function main(): Promise<void> {
     assert(approveCount === 1, `expected exactly 1 SMS sent on approval, got ${approveCount}`);
     assert(approveSent !== undefined, "expected a recorded SMS send");
     assert(approveSent.phone === "09171230010", `expected the approval SMS to go to the guest's phone, got ${approveSent.phone}`);
-    assert(approveSent.message.includes("CONFIRMED"), "expected the approval SMS to say CONFIRMED");
-    console.log("PASS: approving a payment proof sends a CONFIRMED SMS.");
+    // The approval path now runs through smsDispatchService, so this
+    // asserts the NEW prefix-free template rather than the old
+    // "The Courtroom: ..." string. The sender name reads CourtroomPH, so
+    // repeating the venue inside the body was paying twice to say it once.
+    assert(
+      approveSent.message.includes("confirmed:"),
+      `expected the new confirmation wording, got: ${approveSent.message}`,
+    );
+    assert(
+      !approveSent.message.includes("The Courtroom"),
+      `expected NO venue prefix in the body, got: ${approveSent.message}`,
+    );
+    console.log("PASS: approving a payment proof sends a prefix-free confirmation SMS.");
+
+    // And the send is now recorded, which it never was before.
+    const logRow = await prisma.smsLog.findFirst({
+      where: { trigger: "PUBLIC_BOOKING", entityId: holdA.id },
+    });
+    assert(logRow !== null, "expected the approval send to be recorded in SmsLog");
+    assert(logRow.status === "SENT", `expected SmsLog status SENT, got ${logRow.status}`);
+    assert(logRow.phone === "09171230010", `expected the normalised phone on the row, got ${logRow.phone}`);
+    assert(logRow.encoding === "GSM-7", `expected GSM-7, got ${logRow.encoding}`);
+    assert(logRow.segments === 1, `expected a single segment, got ${logRow.segments}`);
+    console.log("PASS: the approval send is recorded in SmsLog as SENT, GSM-7, 1 segment.");
+
+    // Re-approving must not text the customer a second time.
+    await bookingPaymentProofService.approveBookingPaymentProof(proofA.id, {
+      employeeId: employee.id,
+      actorUserId: owner.id,
+      shiftId: shift.id,
+      paymentMethodId: gcashMethod.id,
+    });
+    const afterRetry = await prisma.smsLog.count({
+      where: { trigger: "PUBLIC_BOOKING", entityId: holdA.id },
+    });
+    assert(afterRetry === 1, `expected still exactly 1 SmsLog row after re-approval, got ${afterRetry}`);
+    console.log("PASS: re-approving the same proof does not send a second confirmation.");
 
     // --- 3. Rejection ---
     const holdB = await bookingService.createBookingHold(

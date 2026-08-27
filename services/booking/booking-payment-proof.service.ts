@@ -7,7 +7,10 @@ import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { recordCoachSessionFeeSale } from "@/services/coaching/coach-session-fee-sale";
 import { getUploadService } from "@/services/upload/upload-service.factory";
 import { saleService } from "@/services/sales/sale.service";
+import { smsDate, smsTimeRange } from "@/lib/sms-format";
+import { bookingConfirmationBody } from "@/lib/sms-templates";
 import { getSmsService } from "@/services/sms/sms-service.factory";
+import { smsDispatchService } from "@/services/sms/sms-dispatch.service";
 
 // Payment-proof verification-outcome SMS — same reasoning as open-play's
 // waitlist-invite SMS (services/open-play/open-play-registration.service.ts):
@@ -469,10 +472,16 @@ export class BookingPaymentProofService {
       if (result.coachingSale) {
         await saleService.logSaleCreated(result.coachingSale, context.actorUserId);
       }
-      await sendBookingProofSms(
-        result.booking.guestPhone,
-        `The Courtroom: Your booking ${customerFacingCode(result.booking)} is CONFIRMED! See you on the court. Check your booking anytime: thecourtroomkalibo.com/lookup`,
-      );
+      // Trigger 2 (owner decision, 2026-08-28): the confirmation fires
+      // HERE, at payment approval — not at booking creation. A booking
+      // created through createBookingHold sits at AWAITING_PAYMENT and may
+      // never be paid for; texting "confirmed" then would be a lie.
+      //
+      // Goes through smsDispatchService rather than the old raw send, so
+      // the normalizer, master switch, daily cap, encoding check and
+      // SmsLog all apply. The venue prefix is gone: the Semaphore sender
+      // name already reads CourtroomPH.
+      await this.sendBookingConfirmationSms(result.booking);
     }
 
     return { alreadyResolved: result.alreadyResolved, proof: result.proof };
@@ -649,6 +658,40 @@ export class BookingPaymentProofService {
     });
     const newValues = entry?.newValues as { duplicateOverrideReason?: string | null } | null | undefined;
     return newValues?.duplicateOverrideReason ?? null;
+  }
+
+  // Best-effort, post-commit. smsDispatchService never throws, but the
+  // court lookup can, so the whole thing is wrapped: a missing court name
+  // must not fail an approval whose money has already moved.
+  private async sendBookingConfirmationSms(booking: {
+    id: string;
+    guestPhone: string | null;
+    shortCode: string | null;
+    bookingReference: string;
+    courtId: string;
+    startAt: Date;
+    endAt: Date;
+  }): Promise<void> {
+    try {
+      const court = await prisma.court.findUnique({
+        where: { id: booking.courtId },
+        select: { name: true },
+      });
+
+      await smsDispatchService.dispatch({
+        trigger: "PUBLIC_BOOKING",
+        entityId: booking.id,
+        rawPhone: booking.guestPhone,
+        body: bookingConfirmationBody({
+          shortCode: customerFacingCode(booking),
+          court: court?.name ?? "your court",
+          date: smsDate(booking.startAt),
+          time: smsTimeRange(booking.startAt, booking.endAt),
+        }),
+      });
+    } catch (error) {
+      logger.error({ error, bookingId: booking.id }, "Failed to dispatch booking confirmation SMS");
+    }
   }
 
   private async writeBookingHistory(

@@ -7,7 +7,10 @@ import {
   type RegisterWalkInSaleContext,
 } from "@/services/open-play/open-play-registration.service";
 import { getUploadService } from "@/services/upload/upload-service.factory";
+import { smsDate, smsTime } from "@/lib/sms-format";
+import { openPlayConfirmationBody } from "@/lib/sms-templates";
 import { getSmsService } from "@/services/sms/sms-service.factory";
+import { smsDispatchService } from "@/services/sms/sms-dispatch.service";
 
 // Mirrors services/booking/booking-payment-proof.service.ts's exact shape
 // — same three states (submit / approve / reject), same concurrency
@@ -262,10 +265,25 @@ export class OpenPlayRegistrationPaymentProofService {
         entityId: result.proof.id,
         newValues: result.proof,
       });
-      await sendOpenPlayProofSms(
-        result.registration.phone,
-        "The Courtroom: You're confirmed for Open Play! See you then.",
-      );
+      // Trigger 1 (owner decision, 2026-08-28): fires at payment approval,
+      // matching the court-booking rule — a registration sitting at
+      // AWAITING_PAYMENT is not yet a confirmed seat.
+      //
+      // PUBLIC path only. registerWalkIn and registerWeeknightWalkIn
+      // deliberately send nothing: 852 of 864 walk-in registrations carry
+      // an unsendable phone (831 of them a single character), because the
+      // field is required and staff type anything to clear it. Routing
+      // around that data is the point, not fixing it here.
+      await smsDispatchService.dispatch({
+        trigger: "OPEN_PLAY_REGISTRATION",
+        entityId: result.registration.id,
+        rawPhone: result.registration.phone,
+        body: openPlayConfirmationBody({
+          name: result.registration.playerName,
+          date: smsDate(result.registration.date),
+          time: smsTime(result.registration.date),
+        }),
+      });
     }
 
     return { alreadyResolved: result.alreadyResolved, proof: result.proof };
