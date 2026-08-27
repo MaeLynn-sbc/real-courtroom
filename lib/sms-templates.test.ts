@@ -55,6 +55,31 @@ describe("SMS templates", () => {
     expect(byName.coachSession).not.toContain("Non-refundable");
   });
 
+  // Regression guard for the "12:00 AM / wrong day" bug: the open-play
+  // time MUST be the session window, and midnight is the tell that
+  // registration.date was rendered instead of session.startAt.
+  it("renders the open play SESSION window, never a midnight date-only value", () => {
+    const body = openPlayConfirmationBody({
+      name: "Maria Santos",
+      date: "Thu, Aug 27",
+      time: "6:00 PM-11:00 PM",
+    });
+    expect(body).toContain("Thu, Aug 27, 6:00 PM-11:00 PM");
+    expect(body).not.toContain("12:00 AM");
+    expect(body).not.toContain(" at ");
+  });
+
+  it("drops the time cleanly when a registration has no session", () => {
+    const body = openPlayConfirmationBody({
+      name: "Maria Santos",
+      date: "Thu, Aug 27",
+      time: "",
+    });
+    expect(body).toContain("Open Play on Thu, Aug 27. Non-refundable.");
+    expect(body).not.toContain(", .");
+    expect(analyzeSmsBody(body).segments).toBe(1);
+  });
+
   it("has exactly three templates — no cancellation messages exist", () => {
     expect(TEMPLATE_SAMPLES.map((t) => t.name).sort()).toEqual([
       "bookingConfirmation",
@@ -88,8 +113,8 @@ describe("SMS templates", () => {
   it("fits one segment at the longest values production actually holds", () => {
     const openPlay = openPlayConfirmationBody({
       name: "emmanuel christian jesuzer señeris",
-      date: "Wed Sep 10",
-      time: "10:00 PM",
+      date: "Thu, Aug 27",
+      time: "6:00 PM-11:00 PM",
     });
     const booking = bookingConfirmationBody({
       shortCode: "5GTWU",
@@ -107,8 +132,13 @@ describe("SMS templates", () => {
     // The n-tilde in that real name is in the GSM-7 basic set. Asserted so
     // nobody "fixes" it by stripping accents from a customer's own name.
     expect(analyzeSmsBody(openPlay).offendingCharacters).toEqual([]);
-    // Headroom, stated explicitly so a copy edit that eats it fails here.
-    expect(160 - analyzeSmsBody(openPlay).length).toBeGreaterThanOrEqual(15);
+    // Headroom, pinned so a copy edit that eats it fails HERE rather than
+    // on a customer's handset. Owner accepted the tighter open-play margin
+    // when choosing the full session range over a lone start time:
+    //     open play  148/160  ->  12 spare   (longest real name, 34 chars)
+    //     booking    143/160  ->  17 spare
+    // 10 is the floor below which a slightly longer name would split.
+    expect(160 - analyzeSmsBody(openPlay).length).toBeGreaterThanOrEqual(10);
     expect(160 - analyzeSmsBody(booking).length).toBeGreaterThanOrEqual(15);
   });
 

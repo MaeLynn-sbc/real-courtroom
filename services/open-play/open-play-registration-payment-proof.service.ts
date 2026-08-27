@@ -7,7 +7,7 @@ import {
   type RegisterWalkInSaleContext,
 } from "@/services/open-play/open-play-registration.service";
 import { getUploadService } from "@/services/upload/upload-service.factory";
-import { smsDate, smsTime } from "@/lib/sms-format";
+import { smsDate, smsTimeRange } from "@/lib/sms-format";
 import { openPlayConfirmationBody } from "@/lib/sms-templates";
 import { getSmsService } from "@/services/sms/sms-service.factory";
 import { smsDispatchService } from "@/services/sms/sms-dispatch.service";
@@ -274,14 +274,31 @@ export class OpenPlayRegistrationPaymentProofService {
       // an unsendable phone (831 of them a single character), because the
       // field is required and staff type anything to clear it. Routing
       // around that data is the point, not fixing it here.
+      // Times come from the SESSION, never from registration.date — that
+      // column is a date-only marker pinned to midnight, so rendering it
+      // as a time gave "12:00 AM" and, because midnight Manila lands on
+      // the next calendar day, named the wrong day as well.
+      //
+      // Every WEBSITE registration has a session (268 of 268 in
+      // production; sessionId is nullable only for walk-in weeknight
+      // rows, which never reach this path). The null branch below is a
+      // guard, not an expected case: it drops the time rather than
+      // inventing one.
+      const session = result.registration.sessionId
+        ? await prisma.openPlayNightSession.findUnique({
+            where: { id: result.registration.sessionId },
+            select: { startAt: true, endAt: true },
+          })
+        : null;
+
       await smsDispatchService.dispatch({
         trigger: "OPEN_PLAY_REGISTRATION",
         entityId: result.registration.id,
         rawPhone: result.registration.phone,
         body: openPlayConfirmationBody({
           name: result.registration.playerName,
-          date: smsDate(result.registration.date),
-          time: smsTime(result.registration.date),
+          date: session ? smsDate(session.startAt) : smsDate(result.registration.date),
+          time: session ? smsTimeRange(session.startAt, session.endAt) : "",
         }),
       });
     }

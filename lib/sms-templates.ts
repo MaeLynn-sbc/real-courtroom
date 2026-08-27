@@ -40,11 +40,26 @@ import { analyzeSmsBody } from "@/lib/sms-encoding";
 export interface OpenPlayConfirmationValues {
   name: string;
   date: string;
+  /**
+   * The session's full window, e.g. "6:00 PM-11:00 PM".
+   *
+   * MUST come from OpenPlayNightSession.startAt/endAt, never from
+   * OpenPlayNightRegistration.date. That column is a date-only marker
+   * pinned to midnight: rendering it as a time produced "12:00 AM", and
+   * because midnight Manila falls on the next calendar day it named the
+   * wrong DAY too — a Thursday night went out as "Fri, Aug 28".
+   *
+   * Open play is a five-hour drop-in window, so the range is the useful
+   * thing to state; a lone start time reads like something to be late for.
+   */
   time: string;
 }
 
 export function openPlayConfirmationBody(v: OpenPlayConfirmationValues): string {
-  return `Hi ${v.name}, you're booked for Open Play on ${v.date} at ${v.time}. Non-refundable. Thank you and see you in court!`;
+  // Blank time drops the clause entirely rather than leaving a dangling
+  // ", ." — reached only if a registration somehow has no session.
+  const when = v.time.trim() ? `${v.date}, ${v.time}` : v.date;
+  return `Hi ${v.name}, you're booked for Open Play on ${when}. Non-refundable. Thank you and see you in court!`;
 }
 
 export interface BookingConfirmationValues {
@@ -74,7 +89,11 @@ export function coachSessionBody(v: CoachSessionValues): string {
 export const TEMPLATE_SAMPLES: { name: string; body: string }[] = [
   {
     name: "openPlayConfirmation",
-    body: openPlayConfirmationBody({ name: "Maria Santos", date: "Fri Aug 28", time: "7:00 PM" }),
+    body: openPlayConfirmationBody({
+      name: "Maria Santos",
+      date: "Thu, Aug 27",
+      time: "6:00 PM-11:00 PM",
+    }),
   },
   {
     name: "bookingConfirmation",
