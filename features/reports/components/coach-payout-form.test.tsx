@@ -113,3 +113,74 @@ describe("CoachPayoutForm — records an outgoing payout, not incoming revenue",
     expect(mockedCreateExpense).not.toHaveBeenCalled();
   });
 });
+
+// Owner report (2026-08-27): "i selected the previous week but what
+// appears is this week. i want to pay the previous week."
+//
+// Switching week tabs is a soft navigation, so React reuses this
+// component instance and merely updates its props. amount and description
+// are seeded with useState, whose argument is only the INITIAL value — so
+// the form kept showing the previously-viewed week. The owner was one
+// click from paying this week's amount, labelled as this week, while
+// looking at last week's report.
+//
+// The fix is a key in coaching-weekly-report.tsx. These two cases pin the
+// behaviour that made the key necessary, so nobody removes it as noise.
+describe("CoachPayoutForm — week switching", () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function renderAt(weekLabel: string, amountCents: number, key?: string) {
+    return render(
+      <CoachPayoutForm
+        key={key}
+        coachName="Coach Dhudz"
+        defaultAmountCents={amountCents}
+        categoryId="cat-coach"
+        paymentMethods={paymentMethods}
+        weekLabel={weekLabel}
+      />,
+    );
+  }
+
+  it("WITHOUT a changing key, new props do NOT refresh the fields — the bug", async () => {
+    const { rerender } = renderAt("Aug 23 – Aug 29, 2026", 280000);
+    await clickAsync(screen.getByRole("button", { name: /pay coach/i }));
+
+    rerender(
+      <CoachPayoutForm
+        coachName="Coach Dhudz"
+        defaultAmountCents={480000}
+        categoryId="cat-coach"
+        paymentMethods={paymentMethods}
+        weekLabel="Aug 16 – Aug 22, 2026"
+      />,
+    );
+
+    // Still the FIRST week's figures, which is precisely what the owner saw.
+    expect(screen.getByDisplayValue("2800.00")).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/Aug 23 – Aug 29, 2026/)).toBeInTheDocument();
+  });
+
+  it("WITH a key per week, the fields follow the selected week", async () => {
+    const { rerender } = renderAt("Aug 23 – Aug 29, 2026", 280000, "coach-2026-08-23");
+    await clickAsync(screen.getByRole("button", { name: /pay coach/i }));
+
+    rerender(
+      <CoachPayoutForm
+        key="coach-2026-08-16"
+        coachName="Coach Dhudz"
+        defaultAmountCents={480000}
+        categoryId="cat-coach"
+        paymentMethods={paymentMethods}
+        weekLabel="Aug 16 – Aug 22, 2026"
+      />,
+    );
+
+    // Remounted, so it collapses back to the button and reseeds from props.
+    await clickAsync(screen.getByRole("button", { name: /pay coach/i }));
+    expect(screen.getByDisplayValue("4800.00")).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/Aug 16 – Aug 22, 2026/)).toBeInTheDocument();
+  });
+});

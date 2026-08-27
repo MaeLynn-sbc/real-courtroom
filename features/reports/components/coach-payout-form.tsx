@@ -42,6 +42,18 @@ export function CoachPayoutForm({
 }) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
+  // ⚠ These are SEEDED from props, not synced to them — useState's
+  // argument is only the initial value. If a caller re-renders this
+  // component with a different week's defaultAmountCents/weekLabel, the
+  // fields keep the old ones. That is exactly what happened on 2026-08-27:
+  // switching week tabs is a soft navigation, React reused the instance,
+  // and the form still showed the previous week's amount and label.
+  //
+  // Callers MUST key this component by the week it belongs to (see
+  // coaching-weekly-report.tsx) so a week change remounts it. Deliberately
+  // not "fixed" here by syncing state to props in an effect — that is the
+  // pattern React documents against, and it would also discard whatever
+  // the owner had typed mid-edit on every parent re-render.
   const [amount, setAmount] = useState((defaultAmountCents / 100).toFixed(2));
   const [date, setDate] = useState(toDateInputValue(new Date()));
   const [description, setDescription] = useState(`Coach payout — ${coachName}, week of ${weekLabel}`);

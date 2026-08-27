@@ -246,7 +246,23 @@ export async function CoachingWeeklyReport({ searchParams }: CoachingWeeklyRepor
                       Sessions worked: {formatCurrency(workedCents)}
                     </p>
                   ) : null}
+                  {/* Owner report (2026-08-27): "i selected the previous week
+                      but what appears is this week." Switching week tabs is a
+                      soft navigation, so React reuses this component instance
+                      and updates its props — but CoachPayoutForm seeds its
+                      amount and description with useState, whose argument is
+                      only ever the INITIAL value. The form therefore kept the
+                      previously-viewed week's figures: the owner was about to
+                      pay this week's amount, described as this week, while
+                      looking at last week's report.
+
+                      Keying by the selected week remounts the form when the
+                      week changes, resetting amount, description, date and
+                      payment method together. coach.id alone was not enough —
+                      it is stable across weeks, which is exactly why the stale
+                      state survived. */}
                   <CoachPayoutForm
+                    key={`${coach.id}-${weekParamValue(selectedWeekStart)}`}
                     coachName={coach.user.name ?? coach.user.email ?? "Coach"}
                     defaultAmountCents={collectedCents}
                     categoryId={coachPayoutCategoryId}
