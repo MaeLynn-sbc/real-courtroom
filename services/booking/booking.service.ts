@@ -12,8 +12,6 @@ import { getBusinessDateRange } from "@/lib/business-date";
 import { isWithinCourtBookingWindow } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
-import { smsDate, smsTimeRange } from "@/lib/sms-format";
-import { bookingCancellationBody } from "@/lib/sms-templates";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
 import { runSerializableWithRetry } from "@/lib/serializable-retry";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
@@ -22,7 +20,6 @@ import { generateShortCode } from "@/services/booking/booking-short-code";
 import { canTransitionBookingStatus } from "@/services/booking/booking-status";
 import { PAY_AT_VENUE_PAYMENT_METHOD_KEY } from "@/lib/system-identities";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
-import { smsDispatchService } from "@/services/sms/sms-dispatch.service";
 import { recordCoachSessionFeeSale } from "@/services/coaching/coach-session-fee-sale";
 import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { saleService } from "@/services/sales/sale.service";
@@ -1263,44 +1260,9 @@ export class BookingService {
         );
       }
 
-      // GATED on a confirmation having actually been SENT for this
-      // booking. That gate does double duty: it stops a "cancelled" text
-      // reaching someone who was never told their booking was confirmed,
-      // AND it restricts this to PUBLIC bookings without needing a source
-      // check — a staff-created booking never gets a confirmation SMS, so
-      // it can never satisfy the gate.
-      if (await smsDispatchService.hasSentConfirmation("PUBLIC_BOOKING", booking.id)) {
-        await this.sendBookingCancelledSms(booking);
-      }
     }
 
     return booking;
-  }
-
-  // Best-effort, post-commit — a cancellation notice must never fail the
-  // cancellation itself.
-  private async sendBookingCancelledSms(booking: {
-    id: string;
-    guestPhone: string | null;
-    shortCode: string | null;
-    bookingReference: string;
-    startAt: Date;
-    endAt: Date;
-  }): Promise<void> {
-    try {
-      await smsDispatchService.dispatch({
-        trigger: "BOOKING_CANCELLED",
-        entityId: booking.id,
-        rawPhone: booking.guestPhone,
-        body: bookingCancellationBody({
-          shortCode: booking.shortCode ?? booking.bookingReference,
-          date: smsDate(booking.startAt),
-          time: smsTimeRange(booking.startAt, booking.endAt),
-        }),
-      });
-    } catch (error) {
-      logger.error({ error, bookingId: booking.id }, "Failed to dispatch booking cancellation SMS");
-    }
   }
 
   async checkInByToken(token: string, actorUserId: string): Promise<Booking> {

@@ -4,7 +4,7 @@ import type { CoachSessionSource } from "@/lib/generated/prisma/enums";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { smsDate, smsTimeRange } from "@/lib/sms-format";
-import { coachSessionBody, coachSessionCancelledBody } from "@/lib/sms-templates";
+import { coachSessionBody } from "@/lib/sms-templates";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
 import { runSerializableWithRetry } from "@/lib/serializable-retry";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
@@ -349,67 +349,9 @@ export class CoachSessionService {
       data: { coachSessionId, status: "CANCELLED", changedById: actorUserId, note },
     });
 
-    // GATED: only tell the coach a session is off if they were actually
-    // told it was on. hasSentConfirmation checks for a SENT row, not merely
-    // an attempted one — a coach whose confirmation was SKIPPED_INVALID or
-    // FAILED must not receive a lone "cancelled" text about a session they
-    // were never notified of.
-    if (await smsDispatchService.hasSentConfirmation("COACH_SESSION", coachSessionId)) {
-      await this.sendCoachSessionCancelledSms(coachSession);
-    }
-
     return coachSession;
   }
 
-  private async sendCoachSessionCancelledSms(coachSession: {
-    id: string;
-    coachId: string;
-    bookingId: string;
-  }): Promise<void> {
-    try {
-      const [coach, booking] = await Promise.all([
-        prisma.employee.findUnique({
-          where: { id: coachSession.coachId },
-          select: { phone: true },
-        }),
-        prisma.booking.findUnique({
-          where: { id: coachSession.bookingId },
-          select: { guestName: true, startAt: true, endAt: true, court: { select: { name: true } } },
-        }),
-      ]);
-
-      if (!coach || !booking) {
-        return;
-      }
-
-      await smsDispatchService.dispatch({
-        trigger: "COACH_SESSION_CANCELLED",
-        entityId: coachSession.id,
-        rawPhone: coach.phone,
-        body: coachSessionCancelledBody({
-          customer: booking.guestName ?? "a customer",
-          date: smsDate(booking.startAt),
-          time: smsTimeRange(booking.startAt, booking.endAt),
-          court: booking.court?.name ?? "the court",
-        }),
-      });
-    } catch (error) {
-      logger.error(
-        { error, coachSessionId: coachSession.id },
-        "Failed to dispatch coach session cancellation SMS",
-      );
-    }
-  }
-
-  // The public flow's own "remove" — only ever called from that path (see
-  // public-coach-session.ts), so unlike createCoachSession this applies
-  // the payment-submitted guard unconditionally rather than gating it on
-  // a source argument. Same signal as the add-side guard: a booking with
-  // any BookingPaymentProof row is off-limits, since removing a coach the
-  // customer already paid for would make the amount they sent wrong in
-  // the other direction. No-op (not an error) if there's nothing to
-  // remove — the caller can't distinguish "already removed" from "never
-  // added" and shouldn't need to.
   async removeCoachSession(bookingId: string, actorUserId: string): Promise<void> {
     const proofSubmitted = await prisma.bookingPaymentProof.findFirst({ where: { bookingId } });
     if (proofSubmitted) {

@@ -897,13 +897,10 @@ enum SmsTrigger {
   PUBLIC_BOOKING
   // A coaching session being created — notifies the COACH on Employee.phone,
   // not the customer.
+  // Three triggers, all confirmations. NO cancellation values by design:
+  // venue policy is that a paid booking is non-refundable and cannot be
+  // cancelled, so there is no cancellation event to notify anyone about.
   COACH_SESSION
-  // Cancellations. Gated at the call site on a confirmation having
-  // actually been SENT for the same entity — telling someone their
-  // booking is cancelled when they were never told it was confirmed is
-  // noise at best and alarming at worst.
-  BOOKING_CANCELLED
-  COACH_SESSION_CANCELLED
 }
 
 enum SmsStatus {

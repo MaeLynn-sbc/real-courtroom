@@ -1,6 +1,6 @@
 import { analyzeSmsBody } from "@/lib/sms-encoding";
 
-// The five customer/coach-facing message bodies.
+// The three customer/coach-facing message bodies.
 //
 // NO VENUE PREFIX (owner decision, 2026-08-28). The Semaphore sender name
 // is CourtroomPH, so every message already arrives labelled — a leading
@@ -14,6 +14,11 @@ import { analyzeSmsBody } from "@/lib/sms-encoding";
 // template it was asking for a CANCELLATION down a dead line — the worst
 // case, because the customer believes they have cancelled and the seat
 // stays held.
+//
+// NO CANCELLATION MESSAGES EXIST (owner policy, 2026-08-28): once paid,
+// a booking is non-refundable and cannot be cancelled, so there is no
+// cancellation event to tell anyone about. The two cancellation templates
+// and their triggers were removed rather than left unused.
 //
 // Owner decision (2026-08-28, after the second live read): end on a
 // FRIENDLY CLOSER rather than contact details. A confirmation is a nice
@@ -39,7 +44,7 @@ export interface OpenPlayConfirmationValues {
 }
 
 export function openPlayConfirmationBody(v: OpenPlayConfirmationValues): string {
-  return `Hi ${v.name}, you're booked for Open Play on ${v.date} at ${v.time}. Thank you and see you in court!`;
+  return `Hi ${v.name}, you're booked for Open Play on ${v.date} at ${v.time}. Non-refundable. Thank you and see you in court!`;
 }
 
 export interface BookingConfirmationValues {
@@ -50,17 +55,7 @@ export interface BookingConfirmationValues {
 }
 
 export function bookingConfirmationBody(v: BookingConfirmationValues): string {
-  return `Booking ${v.shortCode} confirmed: ${v.court}, ${v.date}, ${v.time}. Show this code when you arrive. Thank you and see you in court!`;
-}
-
-export interface BookingCancellationValues {
-  shortCode: string;
-  date: string;
-  time: string;
-}
-
-export function bookingCancellationBody(v: BookingCancellationValues): string {
-  return `Booking ${v.shortCode} on ${v.date}, ${v.time} has been cancelled. Thank you, and we hope to see you in court again soon.`;
+  return `Booking ${v.shortCode} confirmed: ${v.court}, ${v.date}, ${v.time}. Show this code when you arrive. Non-refundable. Thank you and see you in court!`;
 }
 
 export interface CoachSessionValues {
@@ -72,10 +67,6 @@ export interface CoachSessionValues {
 
 export function coachSessionBody(v: CoachSessionValues): string {
   return `New session: ${v.customer}, ${v.date}, ${v.time}, ${v.court}. Check the dashboard for details.`;
-}
-
-export function coachSessionCancelledBody(v: CoachSessionValues): string {
-  return `Cancelled: your session with ${v.customer} on ${v.date}, ${v.time}, ${v.court} is no longer booked. Thank you.`;
 }
 
 // Exported for the test, which walks every template with representative
@@ -95,25 +86,8 @@ export const TEMPLATE_SAMPLES: { name: string; body: string }[] = [
     }),
   },
   {
-    name: "bookingCancellation",
-    body: bookingCancellationBody({
-      shortCode: "5GTWU",
-      date: "Fri Aug 28",
-      time: "7:00 PM-8:00 PM",
-    }),
-  },
-  {
     name: "coachSession",
     body: coachSessionBody({
-      customer: "Maria Santos",
-      date: "Fri Aug 28",
-      time: "7:00 PM-8:00 PM",
-      court: "Court 2",
-    }),
-  },
-  {
-    name: "coachSessionCancelled",
-    body: coachSessionCancelledBody({
       customer: "Maria Santos",
       date: "Fri Aug 28",
       time: "7:00 PM-8:00 PM",

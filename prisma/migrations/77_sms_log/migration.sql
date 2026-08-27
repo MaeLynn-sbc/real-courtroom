@@ -12,13 +12,11 @@
 CREATE TYPE "SmsTrigger" AS ENUM (
   'OPEN_PLAY_REGISTRATION',
   'PUBLIC_BOOKING',
-  'COACH_SESSION',
-  -- Cancellations. Gated at the call site on a confirmation having
-  -- actually been SENT for the same entity: telling someone their booking
-  -- is cancelled when they were never told it was confirmed is noise at
-  -- best and alarming at worst.
-  'BOOKING_CANCELLED',
-  'COACH_SESSION_CANCELLED'
+  -- Three triggers, all confirmations. There are deliberately NO
+  -- cancellation values: venue policy is that a paid booking is
+  -- non-refundable and cannot be cancelled, so no cancellation event
+  -- exists to notify anyone about.
+  'COACH_SESSION'
 );
 
 CREATE TYPE "SmsStatus" AS ENUM (

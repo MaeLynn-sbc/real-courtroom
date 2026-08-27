@@ -229,19 +229,6 @@ export class SmsDispatchService {
     return status;
   }
 
-  // A cancellation is only worth sending to someone who was actually told
-  // the thing was confirmed in the first place. Checks for a SENT row —
-  // not merely an attempted one — so a customer whose confirmation was
-  // SKIPPED_INVALID or FAILED does not receive a lone "cancelled" text
-  // about a booking they were never texted about.
-  async hasSentConfirmation(trigger: SmsTrigger, entityId: string): Promise<boolean> {
-    const existing = await prisma.smsLog.findUnique({
-      where: { dedupeKey: `${trigger}:${entityId}` },
-      select: { status: true },
-    });
-    return existing?.status === "SENT";
-  }
-
   // Counts SENT only. A skipped or failed message spent no credit, so it
   // must not consume the budget that protects against a runaway trigger.
   private async dailyCapReached(): Promise<boolean> {

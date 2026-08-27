@@ -42,9 +42,25 @@ describe("SMS templates", () => {
     const byName = Object.fromEntries(TEMPLATE_SAMPLES.map((t) => [t.name, t.body]));
     expect(byName.openPlayConfirmation).toContain("Thank you and see you in court!");
     expect(byName.bookingConfirmation).toContain("Thank you and see you in court!");
-    // A cancellation cannot say "see you in court" — nobody is coming.
-    expect(byName.bookingCancellation).toContain("hope to see you in court again soon");
-    expect(byName.bookingCancellation).not.toContain("see you in court!");
+  });
+
+  // Venue policy: once paid, non-refundable and non-cancellable. Stated in
+  // the confirmation itself so the customer reads it at the moment they
+  // commit, not afterwards.
+  it("states the non-refundable policy on both customer confirmations", () => {
+    const byName = Object.fromEntries(TEMPLATE_SAMPLES.map((t) => [t.name, t.body]));
+    expect(byName.openPlayConfirmation).toContain("Non-refundable.");
+    expect(byName.bookingConfirmation).toContain("Non-refundable.");
+    // Coach-facing: the coach is not the payer, so the policy is not theirs.
+    expect(byName.coachSession).not.toContain("Non-refundable");
+  });
+
+  it("has exactly three templates — no cancellation messages exist", () => {
+    expect(TEMPLATE_SAMPLES.map((t) => t.name).sort()).toEqual([
+      "bookingConfirmation",
+      "coachSession",
+      "openPlayConfirmation",
+    ]);
   });
 
   it("carries no contact details at all — no phone, no URL", () => {
@@ -60,13 +76,40 @@ describe("SMS templates", () => {
     }
   });
 
-  it("still fits one segment with long realistic values", () => {
-    const body = openPlayConfirmationBody({
-      name: "Bernadette Villanueva",
-      date: "Wednesday Aug 28",
-      time: "7:00 PM",
+  // Measured against the LONGEST values actually in production (queried
+  // 2026-08-28), not invented ones — that is the only version of this test
+  // worth having. Worst real cases leave 17-19 characters of headroom, so
+  // any future copy edit has very little room before a name pushes a real
+  // customer's message to two segments.
+  //   court name       "Court 3"                            7 (all are)
+  //   guest name       "Judee Anne Michelle Reposar"       27
+  //   open play name   "emmanuel christian jesuzer señeris" 34, with a ñ
+  //   longest booking  4 hours
+  it("fits one segment at the longest values production actually holds", () => {
+    const openPlay = openPlayConfirmationBody({
+      name: "emmanuel christian jesuzer señeris",
+      date: "Wed Sep 10",
+      time: "10:00 PM",
     });
-    expect(analyzeSmsBody(body).segments).toBe(1);
+    const booking = bookingConfirmationBody({
+      shortCode: "5GTWU",
+      court: "Court 3",
+      date: "Wed Sep 10",
+      time: "10:00 AM-2:00 PM",
+    });
+
+    for (const body of [openPlay, booking]) {
+      const a = analyzeSmsBody(body);
+      expect(a.encoding).toBe("GSM-7");
+      expect(a.segments).toBe(1);
+      expect(a.length).toBeLessThanOrEqual(160);
+    }
+    // The n-tilde in that real name is in the GSM-7 basic set. Asserted so
+    // nobody "fixes" it by stripping accents from a customer's own name.
+    expect(analyzeSmsBody(openPlay).offendingCharacters).toEqual([]);
+    // Headroom, stated explicitly so a copy edit that eats it fails here.
+    expect(160 - analyzeSmsBody(openPlay).length).toBeGreaterThanOrEqual(15);
+    expect(160 - analyzeSmsBody(booking).length).toBeGreaterThanOrEqual(15);
   });
 
   it("flips to two segments when an acute-accented name is substituted", () => {
@@ -77,7 +120,13 @@ describe("SMS templates", () => {
       date: "Fri Aug 28",
       time: "7:00 PM-8:00 PM",
     });
-    expect(analyzeSmsBody(body).segments).toBe(1);
-    expect(analyzeSmsBody(body.replace("Court 2", "Concepción")).segments).toBe(2);
+    // Asserted as "costs MORE", not pinned to a number — the exact segment
+    // count moves whenever the copy changes, and pinning it makes an
+    // unrelated wording edit fail here for the wrong reason.
+    const clean = analyzeSmsBody(body);
+    const forced = analyzeSmsBody(body.replace("Court 2", "Concepción"));
+    expect(clean.segments).toBe(1);
+    expect(forced.encoding).toBe("UCS-2");
+    expect(forced.segments).toBeGreaterThan(clean.segments);
   });
 });
