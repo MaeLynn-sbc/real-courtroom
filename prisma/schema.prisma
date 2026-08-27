@@ -897,10 +897,26 @@ enum SmsTrigger {
   PUBLIC_BOOKING
   // A coaching session being created — notifies the COACH on Employee.phone,
   // not the customer.
-  // Three triggers, all confirmations. NO cancellation values by design:
-  // venue policy is that a paid booking is non-refundable and cannot be
-  // cancelled, so there is no cancellation event to notify anyone about.
   COACH_SESSION
+
+  // ── INTENTIONALLY UNUSED ────────────────────────────────────────────
+  // Nothing emits these. Venue policy is that a paid booking is
+  // non-refundable and cannot be cancelled, so there is no cancellation
+  // event to notify anyone about — the templates and both call sites were
+  // removed on 2026-08-28.
+  //
+  // They stay DECLARED HERE because migration 77 is already applied in
+  // production and created the type with all five labels. Postgres cannot
+  // drop a value from an enum in place; removing them would mean
+  // recreating a type that a live table depends on, for zero functional
+  // gain. Worse, deleting them from this schema while they remain in the
+  // database is exactly the mismatch `prisma migrate dev` resolves by
+  // auto-generating that same recreate — the surgery we are avoiding,
+  // deferred and unexpected.
+  //
+  // So: declared, unused, and harmless. Do not "tidy" them away.
+  BOOKING_CANCELLED
+  COACH_SESSION_CANCELLED
 }
 
 enum SmsStatus {
@@ -998,8 +1014,12 @@ model SmsLog {
   // business-day window on every single send.
   @@index([createdAt, status])
   @@index([trigger, entityId])
-  // Partial index behind the "what needs checking by hand?" query.
-  @@index([createdAt])
+  // Partial index behind the "what needs checking by hand?" query — see
+  // migration 77 for the WHERE clause. Prisma cannot express a partial
+  // index, so it is declared here ONLY to claim the name: without the
+  // map, Prisma sees a name mismatch and proposes renaming the real
+  // index on every future migrate diff.
+  @@index([createdAt], map: "SmsLog_ambiguous_idx")
 }
 
 enum BookingSource {
