@@ -1288,7 +1288,6 @@ export class BookingService {
     endAt: Date;
   }): Promise<void> {
     try {
-      const businessInfo = await settingsService.getBusinessInfo();
       await smsDispatchService.dispatch({
         trigger: "BOOKING_CANCELLED",
         entityId: booking.id,
@@ -1297,7 +1296,6 @@ export class BookingService {
           shortCode: booking.shortCode ?? booking.bookingReference,
           date: smsDate(booking.startAt),
           time: smsTimeRange(booking.startAt, booking.endAt),
-          contactPhone: businessInfo.phone,
         }),
       });
     } catch (error) {

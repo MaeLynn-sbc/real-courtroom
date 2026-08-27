@@ -39,15 +39,11 @@ async function main(): Promise<void> {
   // more useful default for a first live test.
   const entityId = entityFlag ? entityFlag.slice("--entity=".length) : "manual-test-1";
 
-  // Pulled from the CMS, exactly as a real send would — so this test
-  // also proves the stored contact number renders and fits.
-  const businessInfo = await settingsService.getBusinessInfo();
   const body = bookingConfirmationBody({
     shortCode: "5GTWU",
     court: "Court 2",
     date: "Fri Aug 28",
     time: "7:00 PM-8:00 PM",
-    contactPhone: businessInfo.phone,
   });
 
   const analysis = analyzeSmsBody(body);
@@ -61,7 +57,6 @@ async function main(): Promise<void> {
   console.log(`  to              ${rawPhone}`);
   console.log(`  dedupe key      PUBLIC_BOOKING:${entityId}`);
   console.log(`  encoding        ${analysis.encoding}, ${analysis.length} chars, ${analysis.segments} segment(s)`);
-  console.log(`  contact phone   ${businessInfo.phone || "(blank -> clause omitted)"}`);
   console.log(`  body            ${body}`);
   console.log("-----------------------------------------------------------");
 

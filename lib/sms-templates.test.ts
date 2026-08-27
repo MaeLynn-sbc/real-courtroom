@@ -35,40 +35,23 @@ describe("SMS templates", () => {
     }
   });
 
-  it("points somewhere that actually works instead", () => {
+  // The closers carry the only two characters worth re-checking: "!" and
+  // the straight apostrophe. Both ARE in the GSM 03.38 basic set, but the
+  // point of this suite is not to trust that — it is to measure it.
+  it("ends every customer template with a friendly closer, not an instruction", () => {
     const byName = Object.fromEntries(TEMPLATE_SAMPLES.map((t) => [t.name, t.body]));
-    // Self-service cancellation — the page matches on phone + night and is
-    // restricted to source WEBSITE, which is exactly who gets this text.
-    expect(byName.openPlayConfirmation).toContain("/open-play/cancel");
-    expect(byName.bookingConfirmation).toContain("0962 857 2974");
-    expect(byName.bookingCancellation).toContain("0962 857 2974");
-    // Coach-facing messages point at the dashboard those users already have.
-    expect(byName.coachSession).toContain("dashboard");
+    expect(byName.openPlayConfirmation).toContain("Thank you and see you in court!");
+    expect(byName.bookingConfirmation).toContain("Thank you and see you in court!");
+    // A cancellation cannot say "see you in court" — nobody is coming.
+    expect(byName.bookingCancellation).toContain("hope to see you in court again soon");
+    expect(byName.bookingCancellation).not.toContain("see you in court!");
   });
 
-  // The contact number is read from cms.business.info at render time, so a
-  // longer one is a real way to blow the single-segment budget. The
-  // dispatcher analyses the RENDERED body for exactly this reason.
-  it("survives a longer contact number, and a blank one drops the clause", () => {
-    const long = bookingConfirmationBody({
-      shortCode: "5GTWU",
-      court: "Court 2",
-      date: "Fri Aug 28",
-      time: "7:00 PM-8:00 PM",
-      contactPhone: "+63 962 857 2974 / +63 917 000 1234",
-    });
-    expect(analyzeSmsBody(long).segments).toBe(1);
-
-    const blank = bookingConfirmationBody({
-      shortCode: "5GTWU",
-      court: "Court 2",
-      date: "Fri Aug 28",
-      time: "7:00 PM-8:00 PM",
-      contactPhone: "",
-    });
-    expect(blank).not.toContain("Call");
-    expect(blank.trimEnd()).toBe(blank);
-    expect(analyzeSmsBody(blank).segments).toBe(1);
+  it("carries no contact details at all — no phone, no URL", () => {
+    for (const { name, body } of TEMPLATE_SAMPLES) {
+      expect(`${name}: ${body}`).not.toMatch(/\d{4}\s?\d{3}\s?\d{4}/); // a phone number
+      expect(`${name}: ${body}`).not.toMatch(/https?:|www\.|\.com/i); // a URL
+    }
   });
 
   it("uses straight apostrophes only — a curly one would force UCS-2", () => {
@@ -93,7 +76,6 @@ describe("SMS templates", () => {
       court: "Court 2",
       date: "Fri Aug 28",
       time: "7:00 PM-8:00 PM",
-      contactPhone: "0962 857 2974",
     });
     expect(analyzeSmsBody(body).segments).toBe(1);
     expect(analyzeSmsBody(body.replace("Court 2", "Concepción")).segments).toBe(2);

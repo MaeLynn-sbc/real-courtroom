@@ -7,7 +7,6 @@ import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { recordCoachSessionFeeSale } from "@/services/coaching/coach-session-fee-sale";
 import { getUploadService } from "@/services/upload/upload-service.factory";
 import { saleService } from "@/services/sales/sale.service";
-import { settingsService } from "@/services/settings/settings.service";
 import { smsDate, smsTimeRange } from "@/lib/sms-format";
 import { bookingConfirmationBody } from "@/lib/sms-templates";
 import { getSmsService } from "@/services/sms/sms-service.factory";
@@ -674,12 +673,10 @@ export class BookingPaymentProofService {
     endAt: Date;
   }): Promise<void> {
     try {
-      const [court, businessInfo] = await Promise.all([
-        prisma.court.findUnique({ where: { id: booking.courtId }, select: { name: true } }),
-        // Read at SEND time, not baked in — the owner can change the venue
-        // number in the CMS and the next text carries it.
-        settingsService.getBusinessInfo(),
-      ]);
+      const court = await prisma.court.findUnique({
+        where: { id: booking.courtId },
+        select: { name: true },
+      });
 
       await smsDispatchService.dispatch({
         trigger: "PUBLIC_BOOKING",
@@ -690,7 +687,6 @@ export class BookingPaymentProofService {
           court: court?.name ?? "your court",
           date: smsDate(booking.startAt),
           time: smsTimeRange(booking.startAt, booking.endAt),
-          contactPhone: businessInfo.phone,
         }),
       });
     } catch (error) {

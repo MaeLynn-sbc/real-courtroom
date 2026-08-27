@@ -15,11 +15,12 @@ import { analyzeSmsBody } from "@/lib/sms-encoding";
 // case, because the customer believes they have cancelled and the seat
 // stays held.
 //
-// Every template now ends in a route that actually works:
-//   open play    -> /open-play/cancel   (self-service; asks for phone +
-//                   night, no code needed, so the text needs no reference)
-//   bookings     -> the venue phone
-//   coaches      -> the dashboard they already use
+// Owner decision (2026-08-28, after the second live read): end on a
+// FRIENDLY CLOSER rather than contact details. A confirmation is a nice
+// moment, not a support ticket, and a phone number in every message
+// invites calls the venue does not want to field. No reply instruction,
+// no phone, no URL — the cancellation route lives on the confirmation
+// page and in the customer's own records, not stapled to every text.
 //
 // GSM-7 DISCIPLINE. Straight quotes and apostrophes only; ":" and "-"
 // instead of the em dash that forced UCS-2 in the first drafts. Ordinary
@@ -37,30 +38,8 @@ export interface OpenPlayConfirmationValues {
   time: string;
 }
 
-// The cancel page asks only for phone number + night, so this can send
-// customers straight there with nothing to quote back.
-const OPEN_PLAY_CANCEL_URL = "thecourtroomkalibo.com/open-play/cancel";
-
-// Rendered EXACTLY as stored in cms.business.info (spaces and all —
-// "0962 857 2974" reads better on a handset than a normalised string, and
-// every phone dialer copes with the spaces).
-//
-// Passed in by the caller rather than read here, so these stay pure
-// functions the tests can measure. The consequence the owner called out:
-// a longer contact value can push a body past 160, so the encoding check
-// runs on the RENDERED string at send time (sms-dispatch.service.ts), not
-// on the template.
-//
-// A blank phone drops the whole clause instead of emitting "Call ." —
-// cms.business.info's other fields are empty in production, so an empty
-// phone is a real state, not a hypothetical.
-function contactClause(phone: string, lead: string): string {
-  const trimmed = phone.trim();
-  return trimmed ? ` ${lead} ${trimmed}.` : "";
-}
-
 export function openPlayConfirmationBody(v: OpenPlayConfirmationValues): string {
-  return `Hi ${v.name}, you're booked for Open Play on ${v.date} at ${v.time}. Can't make it? Cancel at ${OPEN_PLAY_CANCEL_URL}`;
+  return `Hi ${v.name}, you're booked for Open Play on ${v.date} at ${v.time}. Thank you and see you in court!`;
 }
 
 export interface BookingConfirmationValues {
@@ -68,24 +47,20 @@ export interface BookingConfirmationValues {
   court: string;
   date: string;
   time: string;
-  /** cms.business.info -> phone, verbatim. Blank drops the clause. */
-  contactPhone: string;
 }
 
 export function bookingConfirmationBody(v: BookingConfirmationValues): string {
-  return `Booking ${v.shortCode} confirmed: ${v.court}, ${v.date}, ${v.time}. Show this code when you arrive.${contactClause(v.contactPhone, "Questions? Call")}`;
+  return `Booking ${v.shortCode} confirmed: ${v.court}, ${v.date}, ${v.time}. Show this code when you arrive. Thank you and see you in court!`;
 }
 
 export interface BookingCancellationValues {
   shortCode: string;
   date: string;
   time: string;
-  /** cms.business.info -> phone, verbatim. Blank drops the clause. */
-  contactPhone: string;
 }
 
 export function bookingCancellationBody(v: BookingCancellationValues): string {
-  return `Booking ${v.shortCode} on ${v.date}, ${v.time} has been cancelled.${contactClause(v.contactPhone, "Not expecting this? Call")}`;
+  return `Booking ${v.shortCode} on ${v.date}, ${v.time} has been cancelled. Thank you, and we hope to see you in court again soon.`;
 }
 
 export interface CoachSessionValues {
@@ -100,7 +75,7 @@ export function coachSessionBody(v: CoachSessionValues): string {
 }
 
 export function coachSessionCancelledBody(v: CoachSessionValues): string {
-  return `Cancelled: your session with ${v.customer} on ${v.date}, ${v.time}, ${v.court} is no longer booked.`;
+  return `Cancelled: your session with ${v.customer} on ${v.date}, ${v.time}, ${v.court} is no longer booked. Thank you.`;
 }
 
 // Exported for the test, which walks every template with representative
@@ -117,7 +92,6 @@ export const TEMPLATE_SAMPLES: { name: string; body: string }[] = [
       court: "Court 2",
       date: "Fri Aug 28",
       time: "7:00 PM-8:00 PM",
-      contactPhone: "0962 857 2974",
     }),
   },
   {
@@ -126,7 +100,6 @@ export const TEMPLATE_SAMPLES: { name: string; body: string }[] = [
       shortCode: "5GTWU",
       date: "Fri Aug 28",
       time: "7:00 PM-8:00 PM",
-      contactPhone: "0962 857 2974",
     }),
   },
   {
