@@ -41,6 +41,13 @@ export interface PayPeriodDay extends DayComputation {
   scheduledEnd: Date | null;
   clockIn: Date | null;
   clockOut: Date | null;
+  // Owner request (2026-08-27): "I want the admin or the owner can see a
+  // correct button after each date... to edit the forgotten log outs and
+  // all." The preview is where a wrong clock-out is actually NOTICED —
+  // that is where it should be fixable, rather than making someone find
+  // the same day again in the attendance workspace. Null on a day with no
+  // attendance record, where there is nothing to correct.
+  attendanceRecordId: string | null;
 }
 
 export interface PayPeriodComputation {
@@ -108,6 +115,7 @@ export class PayrollComputationService {
         scheduledEnd: schedule?.scheduledEnd ?? null,
         clockIn: attendance?.clockIn ?? null,
         clockOut: attendance?.clockOut ?? null,
+        attendanceRecordId: attendance?.id ?? null,
       });
     }
 

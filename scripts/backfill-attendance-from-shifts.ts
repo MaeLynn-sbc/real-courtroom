@@ -72,7 +72,12 @@ async function main(): Promise<void> {
 
   for (const shift of shifts) {
     const who = `${shift.employee.firstName} ${shift.employee.lastName}`.trim();
-    const day = shift.startedAt.toISOString().slice(0, 10);
+    // Local (TZ=Asia/Manila on the droplet), NOT toISOString — that is
+    // always UTC and printed a date one day behind the Manila time beside
+    // it, which reads as though a shift landed on the wrong day. Display
+    // only; the stored workDate was always derived correctly via
+    // computeBusinessDate.
+    const day = `${shift.startedAt.getFullYear()}-${String(shift.startedAt.getMonth() + 1).padStart(2, "0")}-${String(shift.startedAt.getDate()).padStart(2, "0")}`;
     const window = `${shift.startedAt.toTimeString().slice(0, 5)}-${shift.endedAt!.toTimeString().slice(0, 5)}`;
     const hours = (shift.endedAt!.getTime() - shift.startedAt.getTime()) / 3_600_000;
     const long = hours >= LONG_SHIFT_HOURS;

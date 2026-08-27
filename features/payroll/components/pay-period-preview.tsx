@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { exportPayPeriodCsvAction } from "@/actions/pay-period.actions";
 import { Badge } from "@/components/ui/badge";
+import { CorrectDayEntryForm } from "@/features/payroll/components/correct-day-entry-form";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -35,6 +36,8 @@ interface DayRow {
   scheduledEnd: Date | null;
   clockIn: Date | null;
   clockOut: Date | null;
+  // Null on a day with no attendance record — nothing to correct.
+  attendanceRecordId: string | null;
   regularMinutes: number;
   otMinutes: number;
   nightDiffMinutes: number;
@@ -252,6 +255,10 @@ export function PayPeriodPreview({
               <TableHead>Undertime (shown, not deducted)</TableHead>
               <TableHead>Day gross</TableHead>
               <TableHead>Flags</TableHead>
+              {/* Owner request (2026-08-27): correct a forgotten clock-out
+                  where it is actually noticed, rather than hunting the same
+                  date down again in the attendance workspace. */}
+              <TableHead className="text-right">Correct</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -283,6 +290,21 @@ export function PayPeriodPreview({
                         </Badge>
                       ))}
                     </div>
+                  )}
+                </TableCell>
+                <TableCell className="text-right align-top">
+                  {day.attendanceRecordId ? (
+                    <CorrectDayEntryForm
+                      recordId={day.attendanceRecordId}
+                      workDate={day.workDate}
+                      clockIn={day.clockIn}
+                      clockOut={day.clockOut}
+                    />
+                  ) : (
+                    // Nothing recorded that day, so nothing to correct.
+                    // Adding attendance from scratch stays in the payroll
+                    // attendance workspace, which is built for it.
+                    <span className="text-muted-foreground text-xs">—</span>
                   )}
                 </TableCell>
               </TableRow>
