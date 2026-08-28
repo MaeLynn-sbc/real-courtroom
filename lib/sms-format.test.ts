@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+
 import { analyzeSmsBody } from "@/lib/sms-encoding";
 import { smsDate, smsTime, smsTimeRange, smsTruncateReason } from "@/lib/sms-format";
 
@@ -127,5 +129,52 @@ describe("SMS date/time formatting", () => {
         expect(a.segments).toBe(1);
       }
     });
+  });
+
+  // ── THE GUARD THAT ACTUALLY BITES ──────────────────────────────────
+  // Everything above passes even with the timeZone option DELETED,
+  // because jest.config.ts pins process.env.TZ = "Asia/Manila" before
+  // forking workers. So the whole suite runs in Manila and cannot tell
+  // "the formatter pins Manila" apart from "the ambient zone happens to
+  // BE Manila" — verified by removing the option and watching all 18
+  // tests still pass.
+  //
+  // That matters because production's TZ=Asia/Manila is likewise
+  // ambient: it comes from .env and the Dockerfile, not from the code.
+  // Lose the explicit option AND change the deploy env, and every SMS
+  // silently shifts hours with nothing failing.
+  //
+  // The only honest test is a child process in a FOREIGN zone. Slower
+  // than the rest of the file, which is why there is exactly one.
+  describe("pins Asia/Manila explicitly, not via the ambient TZ", () => {
+    it("renders identically under TZ=America/New_York", () => {
+      const script = [
+        'import { smsDate, smsTime, smsTimeRange } from "./lib/sms-format";',
+        'const s = new Date("2026-08-27T10:00:00Z");',
+        'const e = new Date("2026-08-27T15:00:00Z");',
+        'const b = new Date("2026-08-27T23:00:00Z");',
+        'console.log(JSON.stringify({',
+        '  sessionStart: smsTime(s),',
+        '  sessionRange: smsTimeRange(s, e),',
+        '  bookingTime: smsTime(b),',
+        '  bookingDate: smsDate(b),',
+        '}));',
+      ].join("\n");
+
+      const raw = execFileSync("npx", ["tsx", "-e", script], {
+        cwd: process.cwd(),
+        env: { ...process.env, TZ: "America/New_York" },
+        encoding: "utf8",
+      });
+
+      expect(JSON.parse(raw.trim().split("\n").pop() as string)).toEqual({
+        sessionStart: "6:00 PM",
+        sessionRange: "6:00 PM-11:00 PM",
+        // The date boundary case: 23:00Z is still the NEXT day in Manila
+        // even when the host thinks it is late evening on the 27th.
+        bookingTime: "7:00 AM",
+        bookingDate: "Fri, Aug 28",
+      });
+    }, 60_000);
   });
 });
