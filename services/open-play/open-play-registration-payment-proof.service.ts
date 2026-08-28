@@ -154,7 +154,7 @@ export class OpenPlayRegistrationPaymentProofService {
       // staff-in-the-room moment to reassure the customer otherwise.
       await sendOpenPlayProofSms(
         phone,
-        `We received your GCash payment for Open Play (${playerName}). We're verifying it now and will text you once it's confirmed.`,
+        `Hi ${playerName}, we received your GCash payment for Open Play. We're verifying it now and will text you once it's confirmed.`,
       );
 
       return proof;
