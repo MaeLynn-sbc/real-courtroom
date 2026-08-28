@@ -247,6 +247,25 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     openPlaySettings.closedRegistrationMessage,
     courtHours.businessDateRolloverHour,
   );
+  // Slot counter on the hero's "Join open play" button.
+  //
+  // Derived from the SAME card states rendered further down the page, not
+  // recomputed. An earlier version of this checked only status === "OPEN"
+  // and would have contradicted the cards on the same screen: they also
+  // gate on the feature flag, the per-day enable, the registration-blocked
+  // flag and the lead-time window, so a night the card calls "not yet
+  // open" would still have shown a seat count up here.
+  //
+  // Friday first because it is the nearer night in the pair as ordered on
+  // this page; whichever is genuinely open wins, and if neither is, the
+  // badge renders nothing rather than inventing a number.
+  const heroSlotState = [fridayCardState, saturdayCardState].find(
+    (state): state is Extract<OpenPlayCardState, { kind: "open" }> => state.kind === "open",
+  );
+  const heroSlotsFull = [fridayCardState, saturdayCardState].some(
+    (state) => state.kind === "full",
+  );
+
   const openPlayOpensAtFormatter = new Intl.DateTimeFormat("en-PH", {
     month: "long",
     day: "numeric",
@@ -315,6 +334,20 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                   className={`${PILL_BUTTON} border-line text-bone hover:border-green border font-semibold`}
                 >
                   Join open play
+                  {heroSlotState || heroSlotsFull ? (
+                    <span
+                      className={`ml-2 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${
+                        heroSlotState ? "bg-green text-navy-900" : "bg-bone/15 text-bone/70"
+                      }`}
+                      aria-label={
+                        heroSlotState
+                          ? `${heroSlotState.remaining} spots left`
+                          : "Open play is full"
+                      }
+                    >
+                      {heroSlotState ? `${heroSlotState.remaining} left` : "Full"}
+                    </span>
+                  ) : null}
                 </Link>
                 <Link
                   href="/phone"
