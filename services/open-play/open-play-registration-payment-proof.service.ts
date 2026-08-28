@@ -7,7 +7,7 @@ import {
   type RegisterWalkInSaleContext,
 } from "@/services/open-play/open-play-registration.service";
 import { getUploadService } from "@/services/upload/upload-service.factory";
-import { smsDate, smsTimeRange } from "@/lib/sms-format";
+import { smsDate, smsTimeRange, smsTruncateReason } from "@/lib/sms-format";
 import { openPlayConfirmationBody } from "@/lib/sms-templates";
 import { getSmsService } from "@/services/sms/sms-service.factory";
 import { smsDispatchService } from "@/services/sms/sms-dispatch.service";
@@ -154,7 +154,7 @@ export class OpenPlayRegistrationPaymentProofService {
       // staff-in-the-room moment to reassure the customer otherwise.
       await sendOpenPlayProofSms(
         phone,
-        `The Courtroom: We received your GCash payment for Open Play (${playerName}). We're verifying it now — you'll get a text once it's confirmed.`,
+        `We received your GCash payment for Open Play (${playerName}). We're verifying it now and will text you once it's confirmed.`,
       );
 
       return proof;
@@ -375,7 +375,7 @@ export class OpenPlayRegistrationPaymentProofService {
       // registration, only a brand new one.
       await sendOpenPlayProofSms(
         result.registration.phone,
-        `The Courtroom: We couldn't verify your GCash payment for Open Play — ${reason}. This registration has been cancelled; please submit a new registration if you'd still like to join, or contact us for help.`,
+        `Open Play payment could not be verified: ${smsTruncateReason(reason, 38)}. Your registration is cancelled. Please register again if you'd like to join.`,
       );
     }
 

@@ -7,7 +7,7 @@ import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { recordCoachSessionFeeSale } from "@/services/coaching/coach-session-fee-sale";
 import { getUploadService } from "@/services/upload/upload-service.factory";
 import { saleService } from "@/services/sales/sale.service";
-import { smsDate, smsTimeRange } from "@/lib/sms-format";
+import { smsDate, smsTimeRange, smsTruncateReason } from "@/lib/sms-format";
 import { bookingConfirmationBody } from "@/lib/sms-templates";
 import { getSmsService } from "@/services/sms/sms-service.factory";
 import { smsDispatchService } from "@/services/sms/sms-dispatch.service";
@@ -271,7 +271,7 @@ export class BookingPaymentProofService {
       // a separate concern from whether the court itself is held.
       await sendBookingProofSms(
         guestPhone,
-        `The Courtroom: Got your payment screenshot for booking ${customerCode} — your court is reserved. We'll text you once payment is confirmed. Check your booking anytime: thecourtroomkalibo.com/lookup`,
+        `Got your payment screenshot for booking ${customerCode}. Your court is reserved. We'll text you once payment is confirmed.`,
       );
 
       return proof;
@@ -579,7 +579,7 @@ export class BookingPaymentProofService {
       // exist.
       await sendBookingProofSms(
         result.booking.guestPhone,
-        `The Courtroom: We couldn't verify your GCash payment for booking ${customerFacingCode(result.booking)} — ${reason}. This booking has been cancelled; please make a new booking if you'd still like to play, or contact us for help. Check your booking anytime: thecourtroomkalibo.com/lookup`,
+        `Booking ${customerFacingCode(result.booking)} payment could not be verified: ${smsTruncateReason(reason, 38)}. The booking is cancelled. Please book again if you'd like to play.`,
       );
     }
 

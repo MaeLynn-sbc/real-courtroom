@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { analyzeSmsBody } from "@/lib/sms-encoding";
 import {
   TEMPLATE_SAMPLES,
@@ -158,5 +161,38 @@ describe("SMS templates", () => {
     expect(clean.segments).toBe(1);
     expect(forced.encoding).toBe("UCS-2");
     expect(forced.segments).toBeGreaterThan(clean.segments);
+  });
+
+  // The em dash escaped notice because the offending bodies live in
+  // SERVICE files, not here — four were billing 3-5 segments each in
+  // production while every template test passed.
+  //
+  // A blanket character scan of those files was tried and REMOVED: they
+  // also contain UI error strings ("...already been confirmed — check
+  // your booking status") that legitimately use an em dash and never
+  // reach a handset, so it produced false failures. The prefix check
+  // below has no such ambiguity, since "The Courtroom:" only ever
+  // appeared in an SMS body.
+  //
+  // The real fix is to move those five bodies into this file, where
+  // TEMPLATE_SAMPLES already measures every one. Logged, not done here.
+  describe("SMS-sending source files", () => {
+    const SENDER_FILES = [
+      "services/booking/booking-payment-proof.service.ts",
+      "services/open-play/open-play-registration-payment-proof.service.ts",
+      "services/open-play/open-play-registration.service.ts",
+      "lib/sms-templates.ts",
+    ];
+
+    it.each(SENDER_FILES)("%s carries no venue prefix", (file) => {
+      const source = readFileSync(join(process.cwd(), file), "utf8");
+      const code = source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .split("\n")
+        .filter((line) => !line.trim().startsWith("//"))
+        .join("\n");
+      expect(code).not.toContain("The Courtroom:");
+      expect(code).not.toContain("The Courtroom Kalibo:");
+    });
   });
 });

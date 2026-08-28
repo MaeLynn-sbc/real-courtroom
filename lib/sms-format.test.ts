@@ -1,4 +1,5 @@
-import { smsDate, smsTime, smsTimeRange } from "@/lib/sms-format";
+import { analyzeSmsBody } from "@/lib/sms-encoding";
+import { smsDate, smsTime, smsTimeRange, smsTruncateReason } from "@/lib/sms-format";
 
 // These pin the ONE property that caused two separate bugs in this build:
 // every timestamp reaching an SMS is a naive-UTC value that Prisma hands
@@ -80,5 +81,49 @@ describe("SMS date/time formatting", () => {
     // Intl can emit narrow no-break spaces (U+202F) before AM/PM in some
     // ICU versions — that is NOT GSM-7 and would silently double the bill.
     expect(rendered).not.toMatch(/[  –—]/);
+  });
+  // Staff type rejection reasons as unbounded free text. Before the cap,
+  // the booking rejection billed FIVE segments; a long reason alone was
+  // enough to double even a GSM-7 body.
+  describe("smsTruncateReason", () => {
+    it("leaves a short reason untouched", () => {
+      expect(smsTruncateReason("the reference number didn't match", 38)).toBe(
+        "the reference number didn't match",
+      );
+    });
+
+    it("cuts a long reason on a word boundary", () => {
+      const out = smsTruncateReason(
+        "the reference number you sent does not match any GCash transaction we received",
+        38,
+      );
+      expect(out.length).toBeLessThanOrEqual(38);
+      expect(out.endsWith("...")).toBe(true);
+      expect(out).not.toMatch(/\s\.\.\.$/); // no space before the dots
+    });
+
+    it("closes with three dots, NOT the ellipsis character", () => {
+      const out = smsTruncateReason("x".repeat(80), 38);
+      // U+2026 is outside GSM-7 and would force UCS-2 — defeating the cap.
+      expect(out).not.toContain("\u2026");
+      expect(analyzeSmsBody(out).encoding).toBe("GSM-7");
+    });
+
+    it("collapses whitespace so a pasted multi-line reason stays one line", () => {
+      expect(smsTruncateReason("  bad\n\n  reference  ", 38)).toBe("bad reference");
+    });
+
+    it("keeps both rejection bodies inside one GSM-7 segment at any length", () => {
+      const long = "the reference number you sent does not match any GCash transaction we received for this date and amount, please check your receipt";
+      const bodies = [
+        `Open Play payment could not be verified: ${smsTruncateReason(long, 38)}. Your registration is cancelled. Please register again if you'd like to join.`,
+        `Booking 5GTWU payment could not be verified: ${smsTruncateReason(long, 38)}. The booking is cancelled. Please book again if you'd like to play.`,
+      ];
+      for (const body of bodies) {
+        const a = analyzeSmsBody(body);
+        expect(a.encoding).toBe("GSM-7");
+        expect(a.segments).toBe(1);
+      }
+    });
   });
 });

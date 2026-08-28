@@ -1,5 +1,6 @@
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { smsTime } from "@/lib/sms-format";
 import type {
   OpenPlayCredit,
   OpenPlayNightRegistration,
@@ -782,7 +783,7 @@ export class OpenPlayRegistrationService {
       try {
         await getSmsService().send(
           nextWaiting.phone,
-          `The Courtroom: A spot has opened up for Open Play! You have until ${holdExpiresAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })} to confirm and pay, or your spot will be given to the next person.`,
+          `A spot has opened up for Open Play! You have until ${smsTime(holdExpiresAt)} to confirm and pay, or it goes to the next person.`,
         );
       } catch (error) {
         logger.error(

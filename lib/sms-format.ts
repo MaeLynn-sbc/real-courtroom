@@ -33,3 +33,21 @@ export function smsTime(value: Date): string {
 export function smsTimeRange(start: Date, end: Date): string {
   return `${smsTime(start)}-${smsTime(end)}`;
 }
+
+// Staff type rejection reasons as free text with no maximum length, so a
+// long one can push a message to two segments — or five, as the old
+// booking rejection did. Truncated to keep the rendered body inside one
+// GSM-7 segment.
+//
+// Cut on a word boundary where possible and closed with three dots, NOT
+// the ellipsis character U+2026 — that is outside GSM-7 and would force
+// UCS-2, defeating the whole point of trimming.
+export function smsTruncateReason(reason: string, maxLength: number): string {
+  const clean = reason.trim().replace(/\s+/g, " ");
+  if (clean.length <= maxLength) {
+    return clean;
+  }
+  const cut = clean.slice(0, maxLength - 3);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${(lastSpace > maxLength / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}...`;
+}
