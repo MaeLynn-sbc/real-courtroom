@@ -25,8 +25,10 @@ describe("SMS date/time formatting", () => {
     });
 
     it("rolls the DATE forward across the UTC-to-Manila boundary", () => {
-      // 23:00 UTC on the 27th is 7 AM on the 28th in Manila. Getting this
-      // wrong is what made a Thursday open-play night go out as Friday.
+      // 23:00 UTC on the 27th is 7 AM on the 28th in Manila. This boundary
+      // is real and worth pinning for BOOKINGS, whose start times sit near
+      // it. (It did NOT cause an open-play day shift — that claim was
+      // wrong; see open-play-registration-payment-proof.service.ts.)
       expect(smsDate(new Date("2026-08-27T23:00:00Z"))).toBe("Fri, Aug 28");
       expect(smsDate(new Date("2026-08-27T15:59:00Z"))).toBe("Thu, Aug 27");
     });

@@ -276,8 +276,21 @@ export class OpenPlayRegistrationPaymentProofService {
       // around that data is the point, not fixing it here.
       // Times come from the SESSION, never from registration.date — that
       // column is a date-only marker pinned to midnight, so rendering it
-      // as a time gave "12:00 AM" and, because midnight Manila lands on
-      // the next calendar day, named the wrong day as well.
+      // as a time gave "12:00 AM" instead of the real 6:00 PM-11:00 PM.
+      //
+      // CORRECTION (2026-08-28): an earlier version of this comment, and
+      // the commit that introduced it, also claimed the DAY was wrong.
+      // It was not. Checked across all 273 website registrations on all
+      // 9 nights: smsDate(registration.date) and smsDate(session.startAt)
+      // agree every time. They must — the marker is midnight Manila of
+      // night N and the session runs 6-11 PM on that same night N, so
+      // both land on the same calendar day. Only a session starting after
+      // midnight could separate them, and none does.
+      //
+      // The bad claim came from comparing a CONVERTED registration.date
+      // against the session's own raw, unconverted `date` column. The
+      // same naive-timestamp trap this file has now hit three times.
+      // Only the TIME was ever wrong.
       //
       // Every WEBSITE registration has a session (268 of 268 in
       // production; sessionId is nullable only for walk-in weeknight
