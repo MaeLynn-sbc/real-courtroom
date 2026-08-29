@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Inter, JetBrains_Mono, Manrope, Saira_Condensed } from "next/font/google";
 
 import "./globals.css";
@@ -7,6 +7,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { AddToHomeScreenBanner } from "@/components/pwa/add-to-home-screen";
+import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-registration";
 import { siteConfig } from "@/lib/config";
 
 // v1.1 Sub-phase 5: Manrope (headings) + Inter (body) replace Geist Sans.
@@ -57,6 +59,29 @@ export const metadata: Metadata = {
   icons: {
     icon: "/branding/favicon.png",
   },
+  // PWA, iOS half (owner decision, 2026-08-29). Safari fires no
+  // beforeinstallprompt and reads none of the manifest's display or
+  // theme fields — these meta tags are the ONLY way it learns to launch
+  // standalone rather than in a browser tab.
+  appleWebApp: {
+    capable: true,
+    // What appears under the icon on the home screen. iOS truncates at
+    // roughly 12 characters, so "The Courtroom" would render as
+    // "The Courtr...". Matches the manifest's short_name.
+    title: "Courtroom",
+    // "black-translucent" would let the page run under the status bar,
+    // which on a dark site reads as a rendering fault unless every page
+    // handles the inset. "default" keeps the status bar its own solid
+    // strip, which is correct for a site that is not full-bleed.
+    statusBarStyle: "default",
+  },
+};
+
+// Painted behind the status bar and browser chrome. Matches --navy-900
+// in globals.css and the manifest's theme_color; a mismatch shows as a
+// band of the wrong colour above the page.
+export const viewport: Viewport = {
+  themeColor: "#0e1424",
 };
 
 export default function RootLayout({
@@ -82,6 +107,17 @@ export default function RootLayout({
             <QueryProvider>
               {children}
               <Toaster />
+              {/* PWA. The worker registers from the ROOT layout because
+                  its scope must be "/" for the installable public pages
+                  to be covered — which means it controls /dashboard too.
+                  Harmless only because it caches nothing (see sw.js).
+
+                  The install banner is NOT mounted here: it self-limits
+                  to public pages, since staff on /dashboard are already
+                  on a laptop or a shared counter tablet and have no use
+                  for an iPhone home-screen prompt. */}
+              <ServiceWorkerRegistration />
+              <AddToHomeScreenBanner />
             </QueryProvider>
           </SessionProvider>
         </ThemeProvider>
