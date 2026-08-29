@@ -175,17 +175,17 @@ async function main(): Promise<void> {
     );
     assert(!rejectResult.alreadyResolved, "expected the rejection to actually resolve the proof");
 
+    // Owner decision (2026-08-29): rejections send NOTHING. The reason is
+    // staff free text and had to be truncated to 38 characters to fit one
+    // segment, which stripped the only part worth reading. A vague
+    // rejection is worse than silence — it says the money is gone without
+    // saying what to do. Staff follow up directly instead.
     const rejectCount = sentMessages.length;
-    const rejectSent = sentMessages[0];
-    assert(rejectCount === 1, `expected exactly 1 SMS sent on rejection, got ${rejectCount}`);
-    assert(rejectSent !== undefined, "expected a recorded SMS send");
-    assert(rejectSent.phone === "09171230011", `expected the rejection SMS to go to the guest's phone, got ${rejectSent.phone}`);
-    assert(rejectSent.message.includes("Amount doesn't match the booking total."), "expected the rejection SMS to include the actual reason staff entered");
-    assert(rejectSent.message.includes("new booking"), "expected the rejection SMS to state plainly that a new booking is needed, not a resubmit step that doesn't exist");
-    console.log("PASS: rejecting a payment proof sends an SMS with the real reason and correct resubmission guidance.");
+    assert(rejectCount === 0, `expected NO SMS on rejection, got ${rejectCount}`);
+    console.log("PASS: rejecting a payment proof sends no SMS at all.");
 
     await cleanUp(court.id);
-    console.log("\nPASS: submission, approval, and rejection each send their own correctly-targeted SMS.");
+    console.log("\nPASS: submission and approval each send their own SMS; rejection sends none.");
   } finally {
     smsService.send = originalSend;
   }

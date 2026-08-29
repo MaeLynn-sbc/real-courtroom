@@ -7,7 +7,7 @@ import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { recordCoachSessionFeeSale } from "@/services/coaching/coach-session-fee-sale";
 import { getUploadService } from "@/services/upload/upload-service.factory";
 import { saleService } from "@/services/sales/sale.service";
-import { smsDate, smsTimeRange, smsTruncateReason } from "@/lib/sms-format";
+import { smsDate, smsTimeRange } from "@/lib/sms-format";
 import { bookingConfirmationBody } from "@/lib/sms-templates";
 import { getSmsService } from "@/services/sms/sms-service.factory";
 import { smsDispatchService } from "@/services/sms/sms-dispatch.service";
@@ -573,14 +573,18 @@ export class BookingPaymentProofService {
       // this app yet (confirmed: app/lookup/page.tsx doesn't even query
       // BookingPaymentProof) — this SMS is the first place a customer
       // ever sees it, not a second copy of existing text. REJECTED is
-      // terminal (same as CANCELLED, per the comment above) — a customer
-      // cannot resubmit proof for THIS booking, only make a new one,
-      // stated plainly rather than implying a resubmit step that doesn't
-      // exist.
-      await sendBookingProofSms(
-        result.booking.guestPhone,
-        `Booking ${customerFacingCode(result.booking)} payment could not be verified: ${smsTruncateReason(reason, 38)}. The booking is cancelled. Please book again if you'd like to play.`,
-      );
+      // NO REJECTION SMS (owner decision, 2026-08-29). A rejection is
+      // only useful if it says WHY, and the reason is free text staff
+      // type — it had to be truncated to 38 characters to fit one
+      // segment, which turns "the reference number does not match any
+      // transaction we received" into a fragment that reads as brusque
+      // and answers nothing. A vague rejection text is worse than none:
+      // it tells someone their money is gone without telling them what
+      // to do, and they call anyway.
+      //
+      // Staff handle rejections directly instead. The booking is
+      // already CANCELLED here and the seat freed, so nothing depends on
+      // this message having been sent.
     }
 
     return { alreadyResolved: result.alreadyResolved, proof: result.proof };

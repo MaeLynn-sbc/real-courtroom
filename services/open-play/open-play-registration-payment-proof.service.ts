@@ -7,7 +7,7 @@ import {
   type RegisterWalkInSaleContext,
 } from "@/services/open-play/open-play-registration.service";
 import { getUploadService } from "@/services/upload/upload-service.factory";
-import { smsDate, smsTimeRange, smsTruncateReason } from "@/lib/sms-format";
+import { smsDate, smsTimeRange } from "@/lib/sms-format";
 import { openPlayConfirmationBody } from "@/lib/sms-templates";
 import { getSmsService } from "@/services/sms/sms-service.factory";
 import { smsDispatchService } from "@/services/sms/sms-dispatch.service";
@@ -380,16 +380,15 @@ export class OpenPlayRegistrationPaymentProofService {
       await openPlayRegistrationService.rejectRegistration(result.registration.id, context.actorUserId);
 
       // No customer-facing status page exists for open-play (by design —
-      // BUILD-SPEC.md §6 point 5: SMS is the channel, not a web lookup
-      // page, same as this app's own booking flow has no customer-facing
-      // rejection text either — confirmed, nothing to reuse). REJECTED is
-      // terminal (rejectRegistration mirrors Booking's own "same as
-      // CANCELLED" reasoning) — stated plainly: no resubmission for THIS
-      // registration, only a brand new one.
-      await sendOpenPlayProofSms(
-        result.registration.phone,
-        `Open Play payment could not be verified: ${smsTruncateReason(reason, 38)}. Your registration is cancelled. Please register again if you'd like to join.`,
-      );
+      // NO REJECTION SMS (owner decision, 2026-08-29) — same reasoning
+      // as the booking side: the reason is staff free text and had to be
+      // cut to 38 characters to fit a segment, which strips exactly the
+      // detail that made the message worth sending. Staff follow up
+      // directly.
+      //
+      // The seat is already freed above, and the next online waiter
+      // still gets their own invite SMS via inviteNextWaitlistEntry —
+      // that path is untouched.
     }
 
     return { alreadyResolved: result.alreadyResolved, proof: result.proof };

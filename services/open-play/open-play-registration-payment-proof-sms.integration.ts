@@ -139,14 +139,20 @@ async function main(): Promise<void> {
     );
     assert(!rejectResult.alreadyResolved, "expected the rejection to actually resolve");
 
-    // Two SMS fire here: the reject SMS to Guest B, and (since nobody is
-    // waiting behind them in this test) no invite SMS — confirmed by
-    // checking the rejected guest's own message is present.
+    // Owner decision (2026-08-29): a rejection sends NOTHING to the
+    // rejected registrant. The reason is staff free text and had to be
+    // cut to 38 characters to fit a segment, which removed the only part
+    // worth reading; staff follow up directly instead.
+    //
+    // The waitlist invite is a SEPARATE path and must still fire — this
+    // asserts the rejected guest gets nothing WITHOUT silencing the
+    // invite that frees their seat for the next person.
     const rejectSent = sentMessages.find((m) => m.phone === "09171270002");
-    assert(rejectSent !== undefined, "expected a recorded SMS send to the rejected guest");
-    assert(rejectSent.message.includes("Reference number not found in our GCash statement."), "expected the rejection SMS to include the actual reason staff entered");
-    assert(rejectSent.message.includes("new registration"), "expected the rejection SMS to state plainly that a new registration is needed");
-    console.log("PASS: rejecting an open-play payment proof sends an SMS with the real reason and correct resubmission guidance.");
+    assert(
+      rejectSent === undefined,
+      `expected NO SMS to the rejected registrant, got: ${rejectSent?.message}`,
+    );
+    console.log("PASS: rejecting an open-play payment proof sends nothing to that registrant.");
 
     await cleanUp();
     console.log("\nPASS: submission, approval, and rejection each send their own correctly-targeted SMS.");
