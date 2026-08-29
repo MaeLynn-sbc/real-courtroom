@@ -4,6 +4,8 @@ import { Check, Copy } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+
+import { useIsStandalone } from "@/lib/use-standalone";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -306,6 +308,9 @@ export function PublicBookingForm({
 }: PublicBookingFormProps) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  // See the coach-availability link far below: target="_blank" is right
+  // in a browser and a trap inside an installed PWA.
+  const isStandalone = useIsStandalone();
   const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null);
   // Lifted out of PublicCoachAddOn so the payment amount/instructions can
   // recompute live when a coach is added or removed — see
@@ -1298,10 +1303,18 @@ export function PublicBookingForm({
                 navigating away to check schedules. Links to the existing
                 per-coach public availability page — a read-only table per
                 coach, not a name-picker dropdown. */}
+              {/* target="_blank" is deliberate in a browser — it is what
+                  keeps a half-filled booking form from being lost while
+                  someone checks a coach's schedule. But a same-origin
+                  _blank inside an installed PWA opens a separate Safari
+                  window and strands the customer outside the app, so the
+                  attribute is dropped there and the link navigates in
+                  app instead. Both cases keep their better behaviour
+                  rather than one being sacrificed for the other. */}
               <Link
                 href="/coaches/availability"
-                target="_blank"
-                rel="noopener noreferrer"
+                target={isStandalone ? undefined : "_blank"}
+                rel={isStandalone ? undefined : "noopener noreferrer"}
                 className={buttonVariants({ variant: "outline", size: "sm", className: "w-fit" })}
               >
                 Coach&apos;s availability
