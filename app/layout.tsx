@@ -56,9 +56,12 @@ export const metadata: Metadata = {
     template: `%s — ${siteConfig.name}`,
   },
   description: siteConfig.description,
-  icons: {
-    icon: "/branding/favicon.png",
-  },
+  // NO `icons` override here on purpose. Setting one makes Next ignore
+  // the file-based app/icon.png and app/apple-icon.png entirely — which
+  // is what happened on the first install: the site still advertised the
+  // old /branding/favicon.png (360x312, NOT square), so Chrome could not
+  // build a home-screen icon from it and fell back to a generated one.
+  // Deleting the override is what lets the real square icons through.
   // PWA, iOS half (owner decision, 2026-08-29). Safari fires no
   // beforeinstallprompt and reads none of the manifest's display or
   // theme fields — these meta tags are the ONLY way it learns to launch
