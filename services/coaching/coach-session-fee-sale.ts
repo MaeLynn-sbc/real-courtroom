@@ -1,5 +1,6 @@
 import type { Prisma, Sale } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { coachingFeeCents } from "@/lib/booking-payment-total";
 import { saleService } from "@/services/sales/sale.service";
 
 // Owner decision 2026-08-04 (the Bea Señeris investigation): a coach's
@@ -23,6 +24,8 @@ import { saleService } from "@/services/sales/sale.service";
 export interface RecordCoachSessionFeeSaleInput {
   coachSessionId: string;
   rateCents: number;
+  /** Hours purchased. rateCents is HOURLY — see coachingFeeCents. */
+  hours: number;
   paymentMethodId: string;
   employeeId: string;
   shiftId: string;
@@ -40,7 +43,12 @@ export async function recordCoachSessionFeeSale(
   return saleService.createSale(
     {
       category: "COACHING",
-      amountCents: input.rateCents,
+      // NOT input.rateCents. rateCents is the HOURLY rate; the Sale must
+      // record what was actually charged. Goes through coachingFeeCents
+      // so this agrees with getExpectedPaymentTotalCents by
+      // construction — if the Sale and the expected total ever disagree,
+      // approveBookingPaymentProof rejects a payment that was correct.
+      amountCents: coachingFeeCents({ rateCents: input.rateCents, hours: input.hours }),
       paymentMethodId: input.paymentMethodId,
       employeeId: input.employeeId,
       shiftId: input.shiftId,

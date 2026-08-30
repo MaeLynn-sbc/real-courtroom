@@ -432,6 +432,7 @@ export class BookingPaymentProofService {
               {
                 coachSessionId: booking.coachSession.id,
                 rateCents: booking.coachSession.rateCents,
+                hours: booking.coachSession.hours,
                 paymentMethodId: context.paymentMethodId,
                 employeeId: context.employeeId,
                 shiftId: context.shiftId,

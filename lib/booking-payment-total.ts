@@ -2,7 +2,7 @@ import type { CoachSessionStatus } from "@/lib/generated/prisma/enums";
 
 export interface BookingWithOptionalCoachSession {
   totalAmountCents: number | null;
-  coachSession: { status: CoachSessionStatus; rateCents: number } | null;
+  coachSession: { status: CoachSessionStatus; rateCents: number; hours: number } | null;
 }
 
 // The single source of truth for "what does this booking actually owe,
@@ -31,6 +31,26 @@ export interface BookingWithOptionalCoachSession {
 export function getExpectedPaymentTotalCents(booking: BookingWithOptionalCoachSession): number {
   const courtCents = booking.totalAmountCents ?? 0;
   const coachCents =
-    booking.coachSession && booking.coachSession.status !== "CANCELLED" ? booking.coachSession.rateCents : 0;
+    booking.coachSession && booking.coachSession.status !== "CANCELLED"
+      ? coachingFeeCents(booking.coachSession)
+      : 0;
   return courtCents + coachCents;
+}
+
+// THE ONLY PLACE THE COACHING FEE IS MULTIPLIED.
+//
+// rateCents is HOURLY (owner decision, 2026-08-29). Before that decision
+// nothing multiplied it at all: the fee was charged flat while the coach
+// was scheduled for the booking's full duration, so a 3-hour booking
+// bought 3 hours of coaching for one hour's money.
+//
+// Exported so the public form, the pre-filled "amount sent" field and
+// this file's own total all call the SAME function. Four surfaces have
+// to agree on this number — the form, that field,
+// getExpectedPaymentTotalCents, and approveBookingPaymentProof's check
+// against it — and the way they drift is each one doing its own
+// rate * hours. There is one multiplication in this codebase and it is
+// here.
+export function coachingFeeCents(coachSession: { rateCents: number; hours: number }): number {
+  return coachSession.rateCents * coachSession.hours;
 }

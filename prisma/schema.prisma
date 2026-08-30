@@ -1332,7 +1332,23 @@ model CoachSession {
   // Snapshotted from CoachRate at creation — same lesson as
   // TabLineItem.unitPriceCents: editing the rate table later must never
   // rewrite a session that already booked at the old price.
+  //
+  // This is the HOURLY rate (owner decision, 2026-08-29). It was
+  // ambiguous before: nothing multiplied it, so a coach on a 3-hour
+  // booking worked 3 hours and was billed for 1. The fee is now
+  // rateCents * hours.
   rateCents             Int
+  // How many hours of coaching the customer bought. NOT the booking's
+  // duration — the two are deliberately independent, because a 3-hour
+  // court booking does not imply wanting (or paying for) 3 hours of
+  // coaching.
+  //
+  // Defaults to 1, which is also what every pre-existing row is
+  // backfilled to: that is what was actually charged and what the Sale
+  // rows record. The 5 historical sessions that ran longer are NOT
+  // rewritten to their true span — doing so would make reconciled,
+  // confirmed days report ~PHP 3,400 more revenue than was taken.
+  hours                 Int                @default(1)
   status                CoachSessionStatus @default(PENDING)
   source                CoachSessionSource @default(UNKNOWN)
   // Same reasoning as Booking.isAfterHours: staff/owner may book a coach

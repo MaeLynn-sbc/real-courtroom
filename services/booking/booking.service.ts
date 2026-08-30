@@ -271,7 +271,7 @@ export class BookingService {
         // name, same shape every other coach-name display in this app
         // already uses.
         coachSession: {
-          select: { status: true, rateCents: true, coach: { select: { firstName: true, lastName: true } } },
+          select: { status: true, rateCents: true, hours: true, coach: { select: { firstName: true, lastName: true } } },
         },
       },
       orderBy: filters?.sortBy === "createdAt" ? { createdAt: "desc" } : { startAt: "asc" },
@@ -1040,6 +1040,7 @@ export class BookingService {
                 {
                   coachSessionId: updated.coachSession.id,
                   rateCents: updated.coachSession.rateCents,
+                  hours: updated.coachSession.hours,
                   paymentMethodId: saleContext.paymentMethodId,
                   employeeId: saleContext.employeeId,
                   shiftId: saleContext.shiftId,

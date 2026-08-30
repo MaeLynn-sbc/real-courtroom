@@ -54,6 +54,7 @@ export async function addPublicCoachToBooking(
         bookingId: parsed.data.bookingId,
         coachId: parsed.data.coachId,
         groupSize: parsed.data.groupSize,
+        hours: parsed.data.hours,
       },
       "PUBLIC",
       actorUserId,

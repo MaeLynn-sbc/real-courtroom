@@ -19,7 +19,9 @@ import { formatCurrency } from "@/lib/utils";
 
 export interface PublicCoachAddOnConfirmed {
   coachName: string;
+  /** The HOURLY rate. Multiply by hours for the amount charged. */
   priceCents: number;
+  hours: number;
 }
 
 interface PublicCoachAddOnProps {
@@ -36,6 +38,10 @@ interface PublicCoachAddOnProps {
   // already committed to an amount, changing the coach now would make it
   // wrong with no way to reconcile it.
   hasSubmittedProof: boolean;
+  // The court booking's own length in hours, used ONLY as the ceiling on
+  // the coaching-hours picker — you cannot buy 3 hours of coaching on a
+  // 2-hour court booking. It is deliberately not the default.
+  maxCoachingHours: number;
   contactPhone: string;
   contactFacebookUrl: string;
   // Set when the parent already added a coach automatically (the
@@ -59,6 +65,7 @@ export function PublicCoachAddOn({
   availableCoaches,
   requiresPayment,
   hasSubmittedProof,
+  maxCoachingHours,
   contactPhone,
   contactFacebookUrl,
   initialConfirmed,
@@ -68,6 +75,17 @@ export function PublicCoachAddOn({
   const [serverError, setServerError] = useState<string | null>(null);
   const [coachId, setCoachId] = useState("");
   const [groupSize, setGroupSize] = useState("");
+  // Always starts at 1, never at maxCoachingHours. See the picker below.
+  const [hours, setHours] = useState("1");
+
+  // Cheapest hourly rate on offer across every coach and group size, for
+  // the "from PHP X/hour" notice above. Null when no coach has a rate
+  // set at all, in which case the notice is omitted rather than showing
+  // a made-up number.
+  const lowestHourlyRateCents = useMemo(() => {
+    const prices = availableCoaches.flatMap((coach) => coach.rates.map((rate) => rate.priceCents));
+    return prices.length > 0 ? Math.min(...prices) : null;
+  }, [availableCoaches]);
   const [confirmed, setConfirmed] = useState<PublicCoachAddOnConfirmed | null>(initialConfirmed ?? null);
 
   const selectedCoach = availableCoaches.find((coach) => coach.id === coachId);
@@ -181,6 +199,7 @@ export function PublicCoachAddOn({
         bookingId,
         coachId,
         groupSize: Number(groupSize),
+        hours: Number(hours),
       });
       if (result.error) {
         setServerError(result.error);
@@ -192,6 +211,7 @@ export function PublicCoachAddOn({
       const next = {
         coachName: selectedCoach?.name ?? "Coach",
         priceCents: result.priceCents ?? selectedRate?.priceCents ?? 0,
+        hours: Number(hours),
       };
       setConfirmed(next);
       onCoachSessionChange(next);
@@ -207,6 +227,28 @@ export function PublicCoachAddOn({
         </Link>
         .
       </p>
+
+      {/* STATE 0 — the notice, BEFORE a coach is picked.
+          Owner design (2026-08-30). The rate line further down only
+          appears once a coach AND group size are chosen, which misses
+          anyone who never gets that far. This is what a customer sees
+          the moment the coaching section renders, so "coaching is
+          priced by the hour" cannot be missed.
+
+          Derived from the real rate table, never hardcoded. Rates vary
+          by GROUP SIZE (PHP 400 for 1-2 players, 600 for 3-4, 750 for
+          5, 900 for 6), so a single figure here would be wrong for most
+          selections — hence "from", using the genuine minimum. Both
+          coaches currently share a rate card; if that ever diverges,
+          this still reads correctly because it takes the minimum across
+          everything on offer. */}
+      {lowestHourlyRateCents !== null ? (
+        <p className="text-sm">
+          <span className="text-muted-foreground">Coaching is charged by the hour, from </span>
+          <span className="font-medium">{formatCurrency(lowestHourlyRateCents)}/hour</span>
+          <span className="text-muted-foreground"> depending on group size.</span>
+        </p>
+      ) : null}
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="publicCoachId">Coach</Label>
@@ -250,10 +292,55 @@ export function PublicCoachAddOn({
             </SelectContent>
           </Select>
           {selectedRate ? (
-            <p className="text-sm">
-              <span className="text-muted-foreground">Rate: </span>
-              <span className="font-medium">{formatCurrency(selectedRate.priceCents)}</span>
-            </p>
+            <>
+              {/* THE DISCLOSURE. Owner decision (2026-08-29): the booking
+                  form is the notice — there is no separate announcement,
+                  so this line is how every customer learns the rate is
+                  per hour. It renders as soon as a coach and group size
+                  are chosen, BEFORE "Add coach" is pressed, because a
+                  price shown only after committing is not a notice.
+
+                  It previously read just "Rate: PHP 500" with no unit at
+                  all, sitting under a 3-hour court total — which is
+                  exactly what led customers to assume the coach was
+                  included for all three hours. */}
+              <p className="text-sm">
+                <span className="text-muted-foreground">Rate: </span>
+                <span className="font-medium">{formatCurrency(selectedRate.priceCents)}/hour</span>
+              </p>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="coaching-hours">Coaching hours</Label>
+                <Select value={hours} onValueChange={(value) => setHours(value ?? "1")} disabled={isPending}>
+                  <SelectTrigger id="coaching-hours" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {/* Capped at the court booking's own length. Starts at
+                        1 and DEFAULTS to 1 — never pre-set to the court
+                        duration, which would triple a 3-hour booking's
+                        coaching bill without the customer choosing it. */}
+                    {Array.from({ length: Math.max(1, maxCoachingHours) }, (_, index) => index + 1).map(
+                      (value) => (
+                        <SelectItem key={value} value={String(value)}>
+                          {value} {value === 1 ? "hour" : "hours"}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* The arithmetic, shown. 2 x 500 = 1,000 should be visible
+                  before the customer commits, not discovered on the
+                  payment step. */}
+              <p className="text-sm">
+                <span className="text-muted-foreground">Coaching total: </span>
+                <span className="font-medium tabular-nums">
+                  {formatCurrency(selectedRate.priceCents * Number(hours))}
+                </span>
+              </p>
+            </>
           ) : null}
         </div>
       ) : null}

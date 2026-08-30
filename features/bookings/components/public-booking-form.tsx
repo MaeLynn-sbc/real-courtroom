@@ -734,6 +734,9 @@ export function PublicBookingForm({
           setCoachSession({
             coachName: previewCoaches.find((coach) => coach.id === previewCoachId)?.name ?? "Coach",
             priceCents: addResult.priceCents ?? previewCoachFeeCents,
+            // The up-front path adds exactly 1 hour. Anything more is a
+            // deliberate choice the customer makes in the add-on panel.
+            hours: 1,
           });
         }
       } else if (previewCoachId && previewGroupSize) {
@@ -837,9 +840,16 @@ export function PublicBookingForm({
     // booking-payment-total.ts) — no third, independent sum. A just-
     // confirmed add-on is always CONFIRMED here; there's no cancelled
     // state reachable mid-checkout.
+    // Ceiling for the coaching-hours picker: you cannot buy more hours of
+    // coaching than you have court. Floor of 1 so a sub-hour booking
+    // still offers the minimum rather than an empty dropdown.
+    const maxCoachingHours = Math.max(1, Math.floor(confirmation.durationMinutes / 60));
+
     const totalDueCents = getExpectedPaymentTotalCents({
       totalAmountCents: confirmation.totalAmountCents,
-      coachSession: coachSession ? { status: "CONFIRMED", rateCents: coachSession.priceCents } : null,
+      coachSession: coachSession
+        ? { status: "CONFIRMED", rateCents: coachSession.priceCents, hours: coachSession.hours }
+        : null,
     });
 
     // Genuinely confirmed (pay-at-venue-by-default, requiresPayment
@@ -897,7 +907,18 @@ export function PublicBookingForm({
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Coaching ({coachSession.coachName})</span>
                   <span className="font-medium tabular-nums">
-                    {formatCurrency(coachSession.priceCents)}
+                    {formatCurrency(coachSession.priceCents * coachSession.hours)}
+                  </span>
+                </div>
+                {/* The unit, spelled out. Without it this line read
+                    "Coaching  PHP 500" directly under "Court hire
+                    PHP 1,200" on a 3-hour booking, with no unit
+                    anywhere — which is precisely what led customers to
+                    assume the coach was included for all three hours. */}
+                <div className="text-muted-foreground flex justify-between text-xs">
+                  <span>
+                    {formatCurrency(coachSession.priceCents)}/hour x {coachSession.hours}{" "}
+                    {coachSession.hours === 1 ? "hour" : "hours"}
                   </span>
                 </div>
                 <div className="flex justify-between border-t pt-2 text-base">
@@ -922,6 +943,7 @@ export function PublicBookingForm({
                 availableCoaches={confirmation.availableCoaches}
                 requiresPayment={confirmation.requiresPayment}
                 hasSubmittedProof={hasSubmittedProof}
+                maxCoachingHours={maxCoachingHours}
                 contactPhone={contactPhone}
                 contactFacebookUrl={contactFacebookUrl}
                 initialConfirmed={coachSession}
@@ -1004,6 +1026,7 @@ export function PublicBookingForm({
             <PublicCoachAddOn
               bookingId={confirmation.bookingId}
               availableCoaches={confirmation.availableCoaches}
+              maxCoachingHours={Math.max(1, Math.floor(confirmation.durationMinutes / 60))}
               requiresPayment={confirmation.requiresPayment}
               hasSubmittedProof={hasSubmittedProof}
               contactPhone={contactPhone}
@@ -1083,7 +1106,11 @@ export function PublicBookingForm({
               </p>
               <p>
                 <span className="text-muted-foreground">Coaching ({coachSession.coachName}):</span>{" "}
-                <span>{formatCurrency(coachSession.priceCents)}</span>
+                <span>{formatCurrency(coachSession.priceCents * coachSession.hours)}</span>{" "}
+                <span className="text-muted-foreground text-xs">
+                  ({formatCurrency(coachSession.priceCents)}/hour x {coachSession.hours}{" "}
+                  {coachSession.hours === 1 ? "hour" : "hours"})
+                </span>
               </p>
             </>
           ) : null}
@@ -1126,6 +1153,7 @@ export function PublicBookingForm({
           <PublicCoachAddOn
             bookingId={confirmation.bookingId}
             availableCoaches={confirmation.availableCoaches}
+            maxCoachingHours={Math.max(1, Math.floor(confirmation.durationMinutes / 60))}
             requiresPayment={confirmation.requiresPayment}
             hasSubmittedProof={hasSubmittedProof}
             contactPhone={contactPhone}

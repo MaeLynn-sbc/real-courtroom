@@ -19,7 +19,8 @@ export type CoachSessionConflictType =
   | "OUTSIDE_AVAILABILITY"
   | "COACH_DOUBLE_BOOKED"
   | "NO_RATE_SET"
-  | "PAYMENT_ALREADY_SUBMITTED";
+  | "PAYMENT_ALREADY_SUBMITTED"
+  | "HOURS_EXCEED_BOOKING";
 
 function describeConflict(type: CoachSessionConflictType): string {
   switch (type) {
@@ -37,6 +38,8 @@ function describeConflict(type: CoachSessionConflictType): string {
       return "No rate is set for this coach at this group size.";
     case "PAYMENT_ALREADY_SUBMITTED":
       return "Payment has already been submitted for this booking — contact us to add or remove a coach.";
+    case "HOURS_EXCEED_BOOKING":
+      return "You can't book more coaching hours than your court time.";
   }
 }
 
@@ -250,6 +253,20 @@ export class CoachSessionService {
         throw new CoachSessionConflictError("NO_RATE_SET");
       }
 
+      // THE REAL CEILING on coaching hours. The picker caps its dropdown,
+      // but that is convenience — this is an unauthenticated public
+      // endpoint and hours is a money field, so a crafted request could
+      // ask for 99 hours on a 1-hour booking. You cannot buy more
+      // coaching than you have court.
+      const bookingHours = Math.max(
+        1,
+        Math.floor((booking.endAt.getTime() - booking.startAt.getTime()) / 3_600_000),
+      );
+      const requestedHours = input.hours ?? 1;
+      if (requestedHours > bookingHours) {
+        throw new CoachSessionConflictError("HOURS_EXCEED_BOOKING");
+      }
+
       const sequence = await nextSequence(dailyScope("COACH_SESSION", now), tx);
       const sessionReference = formatCoachSessionReference(now, sequence);
 
@@ -263,6 +280,11 @@ export class CoachSessionService {
         playerId: booking.playerId,
         groupSize: input.groupSize,
         rateCents: rate.priceCents,
+        // Defaults to 1 when the caller does not specify — staff surfaces
+        // have no hours picker yet. Never defaults to the booking's
+        // duration: that would silently triple a 3-hour booking's
+        // coaching bill without the customer having chosen it.
+        hours: requestedHours,
         status: "CONFIRMED" as const,
         source,
         isOutsideAvailability,

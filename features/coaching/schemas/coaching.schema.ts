@@ -49,6 +49,20 @@ export const createCoachSessionSchema = z.object({
   bookingId: z.string().min(1, "Select a booking."),
   coachId: z.string().min(1, "Select a coach."),
   groupSize: z.coerce.number().int().min(1, "Group size must be at least 1."),
+  // Hours of coaching purchased. Independent of the court booking's own
+  // duration — a 3-hour court booking does not imply wanting or paying
+  // for 3 hours of coaching (owner decision, 2026-08-29).
+  //
+  // Defaults to 1 rather than the booking length, deliberately: silently
+  // matching the court duration would triple a 3-hour booking's coaching
+  // bill without the customer choosing it. The upper bound is enforced
+  // server-side against the booking, not here, because this schema does
+  // not know which booking it is for.
+  // Optional at the boundary, defaulted to 1 in the service. Staff call
+  // sites (the dashboard coach panel, the staff booking form) do not
+  // offer an hours picker yet and must keep working unchanged; they get
+  // the same 1-hour default a customer sees.
+  hours: z.coerce.number().int().min(1, "Coaching must be at least 1 hour.").optional(),
   isOutsideAvailability: z.boolean().optional(),
 });
 export type CreateCoachSessionInput = z.infer<typeof createCoachSessionSchema>;

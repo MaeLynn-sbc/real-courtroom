@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Deliberately narrow — bookingId/coachId/groupSize ONLY. No source, no
+// Deliberately narrow — bookingId/coachId/groupSize/hours ONLY. No source, no
 // isOutsideAvailability. This is the load-bearing part of the public
 // surface (Gate 3 review): Zod strips any unrecognized keys from the
 // input by default, so even if a crafted request body includes
@@ -15,6 +15,16 @@ export const publicAddCoachSchema = z.object({
   bookingId: z.string().min(1),
   coachId: z.string().min(1, "Select a coach."),
   groupSize: z.coerce.number().int().min(1, "Group size must be at least 1."),
+  // Hours of coaching. Unlike source/isOutsideAvailability above, this IS
+  // a legitimate customer choice, so it belongs on the public shape.
+  //
+  // But it is a MONEY field on an unauthenticated endpoint, so the upper
+  // bound is NOT trusted from here. This schema cannot know which booking
+  // the request is for, so it only rejects nonsense (< 1, non-integer);
+  // the real ceiling — you cannot buy more coaching hours than you have
+  // court — is enforced in coach-session.service.ts against the booking's
+  // own duration. The picker's cap is a convenience, not the guard.
+  hours: z.coerce.number().int().min(1, "Coaching must be at least 1 hour.").optional(),
 });
 export type PublicAddCoachInput = z.infer<typeof publicAddCoachSchema>;
 

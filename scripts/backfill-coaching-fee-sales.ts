@@ -36,6 +36,7 @@
  */
 import "dotenv/config";
 
+import { coachingFeeCents } from "../lib/booking-payment-total";
 import { prisma } from "../lib/prisma";
 import { recordCoachSessionFeeSale } from "../services/coaching/coach-session-fee-sale";
 
@@ -82,6 +83,11 @@ export async function backfillCoachingFeeSales(): Promise<CoachingFeeSaleBackfil
     await recordCoachSessionFeeSale({
       coachSessionId: booking.coachSession.id,
       rateCents: booking.coachSession.rateCents,
+      // Historical rows are all hours = 1 (migration 78). This script
+      // backfills Sales for sessions that never got one, so it must
+      // reproduce what WAS charged, not what the new hourly pricing
+      // would charge today.
+      hours: booking.coachSession.hours,
       paymentMethodId: booking.sale.paymentMethodId,
       employeeId: booking.sale.employeeId,
       shiftId: booking.sale.shiftId,
@@ -97,7 +103,7 @@ export async function backfillCoachingFeeSales(): Promise<CoachingFeeSaleBackfil
     results.push({
       bookingReference: booking.bookingReference,
       coachName: `${booking.coachSession.coach.firstName} ${booking.coachSession.coach.lastName}`,
-      amountCents: booking.coachSession.rateCents,
+      amountCents: coachingFeeCents(booking.coachSession),
     });
   }
 
