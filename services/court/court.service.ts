@@ -211,7 +211,12 @@ export class CourtService {
   // event) with a full upcoming/past list.
   async listSpecialEvents(limit = 50): Promise<(CourtMaintenance & { court: { name: string } })[]> {
     return prisma.courtMaintenance.findMany({
-      where: { kind: "SPECIAL_EVENT" },
+      // Both kinds. The page is "Block Courts" now, not Special Events —
+      // filtering to SPECIAL_EVENT meant an OPEN_PLAY block never
+      // appeared in the list, so staff could create one and then had no
+      // way to see or cancel it. Plain MAINTENANCE is still excluded:
+      // that is managed per court on the Courts screen, not here.
+      where: { kind: { in: ["SPECIAL_EVENT", "OPEN_PLAY"] } },
       include: { court: { select: { name: true } } },
       orderBy: { startAt: "desc" },
       take: limit,

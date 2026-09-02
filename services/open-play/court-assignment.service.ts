@@ -43,7 +43,16 @@ export class CourtAssignmentService {
 
     const [maintenanceWindows, activeBookings, playingQueueEntries] = await Promise.all([
       client.courtMaintenance.findMany({
-        where: { courtId: { in: courtIds }, status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
+        // listAvailableCourts picks courts FOR open play, so an
+        // OPEN_PLAY block — which exists precisely to free a court for
+        // open play — must not remove it from the candidates. Third
+        // consumer of this table to need the exclusion; MAINTENANCE and
+        // SPECIAL_EVENT still remove a court, unchanged.
+        where: {
+          courtId: { in: courtIds },
+          status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+          kind: { not: "OPEN_PLAY" },
+        },
         select: { courtId: true, startAt: true, endAt: true },
       }),
       client.booking.findMany({

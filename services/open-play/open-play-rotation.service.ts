@@ -1625,6 +1625,15 @@ export class OpenPlayRotationService {
           status: { in: ["SCHEDULED", "IN_PROGRESS"] },
           startAt: { lte: nowInstant },
           endAt: { gt: nowInstant },
+          // Same exclusion as getRotationBoardData's bookedCourtIds: an
+          // OPEN_PLAY block hands the court TO open play, so it must not
+          // be the reason an open-play assignment is refused. Without
+          // this the board showed the court as assignable and then threw
+          // "This court is currently booked" on Propose — worse than the
+          // board simply hiding the control.
+          //
+          // MAINTENANCE and SPECIAL_EVENT still block, unchanged.
+          kind: { not: "OPEN_PLAY" },
         },
       }),
     ]);
