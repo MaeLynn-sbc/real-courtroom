@@ -167,6 +167,12 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
         continue;
       }
       const parsed = specialEventSchema.safeParse({
+        // kind MUST be passed. Without it the schema's own
+        // default("SPECIAL_EVENT") applies, and the refine then demands a
+        // name — which is exactly how an open-play block with no label
+        // was still being rejected, with the error surfacing against the
+        // date/time slot rather than the name field.
+        kind,
         reason,
         notes: notes || undefined,
         courtIds,
