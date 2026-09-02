@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition } from "react";
 import { addPublicCoachToBookingAction, removePublicCoachFromBookingAction } from "@/actions/public-coaching.actions";
 import type { PublicBookingCoachOption } from "@/actions/public-booking.actions";
 import { Button } from "@/components/ui/button";
+import { coachingFeeCents } from "@/lib/booking-payment-total";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -102,7 +103,9 @@ export function PublicCoachAddOn({
           <>
             <p className="font-medium">Coach</p>
             <p className="text-muted-foreground mt-1">
-              {confirmed.coachName} · {formatCurrency(confirmed.priceCents)} — included in your total, paid via
+              {confirmed.coachName} · {formatCurrency(confirmed.priceCents)}/hour x{" "}
+              {confirmed.hours} {confirmed.hours === 1 ? "hour" : "hours"} ={" "}
+              {formatCurrency(coachingFeeCents({ rateCents: confirmed.priceCents, hours: confirmed.hours }))} — included in your total, paid via
               GCash.
             </p>
           </>
@@ -131,7 +134,9 @@ export function PublicCoachAddOn({
       <div className="border-success/40 bg-success/10 rounded-lg border p-4 text-sm">
         <p className="font-medium">Coach added</p>
         <p className="text-muted-foreground mt-1">
-          {confirmed.coachName} · {formatCurrency(confirmed.priceCents)} —{" "}
+          {confirmed.coachName} · {formatCurrency(confirmed.priceCents)}/hour x{" "}
+          {confirmed.hours} {confirmed.hours === 1 ? "hour" : "hours"} ={" "}
+          {formatCurrency(coachingFeeCents({ rateCents: confirmed.priceCents, hours: confirmed.hours }))} —{" "}
           {requiresPayment
             ? "included in your total below, pay via GCash."
             : "pay at the venue, same as your court."}
