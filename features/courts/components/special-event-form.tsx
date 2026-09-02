@@ -9,10 +9,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type BlockKind = "SPECIAL_EVENT" | "OPEN_PLAY";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { specialEventSchema } from "@/features/courts/schemas/court.schema";
+
+type BlockKind = "SPECIAL_EVENT" | "OPEN_PLAY";
 
 interface SpecialEventFormCourt {
   id: string;
@@ -234,15 +242,17 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
           an open-play night has no "event name" in any useful sense. */}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="blockKind">Reason</Label>
-        <select
-          id="blockKind"
-          className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-          value={kind}
-          onChange={(event) => setKind(event.target.value as BlockKind)}
-        >
-          <option value="OPEN_PLAY">Open play — shows as normal open-play hours</option>
-          <option value="SPECIAL_EVENT">Special event — shows &quot;Booked for special events&quot;</option>
-        </select>
+        <Select value={kind} onValueChange={(value) => setKind((value ?? "OPEN_PLAY") as BlockKind)}>
+          <SelectTrigger id="blockKind" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="OPEN_PLAY">Open play — shows as normal open-play hours</SelectItem>
+            <SelectItem value="SPECIAL_EVENT">
+              Special event — shows &quot;Booked for special events&quot;
+            </SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col gap-1.5">
