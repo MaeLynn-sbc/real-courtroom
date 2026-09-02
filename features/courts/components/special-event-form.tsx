@@ -144,7 +144,9 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
     setFormError(null);
     setSlotErrors({});
 
-    if (!reason.trim()) {
+    // Only special events need a name — an open-play block is labelled
+    // "Open play" on the grid regardless of what is typed here.
+    if (kind === "SPECIAL_EVENT" && !reason.trim()) {
       setFormError("A name is required.");
       toast.error("A name is required.");
       return;
@@ -256,10 +258,12 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="reason">{isOpenPlay ? "Label (internal)" : "Event name"}</Label>
+        <Label htmlFor="reason">
+          {isOpenPlay ? "Label (internal, optional)" : "Event name"}
+        </Label>
         <Input
           id="reason"
-          placeholder={isOpenPlay ? "e.g. Friday open play" : "e.g. Private tournament"}
+          placeholder={isOpenPlay ? "Optional — defaults to \"Open play\"" : "e.g. Private tournament"}
           value={reason}
           onChange={(event) => setReason(event.target.value)}
         />

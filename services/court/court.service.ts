@@ -177,7 +177,10 @@ export class CourtService {
           data: {
             courtId,
             createdById: actorUserId,
-            reason: input.reason,
+            // reason is optional for OPEN_PLAY blocks. Stored as a plain
+            // "Open play" so the staff-facing list still reads sensibly;
+            // the public grid never shows this field for either kind.
+            reason: input.reason?.trim() || "Open play",
             notes: input.notes,
             startAt: input.startAt,
             endAt: input.endAt,

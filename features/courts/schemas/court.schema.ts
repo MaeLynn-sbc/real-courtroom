@@ -56,7 +56,11 @@ export const specialEventSchema = z
     // SPECIAL_EVENT shows "Booked for special events". Defaults to
     // SPECIAL_EVENT so every existing caller is unchanged.
     kind: z.enum(["SPECIAL_EVENT", "OPEN_PLAY"]).default("SPECIAL_EVENT"),
-    reason: z.string().min(1, "A name is required.").max(200),
+    // Optional for OPEN_PLAY, required for SPECIAL_EVENT (refine below).
+    // An open-play block has nothing to name: the public grid shows
+    // "Open play" whatever this says, so demanding a label was asking
+    // staff to invent a value nobody reads.
+    reason: z.string().max(200).optional(),
     notes: z.string().max(1000).optional(),
     startAt: z.coerce.date(),
     endAt: z.coerce.date(),
@@ -64,6 +68,15 @@ export const specialEventSchema = z
   .refine((data) => data.endAt > data.startAt, {
     message: "End time must be after the start time.",
     path: ["endAt"],
+  })
+  // A special event is a named thing staff and customers refer to, so it
+  // still needs one. An open-play block does not: the grid shows
+  // "Open play" whatever is typed, and the service stores that as the
+  // label, so requiring a name was asking staff to invent a value
+  // nobody reads.
+  .refine((data) => data.kind !== "SPECIAL_EVENT" || Boolean(data.reason?.trim()), {
+    message: "A name is required.",
+    path: ["reason"],
   });
 
 export type SpecialEventInput = z.infer<typeof specialEventSchema>;
