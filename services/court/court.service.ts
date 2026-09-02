@@ -360,7 +360,10 @@ export class CourtService {
     }
 
     const activeWindows = await prisma.courtMaintenance.findMany({
-      where: { courtId, status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
+      // An OPEN_PLAY block does not put a court "under maintenance" — the
+      // court is in use, just for open play rather than bookings. Calling
+      // it UNDER_MAINTENANCE would misreport a busy court as broken.
+      where: { courtId, status: { in: ["SCHEDULED", "IN_PROGRESS"] }, kind: { not: "OPEN_PLAY" } },
       select: { startAt: true, endAt: true, status: true },
     });
 

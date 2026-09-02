@@ -1473,6 +1473,16 @@ export class OpenPlayRotationService {
             status: { in: ["SCHEDULED", "IN_PROGRESS"] },
             startAt: { lte: nowInstant },
             endAt: { gt: nowInstant },
+            // An OPEN_PLAY block hands the court TO open play — it is the
+            // opposite of unavailable here. Without this the rotation
+            // board reported the court "Booked — reserved for a court
+            // booking right now, not open play" and refused to let staff
+            // assign players to the very court they had just freed for
+            // the night.
+            //
+            // MAINTENANCE and SPECIAL_EVENT still block, unchanged: those
+            // genuinely occupy the court for a non-open-play reason.
+            kind: { not: "OPEN_PLAY" },
           },
           select: { courtId: true },
         }),
