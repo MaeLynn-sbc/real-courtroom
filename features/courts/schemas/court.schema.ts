@@ -51,6 +51,11 @@ export type CourtMaintenanceInput = z.infer<typeof courtMaintenanceSchema>;
 export const specialEventSchema = z
   .object({
     courtIds: z.array(z.string().min(1)).min(1, "Select at least one court."),
+    // Which label the public grid shows. OPEN_PLAY renders as the SAME
+    // green "Open play" cell the per-weekday court cutoffs produce;
+    // SPECIAL_EVENT shows "Booked for special events". Defaults to
+    // SPECIAL_EVENT so every existing caller is unchanged.
+    kind: z.enum(["SPECIAL_EVENT", "OPEN_PLAY"]).default("SPECIAL_EVENT"),
     reason: z.string().min(1, "A name is required.").max(200),
     notes: z.string().max(1000).optional(),
     startAt: z.coerce.date(),

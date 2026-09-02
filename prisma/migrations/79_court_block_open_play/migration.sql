@@ -1,0 +1,24 @@
+-- Hand a court over to open play for ONE date (owner request, 2026-09-02).
+--
+-- The per-weekday court cutoffs (cms.courtHours) are the STANDING
+-- handover — Court 1 stops taking bookings at 6PM every matching weekday.
+-- They are the wrong tool for "we're switching tonight": changing one
+-- alters every future matching weekday until changed back, and it does
+-- not touch bookings already taken.
+--
+-- CourtMaintenance already is "a time window that occupies a court for a
+-- non-customer reason", per court, per date, per time range, and is
+-- already wired into every conflict path — create-time Serializable
+-- transaction, live preview, public grid, staff grid, open-play
+-- assignment. So this is one enum value, not a new system, following the
+-- precedent SPECIAL_EVENT set on 2026-08-08.
+--
+-- PURELY ADDITIVE. Existing rows keep their kind; the column default
+-- stays MAINTENANCE. Nothing is backfilled and no row changes.
+--
+-- ALTER TYPE ... ADD VALUE is transaction-safe from PostgreSQL 12
+-- onward (local runs 16, production 18), and the new value is
+-- deliberately NOT used anywhere in this migration — Postgres forbids
+-- using a newly added enum value in the same transaction that adds it.
+
+ALTER TYPE "CourtBlockKind" ADD VALUE IF NOT EXISTS 'OPEN_PLAY';

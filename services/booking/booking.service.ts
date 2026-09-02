@@ -90,7 +90,12 @@ export interface PublicCourtDaySchedule {
   courtName: string;
   status: CourtStatus;
   bookedRanges: { startAt: Date; endAt: Date; hasCoach: boolean; coachName?: string }[];
-  maintenanceRanges: { startAt: Date; endAt: Date; isSpecialEvent: boolean }[];
+  maintenanceRanges: {
+    startAt: Date;
+    endAt: Date;
+    isSpecialEvent: boolean;
+    isOpenPlayBlock: boolean;
+  }[];
 }
 
 // Staff-only twin of PublicCourtDaySchedule — owner request (2026-08-05):
@@ -112,7 +117,12 @@ export interface StaffCourtDaySchedule {
     hasCoach: boolean;
     coachName?: string;
   }[];
-  maintenanceRanges: { startAt: Date; endAt: Date; isSpecialEvent: boolean }[];
+  maintenanceRanges: {
+    startAt: Date;
+    endAt: Date;
+    isSpecialEvent: boolean;
+    isOpenPlayBlock: boolean;
+  }[];
 }
 
 function describeConflict(conflict: AvailabilityConflict): string {
@@ -1367,7 +1377,12 @@ export class BookingService {
         })),
       maintenanceRanges: maintenanceWindows
         .filter((window) => window.courtId === court.id)
-        .map(({ startAt, endAt, kind }) => ({ startAt, endAt, isSpecialEvent: kind === "SPECIAL_EVENT" })),
+        .map(({ startAt, endAt, kind }) => ({
+          startAt,
+          endAt,
+          isSpecialEvent: kind === "SPECIAL_EVENT",
+          isOpenPlayBlock: kind === "OPEN_PLAY",
+        })),
     }));
   }
 
@@ -1439,7 +1454,12 @@ export class BookingService {
         })),
       maintenanceRanges: maintenanceWindows
         .filter((window) => window.courtId === court.id)
-        .map(({ startAt, endAt, kind }) => ({ startAt, endAt, isSpecialEvent: kind === "SPECIAL_EVENT" })),
+        .map(({ startAt, endAt, kind }) => ({
+          startAt,
+          endAt,
+          isSpecialEvent: kind === "SPECIAL_EVENT",
+          isOpenPlayBlock: kind === "OPEN_PLAY",
+        })),
     }));
   }
 

@@ -188,6 +188,20 @@ export interface CourtSlotRange {
   // ever set on maintenanceRanges entries — bookedRanges never sets
   // this.
   isSpecialEvent?: boolean;
+  // Owner request (2026-09-02): a maintenanceRanges entry created to hand
+  // a court to open play for one date (CourtMaintenance.kind ===
+  // "OPEN_PLAY") must be INDISTINGUISHABLE from the open-play hours the
+  // per-weekday court cutoffs already produce — same green cell, same
+  // "Open play" label. Staff closing a court manually for tonight and
+  // the standing 6PM handover are the same thing to a customer, so the
+  // grid must not show one as green "Open play" and the other as yellow
+  // "Booked for special events".
+  //
+  // Achieved by returning the EXISTING "openPlay" slot state rather than
+  // adding a new one, so the label and styling are shared by
+  // construction and cannot drift apart. Only ever set on
+  // maintenanceRanges entries.
+  isOpenPlayBlock?: boolean;
 }
 
 function rangesOverlap(slotStart: Date, slotEnd: Date, ranges: CourtSlotRange[]): boolean {
@@ -201,6 +215,16 @@ function overlappingRangeHasCoach(
 ): boolean {
   return ranges.some(
     (range) => slotStart < range.endAt && slotEnd > range.startAt && range.hasCoach,
+  );
+}
+
+function overlappingRangeIsOpenPlayBlock(
+  slotStart: Date,
+  slotEnd: Date,
+  ranges: CourtSlotRange[],
+): boolean {
+  return ranges.some(
+    (range) => slotStart < range.endAt && slotEnd > range.startAt && range.isOpenPlayBlock,
   );
 }
 
@@ -263,6 +287,13 @@ export function classifyCourtSlot(params: {
 }): CourtSlotState {
   const { hour, slotStart, slotEnd, now, window, maintenanceRanges, bookedRanges } = params;
   if (rangesOverlap(slotStart, slotEnd, maintenanceRanges)) {
+    // Checked BEFORE the special-event branch: an open-play block reuses
+    // the same "openPlay" state the cutoff-driven hours produce, so it
+    // renders as the identical green "Open play" cell rather than a
+    // yellow "Booked for special events" one.
+    if (overlappingRangeIsOpenPlayBlock(slotStart, slotEnd, maintenanceRanges)) {
+      return "openPlay";
+    }
     return overlappingRangeIsSpecialEvent(slotStart, slotEnd, maintenanceRanges)
       ? "specialEvent"
       : "unavailable";

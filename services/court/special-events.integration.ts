@@ -59,7 +59,14 @@ async function main(): Promise<void> {
   try {
     // ============== 1. scheduleSpecialEvent creates one row per court ==============
     const records = await courtService.scheduleSpecialEvent(
-      { courtIds: [courtA!.id, courtB!.id], reason: `${MARKER} tournament`, notes: "test", startAt, endAt },
+      {
+        kind: "SPECIAL_EVENT" as const,
+        courtIds: [courtA!.id, courtB!.id],
+        reason: `${MARKER} tournament`,
+        notes: "test",
+        startAt,
+        endAt,
+      },
       owner.id,
     );
     maintenanceIdsToClean.push(...records.map((r) => r.id));

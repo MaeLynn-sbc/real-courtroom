@@ -8,6 +8,8 @@ import { scheduleSpecialEventAction } from "@/actions/court.actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
+type BlockKind = "SPECIAL_EVENT" | "OPEN_PLAY";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { specialEventSchema } from "@/features/courts/schemas/court.schema";
@@ -83,6 +85,10 @@ function makeNextSlot(previous: EventSlot): EventSlot {
 
 export function SpecialEventForm({ courts }: SpecialEventFormProps) {
   const router = useRouter();
+  // Defaults to OPEN_PLAY: the owner's reason for this page existing is
+  // handing courts to open play for one night. Special events are the
+  // rarer case now.
+  const [kind, setKind] = useState<BlockKind>("OPEN_PLAY");
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const [courtIds, setCourtIds] = useState<string[]>([]);
@@ -173,7 +179,14 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
     startTransition(async () => {
       const results = await Promise.all(
         parsedSlots.map(({ slot, startAt, endAt }) =>
-          scheduleSpecialEventAction({ reason, notes: notes || undefined, courtIds, startAt, endAt }).then(
+          scheduleSpecialEventAction({
+            kind,
+            reason,
+            notes: notes || undefined,
+            courtIds,
+            startAt,
+            endAt,
+          }).then(
             (result) => ({ slot, result }),
           ),
         ),
@@ -213,16 +226,39 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
     });
   }
 
+  const isOpenPlay = kind === "OPEN_PLAY";
+
   return (
     <div className="flex flex-col gap-4">
+      {/* Chosen FIRST, because it changes what the fields below mean —
+          an open-play night has no "event name" in any useful sense. */}
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="reason">Event name</Label>
+        <Label htmlFor="blockKind">Reason</Label>
+        <select
+          id="blockKind"
+          className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+          value={kind}
+          onChange={(event) => setKind(event.target.value as BlockKind)}
+        >
+          <option value="OPEN_PLAY">Open play — shows as normal open-play hours</option>
+          <option value="SPECIAL_EVENT">Special event — shows &quot;Booked for special events&quot;</option>
+        </select>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="reason">{isOpenPlay ? "Label (internal)" : "Event name"}</Label>
         <Input
           id="reason"
-          placeholder="e.g. Private tournament"
+          placeholder={isOpenPlay ? "e.g. Friday open play" : "e.g. Private tournament"}
           value={reason}
           onChange={(event) => setReason(event.target.value)}
         />
+        {isOpenPlay ? (
+          <p className="text-muted-foreground text-xs">
+            Not shown to customers — the grid just says &quot;Open play&quot;, exactly like the
+            regular open-play hours.
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-1.5">

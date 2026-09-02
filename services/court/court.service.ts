@@ -181,7 +181,7 @@ export class CourtService {
             notes: input.notes,
             startAt: input.startAt,
             endAt: input.endAt,
-            kind: "SPECIAL_EVENT",
+            kind: input.kind,
           },
         }),
       ),

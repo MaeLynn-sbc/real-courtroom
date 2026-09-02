@@ -770,6 +770,18 @@ enum MaintenanceStatus {
 enum CourtBlockKind {
   MAINTENANCE
   SPECIAL_EVENT
+  // Owner request (2026-09-02): hand a court over to open play for ONE
+  // date, without touching the per-weekday court cutoffs. Those cutoffs
+  // are the standing handover (Court 1 stops at 6PM every matching
+  // weekday) and are the wrong tool for "we're switching tonight" —
+  // changing one alters every future matching weekday until it is
+  // changed back, and it does not affect bookings already taken.
+  //
+  // Same reasoning as SPECIAL_EVENT above: this is already exactly "a
+  // time window that occupies a court for a non-customer reason," so it
+  // extends CourtBlockKind rather than adding a model, and inherits
+  // every conflict-detection path unchanged.
+  OPEN_PLAY
 }
 
 model Court {
