@@ -68,7 +68,15 @@ export function ExpensePaymentMethodCell({
   return (
     <Select value={value} onValueChange={change} disabled={isPending}>
       <SelectTrigger className="h-8 w-[140px]" aria-label="Payment method">
-        <SelectValue />
+        {/* This Select renders the raw VALUE unless given a child render
+            function, so without this the trigger showed the payment
+            method's cuid ("cms4gj44j001w...") instead of "Cash" or
+            "GCash". Same pattern the coach picker uses. */}
+        <SelectValue>
+          {(selected: string) =>
+            paymentMethods.find((method) => method.id === selected)?.label ?? "—"
+          }
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {paymentMethods.map((method) => (
