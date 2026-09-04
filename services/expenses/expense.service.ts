@@ -102,6 +102,55 @@ export class ExpenseService {
     }
   }
 
+  // Correct the payment method on an already-recorded expense (owner
+  // request, 2026-09-04): "instead of cash we used gcash".
+  //
+  // ONLY the payment method. Amount, date, category and description are
+  // deliberately not editable here — those are separate corrections with
+  // their own consequences, and this exists to fix the one field that
+  // was actually being got wrong.
+  //
+  // ⚠ THIS MOVES MONEY BETWEEN TWO TILLS. Cash and GCash expected
+  // balances each subtract their own expenses
+  // (cash-reconciliation.service.ts:251 and its GCash twin), so
+  // switching cash -> GCash raises the cash expected balance and lowers
+  // the GCash one by the same amount.
+  //
+  // A day that is already CONFIRMED keeps its stored variance. That is
+  // deliberate, and matches how AttendanceRecord corrections work: the
+  // closed day is a historical record of what was known when it was
+  // closed, and silently rewriting it would make the reconciliation
+  // report disagree with the figures staff actually signed off. The
+  // audit log carries who changed it and from what, so the correction
+  // is traceable without falsifying the close.
+  async updateExpensePaymentMethod(
+    expenseId: string,
+    paymentMethodId: string,
+    actorUserId: string,
+  ): Promise<Expense> {
+    const existing = await prisma.expense.findUniqueOrThrow({ where: { id: expenseId } });
+
+    if (existing.paymentMethodId === paymentMethodId) {
+      return existing;
+    }
+
+    const expense = await prisma.expense.update({
+      where: { id: expenseId },
+      data: { paymentMethodId },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "expense.payment_method_corrected",
+      entityType: "Expense",
+      entityId: expense.id,
+      oldValues: { paymentMethodId: existing.paymentMethodId },
+      newValues: { paymentMethodId: expense.paymentMethodId },
+    });
+
+    return expense;
+  }
+
   async listRecentExpenses(limit = 50): Promise<ExpenseWithRelations[]> {
     return prisma.expense.findMany({
       include: {

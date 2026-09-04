@@ -40,7 +40,7 @@ export default async function ExpensesPage() {
           <CardTitle>Recent expenses</CardTitle>
         </CardHeader>
         <CardContent>
-          <ExpensesTable expenses={expenses} />
+          <ExpensesTable expenses={expenses} paymentMethods={paymentMethods} />
         </CardContent>
       </Card>
 

@@ -12,6 +12,43 @@ export interface ExpenseActionState {
   error: string | null;
 }
 
+// Corrects ONLY the payment method on an existing expense. Gated on the
+// same permission as recording one — someone trusted to enter an expense
+// is trusted to fix which till it came out of.
+export async function correctExpensePaymentMethodAction(input: {
+  expenseId: string;
+  paymentMethodId: string;
+}): Promise<ExpenseActionState> {
+  const authz = await requireEmployee(
+    PERMISSIONS.ACCOUNTS_RECORD_EXPENSE,
+    "You don't have permission to edit expenses.",
+  );
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  if (!input.expenseId || !input.paymentMethodId) {
+    return { error: "Pick a payment method." };
+  }
+
+  try {
+    await expenseService.updateExpensePaymentMethod(
+      input.expenseId,
+      input.paymentMethodId,
+      authz.userId,
+    );
+    revalidatePath("/dashboard/admin/expenses");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, {
+        action: "correctExpensePaymentMethodAction",
+        userId: authz.userId,
+      }),
+    };
+  }
+}
+
 export async function createExpenseAction(input: CreateExpenseInput): Promise<ExpenseActionState> {
   const authz = await requireEmployee(
     PERMISSIONS.ACCOUNTS_RECORD_EXPENSE,
