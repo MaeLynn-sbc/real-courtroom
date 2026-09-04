@@ -69,6 +69,10 @@ async function buildReportCsv(
       const rows = await reportingService.getLockerRentalReport(range);
       return toCsv(rows, REPORT_CSV_COLUMNS.lockerRental);
     }
+    case "dailyReconciliation": {
+      const rows = await reportingService.getDailyReconciliationReport(range, rolloverHour);
+      return toCsv(rows, REPORT_CSV_COLUMNS.dailyReconciliation);
+    }
     case "salesByCategory": {
       const rows = await reportingService.getSalesByCategoryReport(range, rolloverHour);
       return toCsv(rows, REPORT_CSV_COLUMNS.salesByCategory);

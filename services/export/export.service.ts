@@ -1,4 +1,5 @@
 import type {
+  DailyReconciliationRow,
   BookingReportRow,
   CoachingReportRow,
   CourtUtilizationRow,
@@ -120,6 +121,31 @@ export const REPORT_CSV_COLUMNS = {
     { header: "End", value: (r: LockerRentalReportRow) => r.endAt },
     { header: "Amount (cents)", value: (r: LockerRentalReportRow) => r.amountCents },
   ] satisfies CsvColumn<LockerRentalReportRow>[],
+  // One row per business day. Amounts stay in CENTS like every other
+  // report here, so a spreadsheet can sum them without float error; the
+  // header says so.
+  //
+  // Nulls export as an empty cell, NOT 0 — an unopened till must not read
+  // as a balanced one. Excel shows blank, and a SUM over the column
+  // ignores it rather than counting a day nobody reconciled.
+  dailyReconciliation: [
+    { header: "Date", value: (r: DailyReconciliationRow) => r.date.toISOString().slice(0, 10) },
+    { header: "Transactions", value: (r: DailyReconciliationRow) => r.transactionCount },
+    { header: "Total Sales (cents)", value: (r: DailyReconciliationRow) => r.totalSalesCents },
+    { header: "Cash Sales (cents)", value: (r: DailyReconciliationRow) => r.cashSalesCents },
+    { header: "GCash Sales (cents)", value: (r: DailyReconciliationRow) => r.gcashSalesCents },
+    { header: "Other Sales (cents)", value: (r: DailyReconciliationRow) => r.otherSalesCents },
+    { header: "Cash Starting (cents)", value: (r: DailyReconciliationRow) => r.cashStartingCents },
+    { header: "Cash Expected (cents)", value: (r: DailyReconciliationRow) => r.cashExpectedCents },
+    { header: "Cash Counted (cents)", value: (r: DailyReconciliationRow) => r.cashCountedCents },
+    { header: "Cash Variance (cents)", value: (r: DailyReconciliationRow) => r.cashVarianceCents },
+    { header: "Cash Status", value: (r: DailyReconciliationRow) => r.cashStatus },
+    { header: "GCash Starting (cents)", value: (r: DailyReconciliationRow) => r.gcashStartingCents },
+    { header: "GCash Expected (cents)", value: (r: DailyReconciliationRow) => r.gcashExpectedCents },
+    { header: "GCash Counted (cents)", value: (r: DailyReconciliationRow) => r.gcashCountedCents },
+    { header: "GCash Variance (cents)", value: (r: DailyReconciliationRow) => r.gcashVarianceCents },
+    { header: "GCash Status", value: (r: DailyReconciliationRow) => r.gcashStatus },
+  ] satisfies CsvColumn<DailyReconciliationRow>[],
   salesByCategory: [
     { header: "Category", value: (r: SalesByCategoryRow) => r.category },
     { header: "Transactions", value: (r: SalesByCategoryRow) => r.transactionCount },

@@ -34,6 +34,7 @@ import {
   type EquipmentRentalReportRow,
   type LockerRentalReportRow,
   type MembershipReportRow,
+  type DailyReconciliationRow,
   type SalesByCategoryRow,
   type SalesByPaymentMethodRow,
   type SalesByProductRow,
@@ -52,6 +53,7 @@ const REPORT_TITLES: Record<string, string> = {
   salesByCategory: "Sales by category",
   salesByPaymentMethod: "Sales by payment method",
   salesByProduct: "Sales by product",
+  dailyReconciliation: "Daily sales & reconciliation",
 };
 
 interface ReportPageProps {
@@ -229,6 +231,42 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
         { header: "Amount", render: (r) => formatCurrency(r.amountCents) },
       ];
       return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.paymentMethodLabel} />;
+    }
+    case "dailyReconciliation": {
+      const rows = await reportingService.getDailyReconciliationReport(range, rolloverHour);
+      // A dash, not PHP 0.00, when no balance row exists — an unopened
+      // till must not read as a balanced one. Same rule the CSV follows
+      // with an empty cell.
+      const money = (cents: number | null) => (cents === null ? "—" : formatCurrency(cents));
+      // Variance is the column people scan for, so it is signed and shown
+      // in red when it is not zero.
+      const variance = (cents: number | null) =>
+        cents === null ? (
+          "—"
+        ) : cents === 0 ? (
+          formatCurrency(0)
+        ) : (
+          <span className="text-destructive font-medium">
+            {cents > 0 ? "+" : ""}
+            {formatCurrency(cents)}
+          </span>
+        );
+      const columns: ReportTableColumn<DailyReconciliationRow>[] = [
+        { header: "Date", render: (r) => r.date.toISOString().slice(0, 10) },
+        { header: "Txns", render: (r) => r.transactionCount },
+        { header: "Total", render: (r) => formatCurrency(r.totalSalesCents) },
+        { header: "Cash", render: (r) => formatCurrency(r.cashSalesCents) },
+        { header: "GCash", render: (r) => formatCurrency(r.gcashSalesCents) },
+        { header: "Cash expected", render: (r) => money(r.cashExpectedCents) },
+        { header: "Cash counted", render: (r) => money(r.cashCountedCents) },
+        { header: "Cash var.", render: (r) => variance(r.cashVarianceCents) },
+        { header: "GCash expected", render: (r) => money(r.gcashExpectedCents) },
+        { header: "GCash counted", render: (r) => money(r.gcashCountedCents) },
+        { header: "GCash var.", render: (r) => variance(r.gcashVarianceCents) },
+      ];
+      return (
+        <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.date.toISOString()} />
+      );
     }
     case "salesByProduct": {
       const rows = await reportingService.getSalesByProductReport(range, rolloverHour);

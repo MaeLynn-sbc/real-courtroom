@@ -34,6 +34,12 @@ const REPORT_LINKS: { reportType: string; title: string; description: string }[]
     description: "Coaching sessions, coaches, and fees in range.",
   },
   {
+    reportType: "dailyReconciliation",
+    title: "Daily sales & reconciliation",
+    description:
+      "One row per day: sales split by tender, plus each till's starting, expected, counted and variance. Export 30 days for a month-end sheet.",
+  },
+  {
     reportType: "salesByProduct",
     title: "Sales by product",
     description: "Per-product breakdown (shirts, grips, etc.) for consignment accounting.",

@@ -146,6 +146,36 @@ export interface LockerRentalReportRow {
   amountCents: number;
 }
 
+// --- Daily reconciliation report (owner request, 2026-09-04) -----------------
+//
+// "if i export 30 days there would be daily sales reporting with variance
+// and all. like complete report" — one row per business day, sales split
+// by tender, with each ledger's starting/expected/counted/variance read
+// straight from the confirmed balance rows.
+//
+// Every *Cents figure below is nullable EXCEPT the sales ones. A null
+// means no balance row exists for that day — nobody opened that till —
+// which is deliberately distinct from a zero. Rendering it as 0 would
+// make an unopened day look like a perfectly balanced one.
+export interface DailyReconciliationRow {
+  date: Date;
+  transactionCount: number;
+  totalSalesCents: number;
+  cashSalesCents: number;
+  gcashSalesCents: number;
+  otherSalesCents: number;
+  cashStartingCents: number | null;
+  cashExpectedCents: number | null;
+  cashCountedCents: number | null;
+  cashVarianceCents: number | null;
+  cashStatus: string | null;
+  gcashStartingCents: number | null;
+  gcashExpectedCents: number | null;
+  gcashCountedCents: number | null;
+  gcashVarianceCents: number | null;
+  gcashStatus: string | null;
+}
+
 // --- Sales by category / payment method reports (v1.1 Sub-phase 3) -----------
 
 export interface SalesByCategoryRow {
@@ -658,6 +688,100 @@ export class ReportingService {
   // saleService.getSalesSummary. Shared here (not re-typed per report)
   // so the category report, the payment-method report, and the revenue
   // summary can never drift apart from each other.
+  // ONE ROW PER BUSINESS DAY — the month-end reconciliation sheet.
+  //
+  // Every other sales report in this file aggregates the whole range into
+  // a handful of rows (by category, by method, by product). This is the
+  // opposite shape: 30 days in, 30 rows out, so a variance can be traced
+  // to the day it happened rather than disappearing into a total.
+  //
+  // NOTHING IS RECOMPUTED. Starting, expected, counted and variance are
+  // read from CashDailyBalance / GcashDailyBalance exactly as staff
+  // confirmed them on the day. Re-deriving them here would let the export
+  // disagree with what was reconciled — the one thing a reconciliation
+  // sheet must never do.
+  //
+  // Days with no balance row are still emitted, with nulls. A missing day
+  // in a 30-day export usually means nobody opened the till, and that is
+  // worth seeing rather than silently skipping.
+  async getDailyReconciliationReport(
+    range: DateRange,
+    rolloverHour = 0,
+  ): Promise<DailyReconciliationRow[]> {
+    const from = widenToBusinessDateRangeStart(range.from, rolloverHour);
+    const to = computeBusinessDate(range.to, rolloverHour);
+
+    const [sales, cashBalances, gcashBalances] = await Promise.all([
+      prisma.sale.groupBy({
+        by: ["businessDate", "paymentMethodId"],
+        where: this.dateAwareSaleWhere(range, rolloverHour),
+        _sum: { amountCents: true },
+        _count: true,
+      }),
+      prisma.cashDailyBalance.findMany({ where: { date: { gte: from, lte: to } } }),
+      prisma.gcashDailyBalance.findMany({ where: { date: { gte: from, lte: to } } }),
+    ]);
+
+    const methods = await prisma.paymentMethod.findMany({ select: { id: true, key: true } });
+    const methodKeyById = new Map(methods.map((m) => [m.id, m.key]));
+    const cashByDate = new Map(cashBalances.map((b) => [b.date.getTime(), b]));
+    const gcashByDate = new Map(gcashBalances.map((b) => [b.date.getTime(), b]));
+
+    const salesByDate = new Map<
+      number,
+      { total: number; cash: number; gcash: number; other: number; count: number }
+    >();
+    for (const row of sales) {
+      if (!row.businessDate) {
+        continue;
+      }
+      const key = row.businessDate.getTime();
+      const bucket = salesByDate.get(key) ?? { total: 0, cash: 0, gcash: 0, other: 0, count: 0 };
+      const amount = row._sum.amountCents ?? 0;
+      const methodKey = methodKeyById.get(row.paymentMethodId);
+      bucket.total += amount;
+      bucket.count += row._count;
+      if (methodKey === "CASH") {
+        bucket.cash += amount;
+      } else if (methodKey === "GCASH") {
+        bucket.gcash += amount;
+      } else {
+        bucket.other += amount;
+      }
+      salesByDate.set(key, bucket);
+    }
+
+    // Walk every calendar day in the range rather than only the days that
+    // happen to have rows, so a day with no sales AND no till is still
+    // visible as a gap.
+    const rows: DailyReconciliationRow[] = [];
+    for (const cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+      const key = cursor.getTime();
+      const sale = salesByDate.get(key);
+      const cash = cashByDate.get(key);
+      const gcash = gcashByDate.get(key);
+      rows.push({
+        date: new Date(cursor),
+        transactionCount: sale?.count ?? 0,
+        totalSalesCents: sale?.total ?? 0,
+        cashSalesCents: sale?.cash ?? 0,
+        gcashSalesCents: sale?.gcash ?? 0,
+        otherSalesCents: sale?.other ?? 0,
+        cashStartingCents: cash?.startingBalanceCents ?? null,
+        cashExpectedCents: cash?.expectedEndingBalanceCents ?? null,
+        cashCountedCents: cash?.confirmedEndingBalanceCents ?? null,
+        cashVarianceCents: cash?.varianceCents ?? null,
+        cashStatus: cash?.status ?? null,
+        gcashStartingCents: gcash?.startingBalanceCents ?? null,
+        gcashExpectedCents: gcash?.expectedEndingBalanceCents ?? null,
+        gcashCountedCents: gcash?.confirmedEndingBalanceCents ?? null,
+        gcashVarianceCents: gcash?.varianceCents ?? null,
+        gcashStatus: gcash?.status ?? null,
+      });
+    }
+    return rows;
+  }
+
   private dateAwareSaleWhere(range: DateRange, rolloverHour = 0): Prisma.SaleWhereInput {
     // Real incident (2026-08-12) — see lib/business-date.ts's
     // widenToBusinessDateRangeStart for the full story.
