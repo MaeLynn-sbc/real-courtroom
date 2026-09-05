@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { paymentMethodStyle } from "@/lib/payment-method-style";
 import { formatCurrency } from "@/lib/utils";
 import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
 
@@ -75,7 +76,15 @@ export function SettlementPaymentFields({
                 variant={isSelected ? "default" : "outline"}
                 aria-pressed={isSelected}
                 onClick={() => onPaymentMethodIdChange(method.id)}
-                className="h-14 flex-1 text-base font-bold tracking-wide uppercase"
+                // Colour is carried in BOTH states, not just the selected
+                // one: staff need to tell the two apart BEFORE tapping,
+                // which is where the mistake actually happens. Keyed on
+                // method.key so a renamed label cannot silently drop it.
+                className={`h-14 flex-1 border text-base font-bold tracking-wide uppercase ${
+                  isSelected
+                    ? paymentMethodStyle(method.key).selected
+                    : paymentMethodStyle(method.key).idle
+                }`}
               >
                 {method.label}
               </Button>
@@ -100,7 +109,11 @@ export function SettlementPaymentFields({
       {/* The one moment a wrong tap is visible before it commits — see
           this component's own top comment. */}
       {selected && amountCents !== undefined ? (
-        <p className="text-lg font-bold">
+        <p
+          // The confirmation line takes the same colour, so the last
+          // thing read before committing matches the button just tapped.
+          className={`rounded-md border px-3 py-2 text-lg font-bold ${paymentMethodStyle(selected.key).badge}`}
+        >
           Settling {formatCurrency(amountCents)} as {selected.label.toUpperCase()}
         </p>
       ) : null}
