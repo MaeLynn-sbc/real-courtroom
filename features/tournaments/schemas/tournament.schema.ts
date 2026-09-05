@@ -195,6 +195,10 @@ export const createManualMatchSchema = z
     team1Id: z.string().min(1, "Select the first team."),
     team2Id: z.string().min(1, "Select the second team."),
     round: z.coerce.number().int().positive().optional(),
+    // Optional playoff stage. Absent for a pool fixture added by hand;
+    // set for a knockout match, which is what puts it in the public
+    // PLAYOFFS section regardless of the category's format.
+    stage: z.enum(["QUARTERFINAL", "SEMIFINAL", "BRONZE", "FINAL"]).optional(),
   })
   .refine((data) => data.team1Id !== data.team2Id, {
     message: "Pick two different teams.",

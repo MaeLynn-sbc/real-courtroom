@@ -6,6 +6,7 @@ import type {
 } from "@/features/tournaments/schemas/tournament.schema";
 import type {
   Match,
+  MatchStage,
   Prisma,
   Tournament,
   TournamentCategory,
@@ -1050,7 +1051,7 @@ export class TournamentService {
   // never run for it.
   async createManualMatch(
     categoryId: string,
-    input: { team1Id: string; team2Id: string; round?: number },
+    input: { team1Id: string; team2Id: string; round?: number; stage?: MatchStage | null },
     actorUserId: string,
   ): Promise<Match> {
     if (input.team1Id === input.team2Id) {
@@ -1074,6 +1075,11 @@ export class TournamentService {
       data: {
         tournamentCategoryId: categoryId,
         round: input.round ?? null,
+        // Optional. A pool fixture added by hand has no stage; a playoff
+        // match gets QUARTERFINAL / SEMIFINAL / BRONZE / FINAL, which is
+        // what drives the public playoff section rather than the
+        // bracket's size.
+        stage: input.stage ?? null,
         team1Id: input.team1Id,
         team2Id: input.team2Id,
         status: "SCHEDULED",
@@ -1085,7 +1091,13 @@ export class TournamentService {
       action: "tournament.match_created_manually",
       entityType: "TournamentCategory",
       entityId: categoryId,
-      newValues: { matchId: match.id, team1Id: input.team1Id, team2Id: input.team2Id, round: match.round },
+      newValues: {
+        matchId: match.id,
+        team1Id: input.team1Id,
+        team2Id: input.team2Id,
+        round: match.round,
+        stage: match.stage,
+      },
     });
 
     return match;

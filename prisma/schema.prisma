@@ -2432,6 +2432,20 @@ enum TournamentRegistrationStatus {
   DISQUALIFIED
 }
 
+// Playoff stage, assigned rather than derived. Deliberately NOT a full
+// round taxonomy: these are the four labels this venue actually uses on
+// a results sheet, and adding "Round of 32" here would invite the same
+// bracket-size assumption this replaced.
+enum MatchStage {
+  QUARTERFINAL
+  SEMIFINAL
+  // Third-place playoff. Never advances anyone — see
+  // TournamentCategory.hasThirdPlaceMatch for the same rule on the
+  // generated-bracket side.
+  BRONZE
+  FINAL
+}
+
 enum MatchStatus {
   SCHEDULED
   IN_PROGRESS
@@ -2579,6 +2593,26 @@ model Match {
   // default every other nullable Match field already has.
   poolLabel               String?
   bracketPosition         Int?
+  // Owner request (2026-09-05): "i got to decide if theres quarter finals
+  // and semis and finals."
+  //
+  // Until now a stage name was DERIVED — public-elimination-bracket
+  // counted backwards from the last round of a full single-elimination
+  // draw (ROUND_NAMES_FROM_END), so the bracket's SIZE decided whether
+  // there were quarterfinals and a round-robin category got no stage
+  // names at all.
+  //
+  // This makes the stage an explicit, ASSIGNED property instead, which
+  // matches how these events are actually run here: the pools finish,
+  // the organiser looks at the standings, and only then decides it is a
+  // four-team playoff rather than an eight. A round-robin category can
+  // now carry a real playoff stage.
+  //
+  // NULLABLE and unset by default — a pool fixture has no stage, and
+  // every existing match keeps rendering exactly as it does today. A
+  // SINGLE_ELIMINATION category still derives its own labels when this
+  // is null, so nothing about the existing bracket changes.
+  stage                   MatchStage?
   team1Id                 String
   team2Id                 String?
   winnerTeamId            String?

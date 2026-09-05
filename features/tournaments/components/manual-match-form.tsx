@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { STAGE_LABELS } from "@/lib/match-stage";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface ManualMatchTeamOption {
@@ -36,6 +37,9 @@ export function ManualMatchForm({ tournamentId, categoryId, teams }: ManualMatch
   const [team1Id, setTeam1Id] = useState("");
   const [team2Id, setTeam2Id] = useState("");
   const [round, setRound] = useState("");
+  // "" means a pool fixture with no stage. Anything else marks this a
+  // playoff match and puts it in the public PLAYOFFS section.
+  const [stage, setStage] = useState("");
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -46,6 +50,7 @@ export function ManualMatchForm({ tournamentId, categoryId, teams }: ManualMatch
         team1Id,
         team2Id,
         round: round.trim() ? Number(round) : undefined,
+        stage: stage ? (stage as "QUARTERFINAL" | "SEMIFINAL" | "BRONZE" | "FINAL") : undefined,
       });
       if (result.error) {
         toast.error(result.error);
@@ -55,6 +60,9 @@ export function ManualMatchForm({ tournamentId, categoryId, teams }: ManualMatch
       setTeam1Id("");
       setTeam2Id("");
       setRound("");
+      // Stage is deliberately NOT cleared: playoff matches are added in
+      // a run (SF1, SF2, then Bronze and Final), so keeping the last
+      // choice saves re-picking it every time.
       router.refresh();
     });
   }
@@ -115,6 +123,23 @@ export function ManualMatchForm({ tournamentId, categoryId, teams }: ManualMatch
                 onChange={(event) => setRound(event.target.value)}
                 placeholder="e.g. 1"
               />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="manualMatchStage">Stage (optional)</Label>
+              <Select value={stage} onValueChange={(value) => setStage(value ?? "")}>
+                <SelectTrigger id="manualMatchStage" className="w-full">
+                  <SelectValue placeholder="Pool match">
+                    {(selected: string) => STAGE_LABELS[selected] ?? "Pool match"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(STAGE_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex items-end">
               <Button type="submit" disabled={isPending || !team1Id || !team2Id} className="w-full">

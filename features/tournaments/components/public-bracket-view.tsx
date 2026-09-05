@@ -1,5 +1,6 @@
 import { PublicEliminationBracket } from "@/features/tournaments/components/public-elimination-bracket";
 import { PublicMatchCard } from "@/features/tournaments/components/public-match-card";
+import { PublicPlayoffSection } from "@/features/tournaments/components/public-playoff-section";
 import type { MatchWithTeams } from "@/features/tournaments/components/match-card";
 
 function groupByRound(matches: MatchWithTeams[]): Map<number, MatchWithTeams[]> {
@@ -94,17 +95,34 @@ export function PublicBracketView({
     );
   }
 
-  const pools = Array.from(groupByPool(matches).entries()).sort(([a], [b]) =>
+  // Playoff matches are pulled OUT of the pool grouping below and shown
+  // in their own section above it. Without this they would appear as
+  // stray fixtures inside whichever pool round they happened to be given,
+  // which is exactly the confusion the stage column exists to fix.
+  const playoffMatches = matches.filter((match) => match.stage !== null);
+  const poolMatches = matches.filter((match) => match.stage === null);
+
+  const pools = Array.from(groupByPool(poolMatches).entries()).sort(([a], [b]) =>
     (a ?? "").localeCompare(b ?? ""),
   );
   const isPooled = pools.length > 1 || pools[0]?.[0] !== null;
 
   if (!isPooled) {
-    return <RoundGroups matches={matches} teamPoolNumbers={teamPoolNumbers} />;
+    return (
+      <div className="flex flex-col gap-6">
+        <PublicPlayoffSection matches={playoffMatches} teamPoolNumbers={teamPoolNumbers} />
+        <RoundGroups matches={poolMatches} teamPoolNumbers={teamPoolNumbers} />
+      </div>
+    );
   }
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Playoffs FIRST — once they exist they are the thing people are
+          looking for, and the pools become reference below them. Renders
+          nothing when no match has a stage, so an ordinary round robin is
+          unchanged. */}
+      <PublicPlayoffSection matches={playoffMatches} teamPoolNumbers={teamPoolNumbers} />
       {pools.map(([poolLabel, poolMatches]) => (
         <div key={poolLabel ?? "none"} className="flex flex-col gap-2">
           <h3 className="font-jetbrains text-bone text-xs font-bold tracking-[0.18em] uppercase">
