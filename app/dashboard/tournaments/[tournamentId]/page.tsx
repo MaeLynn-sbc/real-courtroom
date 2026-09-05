@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+
+import { buttonVariants } from "@/components/ui/button";
 
 import { CategoryForm } from "@/features/tournaments/components/category-form";
 import { CategoryList } from "@/features/tournaments/components/category-list";
@@ -43,7 +46,15 @@ export default async function TournamentDetailPage({ params }: TournamentDetailP
             <p className="text-muted-foreground mt-1 text-sm">{tournament.description}</p>
           ) : null}
         </div>
-        <TournamentStatusBadge status={tournament.status} />
+        <div className="flex items-center gap-3">
+          <TournamentStatusBadge status={tournament.status} />
+          <Link
+            href={`/dashboard/tournaments/${tournamentId}/edit`}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Edit
+          </Link>
+        </div>
       </div>
 
       <section className="flex flex-col gap-3">
