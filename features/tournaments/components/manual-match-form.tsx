@@ -50,7 +50,9 @@ export function ManualMatchForm({ tournamentId, categoryId, teams }: ManualMatch
         team1Id,
         team2Id,
         round: round.trim() ? Number(round) : undefined,
-        stage: stage ? (stage as "QUARTERFINAL" | "SEMIFINAL" | "BRONZE" | "FINAL") : undefined,
+        stage: stage
+          ? (stage as "ELIMINATION" | "QUARTERFINAL" | "SEMIFINAL" | "BRONZE" | "FINAL")
+          : undefined,
       });
       if (result.error) {
         toast.error(result.error);

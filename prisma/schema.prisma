@@ -2437,6 +2437,13 @@ enum TournamentRegistrationStatus {
 // a results sheet, and adding "Round of 32" here would invite the same
 // bracket-size assumption this replaced.
 enum MatchStage {
+  // A knockout round earlier than the quarterfinals — a round of 16, a
+  // preliminary cut, whatever the draw size makes it. Deliberately ONE
+  // generic value rather than ROUND_OF_16 / ROUND_OF_32: the point of
+  // this column is that the organiser names the shape, and adding
+  // size-specific values would reintroduce the bracket-size assumption
+  // it replaced.
+  ELIMINATION
   QUARTERFINAL
   SEMIFINAL
   // Third-place playoff. Never advances anyone — see

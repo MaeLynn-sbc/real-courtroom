@@ -1,0 +1,22 @@
+-- Add an ELIMINATION stage (owner request, 2026-09-05) — a knockout round
+-- earlier than the quarterfinals: a round of 16, a preliminary cut, or
+-- whatever the draw size makes it.
+--
+-- ONE generic value rather than ROUND_OF_16 / ROUND_OF_32 on purpose. The
+-- whole point of this column is that the organiser names the shape after
+-- the pools finish; size-specific values would reintroduce exactly the
+-- bracket-size assumption it replaced.
+--
+-- Placed BEFORE 'QUARTERFINAL' so the enum's own sort order matches the
+-- order stages are played. STAGE_ORDER in lib/match-stage.ts drives the
+-- UI independently, but keeping the two consistent means a raw query
+-- sorted by the enum reads correctly too.
+--
+-- PURELY ADDITIVE. Existing rows are unaffected; the column stays
+-- nullable with no default.
+--
+-- ALTER TYPE ... ADD VALUE is transaction-safe from PostgreSQL 12 (local
+-- 16, production 18) and the new value is deliberately not used in this
+-- migration, which Postgres forbids.
+
+ALTER TYPE "MatchStage" ADD VALUE IF NOT EXISTS 'ELIMINATION' BEFORE 'QUARTERFINAL';

@@ -9,6 +9,7 @@
 // picker and the public grouping iterate this to lay stages out
 // left-to-right as they are played.
 export const STAGE_LABELS: Record<string, string> = {
+  ELIMINATION: "Elimination",
   QUARTERFINAL: "Quarterfinal",
   SEMIFINAL: "Semifinal",
   BRONZE: "Bronze",
@@ -18,6 +19,7 @@ export const STAGE_LABELS: Record<string, string> = {
 // Compact codes for the badge on a match card — "SF" reads better than
 // "Semifinal" in a 40px chip, and matches the reference results sheet.
 export const STAGE_CODES: Record<string, string> = {
+  ELIMINATION: "ELIM",
   QUARTERFINAL: "QF",
   SEMIFINAL: "SF",
   BRONZE: "BRONZE",
