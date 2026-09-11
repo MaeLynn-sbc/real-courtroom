@@ -10,7 +10,7 @@ import {
   type ManualSaleInput,
   type StartShiftInput,
 } from "@/features/shifts/schemas/shift.schema";
-import { requireEmployeeWithOpenShift, requireSession } from "@/lib/action-auth";
+import { requireEmployeeWithOpenShift, requirePermission, requireSession } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { saleService } from "@/services/sales/sale.service";
@@ -58,6 +58,49 @@ export async function startShiftAction(input: StartShiftInput): Promise<ShiftAct
   }
 }
 
+// Management closing a shift an attendant forgot, WITHOUT a cash count.
+// Gated on reports:manage — this bypasses the counted-drawer discipline
+// every ordinary close goes through, so it is not something an attendant
+// can reach for instead of counting.
+export async function closeShiftWithoutCountAction(
+  shiftId: string,
+  input: { endedAt: string; reason: string },
+): Promise<ShiftActionState> {
+  const authz = await requirePermission(
+    PERMISSIONS.REPORTS_MANAGE,
+    "You don't have permission to close another employee's shift.",
+  );
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const endedAt = new Date(input.endedAt);
+  if (Number.isNaN(endedAt.getTime())) {
+    return { error: "Enter a valid end time." };
+  }
+  if (!input.reason?.trim()) {
+    return { error: "Enter a reason for closing without a cash count." };
+  }
+
+  try {
+    await shiftService.closeShiftWithoutCount(
+      shiftId,
+      { endedAt, reason: input.reason },
+      authz.userId,
+    );
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/shift");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, {
+        action: "closeShiftWithoutCountAction",
+        userId: authz.userId,
+      }),
+    };
+  }
+}
+
 export async function endShiftAction(
   shiftId: string,
   input: EndShiftInput,
@@ -65,6 +108,32 @@ export async function endShiftAction(
   const authz = await requireOwnEmployee();
   if (!authz.ok) {
     return { error: authz.error };
+  }
+
+  // requireOwnEmployee only proves "you have a session and an employee
+  // profile" — it never checked the shift was YOURS, and neither did
+  // shiftService.endShift. So any logged-in employee could close any
+  // open shift, cash count included, given its id. Nothing in the UI
+  // offered it, which is why it had not happened, but the action was
+  // reachable directly.
+  //
+  // Now: your own shift, or reports:manage (management closing one on an
+  // attendant's behalf).
+  const target = await prisma.shift.findUnique({
+    where: { id: shiftId },
+    select: { employeeId: true },
+  });
+  if (!target) {
+    return { error: "That shift no longer exists." };
+  }
+  if (target.employeeId !== authz.employeeId) {
+    const elevated = await requirePermission(
+      PERMISSIONS.REPORTS_MANAGE,
+      "You can only close your own shift.",
+    );
+    if (!elevated.ok) {
+      return { error: elevated.error };
+    }
   }
 
   const parsed = endShiftSchema.safeParse(input);

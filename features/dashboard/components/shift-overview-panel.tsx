@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { CloseShiftWithoutCountButton } from "@/features/shifts/components/close-shift-without-count-button";
+
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,17 +72,28 @@ export function ShiftOverviewPanel({ onDuty, recentShifts }: ShiftOverviewPanelP
           ) : (
             <div className="flex flex-col gap-2">
               {onDuty.map((shift) => (
-                <div key={shift.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="bg-success size-1.5 shrink-0 rounded-full"
-                      aria-hidden="true"
-                    />
-                    <span className="truncate font-medium">{shift.employeeName}</span>
-                  </span>
-                  <span className="text-muted-foreground shrink-0 text-xs">
-                    {shift.shiftNumber} · since {timeFormatter.format(shift.startedAt)}
-                  </span>
+                <div key={shift.id} className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className="bg-success size-1.5 shrink-0 rounded-full"
+                        aria-hidden="true"
+                      />
+                      <span className="truncate font-medium">{shift.employeeName}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1">
+                      <span className="text-muted-foreground text-xs">
+                        {shift.shiftNumber} · since {timeFormatter.format(shift.startedAt)}
+                      </span>
+                      {/* Only rendered for the roles that already see this
+                          panel (reports:manage), and the action re-checks
+                          the permission server-side regardless. */}
+                      <CloseShiftWithoutCountButton
+                        shiftId={shift.id}
+                        employeeName={shift.employeeName}
+                      />
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>

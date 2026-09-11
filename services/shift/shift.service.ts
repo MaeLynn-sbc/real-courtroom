@@ -221,6 +221,82 @@ export class ShiftService {
   // HERE, from the denomination breakdown the client submitted, never
   // trusted as a client-sent total — same reasoning as every Sale-
   // creating action in this app not trusting client-computed amounts.
+  // Close a shift someone forgot to close, WITHOUT counting the drawer
+  // (owner request, 2026-09-11: "sometimes the staff forgets to do it",
+  // "close it as is").
+  //
+  // closingCashCents and varianceCents are left NULL on purpose. Both are
+  // nullable in the schema, and null is the honest value: nobody counted,
+  // so the variance is genuinely unknown. Writing 0 would claim the
+  // drawer balanced — a figure that would then flow into any report
+  // reading shift variance, and would be indistinguishable from a shift
+  // that really did balance.
+  //
+  // endedAt is a PARAMETER rather than always now(). A shift forgotten at
+  // 6pm and closed at 11pm would otherwise seed an attendance record five
+  // hours too long, and attendance feeds payroll — see the incident note
+  // in endShift below. The caller passes the time the shift actually
+  // ended.
+  async closeShiftWithoutCount(
+    shiftId: string,
+    input: { endedAt: Date; reason: string },
+    actorUserId: string,
+  ) {
+    const existing = await prisma.shift.findUniqueOrThrow({ where: { id: shiftId } });
+
+    if (existing.status !== "OPEN") {
+      throw new Error("This shift is already closed.");
+    }
+    if (!input.reason.trim()) {
+      throw new Error("Enter a reason for closing this shift without a cash count.");
+    }
+    if (input.endedAt.getTime() <= existing.startedAt.getTime()) {
+      throw new Error("The end time must be after the shift started.");
+    }
+    if (input.endedAt.getTime() > Date.now()) {
+      throw new Error("The end time cannot be in the future.");
+    }
+
+    const shift = await prisma.shift.update({
+      where: { id: shiftId },
+      data: {
+        status: "CLOSED",
+        // NOT zero — see above. Unknown, and recorded as unknown.
+        closingCashCents: null,
+        varianceCents: null,
+        closingNotes: `Closed without a cash count by management. ${input.reason.trim()}`,
+        endedAt: input.endedAt,
+      },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      // Its own action, not "shift.ended" — a shift closed on someone's
+      // behalf with no count is a different event from one an attendant
+      // closed against a counted drawer, and the audit trail should not
+      // blur them.
+      action: "shift.closed_without_count",
+      entityType: "Shift",
+      entityId: shift.id,
+      oldValues: existing,
+      newValues: shift,
+    });
+
+    // Same by-product-of-closing rule and the same never-throw discipline
+    // as endShift. Uses the endedAt given above, so payroll reflects when
+    // the shift really finished rather than when someone noticed.
+    try {
+      await attendanceRecordService.seedFromShift(shift, actorUserId);
+    } catch (error) {
+      logger.error(
+        { err: error, shiftId: shift.id },
+        "Failed to seed attendance from a shift closed without a count",
+      );
+    }
+
+    return shift;
+  }
+
   async endShift(shiftId: string, input: EndShiftInput, actorUserId: string) {
     const existing = await prisma.shift.findUniqueOrThrow({ where: { id: shiftId } });
 
