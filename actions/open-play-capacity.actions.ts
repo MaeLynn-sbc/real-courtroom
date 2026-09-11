@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
+import { settingsService } from "@/services/settings/settings.service";
+
 import {
   capacityDefaultInputSchema,
   closedMessageForDateInputSchema,
@@ -265,6 +267,35 @@ export async function setSessionCapacityOverrideAction(
     return {
       error: toActionError(error, {
         action: "setSessionCapacityOverrideAction",
+        userId: authz.userId,
+      }),
+    };
+  }
+}
+
+// "When registration is off, show FULL on the website" (owner request,
+// 2026-09-11). Same admin gate as every other open-play capacity control.
+//
+// Revalidates "/" as well as the admin page: the homepage hero button and
+// its Friday/Saturday card are what this setting actually changes, and
+// leaving them on a stale render would make the switch look broken.
+export async function setOpenPlayClosedShowsFullAction(
+  value: boolean,
+): Promise<OpenPlayCapacityActionState> {
+  const authz = await requireOpenPlayCapacityAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  try {
+    await settingsService.setOpenPlayClosedShowsFull(value, authz.userId);
+    revalidateOpenPlayCapacity();
+    revalidatePath("/");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, {
+        action: "setOpenPlayClosedShowsFullAction",
         userId: authz.userId,
       }),
     };

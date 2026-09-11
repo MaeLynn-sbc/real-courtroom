@@ -195,6 +195,18 @@ const DEFAULT_GAME_WARNING: GameWarningSettings = { enabled: true, minutes: 1 };
 // single-point-of-control, required-OFF-by-default shape either way.
 const OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY = "openPlay.onlineRegistrationEnabled";
 
+// What the public website says when open-play registration is switched
+// off (owner request, 2026-09-11). Registration is turned off for more
+// than one reason, and one of them is simply that the night is full
+// from walk-ins and regulars — but the site then showed nothing at all,
+// which reads as "closed" or "broken" rather than "full".
+//
+// Off (the default, and the behaviour before this existed): a closed
+// night shows as closed. On: a closed night shows as FULL, disabled.
+// Read through getBooleanFlags, whose "no row -> false" is exactly
+// right here — nothing changes until someone deliberately flips it.
+const OPEN_PLAY_CLOSED_SHOWS_FULL_KEY = "openPlay.closedShowsFull";
+
 // SMS master switch (owner decision, 2026-08-28, revised the same day).
 // Defaults to OFF. The owner wants TWO deliberate actions between a
 // deploy and a customer receiving a message — setting SMS_PROVIDER at the
@@ -527,6 +539,15 @@ export class SettingsService {
 
   async setOpenPlayOnlineRegistrationEnabled(value: boolean, actorUserId: string) {
     return this.setBooleanFlag(OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY, value, actorUserId);
+  }
+
+  async getOpenPlayClosedShowsFull(): Promise<boolean> {
+    const flags = await this.getBooleanFlags([OPEN_PLAY_CLOSED_SHOWS_FULL_KEY]);
+    return flags[OPEN_PLAY_CLOSED_SHOWS_FULL_KEY];
+  }
+
+  async setOpenPlayClosedShowsFull(value: boolean, actorUserId: string) {
+    return this.setBooleanFlag(OPEN_PLAY_CLOSED_SHOWS_FULL_KEY, value, actorUserId);
   }
 
   async getEquipmentHideLowStockAlert(): Promise<boolean> {

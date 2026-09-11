@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { CapacityDefaultsPanel } from "@/features/open-play-capacity/components/capacity-defaults-panel";
+import { ClosedShowsFullToggle } from "@/features/open-play-capacity/components/closed-shows-full-toggle";
 import { OpenPlaySettingsPanel } from "@/features/open-play-capacity/components/open-play-settings-panel";
 import { UpcomingNightsPanel } from "@/features/open-play-capacity/components/upcoming-nights-panel";
 import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
@@ -26,13 +27,14 @@ const labelFormatter = new Intl.DateTimeFormat("en-PH", { weekday: "short", mont
 
 export default async function OpenPlayCapacityPage() {
   const courtHours = await settingsService.getCourtHours();
-  const [defaults, upcomingNights, openPlaySettings] = await Promise.all([
+  const [defaults, upcomingNights, openPlaySettings, closedShowsFull] = await Promise.all([
     openPlayCapacityService.getCapacityDefaults(),
     openPlayCapacityService.getUpcomingNights(
       UPCOMING_NIGHTS_COUNT,
       courtHours.businessDateRolloverHour,
     ),
     settingsService.getOpenPlaySettings(),
+    settingsService.getOpenPlayClosedShowsFull(),
   ]);
 
   const fridayCapacity = defaults.find((row) => row.dayOfWeek === 5)?.capacity ?? 0;
@@ -62,6 +64,9 @@ export default async function OpenPlayCapacityPage() {
       </div>
 
       <div className="flex flex-col gap-4">
+        {/* Directly above the weekday on/off switches it qualifies —
+            it only decides what a switched-off night SAYS publicly. */}
+        <ClosedShowsFullToggle enabled={closedShowsFull} />
         <CapacityDefaultsPanel
           fridayCapacity={fridayCapacity}
           saturdayCapacity={saturdayCapacity}

@@ -143,11 +143,30 @@ function computeOpenPlayCardState(
   leadTimeDays: number,
   closedRegistrationMessage: string,
   rolloverHour: number,
+  closedShowsFull: boolean,
 ): OpenPlayCardState {
-  if (!featureEnabled || !dayEnabled || !night) {
+  // No night at all is NOT a closure — there is simply no open play that
+  // day — so it never becomes "full", whatever the option says.
+  if (!night) {
     return { kind: "not-open" };
   }
+  // A DELIBERATE closure: the whole feature off, the weekday off, or this
+  // night blocked. With the owner's option on (settings
+  // openPlay.closedShowsFull) it reads as FULL, because turning
+  // registration off is very often exactly that — the night filled up
+  // from walk-ins — and a blank or "closed" reads as broken. With it off,
+  // today's behaviour is unchanged.
+  //
+  // Deliberately NOT applied to "not-yet-open" below: that night is not
+  // closed, it simply has not opened for registration yet, and "Full"
+  // would be a false statement about a night nobody has booked.
+  if (!featureEnabled || !dayEnabled) {
+    return closedShowsFull ? { kind: "full" } : { kind: "not-open" };
+  }
   if (night.onlineRegistrationBlocked) {
+    if (closedShowsFull) {
+      return { kind: "full" };
+    }
     return {
       kind: "blocked",
       message: resolveOpenPlayClosedMessage(night.closedMessage, closedRegistrationMessage),
@@ -183,6 +202,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     paddleRentalCents,
     businessInfo,
     openPlayFeatureEnabled,
+    closedShowsFull,
     cachedOpenPlayData,
   ] = await Promise.all([
     searchParams,
@@ -193,6 +213,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     equipmentService.getRentalRateCentsByKey(EQUIPMENT_KEYS.HOUSE_PADDLE),
     settingsService.getBusinessInfo(),
     settingsService.getOpenPlayOnlineRegistrationEnabled(),
+    settingsService.getOpenPlayClosedShowsFull(),
     getCachedOpenPlayHomepageData(),
   ]);
   const upcomingOpenPlayNights = cachedOpenPlayData.upcomingOpenPlayNights.map((night) => ({
@@ -238,6 +259,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     openPlaySettings.onlineRegistrationLeadTimeDays,
     openPlaySettings.closedRegistrationMessage,
     courtHours.businessDateRolloverHour,
+    closedShowsFull,
   );
   const saturdayCardState = computeOpenPlayCardState(
     saturdayNight,
@@ -246,6 +268,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     openPlaySettings.onlineRegistrationLeadTimeDays,
     openPlaySettings.closedRegistrationMessage,
     courtHours.businessDateRolloverHour,
+    closedShowsFull,
   );
   // Slot counter on the hero's "Join open play" button.
   //
@@ -261,6 +284,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   // badge renders nothing rather than inventing a number.
   const heroSlotState = [fridayCardState, saturdayCardState].find(
     (state): state is Extract<OpenPlayCardState, { kind: "open" }> => state.kind === "open",
+  );
+  // Why the button is disabled when no night is open — the nearest
+  // "not yet open" night's date if there is one, otherwise plain closed.
+  // Full wins over both (checked first at render).
+  const heroNotYetOpen = [fridayCardState, saturdayCardState].find(
+    (state): state is Extract<OpenPlayCardState, { kind: "not-yet-open" }> =>
+      state.kind === "not-yet-open",
   );
   const heroSlotsFull = [fridayCardState, saturdayCardState].some(
     (state) => state.kind === "full",
@@ -329,26 +359,50 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 >
                   {hero.ctaText}
                 </Link>
-                <Link
-                  href="/open-play/register"
-                  className={`${PILL_BUTTON} border-line text-bone hover:border-green border font-semibold`}
-                >
-                  Join open play
-                  {heroSlotState || heroSlotsFull ? (
+                {/* A LIVE LINK ONLY WHEN SEATS ARE OPEN (owner request,
+                    2026-09-11). Full, switched off, or not yet open all
+                    render as a disabled pill with the reason, instead of
+                    a button that led to a page saying "you can't".
+
+                    Owner's decision: Full is disabled too. The waitlist
+                    itself still works — /open-play/register handles a
+                    full night with "Join waitlist" and no payment — it is
+                    just no longer advertised from the homepage.
+
+                    A <span>, not a disabled <Link>: an anchor cannot be
+                    truly disabled, and pointer-events tricks leave it
+                    reachable by keyboard. aria-disabled tells assistive
+                    tech the same thing the grey styling tells the eye. */}
+                {heroSlotState ? (
+                  <Link
+                    href="/open-play/register"
+                    className={`${PILL_BUTTON} border-line text-bone hover:border-green border font-semibold`}
+                  >
+                    Join open play
                     <span
-                      className={`ml-2 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${
-                        heroSlotState ? "bg-green text-navy-900" : "bg-bone/15 text-bone/70"
-                      }`}
-                      aria-label={
-                        heroSlotState
-                          ? `${heroSlotState.remaining} spots left`
-                          : "Open play is full"
-                      }
+                      className="bg-green text-navy-900 ml-2 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums"
+                      aria-label={`${heroSlotState.remaining} spots left`}
                     >
-                      {heroSlotState ? `${heroSlotState.remaining} left` : "Full"}
+                      {heroSlotState.remaining} left
                     </span>
-                  ) : null}
-                </Link>
+                  </Link>
+                ) : (
+                  <span
+                    aria-disabled="true"
+                    className={`${PILL_BUTTON} border-line text-bone/50 cursor-not-allowed border font-semibold`}
+                  >
+                    Join open play
+                    <span
+                      className="bg-bone/15 text-bone/70 ml-2 rounded-full px-2 py-0.5 text-xs font-bold"
+                    >
+                      {heroSlotsFull
+                        ? "Full"
+                        : heroNotYetOpen
+                          ? `Opens ${openPlayOpensAtFormatter.format(heroNotYetOpen.opensAt)}`
+                          : "Closed"}
+                    </span>
+                  </span>
+                )}
                 <Link
                   href="/phone"
                   className={`${PILL_BUTTON} border-line text-bone hover:border-green border font-semibold`}
