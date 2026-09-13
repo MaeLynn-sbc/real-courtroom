@@ -9,6 +9,7 @@ import type {
   SaleSource,
 } from "@/lib/generated/prisma/enums";
 import { getBusinessDateRange } from "@/lib/business-date";
+import { coachSpanFitsBooking } from "@/lib/coach-session-window";
 import { isWithinCourtBookingWindow } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
@@ -790,7 +791,7 @@ export class BookingService {
   ): Promise<Booking> {
     const existing = await prisma.booking.findUniqueOrThrow({
       where: { id: bookingId },
-      include: { court: true, sale: true },
+      include: { court: true, sale: true, coachSession: { select: { status: true, hours: true, startOffsetHours: true } } },
     });
 
     const TERMINAL_STATUSES: BookingStatus[] = [
@@ -828,6 +829,20 @@ export class BookingService {
 
     const existingDurationMs = existing.endAt.getTime() - existing.startAt.getTime();
     const targetDurationMs = targetEndAt.getTime() - targetStartAt.getTime();
+
+    // The coaching rides on the booking (its window is an offset from
+    // the booking start), so it moves with the slot for free — but a
+    // shorter booking can no longer hold it. Refuse rather than leave a
+    // coach scheduled past the court time.
+    if (
+      existing.coachSession &&
+      existing.coachSession.status !== "CANCELLED" &&
+      !coachSpanFitsBooking(targetStartAt, targetEndAt, existing.coachSession)
+    ) {
+      throw new Error(
+        "This booking's coaching no longer fits in the new length. Remove or shorten the coaching first.",
+      );
+    }
 
     if (existing.sale && targetDurationMs !== existingDurationMs) {
       const hours = (ms: number) => Math.round((ms / 3_600_000) * 100) / 100;

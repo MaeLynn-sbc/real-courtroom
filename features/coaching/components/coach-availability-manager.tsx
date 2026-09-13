@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { HourGrid, type HourCellState } from "@/components/shared/hour-grid";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
+import { coachSessionWindow, describeTimeWindow } from "@/lib/coach-session-window";
 import { getFacilityCloseMinutes } from "@/lib/court-hours";
 import { expandWindowToHours, mergeHoursIntoWindows } from "@/lib/hour-windows";
 import { cn } from "@/lib/utils";
@@ -279,9 +280,13 @@ export function CoachAvailabilityManager({
       hour,
     );
     const slotEnd = new Date(slotStart.getTime() + 60 * 60 * 1000);
-    return activeSessions.filter(
-      (session) => session.booking.startAt < slotEnd && session.booking.endAt > slotStart,
-    );
+    // The COACHED window, not the booking's span: a 1-hour session on a
+    // 2-hour court books the coach for one hour, so the other hour must
+    // still read as free here (2026-09-13).
+    return activeSessions.filter((session) => {
+      const coached = coachSessionWindow(session.booking.startAt, session);
+      return coached.startAt < slotEnd && coached.endAt > slotStart;
+    });
   }
 
   function handleHourClick(hour: number) {
@@ -478,7 +483,8 @@ export function CoachAvailabilityManager({
                     {pendingClear.sessions.map((session) => (
                       <span key={session.id} className="text-foreground block text-sm font-medium">
                         {sessionCustomerName(session)} · {session.booking.court.name} ·{" "}
-                        {personDateTimeFormatter.format(session.booking.startAt)}
+                        {personDateTimeFormatter.format(coachSessionWindow(session.booking.startAt, session).startAt)}
+                        {" "}({describeTimeWindow(coachSessionWindow(session.booking.startAt, session))})
                       </span>
                     ))}
                   </span>

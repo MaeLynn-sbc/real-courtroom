@@ -307,7 +307,7 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
       : selectedCourt?.hourlyRateCents != null
         ? Math.round(selectedCourt.hourlyRateCents * durationHours)
         : 0;
-  const previewTotalCents = previewCourtTotalCents + (coachSelection?.priceCents ?? 0);
+  const previewTotalCents = previewCourtTotalCents + (coachSelection?.feeCents ?? 0);
 
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
@@ -361,6 +361,8 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
           bookingId: result.bookingId,
           coachId: coachSelection.coachId,
           groupSize: coachSelection.groupSize,
+          hours: coachSelection.hours,
+          startOffsetHours: coachSelection.startOffsetHours,
         });
         if (coachResult.error) {
           toast.error(`Booking created, but the coach wasn't added: ${coachResult.error}`);
@@ -565,8 +567,11 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
                 <span className="font-medium tabular-nums">{formatCurrency(previewCourtTotalCents)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Coaching ({coachSelection.coachName})</span>
-                <span className="font-medium tabular-nums">{formatCurrency(coachSelection.priceCents)}</span>
+                <span className="text-muted-foreground">
+                  Coaching ({coachSelection.coachName}, {coachSelection.hours}{" "}
+                  {coachSelection.hours === 1 ? "hour" : "hours"})
+                </span>
+                <span className="font-medium tabular-nums">{formatCurrency(coachSelection.feeCents)}</span>
               </div>
             </>
           ) : null}

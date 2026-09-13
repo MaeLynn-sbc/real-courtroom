@@ -7,6 +7,8 @@ import { addPublicCoachToBookingAction, removePublicCoachFromBookingAction } fro
 import type { PublicBookingCoachOption } from "@/actions/public-booking.actions";
 import { Button } from "@/components/ui/button";
 import { coachingFeeCents } from "@/lib/booking-payment-total";
+import { coachSessionWindow, describeTimeWindow } from "@/lib/coach-session-window";
+import { CoachWindowPicker } from "@/features/coaching/components/coach-window-picker";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -23,6 +25,8 @@ export interface PublicCoachAddOnConfirmed {
   /** The HOURLY rate. Multiply by hours for the amount charged. */
   priceCents: number;
   hours: number;
+  /** Which hour of the court time the coaching starts on; 0 = the first. */
+  startOffsetHours: number;
 }
 
 interface PublicCoachAddOnProps {
@@ -39,10 +43,11 @@ interface PublicCoachAddOnProps {
   // already committed to an amount, changing the coach now would make it
   // wrong with no way to reconcile it.
   hasSubmittedProof: boolean;
-  // The court booking's own length in hours, used ONLY as the ceiling on
-  // the coaching-hours picker — you cannot buy 3 hours of coaching on a
-  // 2-hour court booking. It is deliberately not the default.
-  maxCoachingHours: number;
+  // The court time itself. The hours picker is capped by it (you cannot
+  // buy 3 hours of coaching on a 2-hour court booking — deliberately not
+  // the default) and the start picker places the coaching inside it.
+  bookingStartAt: Date;
+  bookingEndAt: Date;
   contactPhone: string;
   contactFacebookUrl: string;
   // Set when the parent already added a coach automatically (the
@@ -66,7 +71,8 @@ export function PublicCoachAddOn({
   availableCoaches,
   requiresPayment,
   hasSubmittedProof,
-  maxCoachingHours,
+  bookingStartAt,
+  bookingEndAt,
   contactPhone,
   contactFacebookUrl,
   initialConfirmed,
@@ -76,8 +82,8 @@ export function PublicCoachAddOn({
   const [serverError, setServerError] = useState<string | null>(null);
   const [coachId, setCoachId] = useState("");
   const [groupSize, setGroupSize] = useState("");
-  // Always starts at 1, never at maxCoachingHours. See the picker below.
-  const [hours, setHours] = useState("1");
+  // Always starts at 1 hour, never at the court length. See the picker.
+  const [window, setWindow] = useState({ hours: 1, startOffsetHours: 0 });
 
   // Cheapest hourly rate on offer across every coach and group size, for
   // the "from PHP X/hour" notice above. Null when no coach has a rate
@@ -106,7 +112,7 @@ export function PublicCoachAddOn({
               {confirmed.coachName} · {formatCurrency(confirmed.priceCents)}/hour x{" "}
               {confirmed.hours} {confirmed.hours === 1 ? "hour" : "hours"} ={" "}
               {formatCurrency(coachingFeeCents({ rateCents: confirmed.priceCents, hours: confirmed.hours }))} — included in your total, paid via
-              GCash.
+              GCash. Coaching {describeTimeWindow(coachSessionWindow(bookingStartAt, confirmed))}.
             </p>
           </>
         ) : (
@@ -140,6 +146,13 @@ export function PublicCoachAddOn({
           {requiresPayment
             ? "included in your total below, pay via GCash."
             : "pay at the venue, same as your court."}
+        </p>
+        {/* The coached window, stated. This is what the coach is told
+            too, so nobody turns up for the court's full span when one
+            hour was bought. */}
+        <p className="mt-1 text-sm">
+          <span className="text-muted-foreground">Coaching time: </span>
+          <span className="font-medium">{describeTimeWindow(coachSessionWindow(bookingStartAt, confirmed))}</span>
         </p>
         {serverError ? (
           <p className="text-destructive mt-2 text-xs" role="alert">
@@ -204,7 +217,8 @@ export function PublicCoachAddOn({
         bookingId,
         coachId,
         groupSize: Number(groupSize),
-        hours: Number(hours),
+        hours: window.hours,
+        startOffsetHours: window.startOffsetHours,
       });
       if (result.error) {
         setServerError(result.error);
@@ -216,7 +230,8 @@ export function PublicCoachAddOn({
       const next = {
         coachName: selectedCoach?.name ?? "Coach",
         priceCents: result.priceCents ?? selectedRate?.priceCents ?? 0,
-        hours: Number(hours),
+        hours: window.hours,
+        startOffsetHours: window.startOffsetHours,
       };
       setConfirmed(next);
       onCoachSessionChange(next);
@@ -314,27 +329,21 @@ export function PublicCoachAddOn({
                 <span className="font-medium">{formatCurrency(selectedRate.priceCents)}/hour</span>
               </p>
 
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="coaching-hours">Coaching hours</Label>
-                <Select value={hours} onValueChange={(value) => setHours(value ?? "1")} disabled={isPending}>
-                  <SelectTrigger id="coaching-hours" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {/* Capped at the court booking's own length. Starts at
-                        1 and DEFAULTS to 1 — never pre-set to the court
-                        duration, which would triple a 3-hour booking's
-                        coaching bill without the customer choosing it. */}
-                    {Array.from({ length: Math.max(1, maxCoachingHours) }, (_, index) => index + 1).map(
-                      (value) => (
-                        <SelectItem key={value} value={String(value)}>
-                          {value} {value === 1 ? "hour" : "hours"}
-                        </SelectItem>
-                      ),
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Hours (capped at the court length, DEFAULT 1 — never
+                  pre-set to the court duration, which would triple a
+                  3-hour booking's coaching bill without the customer
+                  choosing it) and which hour of the court time the
+                  coaching starts on, limited to what this coach is
+                  actually free for. */}
+              <CoachWindowPicker
+                idPrefix="coaching"
+                bookingStartAt={bookingStartAt}
+                bookingEndAt={bookingEndAt}
+                freeWindows={selectedCoach?.freeWindows.map((w) => ({ startAt: new Date(w.startAt), endAt: new Date(w.endAt) })) ?? []}
+                value={window}
+                onChange={setWindow}
+                disabled={isPending}
+              />
 
               {/* The arithmetic, shown. 2 x 500 = 1,000 should be visible
                   before the customer commits, not discovered on the
@@ -342,7 +351,7 @@ export function PublicCoachAddOn({
               <p className="text-sm">
                 <span className="text-muted-foreground">Coaching total: </span>
                 <span className="font-medium tabular-nums">
-                  {formatCurrency(selectedRate.priceCents * Number(hours))}
+                  {formatCurrency(coachingFeeCents({ rateCents: selectedRate.priceCents, hours: window.hours }))}
                 </span>
               </p>
             </>

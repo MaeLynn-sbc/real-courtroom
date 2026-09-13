@@ -5,6 +5,10 @@ import { createBookingAction, listCourtOccupiedWindowsAction } from "@/actions/b
 import { createCoachSessionAction, listAvailableCoachesForSlotAction } from "@/actions/coaching.actions";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
 
+// A coach free for any slot a test picks — the window pickers only
+// offer starts inside a coach's free windows (2026-09-13).
+const ANY_WINDOW = [{ startAt: new Date(2000, 0, 1), endAt: new Date(2100, 0, 1) }];
+
 jest.mock("@/actions/booking.actions", () => ({
   createBookingAction: jest.fn(),
   listCourtOccupiedWindowsAction: jest.fn().mockResolvedValue({ error: null, windows: [] }),
@@ -178,7 +182,7 @@ describe("BookingForm — staff coach section", () => {
   beforeEach(() => {
     mockedListAvailableCoachesForSlotAction.mockResolvedValue({
       error: null,
-      coaches: [{ id: "coach-1", name: "Coach Dhudz", rates: [{ groupSize: 2, priceCents: 50000 }] }],
+      coaches: [{ id: "coach-1", name: "Coach Dhudz", rates: [{ groupSize: 2, priceCents: 50000 }], freeWindows: ANY_WINDOW }],
     });
   });
 
@@ -224,6 +228,8 @@ describe("BookingForm — staff coach section", () => {
       bookingId: "booking-1",
       coachId: "coach-1",
       groupSize: 2,
+      hours: 1,
+      startOffsetHours: 0,
     });
   });
 });

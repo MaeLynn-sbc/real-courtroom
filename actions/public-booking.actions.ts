@@ -64,6 +64,11 @@ export interface PublicBookingCoachOption {
   // confirmation screen can show a rate the instant the customer picks a
   // group size — no per-selection round trip.
   rates: { groupSize: number; priceCents: number }[];
+  // The parts of the requested slot this coach can actually take —
+  // stated availability minus their other coached windows, clipped to
+  // the slot. The hours and start pickers are built from this so a
+  // customer is never offered a window the service will refuse.
+  freeWindows: { startAt: Date; endAt: Date }[];
 }
 
 export interface PublicBookingActionState {
@@ -121,6 +126,7 @@ async function buildAvailableCoachOptions(startAt: Date, endAt: Date): Promise<P
         groupSize: rate.groupSize,
         priceCents: rate.priceCents,
       })),
+      freeWindows: coach.freeWindows,
     })),
   );
   // A coach with no rate table can't actually be booked for any group

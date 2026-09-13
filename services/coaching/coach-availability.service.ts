@@ -1,3 +1,11 @@
+import {
+  clipTimeWindow,
+  coachSessionWindow,
+  maxCoachHours,
+  subtractTimeWindows,
+  type TimeWindow,
+} from "@/lib/coach-session-window";
+import type { BookingStatus, CoachSessionStatus } from "@/lib/generated/prisma/enums";
 import type {
   CopyWeekAvailabilityInput,
   CreateAvailabilityWindowInput,
@@ -40,35 +48,16 @@ export interface PublicCoachAvailability {
   windows: PublicCoachAvailabilityWindow[];
 }
 
-// Pure interval subtraction: `range` minus every overlapping entry in
-// `booked` (assumed pre-sorted by start), left-to-right. No Date math
-// beyond plain comparisons — same "pure, dependency-free" shape as this
-// file's own dayRange/addDays helpers above.
-function subtractRanges(
-  range: { start: Date; end: Date },
-  booked: { start: Date; end: Date }[],
-): PublicCoachAvailabilityWindow[] {
-  let segments: { start: Date; end: Date }[] = [range];
+// Interval subtraction now lives in lib/coach-session-window.ts
+// (subtractTimeWindows) so the booking pickers reason about the exact
+// same free segments this service computes.
 
-  for (const busy of booked) {
-    const next: { start: Date; end: Date }[] = [];
-    for (const segment of segments) {
-      if (busy.end <= segment.start || busy.start >= segment.end) {
-        next.push(segment);
-        continue;
-      }
-      if (busy.start > segment.start) {
-        next.push({ start: segment.start, end: busy.start });
-      }
-      if (busy.end < segment.end) {
-        next.push({ start: busy.end, end: segment.end });
-      }
-    }
-    segments = next;
-  }
-
-  return segments.map((segment) => ({ startAt: segment.start, endAt: segment.end }));
-}
+// The where-clause every "is this coach's time taken" read shares:
+// live sessions on live bookings. A stale AWAITING_PAYMENT hold still
+// counts — see checkAvailabilityWithClient's comment in
+// booking.service.ts for the incident behind that.
+const ACTIVE_SESSION_STATUSES = { notIn: ["CANCELLED", "NO_SHOW"] as CoachSessionStatus[] };
+const ACTIVE_BOOKING_STATUSES = { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] as BookingStatus[] };
 
 // Part B (post-Gate-3 review): the two active coaches are family
 // (father/son) who coordinate schedules directly, and the non-coach
@@ -161,28 +150,55 @@ export class CoachAvailabilityService {
   // occupies its court (and its attached coach) indefinitely until staff
   // explicitly cancel it, see checkAvailabilityWithClient's own comment
   // in booking.service.ts.
+  //
+  // 2026-09-13: "available for this slot" no longer means "free for the
+  // slot's WHOLE span". Coaching is bought by the hour and sits on a
+  // chosen hour inside the court time, so a coach free for any whole
+  // hour of the slot is offered — with `freeWindows`, the exact segments
+  // of the slot they can take (stated windows minus their other coached
+  // windows, clipped to the slot), so the pickers only ever offer a
+  // start the service will accept. For a 1-hour slot this is exactly
+  // the old rule.
   async listAvailableCoaches(slotStart: Date, slotEnd: Date) {
-    return prisma.employee.findMany({
+    const slot: TimeWindow = { startAt: slotStart, endAt: slotEnd };
+    const coaches = await prisma.employee.findMany({
       where: {
         isCoach: true,
         isActive: true,
         deletedAt: null,
         coachAvailabilityWindows: {
-          some: { startAt: { lte: slotStart }, endAt: { gte: slotEnd } },
-        },
-        coachSessions: {
-          none: {
-            status: { notIn: ["CANCELLED", "NO_SHOW"] },
-            booking: {
-              status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-              startAt: { lt: slotEnd },
-              endAt: { gt: slotStart },
-            },
-          },
+          some: { startAt: { lt: slotEnd }, endAt: { gt: slotStart } },
         },
       },
-      include: { user: { select: { id: true, name: true, email: true } } },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        coachAvailabilityWindows: {
+          where: { startAt: { lt: slotEnd }, endAt: { gt: slotStart } },
+          select: { startAt: true, endAt: true },
+        },
+        coachSessions: {
+          where: {
+            status: ACTIVE_SESSION_STATUSES,
+            booking: { status: ACTIVE_BOOKING_STATUSES, startAt: { lt: slotEnd }, endAt: { gt: slotStart } },
+          },
+          select: { hours: true, startOffsetHours: true, booking: { select: { startAt: true } } },
+        },
+      },
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+    });
+
+    return coaches.flatMap(({ coachAvailabilityWindows, coachSessions, ...coach }) => {
+      const booked = coachSessions
+        .map((session) => coachSessionWindow(session.booking.startAt, session))
+        .sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+      const freeWindows = coachAvailabilityWindows.flatMap((window) => {
+        const clipped = clipTimeWindow(window, slot);
+        return clipped ? subtractTimeWindows(clipped, booked) : [];
+      });
+      if (maxCoachHours(slotStart, slotEnd, freeWindows) === 0) {
+        return [];
+      }
+      return [{ ...coach, freeWindows }];
     });
   }
 
@@ -249,11 +265,13 @@ export class CoachAvailabilityService {
             endAt: { gt: now },
           },
         },
-        include: { booking: { select: { startAt: true, endAt: true } } },
+        select: { hours: true, startOffsetHours: true, booking: { select: { startAt: true, endAt: true } } },
       });
+      // Each session takes its COACHED window out of the calendar, not
+      // its booking's full span (2026-09-13).
       const bookedRanges = bookedSessions
-        .map((session) => ({ start: session.booking.startAt, end: session.booking.endAt }))
-        .sort((a, b) => a.start.getTime() - b.start.getTime());
+        .map((session) => coachSessionWindow(session.booking.startAt, session))
+        .sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
 
       const freeWindows: PublicCoachAvailabilityWindow[] = [];
       for (const window of windows) {
@@ -262,7 +280,7 @@ export class CoachAvailabilityService {
         if (clippedEnd <= clippedStart) {
           continue;
         }
-        freeWindows.push(...subtractRanges({ start: clippedStart, end: clippedEnd }, bookedRanges));
+        freeWindows.push(...subtractTimeWindows({ startAt: clippedStart, endAt: clippedEnd }, bookedRanges));
       }
 
       if (freeWindows.length > 0) {

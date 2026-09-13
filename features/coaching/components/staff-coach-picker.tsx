@@ -12,13 +12,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { coachingFeeCents } from "@/lib/booking-payment-total";
+import { coachSessionWindow, describeTimeWindow } from "@/lib/coach-session-window";
 import { formatCurrency } from "@/lib/utils";
+
+import { CoachWindowPicker } from "./coach-window-picker";
 
 export interface StaffCoachSelection {
   coachId: string;
   coachName: string;
   groupSize: number;
+  /** The HOURLY rate; feeCents is what the booking is charged. */
   priceCents: number;
+  hours: number;
+  startOffsetHours: number;
+  feeCents: number;
 }
 
 export interface StaffCoachPickerState {
@@ -52,6 +60,7 @@ export function StaffCoachPicker({ slotStartAt, slotEndAt, onStateChange }: Staf
   const [isLoading, setIsLoading] = useState(false);
   const [coachId, setCoachId] = useState("");
   const [groupSize, setGroupSize] = useState("");
+  const [window, setWindow] = useState({ hours: 1, startOffsetHours: 0 });
 
   const slotKey = slotStartAt && slotEndAt ? `${slotStartAt.getTime()}-${slotEndAt.getTime()}` : null;
 
@@ -103,11 +112,19 @@ export function StaffCoachPicker({ slotStartAt, slotEndAt, onStateChange }: Staf
       return;
     }
     onStateChange({
-      selection: { coachId: selectedCoach.id, coachName: selectedCoach.name, groupSize: size, priceCents: rate.priceCents },
+      selection: {
+        coachId: selectedCoach.id,
+        coachName: selectedCoach.name,
+        groupSize: size,
+        priceCents: rate.priceCents,
+        hours: window.hours,
+        startOffsetHours: window.startOffsetHours,
+        feeCents: coachingFeeCents({ rateCents: rate.priceCents, hours: window.hours }),
+      },
       blockingError: null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCoach, groupSize]);
+  }, [selectedCoach, groupSize, window.hours, window.startOffsetHours]);
 
   if (!slotStartAt || !slotEndAt) {
     return null;
@@ -162,7 +179,26 @@ export function StaffCoachPicker({ slotStartAt, slotEndAt, onStateChange }: Staf
               {selectedRate ? (
                 <p className="text-sm">
                   <span className="text-muted-foreground">Rate: </span>
-                  <span className="font-medium">{formatCurrency(selectedRate.priceCents)}</span>
+                  <span className="font-medium">{formatCurrency(selectedRate.priceCents)}/hour</span>
+                </p>
+              ) : null}
+              {selectedCoach ? (
+                <CoachWindowPicker
+                  idPrefix="staffCoach"
+                  bookingStartAt={slotStartAt}
+                  bookingEndAt={slotEndAt}
+                  freeWindows={selectedCoach.freeWindows.map((w) => ({ startAt: new Date(w.startAt), endAt: new Date(w.endAt) }))}
+                  value={window}
+                  onChange={setWindow}
+                />
+              ) : null}
+              {selectedRate ? (
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Coaching: </span>
+                  <span className="font-medium">
+                    {describeTimeWindow(coachSessionWindow(slotStartAt, window))} ·{" "}
+                    {formatCurrency(coachingFeeCents({ rateCents: selectedRate.priceCents, hours: window.hours }))}
+                  </span>
                 </p>
               ) : null}
               {noRateForGroupSize ? (

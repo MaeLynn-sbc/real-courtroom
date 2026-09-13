@@ -37,6 +37,10 @@ export interface StaffCoachOption {
   // unpriced group size is caught at submit time instead, not hidden by
   // never offering the coach at all.
   rates: { groupSize: number; priceCents: number }[];
+  // Same as PublicBookingCoachOption.freeWindows: which parts of the
+  // slot this coach can take, so the staff hours/start pickers only
+  // offer windows the service will accept.
+  freeWindows: { startAt: Date; endAt: Date }[];
 }
 
 export interface ListCoachAvailabilityState {
@@ -177,6 +181,7 @@ export async function listAvailableCoachesForSlotAction(
         groupSize: rate.groupSize,
         priceCents: rate.priceCents,
       })),
+      freeWindows: coach.freeWindows,
     })),
   );
 

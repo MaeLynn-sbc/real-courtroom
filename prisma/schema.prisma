@@ -1361,6 +1361,14 @@ model CoachSession {
   // rewritten to their true span — doing so would make reconciled,
   // confirmed days report ~PHP 3,400 more revenue than was taken.
   hours                 Int                @default(1)
+  // Whole hours after booking.startAt that the coaching begins. The
+  // coached window is [startAt + startOffsetHours, + hours] — see
+  // lib/coach-session-window.ts, the ONLY place that derives it. Added
+  // 2026-09-13: with hours alone, every screen and the coach's SMS kept
+  // showing the booking's full span, so a coach on a 2-hour court
+  // worked two hours for one hour's pay. Relative, not absolute, so a
+  // rescheduled booking carries its coaching with it.
+  startOffsetHours      Int                @default(0)
   status                CoachSessionStatus @default(PENDING)
   source                CoachSessionSource @default(UNKNOWN)
   // Same reasoning as Booking.isAfterHours: staff/owner may book a coach

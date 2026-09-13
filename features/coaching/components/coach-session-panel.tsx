@@ -17,7 +17,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { coachingFeeCents } from "@/lib/booking-payment-total";
+import { coachSessionWindow, describeTimeWindow } from "@/lib/coach-session-window";
 import { formatCurrency } from "@/lib/utils";
+
+import { CoachWindowPicker } from "./coach-window-picker";
 import type { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
 import type { coachSessionService } from "@/services/coaching/coach-session.service";
 
@@ -26,6 +30,9 @@ type Coach = Awaited<ReturnType<typeof coachAvailabilityService.listCoaches>>[nu
 
 interface CoachSessionPanelProps {
   bookingId: string;
+  // The court time the coaching sits inside.
+  bookingStartAt: Date;
+  bookingEndAt: Date;
   existingSession: ExistingSession | null;
   // All isCoach coaches, not just ones free for this slot — the staff
   // override needs to be able to pick a coach OUTSIDE their stated
@@ -55,8 +62,18 @@ function ExistingCoachSession({ session }: { session: ExistingSession }) {
           <dd>{session.groupSize}</dd>
         </div>
         <div className="flex justify-between py-1">
-          <dt className="text-muted-foreground">Rate</dt>
-          <dd>{formatCurrency(session.rateCents)}</dd>
+          <dt className="text-muted-foreground">Coaching time</dt>
+          <dd>
+            {describeTimeWindow(coachSessionWindow(session.booking.startAt, session))} · {session.hours}{" "}
+            {session.hours === 1 ? "hour" : "hours"}
+          </dd>
+        </div>
+        <div className="flex justify-between py-1">
+          <dt className="text-muted-foreground">Charge</dt>
+          <dd>
+            {formatCurrency(coachingFeeCents(session))}{" "}
+            <span className="text-muted-foreground">({formatCurrency(session.rateCents)}/hour)</span>
+          </dd>
         </div>
         <div className="flex justify-between py-1">
           <dt className="text-muted-foreground">Status</dt>
@@ -73,10 +90,14 @@ function ExistingCoachSession({ session }: { session: ExistingSession }) {
 
 function AddCoachForm({
   bookingId,
+  bookingStartAt,
+  bookingEndAt,
   allCoaches,
   availableCoachIds,
 }: {
   bookingId: string;
+  bookingStartAt: Date;
+  bookingEndAt: Date;
   allCoaches: Coach[];
   availableCoachIds: Set<string>;
 }) {
@@ -85,6 +106,7 @@ function AddCoachForm({
   const [isPending, startTransition] = useTransition();
   const [coachId, setCoachId] = useState("");
   const [groupSize, setGroupSize] = useState("1");
+  const [window, setWindow] = useState({ hours: 1, startOffsetHours: 0 });
   const [isOutsideAvailability, setIsOutsideAvailability] = useState(false);
 
   const selectedCoachIsAvailable = coachId ? availableCoachIds.has(coachId) : true;
@@ -103,6 +125,8 @@ function AddCoachForm({
         bookingId,
         coachId,
         groupSize: Number(groupSize),
+        hours: window.hours,
+        startOffsetHours: window.startOffsetHours,
         isOutsideAvailability,
       });
       if (result.error) {
@@ -159,6 +183,24 @@ function AddCoachForm({
         />
       </div>
 
+      {/* Staff see every whole hour of the booking here (the server
+          still checks the coach's real windows unless the override
+          below is on); the coached window is stated so nobody books
+          "the booking" when they mean one hour of it. */}
+      <CoachWindowPicker
+        idPrefix="staffPanelCoach"
+        bookingStartAt={bookingStartAt}
+        bookingEndAt={bookingEndAt}
+        freeWindows={null}
+        value={window}
+        onChange={setWindow}
+        disabled={isPending}
+      />
+      <p className="text-sm">
+        <span className="text-muted-foreground">Coaching time: </span>
+        <span className="font-medium">{describeTimeWindow(coachSessionWindow(bookingStartAt, window))}</span>
+      </p>
+
       <div className="flex items-center justify-between rounded-lg border p-3">
         <div>
           <p className="text-sm font-medium">Book outside availability</p>
@@ -184,6 +226,8 @@ function AddCoachForm({
 
 export function CoachSessionPanel({
   bookingId,
+  bookingStartAt,
+  bookingEndAt,
   existingSession,
   allCoaches,
   availableCoachIds,
@@ -194,7 +238,13 @@ export function CoachSessionPanel({
       {existingSession ? (
         <ExistingCoachSession session={existingSession} />
       ) : (
-        <AddCoachForm bookingId={bookingId} allCoaches={allCoaches} availableCoachIds={availableCoachIds} />
+        <AddCoachForm
+          bookingId={bookingId}
+          bookingStartAt={bookingStartAt}
+          bookingEndAt={bookingEndAt}
+          allCoaches={allCoaches}
+          availableCoachIds={availableCoachIds}
+        />
       )}
     </div>
   );

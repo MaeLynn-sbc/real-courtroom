@@ -15,6 +15,10 @@ import { addPublicCoachToBookingAction } from "@/actions/public-coaching.actions
 import { saveBookingConfirmation } from "@/features/bookings/lib/booking-confirmation-storage";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
 
+// A coach free for any slot a test picks — the window pickers only
+// offer starts inside a coach's free windows (2026-09-13).
+const ANY_WINDOW = [{ startAt: new Date(2000, 0, 1), endAt: new Date(2100, 0, 1) }];
+
 jest.mock("@/actions/public-booking.actions", () => ({
   createPublicBookingAction: jest.fn(),
   listPublicCourtOccupiedWindowsAction: jest.fn().mockResolvedValue({ error: null, windows: [] }),
@@ -117,7 +121,7 @@ describe("PublicBookingForm — coach add-on payment wiring", () => {
       requiresPayment: true,
       totalAmountCents: 35000, // ₱350 court-only
       availableCoaches: [
-        { id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] },
+        { id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }], freeWindows: ANY_WINDOW },
       ], // ₱400
     });
   });
@@ -326,7 +330,7 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
       requiresPayment: true,
       totalAmountCents: 35000, // ₱350 court-only
       availableCoaches: [
-        { id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] },
+        { id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }], freeWindows: ANY_WINDOW },
       ],
     });
   });
@@ -354,8 +358,8 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
     mockedListAvailableCoaches.mockResolvedValue({
       error: null,
       coaches: [
-        { id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] },
-        { id: "coach-2", name: "Coach Ben", rates: [{ groupSize: 1, priceCents: 45000 }] },
+        { id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }], freeWindows: ANY_WINDOW },
+        { id: "coach-2", name: "Coach Ben", rates: [{ groupSize: 1, priceCents: 45000 }], freeWindows: ANY_WINDOW },
       ],
     });
 
@@ -369,7 +373,7 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
   it("adds the coach fee to the Total preview once a coach card and group size are chosen, before the form is even submitted", async () => {
     mockedListAvailableCoaches.mockResolvedValue({
       error: null,
-      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
+      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }], freeWindows: ANY_WINDOW }],
     });
 
     renderForm();
@@ -388,7 +392,7 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
   it("submits the booking and adds the coach automatically in one click — no separate 'Add coach' step", async () => {
     mockedListAvailableCoaches.mockResolvedValue({
       error: null,
-      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
+      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }], freeWindows: ANY_WINDOW }],
     });
     mockedAddCoach.mockResolvedValue({ error: null, coachSessionId: "cs-1", priceCents: 40000 });
 
@@ -407,6 +411,9 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
       bookingId: "booking-1",
       coachId: "coach-1",
       groupSize: 1,
+      // The form's own defaults: 1 hour, the booking's first hour.
+      hours: 1,
+      startOffsetHours: 0,
     });
     // Already reflected on the confirmation screen, no extra click needed.
     expect(screen.getByText("Coach added")).toBeInTheDocument();
@@ -416,7 +423,7 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
   it("does not add a coach when its card is clicked again to deselect it, even though one was chosen", async () => {
     mockedListAvailableCoaches.mockResolvedValue({
       error: null,
-      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
+      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }], freeWindows: ANY_WINDOW }],
     });
 
     renderForm();
@@ -438,7 +445,7 @@ describe("PublicBookingForm — coach selection moved into the initial form", ()
   it("reveals a coach's schedule inline when 'See availability' is clicked", async () => {
     mockedListAvailableCoaches.mockResolvedValue({
       error: null,
-      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }] }],
+      coaches: [{ id: "coach-1", name: "Coach Ana", rates: [{ groupSize: 1, priceCents: 40000 }], freeWindows: ANY_WINDOW }],
     });
     mockedListCoachSchedule.mockResolvedValue({
       error: null,

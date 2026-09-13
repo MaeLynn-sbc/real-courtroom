@@ -25,6 +25,11 @@ export const publicAddCoachSchema = z.object({
   // court — is enforced in coach-session.service.ts against the booking's
   // own duration. The picker's cap is a convenience, not the guard.
   hours: z.coerce.number().int().min(1, "Coaching must be at least 1 hour.").optional(),
+  // Which hour of the court time the coaching starts on (0 = the first).
+  // A customer choice like hours; the fit inside the booking and the
+  // coach's real availability for THAT window are both checked server-
+  // side in coach-session.service.ts.
+  startOffsetHours: z.coerce.number().int().min(0, "Coaching can't start before the court time.").optional(),
 });
 export type PublicAddCoachInput = z.infer<typeof publicAddCoachSchema>;
 

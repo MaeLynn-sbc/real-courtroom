@@ -6,6 +6,8 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { buttonVariants } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
+import { coachingFeeCents } from "@/lib/booking-payment-total";
+import { coachSessionWindow, describeTimeWindow } from "@/lib/coach-session-window";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
 
 export const metadata: Metadata = {
@@ -49,9 +51,9 @@ export default async function CoachingSessionsPage() {
               <TableHead>Reference</TableHead>
               <TableHead>Coach</TableHead>
               <TableHead>Customer</TableHead>
-              <TableHead>When</TableHead>
+              <TableHead>Coached window</TableHead>
               <TableHead>Group</TableHead>
-              <TableHead>Rate</TableHead>
+              <TableHead>Charge</TableHead>
               <TableHead>Source</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
@@ -69,9 +71,18 @@ export default async function CoachingSessionsPage() {
                   </TableCell>
                   <TableCell>{session.coach.user.name ?? session.coach.user.email}</TableCell>
                   <TableCell>{customerName}</TableCell>
-                  <TableCell>{dateTimeFormatter.format(session.booking.startAt)}</TableCell>
+                  <TableCell>
+                    {dateTimeFormatter.format(coachSessionWindow(session.booking.startAt, session).startAt)}
+                    <span className="text-muted-foreground block text-xs">
+                      {describeTimeWindow(coachSessionWindow(session.booking.startAt, session))} ·{" "}
+                      {session.hours} {session.hours === 1 ? "hour" : "hours"}
+                    </span>
+                  </TableCell>
                   <TableCell>{session.groupSize}</TableCell>
-                  <TableCell>{formatCurrency(session.rateCents)}</TableCell>
+                  <TableCell>
+                    {formatCurrency(coachingFeeCents(session))}
+                    <span className="text-muted-foreground block text-xs">{formatCurrency(session.rateCents)}/hour</span>
+                  </TableCell>
                   <TableCell>
                     <Badge variant="outline">{session.source}</Badge>
                   </TableCell>

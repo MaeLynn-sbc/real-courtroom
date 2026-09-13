@@ -1,6 +1,7 @@
 import type { CreateCoachSessionInput } from "@/features/coaching/schemas/coaching.schema";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import type { CoachSessionSource } from "@/lib/generated/prisma/enums";
+import { coachSessionWindow, coachSpanFitsBooking } from "@/lib/coach-session-window";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { smsDate, smsTimeRange } from "@/lib/sms-format";
@@ -20,7 +21,8 @@ export type CoachSessionConflictType =
   | "COACH_DOUBLE_BOOKED"
   | "NO_RATE_SET"
   | "PAYMENT_ALREADY_SUBMITTED"
-  | "HOURS_EXCEED_BOOKING";
+  | "HOURS_EXCEED_BOOKING"
+  | "WINDOW_OUTSIDE_BOOKING";
 
 function describeConflict(type: CoachSessionConflictType): string {
   switch (type) {
@@ -40,6 +42,8 @@ function describeConflict(type: CoachSessionConflictType): string {
       return "Payment has already been submitted for this booking — contact us to add or remove a coach.";
     case "HOURS_EXCEED_BOOKING":
       return "You can't book more coaching hours than your court time.";
+    case "WINDOW_OUTSIDE_BOOKING":
+      return "The coaching hours must fall inside your court time.";
   }
 }
 
@@ -106,6 +110,8 @@ export class CoachSessionService {
         id: true,
         sessionReference: true,
         guestName: true,
+        hours: true,
+        startOffsetHours: true,
         player: { select: { user: { select: { name: true, email: true } } } },
         booking: { select: { startAt: true, endAt: true, court: { select: { name: true } } } },
       },
@@ -185,6 +191,27 @@ export class CoachSessionService {
         throw new CoachSessionConflictError("NOT_A_COACH");
       }
 
+      // THE COACHED WINDOW, decided first because every check below is
+      // about the coach's time, and the coach's time is `hours` starting
+      // `startOffsetHours` into the booking — NOT the booking's full
+      // span. Before 2026-09-13 both checks below used the booking span
+      // while the fee covered `hours`, so a coach on a 2-hour court was
+      // blocked for two hours, told "5-7 PM", and paid for one.
+      //
+      // Also THE REAL CEILING on both numbers. The pickers cap their
+      // dropdowns, but this is an unauthenticated public endpoint and
+      // hours is a money field, so a crafted request could ask for 99
+      // hours on a 1-hour booking, or a start after the court time ends.
+      // You cannot buy more coaching than you have court, and it has to
+      // sit inside it.
+      const span = { hours: input.hours ?? 1, startOffsetHours: input.startOffsetHours ?? 0 };
+      if (!coachSpanFitsBooking(booking.startAt, booking.endAt, span)) {
+        throw new CoachSessionConflictError(
+          span.startOffsetHours === 0 ? "HOURS_EXCEED_BOOKING" : "WINDOW_OUTSIDE_BOOKING",
+        );
+      }
+      const coached = coachSessionWindow(booking.startAt, span);
+
       // Availability: staff may bypass with isOutsideAvailability, same
       // shape as Booking.isAfterHours — public can never set this flag
       // (createCoachSessionSchema doesn't expose it to that path; the
@@ -194,7 +221,7 @@ export class CoachSessionService {
       if (!staffOverride) {
         const windows = await tx.coachAvailabilityWindow.findMany({ where: { coachId: input.coachId } });
         const covered = windows.some((window) =>
-          isSlotFullyCovered(booking.startAt, booking.endAt, window.startAt, window.endAt),
+          isSlotFullyCovered(coached.startAt, coached.endAt, window.startAt, window.endAt),
         );
         if (!covered) {
           if (source === "PUBLIC") {
@@ -239,9 +266,11 @@ export class CoachSessionService {
         },
         include: { booking: { select: { startAt: true, endAt: true } } },
       });
-      const conflict = activeSessions.find((session) =>
-        hasTimeOverlap(booking.startAt, booking.endAt, session.booking.startAt, session.booking.endAt),
-      );
+      // Each existing session blocks ITS coached window, not its booking.
+      const conflict = activeSessions.find((session) => {
+        const other = coachSessionWindow(session.booking.startAt, session);
+        return hasTimeOverlap(coached.startAt, coached.endAt, other.startAt, other.endAt);
+      });
       if (conflict) {
         throw new CoachSessionConflictError("COACH_DOUBLE_BOOKED");
       }
@@ -251,20 +280,6 @@ export class CoachSessionService {
       });
       if (!rate) {
         throw new CoachSessionConflictError("NO_RATE_SET");
-      }
-
-      // THE REAL CEILING on coaching hours. The picker caps its dropdown,
-      // but that is convenience — this is an unauthenticated public
-      // endpoint and hours is a money field, so a crafted request could
-      // ask for 99 hours on a 1-hour booking. You cannot buy more
-      // coaching than you have court.
-      const bookingHours = Math.max(
-        1,
-        Math.floor((booking.endAt.getTime() - booking.startAt.getTime()) / 3_600_000),
-      );
-      const requestedHours = input.hours ?? 1;
-      if (requestedHours > bookingHours) {
-        throw new CoachSessionConflictError("HOURS_EXCEED_BOOKING");
       }
 
       const sequence = await nextSequence(dailyScope("COACH_SESSION", now), tx);
@@ -280,11 +295,13 @@ export class CoachSessionService {
         playerId: booking.playerId,
         groupSize: input.groupSize,
         rateCents: rate.priceCents,
-        // Defaults to 1 when the caller does not specify — staff surfaces
-        // have no hours picker yet. Never defaults to the booking's
-        // duration: that would silently triple a 3-hour booking's
-        // coaching bill without the customer having chosen it.
-        hours: requestedHours,
+        // Defaults to 1 when the caller does not specify. Never defaults
+        // to the booking's duration: that would silently triple a 3-hour
+        // booking's coaching bill without the customer having chosen it.
+        hours: span.hours,
+        // Which hour of the court time the coaching starts on; 0 is the
+        // first. Validated above to fit inside the booking.
+        startOffsetHours: span.startOffsetHours,
         status: "CONFIRMED" as const,
         source,
         isOutsideAvailability,
@@ -325,6 +342,8 @@ export class CoachSessionService {
     id: string;
     coachId: string;
     bookingId: string;
+    hours: number;
+    startOffsetHours: number;
   }): Promise<void> {
     try {
       const [coach, booking] = await Promise.all([
@@ -342,14 +361,19 @@ export class CoachSessionService {
         return;
       }
 
+      // The COACHED window, not the booking's. This text is the coach's
+      // only notice of when to turn up: sending the court's full span
+      // for a 2-hour booking with one paid hour is exactly how a coach
+      // ended up working two hours for one hour's pay (2026-09-13).
+      const coached = coachSessionWindow(booking.startAt, coachSession);
       await smsDispatchService.dispatch({
         trigger: "COACH_SESSION",
         entityId: coachSession.id,
         rawPhone: coach.phone,
         body: coachSessionBody({
           customer: booking.guestName ?? "a customer",
-          date: smsDate(booking.startAt),
-          time: smsTimeRange(booking.startAt, booking.endAt),
+          date: smsDate(coached.startAt),
+          time: smsTimeRange(coached.startAt, coached.endAt),
           court: booking.court?.name ?? "the court",
         }),
       });

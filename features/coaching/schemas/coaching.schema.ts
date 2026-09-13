@@ -63,6 +63,10 @@ export const createCoachSessionSchema = z.object({
   // offer an hours picker yet and must keep working unchanged; they get
   // the same 1-hour default a customer sees.
   hours: z.coerce.number().int().min(1, "Coaching must be at least 1 hour.").optional(),
+  // Whole hours after the booking starts that the coaching begins. 0
+  // (the default) is the booking's first hour. Fit inside the booking
+  // is enforced server-side, same as hours.
+  startOffsetHours: z.coerce.number().int().min(0, "Coaching can't start before the court time.").optional(),
   isOutsideAvailability: z.boolean().optional(),
 });
 export type CreateCoachSessionInput = z.infer<typeof createCoachSessionSchema>;

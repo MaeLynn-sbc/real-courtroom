@@ -43,7 +43,9 @@ import {
   saveBookingConfirmation,
 } from "@/features/bookings/lib/booking-confirmation-storage";
 import { useLiveNow } from "@/hooks/use-live-now";
-import { getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
+import { coachingFeeCents, getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
+import { coachSessionWindow, describeTimeWindow } from "@/lib/coach-session-window";
+import { CoachWindowPicker } from "@/features/coaching/components/coach-window-picker";
 import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
 import { cn, formatCurrency } from "@/lib/utils";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
@@ -194,6 +196,17 @@ export interface BookingConfirmation {
   holdExpiresAt?: Date;
 }
 
+// The court time a confirmation describes, rebuilt from the same
+// date/time/duration strings the form submitted (the shape stored for
+// reload-recovery has no Date in it). Same construction as
+// candidateSlot below.
+function confirmationSlot(confirmation: BookingConfirmation): { startAt: Date; endAt: Date } {
+  const [year, month, day] = confirmation.date.split("-").map(Number);
+  const [hours] = confirmation.time.split(":").map(Number);
+  const startAt = new Date(year, month - 1, day, hours, 0);
+  return { startAt, endAt: new Date(startAt.getTime() + confirmation.durationMinutes * 60 * 1000) };
+}
+
 const holdTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   hour: "numeric",
   minute: "2-digit",
@@ -333,6 +346,12 @@ export function PublicBookingForm({
   const [isLoadingCoaches, setIsLoadingCoaches] = useState(false);
   const [previewCoachId, setPreviewCoachId] = useState("");
   const [previewGroupSize, setPreviewGroupSize] = useState("");
+  // How many coaching hours, and which hour of the court time they start
+  // on. DEFAULT 1 HOUR, never the court length (owner, 2026-08-29). This
+  // up-front path is where nearly every customer adds their coach, and
+  // until 2026-09-13 it had no picker at all: it silently booked 1 hour
+  // and told the coach the booking's full span.
+  const [previewWindow, setPreviewWindow] = useState({ hours: 1, startOffsetHours: 0 });
   // "See availability" — lazy per-coach fetch (only when actually
   // clicked, not for every coach on every render), cached by coachId so
   // re-opening the same coach's schedule after closing it doesn't
@@ -629,7 +648,12 @@ export function PublicBookingForm({
   const selectedPreviewRate = selectedPreviewCoach?.rates.find(
     (rate) => rate.groupSize === Number(previewGroupSize),
   );
-  const previewCoachFeeCents = selectedPreviewRate?.priceCents ?? 0;
+  // rate x hours — coachingFeeCents is the one multiplication (see
+  // booking-payment-total.ts). Not the bare hourly rate.
+  const previewCoachFeeCents = selectedPreviewRate
+    ? coachingFeeCents({ rateCents: selectedPreviewRate.priceCents, hours: previewWindow.hours })
+    : 0;
+  const previewSlot = candidateSlot(watchedTime);
   const previewTotalCents =
     previewCourtTotalCents != null ? previewCourtTotalCents + previewCoachFeeCents : null;
 
@@ -725,6 +749,8 @@ export function PublicBookingForm({
           bookingId,
           coachId: previewCoachId,
           groupSize: Number(previewGroupSize),
+          hours: previewWindow.hours,
+          startOffsetHours: previewWindow.startOffsetHours,
         });
         if (addResult.error) {
           toast.error(
@@ -733,10 +759,10 @@ export function PublicBookingForm({
         } else {
           setCoachSession({
             coachName: previewCoaches.find((coach) => coach.id === previewCoachId)?.name ?? "Coach",
-            priceCents: addResult.priceCents ?? previewCoachFeeCents,
-            // The up-front path adds exactly 1 hour. Anything more is a
-            // deliberate choice the customer makes in the add-on panel.
-            hours: 1,
+            priceCents: addResult.priceCents ?? selectedPreviewRate?.priceCents ?? 0,
+            // Exactly what the customer chose in the form's own picker.
+            hours: previewWindow.hours,
+            startOffsetHours: previewWindow.startOffsetHours,
           });
         }
       } else if (previewCoachId && previewGroupSize) {
@@ -840,10 +866,9 @@ export function PublicBookingForm({
     // booking-payment-total.ts) — no third, independent sum. A just-
     // confirmed add-on is always CONFIRMED here; there's no cancelled
     // state reachable mid-checkout.
-    // Ceiling for the coaching-hours picker: you cannot buy more hours of
-    // coaching than you have court. Floor of 1 so a sub-hour booking
-    // still offers the minimum rather than an empty dropdown.
-    const maxCoachingHours = Math.max(1, Math.floor(confirmation.durationMinutes / 60));
+    // The court time just booked, for the coaching-window picker: the
+    // hours are capped by it and the start sits inside it.
+    const bookedSlot = confirmationSlot(confirmation);
 
     const totalDueCents = getExpectedPaymentTotalCents({
       totalAmountCents: confirmation.totalAmountCents,
@@ -943,7 +968,8 @@ export function PublicBookingForm({
                 availableCoaches={confirmation.availableCoaches}
                 requiresPayment={confirmation.requiresPayment}
                 hasSubmittedProof={hasSubmittedProof}
-                maxCoachingHours={maxCoachingHours}
+                bookingStartAt={bookedSlot.startAt}
+                bookingEndAt={bookedSlot.endAt}
                 contactPhone={contactPhone}
                 contactFacebookUrl={contactFacebookUrl}
                 initialConfirmed={coachSession}
@@ -1026,7 +1052,8 @@ export function PublicBookingForm({
             <PublicCoachAddOn
               bookingId={confirmation.bookingId}
               availableCoaches={confirmation.availableCoaches}
-              maxCoachingHours={Math.max(1, Math.floor(confirmation.durationMinutes / 60))}
+              bookingStartAt={bookedSlot.startAt}
+              bookingEndAt={bookedSlot.endAt}
               requiresPayment={confirmation.requiresPayment}
               hasSubmittedProof={hasSubmittedProof}
               contactPhone={contactPhone}
@@ -1153,7 +1180,8 @@ export function PublicBookingForm({
           <PublicCoachAddOn
             bookingId={confirmation.bookingId}
             availableCoaches={confirmation.availableCoaches}
-            maxCoachingHours={Math.max(1, Math.floor(confirmation.durationMinutes / 60))}
+            bookingStartAt={bookedSlot.startAt}
+            bookingEndAt={bookedSlot.endAt}
             requiresPayment={confirmation.requiresPayment}
             hasSubmittedProof={hasSubmittedProof}
             contactPhone={contactPhone}
@@ -1454,12 +1482,41 @@ export function PublicBookingForm({
                     </SelectContent>
                   </Select>
                   {selectedPreviewRate ? (
-                    <p className="text-sm">
-                      <span className="text-muted-foreground">Coach rate: </span>
-                      <span className="font-medium">
-                        {formatCurrency(selectedPreviewRate.priceCents)}
-                      </span>
-                    </p>
+                    <>
+                      {/* THE DISCLOSURE (owner, 2026-08-29): the form is
+                          the notice that coaching is priced per hour.
+                          This line used to read "Coach rate: PHP 400"
+                          with no unit, right under a 2-hour court total. */}
+                      <p className="text-sm">
+                        <span className="text-muted-foreground">Coach rate: </span>
+                        <span className="font-medium">
+                          {formatCurrency(selectedPreviewRate.priceCents)}/hour
+                        </span>
+                      </p>
+                      {previewSlot && selectedPreviewCoach ? (
+                        <CoachWindowPicker
+                          idPrefix="previewCoach"
+                          bookingStartAt={previewSlot.startAt}
+                          bookingEndAt={previewSlot.endAt}
+                          freeWindows={selectedPreviewCoach.freeWindows.map((w) => ({
+                            startAt: new Date(w.startAt),
+                            endAt: new Date(w.endAt),
+                          }))}
+                          value={previewWindow}
+                          onChange={setPreviewWindow}
+                        />
+                      ) : null}
+                      <p className="text-sm">
+                        <span className="text-muted-foreground">Coaching total: </span>
+                        <span className="font-medium tabular-nums">{formatCurrency(previewCoachFeeCents)}</span>
+                        {previewSlot ? (
+                          <span className="text-muted-foreground">
+                            {" "}
+                            · {describeTimeWindow(coachSessionWindow(previewSlot.startAt, previewWindow))}
+                          </span>
+                        ) : null}
+                      </p>
+                    </>
                   ) : null}
                 </div>
               ) : null}
@@ -1479,7 +1536,9 @@ export function PublicBookingForm({
             </div>
             {previewCoachFeeCents > 0 ? (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Coach rate</span>
+                <span className="text-muted-foreground">
+                  Coaching ({previewWindow.hours} {previewWindow.hours === 1 ? "hour" : "hours"})
+                </span>
                 <span className="font-medium tabular-nums">
                   {formatCurrency(previewCoachFeeCents)}
                 </span>

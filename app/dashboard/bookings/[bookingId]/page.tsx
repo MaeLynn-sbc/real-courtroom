@@ -314,6 +314,8 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
       <section>
         <CoachSessionPanel
           bookingId={booking.id}
+          bookingStartAt={booking.startAt}
+          bookingEndAt={booking.endAt}
           existingSession={coachSession}
           allCoaches={allCoaches}
           availableCoachIds={availableCoachIds}
