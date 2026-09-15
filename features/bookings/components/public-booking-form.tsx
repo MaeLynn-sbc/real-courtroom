@@ -1526,21 +1526,26 @@ export function PublicBookingForm({
 
         <Card>
           <CardContent className="flex flex-col gap-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Court rate</span>
+            {/* The arithmetic, spelled out (owner, 2026-09-15): "rate x
+                hours = amount" for the court and for the coaching, so
+                a customer can see how the total was built rather than
+                infer it from a per-hour rate beside a lump sum. */}
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">Court</span>
               <span className="font-medium tabular-nums">
-                {selectedCourt?.hourlyRateCents != null
-                  ? `${formatCurrency(selectedCourt.hourlyRateCents)}/hr`
+                {selectedCourt?.hourlyRateCents != null && previewCourtTotalCents != null
+                  ? `${formatCurrency(selectedCourt.hourlyRateCents)}/hr × ${previewDurationHours} ${
+                      previewDurationHours === 1 ? "hour" : "hours"
+                    } = ${formatCurrency(previewCourtTotalCents)}`
                   : "—"}
               </span>
             </div>
-            {previewCoachFeeCents > 0 ? (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">
-                  Coaching ({previewWindow.hours} {previewWindow.hours === 1 ? "hour" : "hours"})
-                </span>
+            {previewCoachFeeCents > 0 && selectedPreviewRate ? (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Coaching</span>
                 <span className="font-medium tabular-nums">
-                  {formatCurrency(previewCoachFeeCents)}
+                  {formatCurrency(selectedPreviewRate.priceCents)}/hr × {previewWindow.hours}{" "}
+                  {previewWindow.hours === 1 ? "hour" : "hours"} = {formatCurrency(previewCoachFeeCents)}
                 </span>
               </div>
             ) : null}
