@@ -84,7 +84,14 @@ export function getCourtBookingWindow(
   if (startTimeOverrideMinutes !== undefined) {
     courtCutoffMinutes = startTimeOverrideMinutes;
   } else if (isFridayOrSaturday(date)) {
-    courtCutoffMinutes = parseCourtCutoffMinutes(settings.fridaySaturdayCloseTime);
+    // The all-courts Fri/Sat time, narrowed by this court's own Fri/Sat
+    // cutoff when one is set (Court 1 at 4 PM while the others keep
+    // 6 PM, owner 2026-09-15). Never widened: the all-courts time is
+    // when the Fri/Sat open-play night itself starts.
+    const allCourts = parseCourtCutoffMinutes(settings.fridaySaturdayCloseTime);
+    const thisCourt = parseCourtCutoffMinutes(settings.fridaySaturdayCourtCloseTimes?.[courtName] ?? "00:00");
+    courtCutoffMinutes =
+      allCourts === null ? thisCourt : thisCourt === null ? allCourts : Math.min(allCourts, thisCourt);
   } else {
     courtCutoffMinutes = parseCourtCutoffMinutes(settings.courtCloseTimes[courtName] ?? "00:00");
   }

@@ -301,6 +301,7 @@ const DEFAULT_COURT_HOURS: CourtHoursSettings = {
     "6": "23:00",
   },
   fridaySaturdayCloseTime: "18:00",
+  fridaySaturdayCourtCloseTimes: {},
   courtCloseTimes: {
     "Court 1": "18:00",
     "Court 2": "20:00",
@@ -674,6 +675,7 @@ export class SettingsService {
     return {
       ...DEFAULT_COURT_HOURS,
       ...stored,
+      fridaySaturdayCourtCloseTimes: { ...stored.fridaySaturdayCourtCloseTimes },
       facilityCloseTimes: {
         ...DEFAULT_COURT_HOURS.facilityCloseTimes,
         ...stored.facilityCloseTimes,

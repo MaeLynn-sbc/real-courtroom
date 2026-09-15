@@ -96,6 +96,13 @@ export const courtHoursSchema = z.object({
   // close is a PUBLIC limit, not a data limit"). Default 23:00 every day.
   facilityCloseTimes: weekdayTimesSchema,
   fridaySaturdayCloseTime: timeStringSchema,
+  // Per-court Fri/Sat cutoff, keyed by court name (owner, 2026-09-15:
+  // "Court 1 at 4 PM on Sat and Fri, open play already"). Only ever
+  // makes a court's Fri/Sat window NARROWER than fridaySaturdayCloseTime
+  // above, never wider — that all-courts time is still when the Fri/Sat
+  // open-play night starts. "00:00" (or absent) means no per-court
+  // Fri/Sat cutoff of its own, same sentinel as courtCloseTimes.
+  fridaySaturdayCourtCloseTimes: z.record(z.string(), timeStringSchema).optional(),
   // Keyed by court name. "00:00" means "no per-court cutoff" — the court
   // is bookable right up to facilityCloseTimes for that weekday. It's a
   // sentinel, not a real midnight cutoff (BUILD-SPEC.md §0).

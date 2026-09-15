@@ -50,6 +50,18 @@ describe("getCourtBookingWindow", () => {
     expect(getCourtBookingWindow(SETTINGS, "Court 2", SATURDAY).closeMinutes).toBe(18 * 60);
   });
 
+  it("lets a court's own Fri/Sat cutoff narrow the all-courts one, never widen it", () => {
+    // Owner (2026-09-15): Court 1 hands over at 4 PM on Fri/Sat while
+    // the night itself, and the other courts, still start at 6 PM.
+    const settings = { ...SETTINGS, fridaySaturdayCourtCloseTimes: { "Court 1": "16:00", "Court 2": "21:00" } };
+    expect(getCourtBookingWindow(settings, "Court 1", FRIDAY).closeMinutes).toBe(16 * 60);
+    expect(getCourtBookingWindow(settings, "Court 1", SATURDAY).closeMinutes).toBe(16 * 60);
+    expect(getCourtBookingWindow(settings, "Court 2", FRIDAY).closeMinutes).toBe(18 * 60);
+    expect(getCourtBookingWindow(settings, "Court 3", FRIDAY).closeMinutes).toBe(18 * 60);
+    // Weekdays are untouched by the Fri/Sat per-court entry.
+    expect(getCourtBookingWindow(settings, "Court 1", MONDAY).closeMinutes).toBe(18 * 60);
+  });
+
   it("caps a court's cutoff at facility close even if configured later", () => {
     const lateCourtSettings: CourtHoursSettings = {
       ...SETTINGS,

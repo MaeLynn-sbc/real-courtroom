@@ -38,6 +38,9 @@ export function CourtHoursPanel({
   const [facilityCloseTimes, setFacilityCloseTimes] = useState(courtHours.facilityCloseTimes);
   const [fridaySaturdayCloseTime, setFridaySaturdayCloseTime] = useState(courtHours.fridaySaturdayCloseTime);
   const [courtCloseTimes, setCourtCloseTimes] = useState(courtHours.courtCloseTimes);
+  const [fridaySaturdayCourtCloseTimes, setFridaySaturdayCourtCloseTimes] = useState(
+    courtHours.fridaySaturdayCourtCloseTimes ?? {},
+  );
   const [businessDateRolloverHour, setBusinessDateRolloverHour] = useState(courtHours.businessDateRolloverHour);
   const [isPending, startTransition] = useTransition();
 
@@ -52,6 +55,7 @@ export function CourtHoursPanel({
       setFacilityCloseTimes(next.facilityCloseTimes);
       setFridaySaturdayCloseTime(next.fridaySaturdayCloseTime);
       setCourtCloseTimes(next.courtCloseTimes);
+      setFridaySaturdayCourtCloseTimes(next.fridaySaturdayCourtCloseTimes ?? {});
       setBusinessDateRolloverHour(next.businessDateRolloverHour);
       toast.success("Court hours saved.");
       router.refresh();
@@ -63,6 +67,7 @@ export function CourtHoursPanel({
       facilityOpenTime,
       facilityCloseTimes,
       fridaySaturdayCloseTime,
+      fridaySaturdayCourtCloseTimes,
       courtCloseTimes,
       businessDateRolloverHour,
     });
@@ -126,6 +131,26 @@ export function CourtHoursPanel({
             value={fridaySaturdayCloseTime}
             onChange={(event) => setFridaySaturdayCloseTime(event.target.value)}
           />
+          <p className="text-muted-foreground text-xs">
+            When the Fri/Sat open-play night starts. A court below can hand over earlier than this, never later.
+          </p>
+          <div className="mt-2 flex flex-col gap-2">
+            {courts.map((court) => (
+              <div key={court.id} className="grid grid-cols-[1fr_auto] items-center gap-2">
+                <Label htmlFor={`friSatCourtClose-${court.id}`}>{court.name} (Fri/Sat)</Label>
+                <Input
+                  id={`friSatCourtClose-${court.id}`}
+                  type="time"
+                  className="w-32"
+                  value={fridaySaturdayCourtCloseTimes[court.name] ?? "00:00"}
+                  onChange={(event) =>
+                    setFridaySaturdayCourtCloseTimes((previous) => ({ ...previous, [court.name]: event.target.value }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          <p className="text-muted-foreground text-xs">00:00 means the court simply uses the all-courts Fri/Sat cutoff above.</p>
         </div>
 
         <div className="flex flex-col gap-2 border-t pt-4">
