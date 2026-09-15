@@ -158,6 +158,21 @@ describe("classifyCourtSlot", () => {
     expect(classifyCourtSlot({ ...slot(9), now })).toBe("booked");
   });
 
+  it("reads BOOKED, not open play, for a booking taken before the cutoff moved earlier", () => {
+    // Owner (2026-09-15): Court 1 hands over to open play at 4 PM from
+    // now on, but this week's 4-5 PM booking stays. Only FREE hours
+    // past the cutoff are open play.
+    const fourPm = new Date(2026, 8, 15, 16, 0);
+    const fivePm = new Date(2026, 8, 15, 17, 0);
+    const window = { openMinutes: 7 * 60, closeMinutes: 16 * 60 };
+    expect(
+      classifyCourtSlot({ hour: 16, slotStart: fourPm, slotEnd: fivePm, now: fourPm.getTime() - 3_600_000, window, maintenanceRanges: [], bookedRanges: [{ startAt: fourPm, endAt: fivePm }] }),
+    ).toBe("booked");
+    expect(
+      classifyCourtSlot({ hour: 17, slotStart: fivePm, slotEnd: new Date(2026, 8, 15, 18, 0), now: fourPm.getTime() - 3_600_000, window, maintenanceRanges: [], bookedRanges: [{ startAt: fourPm, endAt: fivePm }] }),
+    ).toBe("openPlay");
+  });
+
   it("reads PAST for a genuinely free, elapsed hour", () => {
     const now = new Date(2026, 6, 20, 11, 15).getTime(); // 11:15am — 10am is free and elapsed
     expect(classifyCourtSlot({ ...slot(10), now })).toBe("past");

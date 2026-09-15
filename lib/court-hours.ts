@@ -271,10 +271,10 @@ export function isHourInThePast(slotStart: Date, now: number): boolean {
 // because it has no competing "past" concept at all. Fixed here by
 // checking booked BEFORE past — a booking that already happened (or is
 // happening) is still meaningfully "booked," never generically "past."
-// Maintenance and outside-the-booking-window (open play) both still
-// take priority over booked, same as before — a booking can't
-// genuinely overlap either of those in practice, but the order
-// documents the real precedence. "Past" is deliberately checked LAST,
+// Maintenance still takes priority over booked. The open-play window
+// no longer does (2026-09-15): a cutoff can be moved earlier while
+// bookings already sit past it, and those stay booked, not open play.
+// "Past" is deliberately checked LAST,
 // so it only ever fires for a genuinely free, elapsed hour.
 export function classifyCourtSlot(params: {
   hour: number;
@@ -298,11 +298,17 @@ export function classifyCourtSlot(params: {
       ? "specialEvent"
       : "unavailable";
   }
-  if (hour * 60 < window.openMinutes || (hour + 1) * 60 > window.closeMinutes) {
-    return "openPlay";
-  }
+  // BOOKED before the open-play window (owner, 2026-09-15: "only apply
+  // it to available courts"). A cutoff moved EARLIER hands open play the
+  // free hours only; bookings already taken before the change keep
+  // their slot, and the grid must say so — painting a real booking as
+  // "Open play" would tell staff and the public the court is free for
+  // drop-in when a customer is standing on it.
   if (rangesOverlap(slotStart, slotEnd, bookedRanges)) {
     return overlappingRangeHasCoach(slotStart, slotEnd, bookedRanges) ? "bookedCoach" : "booked";
+  }
+  if (hour * 60 < window.openMinutes || (hour + 1) * 60 > window.closeMinutes) {
+    return "openPlay";
   }
   if (isHourInThePast(slotStart, now)) {
     return "past";
