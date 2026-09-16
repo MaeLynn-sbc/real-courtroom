@@ -1,4 +1,4 @@
-import { buildLine, packUnits } from "./line-sets";
+import { buildLine, forecastCourts, packUnits } from "./line-sets";
 
 describe("packUnits", () => {
   it("fills sets of four in order", () => {
@@ -54,5 +54,46 @@ describe("buildLine", () => {
     });
     expect(line[0].players).toEqual([{ name: "W", skill: "BEGINNER" }]);
     expect(line[1].players).toEqual([{ name: "Ana", skill: "ADVANCED" }]);
+  });
+});
+
+describe("forecastCourts", () => {
+  const free = { id: "c1", name: "Court 1", state: "free" as const, players: [] as [], startAt: null, endAt: null, next: null };
+  const playing = (name: string, endAt: string) =>
+    ({ id: name, name, state: "op" as const, players: [], startAt: "2031-04-07T10:00:00.000Z", endAt, announcementRequestedAt: null, timesUpRequestedAt: null, next: null }) as never;
+  const pending = { id: "c3", name: "Court 3", state: "op-pending" as const, players: [], proposedAt: "2031-04-07T10:50:00.000Z", nudgeAt: "", announcementRequestedAt: null, startAt: null, endAt: null, next: null };
+
+  it("offers free courts first, then busy courts in the order their games end", () => {
+    const forecast = forecastCourts({
+      courts: [playing("Court 2", "2031-04-07T11:00:00.000Z"), free, playing("Court 4", "2031-04-07T10:40:00.000Z")],
+      targetGameMinutes: 20,
+    });
+    expect(forecast.map((f) => [f.courtName, f.readyAt])).toEqual([
+      ["Court 1", null],
+      ["Court 4", "2031-04-07T10:40:00.000Z"],
+      ["Court 2", "2031-04-07T11:00:00.000Z"],
+    ]);
+  });
+
+  it("treats a group about to start as busy for one full game", () => {
+    const forecast = forecastCourts({ courts: [pending], targetGameMinutes: 20 });
+    expect(forecast[0].readyAt).toBe("2031-04-07T11:10:00.000Z");
+  });
+
+  it("attaches the forecast to staged sets in pipeline order, never to preview sets", () => {
+    const line = buildLine({
+      courts: [free, playing("Court 2", "2031-04-07T11:00:00.000Z")],
+      targetGameMinutes: 20,
+      queue: ["Z"],
+      stagedGroups: [
+        { slot: "NEXT_UP", names: ["A"] },
+        { slot: "AFTER_THAT", names: ["B"] },
+        { slot: "THEN", names: ["C"] },
+      ],
+    });
+    expect(line[0].court?.courtName).toBe("Court 1");
+    expect(line[1].court?.courtName).toBe("Court 2");
+    expect(line[2].court).toBeUndefined();
+    expect(line[3].court).toBeUndefined();
   });
 });

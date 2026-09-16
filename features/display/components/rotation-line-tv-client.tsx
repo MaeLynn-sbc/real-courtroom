@@ -175,6 +175,18 @@ function SetCard({ set, compact }: { set: LineSet; compact?: boolean }) {
           {staged ? set.label : "waiting"}
         </span>
       </div>
+      {/* The court this staged set is expected to take: the next one to
+          free up, in pipeline order. When Next up goes on court, After
+          that becomes Next up and inherits the next court — automatic,
+          nothing for staff to re-enter. */}
+      {staged && set.court ? (
+        <p className="text-bone/90 mt-[0.2vh] truncate text-[1.7vh] font-semibold">
+          {set.court.courtName}
+          <span className="text-slate font-normal">
+            {" "}· {set.court.readyAt ? `~${timeFormatter.format(new Date(set.court.readyAt))}` : "open now"}
+          </span>
+        </p>
+      ) : null}
       <ol className={`mt-[0.5vh] flex flex-col ${compact ? "gap-0 text-[1.9vh]" : "gap-[0.3vh] text-[2.5vh]"}`}>
         {set.players.map((player, index) => (
           <li key={`${player.name}-${index}`} className={`truncate leading-tight font-semibold ${skillTextClass(player.skill)}`}>
