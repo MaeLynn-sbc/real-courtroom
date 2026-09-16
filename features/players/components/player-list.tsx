@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { playerService } from "@/services/player/player.service";
+import { skillTextClass } from "@/types/open-play-skill-color";
+import { OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 
 import { PlayerRowActions } from "./player-row-actions";
 
@@ -30,7 +32,8 @@ export function PlayerList({ players }: PlayerListProps) {
         <TableRow>
           <TableHead>Name</TableHead>
           <TableHead>Phone</TableHead>
-          <TableHead>Skill Level</TableHead>
+          <TableHead>Open play level</TableHead>
+          <TableHead>Tournament level</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
@@ -43,6 +46,20 @@ export function PlayerList({ players }: PlayerListProps) {
               </Link>
             </TableCell>
             <TableCell>{player.phone ?? "—"}</TableCell>
+            {/* The level walk-in check-in records (owner, 2026-09-17:
+                "players tab should save their skill level"). It always
+                was saved; this column just never showed it — the old
+                single Skill Level column was the tournament level, which
+                a walk-in never has. */}
+            <TableCell>
+              {player.openPlaySkillLevel ? (
+                <span className={`font-medium ${skillTextClass(player.openPlaySkillLevel)}`}>
+                  {OPEN_PLAY_SKILL_LEVELS[player.openPlaySkillLevel].label}
+                </span>
+              ) : (
+                "—"
+              )}
+            </TableCell>
             <TableCell>
               {player.skillLevel ? (
                 <Badge variant="outline">{SKILL_LEVEL_LABELS[player.skillLevel]}</Badge>
