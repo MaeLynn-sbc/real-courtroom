@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { skillTextClass } from "@/types/open-play-skill-color";
 import { OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel, StagedGroupSlot } from "@/lib/generated/prisma/enums";
 
@@ -410,7 +411,7 @@ function NextUpSection({
                           onChange={() => toggleHandPick(slot, member.registrationId)}
                           className="border-input checked:border-court-blue checked:bg-court-blue size-3.5 shrink-0 cursor-pointer appearance-none rounded border bg-white"
                         />
-                        {displayPlayerName(member.playerName)}
+                        <span className={skillTextClass(member.skillLevel)}>{displayPlayerName(member.playerName)}</span>
                       </label>
                     );
                   })}
@@ -446,7 +447,7 @@ function NextUpSection({
                   // reported as "black box, text is black."
                   className="bg-card flex items-center gap-1 rounded-md border px-2 py-1 text-sm"
                 >
-                  <span className="text-card-foreground font-medium">
+                  <span className={`font-medium ${skillTextClass(member.skillLevel) || "text-card-foreground"}`}>
                     {displayPlayerName(member.playerName)}
                   </span>
                   {/* text-card-foreground/N, not text-muted-foreground:
@@ -660,7 +661,8 @@ export function RotationBoard({
                   <ul className="text-sm">
                     {court.active.participants.map((p) => (
                       <li key={p.registrationId}>
-                        {displayPlayerName(p.playerName)} · {skillLabel(p.skillLevel)}
+                        <span className={skillTextClass(p.skillLevel)}>{displayPlayerName(p.playerName)}</span> ·{" "}
+                        {skillLabel(p.skillLevel)}
                       </li>
                     ))}
                   </ul>
@@ -757,7 +759,8 @@ export function RotationBoard({
                   <ul className="text-sm">
                     {court.proposed.participants.map((p) => (
                       <li key={p.registrationId}>
-                        {displayPlayerName(p.playerName)} · {skillLabel(p.skillLevel)}
+                        <span className={skillTextClass(p.skillLevel)}>{displayPlayerName(p.playerName)}</span> ·{" "}
+                        {skillLabel(p.skillLevel)}
                       </li>
                     ))}
                   </ul>
@@ -1030,7 +1033,7 @@ export function RotationBoard({
                                   />
                                 ) : null}
                               </span>
-                              {displayPlayerName(member.playerName)}{" "}
+                              <span className={skillTextClass(member.skillLevel)}>{displayPlayerName(member.playerName)}</span>{" "}
                               <span className="text-muted-foreground text-xs">
                                 ({skillLabel(member.skillLevel)})
                               </span>
@@ -1147,7 +1150,7 @@ export function RotationBoard({
                 className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
               >
                 <span className="text-sm">
-                  {displayPlayerName(player.playerName)}{" "}
+                  <span className={skillTextClass(player.skillLevel)}>{displayPlayerName(player.playerName)}</span>{" "}
                   <span className="text-muted-foreground text-xs">
                     ({skillLabel(player.skillLevel)})
                   </span>

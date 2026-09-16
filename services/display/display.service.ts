@@ -1,3 +1,4 @@
+import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import { computeBusinessDate, getBusinessDateRange } from "@/lib/business-date";
 import { prisma } from "@/lib/prisma";
 import { openPlayRotationService } from "@/services/open-play/open-play-rotation.service";
@@ -102,6 +103,18 @@ export type DisplayCourt = DisplayCourtFree | DisplayCourtActive | DisplayCourtO
 export interface DisplayStagedGroup {
   slot: "NEXT_UP" | "AFTER_THAT" | "THEN";
   names: string[];
+  // Same people with their skill level, for /rtv's colour coding.
+  // Optional for the same reason as DisplayData.queueUnits.
+  members?: DisplayLinePlayer[];
+}
+
+// A waiting player as /rtv lists them: shortened name plus skill level.
+// Owner decision (2026-09-17): the level is shown as a COLOUR on the
+// venue TV so groups stack evenly — never the label, never anything
+// else about the player. /tv and /phone keep ignoring it.
+export interface DisplayLinePlayer {
+  name: string;
+  skill: OpenPlaySkillLevel;
 }
 
 export interface DisplayData {
@@ -114,6 +127,12 @@ export interface DisplayData {
   // (same fetchWaitingUnits query the admin board's Waiting list reads),
   // so this is genuinely "still waiting, nothing lined up for them yet."
   queue: string[];
+  // The same waiting players, but grouped as they registered — a pair
+  // who came together is one unit. /rtv packs these into numbered sets
+  // of four without splitting a unit, so a preview never shows two
+  // friends in different sets. Optional so older test fixtures and any
+  // cached client still typecheck; it always ships from the server.
+  queueUnits?: DisplayLinePlayer[][];
   stagedGroups: DisplayStagedGroup[];
 }
 
@@ -322,13 +341,21 @@ export class DisplayService {
       };
     });
 
-    const queue = rotationBoard.waiting.flatMap((unit) =>
-      unit.members.map((member) => shortDisplayName(member.playerName, nameFormat)),
+    const queueUnits: DisplayLinePlayer[][] = rotationBoard.waiting.map((unit) =>
+      unit.members.map((member) => ({
+        name: shortDisplayName(member.playerName, nameFormat),
+        skill: member.skillLevel,
+      })),
     );
+    const queue = queueUnits.flat().map((player) => player.name);
 
     const stagedGroups: DisplayStagedGroup[] = rotationBoard.stagedGroups.map((group) => ({
       slot: group.slot,
       names: group.members.map((member) => shortDisplayName(member.playerName, nameFormat)),
+      members: group.members.map((member) => ({
+        name: shortDisplayName(member.playerName, nameFormat),
+        skill: member.skillLevel,
+      })),
     }));
 
     return {
@@ -336,6 +363,7 @@ export class DisplayService {
       targetGameMinutes: settings.targetGameMinutes,
       courts,
       queue,
+      queueUnits,
       stagedGroups,
     };
   }
