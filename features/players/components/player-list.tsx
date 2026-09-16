@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { playerService } from "@/services/player/player.service";
 
+import { PlayerRowActions } from "./player-row-actions";
+
 const SKILL_LEVEL_LABELS: Record<string, string> = {
   BEGINNER: "Beginner",
   INTERMEDIATE: "Intermediate",
@@ -29,6 +31,7 @@ export function PlayerList({ players }: PlayerListProps) {
           <TableHead>Name</TableHead>
           <TableHead>Phone</TableHead>
           <TableHead>Skill Level</TableHead>
+          <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -46,6 +49,9 @@ export function PlayerList({ players }: PlayerListProps) {
               ) : (
                 "—"
               )}
+            </TableCell>
+            <TableCell className="text-right">
+              <PlayerRowActions playerId={player.id} playerName={player.user.name ?? player.user.email ?? "this player"} />
             </TableCell>
           </TableRow>
         ))}
