@@ -97,7 +97,7 @@ export const stageManualGroupInputSchema = z.object({
   slot: stagedGroupSlotSchema,
   registrationIds: z
     .array(z.string().min(1))
-    .min(2, "Pick at least 2 players.")
+    .min(1, "Pick at least 1 player.")
     .max(4, "A group holds at most 4 players."),
 });
 

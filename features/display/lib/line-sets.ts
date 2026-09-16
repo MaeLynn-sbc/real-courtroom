@@ -32,8 +32,12 @@ export function forecastCourts(data: Pick<DisplayData, "courts" | "targetGameMin
 
 export interface LineSet {
   number: number;
-  // Staged sets only: the court expected to take them, in pipeline order.
+  // Staged sets only: the court expected to take them, in pipeline
+  // order. Only a FULL set gets one — a set still short of four is not
+  // next on any court, however early it sits in the pipeline.
   court?: CourtForecast;
+  // How many more players this set needs before it is a game.
+  missing: number;
   names: string[];
   // Names with skill level, for colour coding. Skill is null when the
   // server did not send it (older payload).
@@ -53,26 +57,27 @@ const STAGED_LABELS: Record<"NEXT_UP" | "AFTER_THAT" | "THEN", string> = {
 const STAGED_ORDER = ["NEXT_UP", "AFTER_THAT", "THEN"] as const;
 
 // Pack waiting units (a pair who registered together is one unit) into
-// sets of four IN QUEUE ORDER, never splitting a unit: when the next
-// unit does not fit the set being built, that set closes short and the
-// unit opens the next one. First come, first served is the whole point
-// of replacing the paddle box, so nothing here reorders anyone.
+// FULL sets of four, in queue order, never splitting a unit. Owner
+// (2026-09-17): a set of three must not go up as "next" — so when the
+// next unit in line does not fit the set being built, the first later
+// unit that DOES fit takes the seat (exactly what a paddle box does:
+// a single fills the last slot ahead of a pair that would not fit).
+// Only the final set may be short. Nobody is ever reordered otherwise.
 export function packUnits<T>(units: T[][], size: number = SET_SIZE): T[][] {
+  const remaining = units.map((unit) => unit.slice(0, size));
   const sets: T[][] = [];
-  let current: T[] = [];
-  for (const unit of units) {
-    const members = unit.slice(0, size);
-    if (current.length > 0 && current.length + members.length > size) {
-      sets.push(current);
-      current = [];
+  while (remaining.length > 0) {
+    const current: T[] = [...remaining.shift()!];
+    let index = 0;
+    while (current.length < size && index < remaining.length) {
+      if (current.length + remaining[index].length <= size) {
+        current.push(...remaining.splice(index, 1)[0]);
+      } else {
+        index += 1;
+      }
     }
-    current.push(...members);
-    if (current.length === size) {
-      sets.push(current);
-      current = [];
-    }
+    sets.push(current);
   }
-  if (current.length > 0) sets.push(current);
   return sets;
 }
 
@@ -84,14 +89,17 @@ export function buildLine(
     Partial<Pick<DisplayData, "courts" | "targetGameMinutes">>,
 ): LineSet[] {
   const line: LineSet[] = [];
+  let courtsClaimed = 0;
   const forecast = data.courts ? forecastCourts({ courts: data.courts, targetGameMinutes: data.targetGameMinutes ?? 0 }) : [];
   for (const slot of STAGED_ORDER) {
     const group = data.stagedGroups.find((g) => g.slot === slot);
     if (!group || group.names.length === 0) continue;
     const players = group.members ?? group.names.map((name) => ({ name, skill: null }));
+    const missing = Math.max(0, SET_SIZE - players.length);
     line.push({
       number: line.length + 1,
-      court: forecast[line.length],
+      court: missing === 0 ? forecast[courtsClaimed++] : undefined,
+      missing,
       names: group.names,
       players,
       kind: "staged",
@@ -103,6 +111,7 @@ export function buildLine(
   for (const players of packUnits(units)) {
     line.push({
       number: line.length + 1,
+      missing: Math.max(0, SET_SIZE - players.length),
       names: players.map((player) => player.name),
       players,
       kind: "preview",

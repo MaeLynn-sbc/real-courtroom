@@ -631,8 +631,12 @@ export class OpenPlayRotationService {
     registrationIds: string[],
     actorUserId: string,
   ): Promise<StagedGroupWithMembers> {
-    if (registrationIds.length < 2 || registrationIds.length > 4) {
-      throw new Error("Pick 2 to 4 players for a group.");
+    // One player may open a slot (owner, 2026-09-17: a "send to Next up"
+    // control on each checked-in player). The group then reads "needs 3
+    // more" on the board and the TV until it is filled; it is the
+    // court assignment, not staging, that needs a real game's worth.
+    if (registrationIds.length < 1 || registrationIds.length > 4) {
+      throw new Error("Pick 1 to 4 players for a group.");
     }
     if (new Set(registrationIds).size !== registrationIds.length) {
       throw new Error("A player can't be picked twice for the same group.");

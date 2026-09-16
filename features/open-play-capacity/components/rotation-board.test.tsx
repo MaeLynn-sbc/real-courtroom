@@ -1161,3 +1161,71 @@ describe("RotationBoard — trailing-dot name display fix", () => {
     expect(screen.getAllByText("Paul C.").length).toBeGreaterThan(0);
   });
 });
+
+// "Send to Next up / After that / Then" on each waiting unit (owner,
+// 2026-09-17): the little box under a checked-in player's name that
+// puts them straight into a staged group.
+describe("RotationBoard — send a waiting unit to a staged slot", () => {
+  const member = (id: string, name: string) => ({
+    queueEntryId: `qe-${id}`,
+    registrationId: `r-${id}`,
+    playerName: name,
+    skillLevel: "BEGINNER" as const,
+  });
+  const waiting: RotationBoardProps["waiting"] = [
+    { partyId: null, members: [member("alice", "Alice")], waitMinutes: 5, pastMaxWait: false },
+    { partyId: "p1", members: [member("ben", "Ben"), member("carla", "Carla")], waitMinutes: 3, pastMaxWait: false },
+  ];
+  const threeStaged: RotationBoardProps["stagedGroups"] = [
+    {
+      id: "sg-next",
+      slot: "NEXT_UP",
+      source: "MANUAL",
+      members: [member("x", "X"), member("y", "Y"), member("z", "Z")],
+    },
+  ];
+
+  function renderBoard(stagedGroups: RotationBoardProps["stagedGroups"]) {
+    render(<RotationBoard {...baseProps({})} waiting={waiting} stagedGroups={stagedGroups} />);
+  }
+
+  function findRow(label: string): HTMLElement {
+    const match = screen.getAllByText(label).find((el) => el.closest("label"));
+    if (!match) throw new Error(`No label found for "${label}"`);
+    return match.closest("div.rounded-lg")!;
+  }
+
+  beforeEach(() => {
+    mockedStageManualGroup.mockReset();
+    mockedAddPlayer.mockReset();
+  });
+
+  it("opens an empty slot with just that player — one is enough to start a group", async () => {
+    mockedStageManualGroup.mockResolvedValue({ error: null });
+    renderBoard([]);
+    await clickAsync(within(findRow("Alice")).getByRole("button", { name: /^next up$/i }));
+    expect(mockedStageManualGroup).toHaveBeenCalledWith({
+      date: "2026-08-01",
+      slot: "NEXT_UP",
+      registrationIds: ["r-alice"],
+    });
+    expect(mockedAddPlayer).not.toHaveBeenCalled();
+  });
+
+  it("joins an existing group that has room, and shows how full it is", async () => {
+    mockedAddPlayer.mockResolvedValue({ error: null });
+    renderBoard(threeStaged);
+    const button = within(findRow("Alice")).getByRole("button", { name: /^next up \(3\/4\)$/i });
+    await clickAsync(button);
+    expect(mockedAddPlayer).toHaveBeenCalledWith({ stagedGroupId: "sg-next", registrationId: "r-alice" });
+    expect(mockedStageManualGroup).not.toHaveBeenCalled();
+  });
+
+  it("keeps a pair together: a slot with room for only one is disabled for them", () => {
+    renderBoard(threeStaged);
+    const benRow = findRow("Ben");
+    expect(within(benRow).getByRole("button", { name: /^next up \(3\/4\)$/i })).toBeDisabled();
+    // The empty slots still take the whole pair.
+    expect(within(benRow).getByRole("button", { name: /^after that$/i })).toBeEnabled();
+  });
+});

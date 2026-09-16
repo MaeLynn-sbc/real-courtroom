@@ -5,11 +5,13 @@ describe("packUnits", () => {
     expect(packUnits([["A"], ["B"], ["C"], ["D"], ["E"]])).toEqual([["A", "B", "C", "D"], ["E"]]);
   });
 
-  it("never splits a pair across two sets, closing the set short instead", () => {
-    // A, B, C are singles; D+E came together. D+E cannot fit beside A,B,C
-    // so set 1 closes at three and D+E open set 2 — in the order they
-    // registered, nobody jumps ahead.
-    expect(packUnits([["A"], ["B"], ["C"], ["D", "E"], ["F"]])).toEqual([["A", "B", "C"], ["D", "E", "F"]]);
+  it("never splits a pair, and fills the set with the next single that fits instead", () => {
+    // A, B, C are singles; D+E came together and cannot fit beside them,
+    // so F (the next single) takes the fourth seat and D+E open set 2.
+    // Same as a paddle box: a set of three never goes up as a game.
+    expect(packUnits([["A"], ["B"], ["C"], ["D", "E"], ["F"]])).toEqual([["A", "B", "C", "F"], ["D", "E"]]);
+    // With nothing later that fits, the last set is simply short.
+    expect(packUnits([["A"], ["B"], ["C"], ["D", "E"]])).toEqual([["A", "B", "C"], ["D", "E"]]);
   });
 
   it("keeps two pairs together as one set", () => {
@@ -32,11 +34,11 @@ describe("buildLine", () => {
         { slot: "NEXT_UP", names: ["W", "X", "Y", "Z"] },
       ],
     });
-    expect(line.map((s) => [s.number, s.kind, s.label, s.names])).toEqual([
-      [1, "staged", "Next up", ["W", "X", "Y", "Z"]],
-      [2, "staged", "After that", ["P", "Q", "R", "S"]],
-      [3, "preview", "Set 3", ["Ana", "Ben", "Cai", "Dee"]],
-      [4, "preview", "Set 4", ["Eli"]],
+    expect(line.map((s) => [s.number, s.kind, s.label, s.names, s.missing])).toEqual([
+      [1, "staged", "Next up", ["W", "X", "Y", "Z"], 0],
+      [2, "staged", "After that", ["P", "Q", "R", "S"], 0],
+      [3, "preview", "Set 3", ["Ana", "Ben", "Cai", "Dee"], 0],
+      [4, "preview", "Set 4", ["Eli"], 3],
     ]);
   });
 
@@ -86,14 +88,29 @@ describe("forecastCourts", () => {
       targetGameMinutes: 20,
       queue: ["Z"],
       stagedGroups: [
-        { slot: "NEXT_UP", names: ["A"] },
-        { slot: "AFTER_THAT", names: ["B"] },
-        { slot: "THEN", names: ["C"] },
+        { slot: "NEXT_UP", names: ["A", "B", "C", "D"] },
+        { slot: "AFTER_THAT", names: ["E", "F", "G", "H"] },
+        { slot: "THEN", names: ["I", "J", "K", "L"] },
       ],
     });
     expect(line[0].court?.courtName).toBe("Court 1");
     expect(line[1].court?.courtName).toBe("Court 2");
     expect(line[2].court).toBeUndefined();
     expect(line[3].court).toBeUndefined();
+  });
+
+  it("a staged set of three is not next on any court; the next full set takes it", () => {
+    const line = buildLine({
+      courts: [free, playing("Court 2", "2031-04-07T11:00:00.000Z")],
+      targetGameMinutes: 20,
+      queue: [],
+      stagedGroups: [
+        { slot: "NEXT_UP", names: ["A", "B", "C"] },
+        { slot: "AFTER_THAT", names: ["E", "F", "G", "H"] },
+      ],
+    });
+    expect(line[0].missing).toBe(1);
+    expect(line[0].court).toBeUndefined();
+    expect(line[1].court?.courtName).toBe("Court 1");
   });
 });

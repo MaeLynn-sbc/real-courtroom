@@ -606,6 +606,36 @@ export function RotationBoard({
     });
   }
 
+  // "Send to Next up / After that / Then" on each waiting unit (owner,
+  // 2026-09-17: "a little box below their name"). A pair who checked in
+  // together travels together. An empty slot opens a new group with
+  // them; a slot with room takes them into the existing group; a slot
+  // that cannot fit them is disabled rather than half-filled.
+  function slotRoomFor(unit: BoardUnit, slot: StagedGroupSlot): boolean {
+    const group = stagedGroups.find((g) => g.slot === slot);
+    return !group || group.members.length + unit.members.length <= 4;
+  }
+
+  function sendUnitToSlot(unit: BoardUnit, slot: StagedGroupSlot) {
+    const group = stagedGroups.find((g) => g.slot === slot);
+    const registrationIds = unit.members.map((member) => member.registrationId);
+    const message = `Sent to ${stagedSlotLabel(slot)}.`;
+    if (!group) {
+      runAction(stageManualGroupAction({ date, slot, registrationIds }), message);
+      return;
+    }
+    runAction(
+      (async () => {
+        for (const registrationId of registrationIds) {
+          const result = await addPlayerToStagedGroupAction({ stagedGroupId: group.id, registrationId });
+          if (result.error) return result;
+        }
+        return { error: null };
+      })(),
+      message,
+    );
+  }
+
   function toggleManualPick(registrationId: string) {
     setManualPicks((prev) =>
       prev.includes(registrationId)
@@ -1081,6 +1111,28 @@ export function RotationBoard({
                           Done
                         </Button>
                       </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-muted-foreground text-xs">Send to</span>
+                      {(["NEXT_UP", "AFTER_THAT", "THEN"] as const).map((slot) => {
+                        const group = stagedGroups.find((g) => g.slot === slot);
+                        const room = slotRoomFor(unit, slot);
+                        return (
+                          <Button
+                            key={slot}
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            disabled={isPending || !room}
+                            title={room ? undefined : `${stagedSlotLabel(slot)} is full`}
+                            onClick={() => sendUnitToSlot(unit, slot)}
+                          >
+                            {stagedSlotLabel(slot)}
+                            {group ? ` (${group.members.length}/4)` : ""}
+                          </Button>
+                        );
+                      })}
                     </div>
                     {/* Queue reorder (reported live): a forming group short a
                       player wants a specific, later-queued player — staff
