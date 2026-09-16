@@ -347,8 +347,9 @@ export class OpenPlayRegistrationService {
   ): Promise<{ playerId: string; isNewPlayer: boolean }> {
     const last10Digits = (value: string) => value.replace(/\D/g, "").slice(-10);
     const normalizedPhone = last10Digits(input.phone);
+    const hasRealPhone = normalizedPhone.length === 10;
 
-    if (normalizedPhone.length === 10) {
+    if (hasRealPhone) {
       const candidates = await tx.player.findMany({
         where: { deletedAt: null, phone: { not: null } },
         select: { id: true, phone: true },
@@ -358,6 +359,30 @@ export class OpenPlayRegistrationService {
       );
       if (existing) {
         return { playerId: existing.id, isNewPlayer: false };
+      }
+    }
+
+    // Name match (owner, 2026-09-17). Staff type "1" or "." for the phone
+    // at the desk, so until now every visit by "Wax" or "Steph" created a
+    // brand-new player: 139 duplicate groups, 238 extra rows. Same name
+    // (case and spacing ignored) on a player WITHOUT a real phone is the
+    // same person — a real phone that differs is the only signal that it
+    // is not, and that case still creates a new player. A real phone
+    // typed today is saved onto the matched player, so next time the
+    // phone match above catches them first.
+    const normalizedName = input.playerName.trim().replace(/\s+/g, " ").toLowerCase();
+    if (normalizedName) {
+      const sameName = await tx.player.findMany({
+        where: { deletedAt: null, user: { name: { equals: normalizedName, mode: "insensitive" } } },
+        select: { id: true, phone: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      });
+      const match = sameName.find((candidate) => last10Digits(candidate.phone ?? "").length !== 10);
+      if (match) {
+        if (hasRealPhone) {
+          await tx.player.update({ where: { id: match.id }, data: { phone: input.phone } });
+        }
+        return { playerId: match.id, isNewPlayer: false };
       }
     }
 
