@@ -35,8 +35,8 @@ describe("buildLine", () => {
       ],
     });
     expect(line.map((s) => [s.number, s.kind, s.label, s.names, s.missing])).toEqual([
-      [1, "staged", "Rack 1", ["W", "X", "Y", "Z"], 0],
-      [2, "staged", "Rack 2", ["P", "Q", "R", "S"], 0],
+      [1, "staged", "Next up", ["W", "X", "Y", "Z"], 0],
+      [2, "staged", "After that", ["P", "Q", "R", "S"], 0],
       [3, "preview", "Set 3", ["Ana", "Ben", "Cai", "Dee"], 0],
       [4, "preview", "Set 4", ["Eli"], 3],
     ]);
@@ -117,12 +117,12 @@ describe("forecastCourts", () => {
   });
 });
 
-describe("buildLine — six racks", () => {
+describe("buildLine — the nine-position line", () => {
   const busy = (name: string, endAt: string) =>
     ({ id: name, name, state: "op" as const, players: [], startAt: "2031-04-07T10:00:00.000Z", endAt, announcementRequestedAt: null, timesUpRequestedAt: null, next: null }) as never;
   const four = (p: string) => [`${p}1`, `${p}2`, `${p}3`, `${p}4`];
 
-  it("labels racks 1 to 6 and wraps the court forecast one game later per lap", () => {
+  it("labels Next up / After that / Then / Rack 1-3 and wraps the court forecast one game later per lap", () => {
     const line = buildLine({
       courts: [busy("Court 1", "2031-04-07T10:20:00.000Z"), busy("Court 2", "2031-04-07T10:30:00.000Z")],
       targetGameMinutes: 20,
@@ -136,14 +136,28 @@ describe("buildLine — six racks", () => {
         { slot: "RACK_6", names: four("f") },
       ],
     });
-    expect(line.map((s) => s.label)).toEqual(["Rack 1", "Rack 2", "Rack 3", "Rack 4", "Rack 5", "Rack 6"]);
+    expect(line.map((s) => s.label)).toEqual(["Next up", "After that", "Then", "Rack 1", "Rack 2", "Rack 3"]);
     expect(line.map((s) => [s.court?.courtName, s.court?.readyAt])).toEqual([
       ["Court 1", "2031-04-07T10:20:00.000Z"],
       ["Court 2", "2031-04-07T10:30:00.000Z"],
       ["Court 1", "2031-04-07T10:40:00.000Z"],
       ["Court 2", "2031-04-07T10:50:00.000Z"],
-      [undefined, undefined], // Rack 5 has one player: not a game yet
+      [undefined, undefined], // Rack 2 has one player: not a game yet
       ["Court 1", "2031-04-07T11:00:00.000Z"],
     ]);
+  });
+});
+
+describe("buildLine — racks 4 to 6", () => {
+  it("labels the last three positions Rack 4 to Rack 6", () => {
+    const line = buildLine({
+      queue: [],
+      stagedGroups: [
+        { slot: "RACK_7", names: ["a"] },
+        { slot: "RACK_8", names: ["b"] },
+        { slot: "RACK_9", names: ["c"] },
+      ],
+    });
+    expect(line.map((s) => s.label)).toEqual(["Rack 4", "Rack 5", "Rack 6"]);
   });
 });

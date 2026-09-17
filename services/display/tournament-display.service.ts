@@ -239,6 +239,9 @@ export class TournamentDisplayService {
       RACK_4: 3,
       RACK_5: 4,
       RACK_6: 5,
+      RACK_7: 6,
+      RACK_8: 7,
+      RACK_9: 8,
     };
     staged.sort((a, b) => stagedSlotOrder[a.stagedSlot!] - stagedSlotOrder[b.stagedSlot!]);
 

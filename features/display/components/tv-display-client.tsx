@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { RackGrid, WaitingStrip } from "@/features/display/components/line-panel";
+import { RackColumn } from "@/features/display/components/line-panel";
 import { createAnnouncementRepeater } from "@/features/display/lib/announcement-repeater";
 import type { DisplayCourt, DisplayData } from "@/services/display/display.service";
 
@@ -704,7 +704,9 @@ export function TvDisplayClient({
   // players are excluded from it entirely (same query the admin board's
   // own Waiting list reads) — so this is simply everyone still waiting,
   // numbered from 1, not "position 13 onward."
-  const queueShown = data.queue.slice(0, 8);
+  // /rtv is narrower (the rack column takes the right side): seven names
+  // plus "+N more" fit on one row there, where /tv fits eight.
+  const queueShown = data.queue.slice(0, variant === "line" ? 7 : 8);
   const queueExtra = data.queue.length - queueShown.length;
 
   const courtCards = data.courts.map((court) => (
@@ -716,6 +718,80 @@ export function TvDisplayClient({
       gameWarningMs={gameWarningEnabled ? gameWarningMinutes * 60_000 : null}
     />
   ));
+
+  const tvBody = (
+    <>
+      <div className={styles.courts}>{courtCards}</div>
+      <div className={styles.queue}>
+        <div className={styles["q-row"]}>
+          <div className={styles["q-label"]}>
+            <b>
+              Open
+              <br />
+              play
+            </b>
+            <em className={styles["count-n"]}>{data.queue.length}</em>
+            <span>Waiting</span>
+          </div>
+          <div className={styles["next-up"]}>
+            <span className={styles.tag}>Next up</span>
+            <span className={styles.names}>
+              {queueUp.length ? (
+                queueUp.map((name, i) => (
+                  <span key={`${name}-${i}`} className={cls(styles.n, styles[`c${i % 4}`])}>
+                    {name}
+                  </span>
+                ))
+              ) : (
+                <span className={cls(styles.n, styles.c0)}>—</span>
+              )}
+            </span>
+          </div>
+          <div className={cls(styles["next-up"], styles.later)}>
+            <span className={styles.tag}>After that</span>
+            <span className={styles.names}>
+              {queueThen.length ? (
+                queueThen.map((name, i) => (
+                  <span key={`${name}-${i}`} className={styles.n}>
+                    {name}
+                  </span>
+                ))
+              ) : (
+                <span className={styles.n}>—</span>
+              )}
+            </span>
+          </div>
+          <div className={cls(styles["next-up"], styles.later)}>
+            <span className={styles.tag}>Then</span>
+            <span className={styles.names}>
+              {queueLater.length ? (
+                queueLater.map((name, i) => (
+                  <span key={`${name}-${i}`} className={styles.n}>
+                    {name}
+                  </span>
+                ))
+              ) : (
+                <span className={styles.n}>—</span>
+              )}
+            </span>
+          </div>
+        </div>
+        <div className={cls(styles["q-row"], styles.rest)}>
+          <div className={styles.waiting}>
+            {queueShown.map((name, i) => (
+              <span key={`${name}-${i}`} className={styles.w}>
+                <i>{i + 1}</i>
+                {name}
+              </span>
+            ))}
+            {queueExtra > 0 && (
+              <span className={cls(styles.w, styles.more)}>+{queueExtra} more</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
 
   return (
     <div className={styles.page} ref={containerRef}>
@@ -731,22 +807,14 @@ export function TvDisplayClient({
         <div className={styles.brand}>
           <div className={styles.logo} role="img" aria-label="The Courtroom" />
           <div className={styles.title}>
-            {variant === "line" ? (
-              <>
-                The <span>Line</span>
-                {/* Practice takeover (Practice page switch): say so on the
-                    screen, so nobody mistakes sample names for tonight. */}
-                {data.practice ? (
-                  <span style={{ marginLeft: "1vw", color: "#e8b23f", fontSize: "0.6em" }}>
-                    · Practice
-                  </span>
-                ) : null}
-              </>
-            ) : (
-              <>
-                Court <span>Status</span>
-              </>
-            )}
+            Court <span>Status</span>
+            {/* Practice takeover (Practice page switch): say so on the
+                screen, so nobody mistakes sample names for tonight. */}
+            {data.practice ? (
+              <span style={{ marginLeft: "1vw", color: "#e8b23f", fontSize: "0.6em" }}>
+                · Practice
+              </span>
+            ) : null}
           </div>
         </div>
         <div className={styles.sub}>
@@ -761,90 +829,19 @@ export function TvDisplayClient({
       </div>
 
       {variant === "line" ? (
-        <>
-          {/* /rtv (owner, 2026-09-17): /tv's court cards across the top,
-              the six virtual paddle racks filling the big lower panel,
-              and a numbered waiting row under them. */}
-          <div className={styles.courts} style={{ flex: "0 0 36vh" }}>
-            {courtCards}
+        // /rtv (owner, 2026-09-17): /tv exactly as it is, plus one column
+        // on the right for the six virtual paddle racks — the line behind
+        // Next up / After that / Then.
+        <div style={{ display: "flex", gap: "1.2vw", flex: 1, minHeight: 0 }}>
+          <div
+            style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "1.8vh" }}
+          >
+            {tvBody}
           </div>
-          <div className={styles.queue} style={{ flex: 1, minHeight: 0, gap: "1.2vh" }}>
-            <RackGrid data={data} />
-            <WaitingStrip data={data} />
-          </div>
-        </>
+          <RackColumn data={data} />
+        </div>
       ) : (
-        <>
-          <div className={styles.courts}>{courtCards}</div>
-          <div className={styles.queue}>
-            <div className={styles["q-row"]}>
-              <div className={styles["q-label"]}>
-                <b>
-                  Open
-                  <br />
-                  play
-                </b>
-                <em className={styles["count-n"]}>{data.queue.length}</em>
-                <span>Waiting</span>
-              </div>
-              <div className={styles["next-up"]}>
-                <span className={styles.tag}>Next up</span>
-                <span className={styles.names}>
-                  {queueUp.length ? (
-                    queueUp.map((name, i) => (
-                      <span key={`${name}-${i}`} className={cls(styles.n, styles[`c${i % 4}`])}>
-                        {name}
-                      </span>
-                    ))
-                  ) : (
-                    <span className={cls(styles.n, styles.c0)}>—</span>
-                  )}
-                </span>
-              </div>
-              <div className={cls(styles["next-up"], styles.later)}>
-                <span className={styles.tag}>After that</span>
-                <span className={styles.names}>
-                  {queueThen.length ? (
-                    queueThen.map((name, i) => (
-                      <span key={`${name}-${i}`} className={styles.n}>
-                        {name}
-                      </span>
-                    ))
-                  ) : (
-                    <span className={styles.n}>—</span>
-                  )}
-                </span>
-              </div>
-              <div className={cls(styles["next-up"], styles.later)}>
-                <span className={styles.tag}>Then</span>
-                <span className={styles.names}>
-                  {queueLater.length ? (
-                    queueLater.map((name, i) => (
-                      <span key={`${name}-${i}`} className={styles.n}>
-                        {name}
-                      </span>
-                    ))
-                  ) : (
-                    <span className={styles.n}>—</span>
-                  )}
-                </span>
-              </div>
-            </div>
-            <div className={cls(styles["q-row"], styles.rest)}>
-              <div className={styles.waiting}>
-                {queueShown.map((name, i) => (
-                  <span key={`${name}-${i}`} className={styles.w}>
-                    <i>{i + 1}</i>
-                    {name}
-                  </span>
-                ))}
-                {queueExtra > 0 && (
-                  <span className={cls(styles.w, styles.more)}>+{queueExtra} more</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </>
+        tvBody
       )}
 
       <div className={cls(styles.live, reconnecting && styles.stale)}>

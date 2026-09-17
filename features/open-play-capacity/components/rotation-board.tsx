@@ -529,12 +529,13 @@ function NextUpSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Racks</CardTitle>
+        <CardTitle className="text-base">Next up &amp; racks</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-3">
-        {/* Six virtual paddle racks (lib/staged-slots.ts), three across
-            like the court cards: Racks 1-3 play next. Rack 1 goes first;
-            when it goes on court, every rack behind moves up. */}
+        {/* The waiting line (lib/staged-slots.ts), three across like the
+            court cards: Next up / After that / Then on the first row, then
+            Racks 1-6. When Next up goes on court, everything behind moves
+            up one. */}
         {STAGED_SLOTS.map((slot, index) => (
           <div key={slot} className="min-w-0">
             {renderSlot(slot, index === 0)}
@@ -1116,7 +1117,7 @@ export function RotationBoard({
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-muted-foreground text-xs">Put on rack</span>
+                      <span className="text-muted-foreground text-xs">Put in line</span>
                       {STAGED_SLOTS.map((slot) => {
                         const group = stagedGroups.find((g) => g.slot === slot);
                         const room = slotRoomFor(unit, slot);
