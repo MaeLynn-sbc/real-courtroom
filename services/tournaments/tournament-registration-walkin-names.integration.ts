@@ -127,7 +127,9 @@ async function main(): Promise<void> {
     assert(singlesTeam.player2Id === null, "expected a singles registration (blank player 2) to leave player2Id null");
     console.log("PASS: leaving player 2 blank registers a singles team with no partner.");
 
-    // 3. Same name typed twice — no silent dedup, two different Players.
+    // 3. Same name typed twice — the same person (owner, 2026-09-17,
+    // reversing the earlier "never match by name" rule): one Player,
+    // reused. See services/player/player-match.ts.
     const repeatName = `WalkIn Repeat ${suffix}`;
     const repeatReg1 = await tournamentService.registerTeam(
       category.id,
@@ -148,10 +150,10 @@ async function main(): Promise<void> {
       where: { id: (await prisma.tournamentRegistration.findUniqueOrThrow({ where: { id: repeatReg2.id } })).teamId },
     });
     assert(
-      repeatTeam1.player1Id !== repeatTeam2.player1Id,
-      "expected typing the exact same name twice to create two different Player rows, not reuse one",
+      repeatTeam1.player1Id === repeatTeam2.player1Id,
+      "expected typing the exact same name twice to reuse the same Player, not create a duplicate",
     );
-    console.log("PASS: typing the same name twice creates two separate Player rows — no silent name matching.");
+    console.log("PASS: typing the same name twice reuses one Player — no duplicate rows.");
 
     // 4. Receipt upload — bytes round-trip through the private storage key.
     const receiptBytes = Buffer.from(`test receipt ${suffix}`);
