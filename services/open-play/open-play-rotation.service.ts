@@ -1,7 +1,7 @@
 import { logger } from "@/lib/logger";
 import { gameChargeDescription } from "@/lib/game-charge-description";
 import { isPracticeDate } from "@/lib/practice";
-import { STAGED_SLOTS, isRackSlot, stagedSlotLabel } from "@/lib/staged-slots";
+import { STAGED_SLOTS, stagedSlotLabel } from "@/lib/staged-slots";
 import { prisma } from "@/lib/prisma";
 import type {
   Court,
@@ -820,19 +820,11 @@ export class OpenPlayRotationService {
     });
   }
 
-  // The line moves up (owner, 2026-09-17). Walks the nine positions in
-  // order (lib/staged-slots.ts):
-  //  - Next up / After that / Then move forward into the earliest empty
-  //    position ahead of them, full or not;
-  //  - a RACK moves forward only when COMPLETE (4 players) — "if
-  //    incomplete in the virtual racks, cannot move forward"; an
-  //    incomplete rack stays exactly where it is, and nothing behind it
-  //    may pass it — the line keeps its order;
-  //  - full groups behind an incomplete one still close any gap between
-  //    them and it.
-  // Run after anything that can open or fill a position. Deliberately
-  // does NOT touch announcementRequestedAt or announce anything — moving
-  // up is silent; Announce stays a separate, manual staff action.
+  // The line moves up (compactPipelineTx, below): run after anything
+  // that can open or fill a position. Deliberately does NOT touch
+  // announcementRequestedAt or announce anything — moving up is silent;
+  // Announce stays a separate, manual staff action.
+  //
   // Moves a group behind every other group in the line. Returns false
   // (and leaves it in place) only when the last position is already
   // taken, i.e. there is no room behind the others.
@@ -862,29 +854,26 @@ export class OpenPlayRotationService {
   }
 
   private async compactPipelineTx(tx: Prisma.TransactionClient, date: Date): Promise<void> {
+    // Every group — Next up, After that, Then and every rack — moves up
+    // into the earliest empty spot ahead of it, whatever its size (owner,
+    // 2026-09-17: "disregard the rule that 3 players will not proceed —
+    // for all boxes"). Order is kept; only gaps close.
     const groups = await tx.stagedGroup.findMany({
       where: { date },
-      include: { _count: { select: { queueEntries: true } } },
+      select: { id: true, slot: true },
     });
     const bySlot = new Map(groups.map((group) => [group.slot, group]));
     let nextFree = 0;
     for (let index = 0; index < STAGED_SLOTS.length; index += 1) {
       const group = bySlot.get(STAGED_SLOTS[index]);
       if (!group) continue;
-      // Next up / After that / Then always move up into an empty spot
-      // ahead of them, full or not (owner, 2026-09-17: "when the next up
-      // is blank, put the after that in the next up"). A rack only moves
-      // forward once it is complete.
-      const canMove = isRackSlot(STAGED_SLOTS[index]) ? group._count.queueEntries >= 4 : true;
-      if (canMove && nextFree < index) {
+      if (nextFree < index) {
         await tx.stagedGroup.update({
           where: { id: group.id },
           data: { slot: STAGED_SLOTS[nextFree] },
         });
-        nextFree += 1;
-      } else {
-        nextFree = index + 1;
       }
+      nextFree += 1;
     }
   }
 
