@@ -315,16 +315,14 @@ async function main(): Promise<void> {
     const nextUpNow = boardAfterAssign.stagedGroups.find((g) => g.slot === "NEXT_UP");
     const afterThatNow = boardAfterAssign.stagedGroups.find((g) => g.slot === "AFTER_THAT");
     const thenNow = boardAfterAssign.stagedGroups.find((g) => g.slot === "THEN");
-    // Owner rule (2026-09-17): only a COMPLETE group (4) moves forward.
-    // After that's and Then's groups here have fewer than 4, so they hold
-    // their places and Next up stays empty until one is completed.
-    // (Moving up with full groups is proven in
-    // racks-and-tab-details.integration.ts.)
-    assert(nextUpNow === undefined, "expected Next up to stay empty — no complete group behind it");
-    assert(afterThatNow?.id === handGroup.id, "expected the incomplete After that group to hold its place");
-    assert(thenNow?.id === newThenGroup.id, "expected the incomplete Then group to hold its place");
+    // Owner rule (2026-09-17): Next up / After that / Then always move up
+    // into an empty spot, full or not. (Racks only move when complete —
+    // proven in racks-and-tab-details.integration.ts.)
+    assert(nextUpNow?.id === handGroup.id, "expected After that's group to advance into Next up");
+    assert(afterThatNow?.id === newThenGroup.id, "expected Then's group to advance into After that");
+    assert(thenNow === undefined, "expected Then to be empty after the line moved up");
     console.log(
-      "PASS: assigning a staged group to a court resolves members fresh, deletes the emptied slot, keeps incomplete groups in place, and auto-fires the announcement.",
+      "PASS: assigning a staged group to a court resolves members fresh, deletes the emptied slot, moves Next up / After that / Then up, and auto-fires the announcement.",
     );
 
     // ============== 9. The real race: two concurrent assignments of the same staged group ==============
@@ -335,7 +333,7 @@ async function main(): Promise<void> {
     allRegistrationIds.push(...raceIds);
     const raceGroup = await openPlayRotationService.stageManualGroup(
       TEST_DATE,
-      "NEXT_UP", // free: nothing complete moved up into it (see step 8)
+      "THEN", // free again: the line moved up in step 8
       raceIds,
       owner.id,
     );
@@ -372,7 +370,7 @@ async function main(): Promise<void> {
     allRegistrationIds.push(...restIds);
     const restGroup = await openPlayRotationService.stageManualGroup(
       TEST_DATE,
-      "NEXT_UP", // free: nothing complete moved up into it (see step 8)
+      "THEN", // free again: the line moved up in step 8
       restIds,
       owner.id,
     );
@@ -404,7 +402,7 @@ async function main(): Promise<void> {
     allRegistrationIds.push(...addIds);
     const addGroup = await openPlayRotationService.stageManualGroup(
       TEST_DATE,
-      "NEXT_UP", // free: nothing complete moved up into it (see step 8)
+      "THEN", // free again: the line moved up in step 8
       addIds,
       owner.id,
     );
