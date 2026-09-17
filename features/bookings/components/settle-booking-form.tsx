@@ -107,7 +107,12 @@ export function SettleBookingForm({
             idPrefix="settleBookingPaymentMethod"
             amountCents={amountCents}
           />
-          <Button type="button" disabled={isPending || !paymentMethodId} onClick={handleSettle}>
+          <Button
+            type="button"
+            className="bg-green-700 text-white hover:bg-green-800 disabled:opacity-70"
+            disabled={isPending || !paymentMethodId}
+            onClick={handleSettle}
+          >
             Confirm {formatCurrency(amountCents)} settled
           </Button>
         </div>

@@ -438,6 +438,7 @@ export function TabsPanel({
                           <Button
                             type="button"
                             size="sm"
+                            className="bg-green-700 text-white hover:bg-green-800 disabled:opacity-70"
                             disabled={isPending || !paymentMethodId}
                             onClick={() => handleSettle(tab.id)}
                           >

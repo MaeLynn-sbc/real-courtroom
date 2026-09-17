@@ -30,15 +30,19 @@ const NEUTRAL: PaymentMethodStyle = {
   badge: "bg-slate-100 text-slate-700 border-slate-300",
 };
 
+// Darkened (owner, 2026-09-17: "can u darken these buttons"). The
+// settlement card stays light in dark mode, so the unselected text keeps
+// its strong shade in both themes instead of switching to a pale one,
+// and the selected state is a solid fill with white text.
 const BY_KEY: Record<string, PaymentMethodStyle> = {
   CASH: {
-    selected: "bg-pink-300 text-pink-950 hover:bg-pink-300 border-pink-400",
-    idle: "border-pink-300 text-pink-700 hover:bg-pink-50 dark:text-pink-300 dark:hover:bg-pink-950/40",
+    selected: "bg-pink-600 text-white hover:bg-pink-600 border-pink-700",
+    idle: "border-pink-400 bg-pink-50 text-pink-700 hover:bg-pink-100",
     badge: "bg-pink-100 text-pink-900 border-pink-300",
   },
   GCASH: {
-    selected: "bg-sky-300 text-sky-950 hover:bg-sky-300 border-sky-400",
-    idle: "border-sky-300 text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-sky-950/40",
+    selected: "bg-sky-600 text-white hover:bg-sky-600 border-sky-700",
+    idle: "border-sky-400 bg-sky-50 text-sky-700 hover:bg-sky-100",
     badge: "bg-sky-100 text-sky-900 border-sky-300",
   },
 };

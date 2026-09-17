@@ -290,7 +290,13 @@ export function BookingAddOnsPanel({
                     onGcashReferenceChange={setGcashReference}
                     idPrefix={`bookingAddOnsSettle-${bookingId}`}
                   />
-                  <Button type="button" size="sm" disabled={isPending} onClick={handleSettle}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="bg-green-700 text-white hover:bg-green-800 disabled:opacity-70"
+                    disabled={isPending}
+                    onClick={handleSettle}
+                  >
                     Confirm {formatCurrency(totalCents)} settled
                   </Button>
                   <Button
