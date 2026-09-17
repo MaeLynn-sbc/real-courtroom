@@ -594,7 +594,11 @@ export function RotationBoard({
         toast.error(result.error);
         return;
       }
-      toast.success(successMessage);
+      if (result.notice) {
+        toast.info(result.notice);
+      } else {
+        toast.success(successMessage);
+      }
       refresh();
     });
   }
@@ -618,15 +622,17 @@ export function RotationBoard({
       return;
     }
     runAction(
-      (async () => {
+      (async (): Promise<OpenPlayRotationActionState> => {
+        let notice: string | undefined;
         for (const registrationId of registrationIds) {
           const result = await addPlayerToStagedGroupAction({
             stagedGroupId: group.id,
             registrationId,
           });
           if (result.error) return result;
+          notice = result.notice ?? notice;
         }
-        return { error: null };
+        return { error: null, notice };
       })(),
       message,
     );

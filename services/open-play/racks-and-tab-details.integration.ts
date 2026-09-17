@@ -11,6 +11,7 @@
  */
 import "dotenv/config";
 
+import { STAGED_SLOTS } from "../../lib/staged-slots";
 import { prisma } from "../../lib/prisma";
 import { openPlayCheckinService } from "./open-play-checkin.service";
 import { openPlayRegistrationService } from "./open-play-registration.service";
@@ -47,9 +48,9 @@ async function main(): Promise<void> {
   await cleanUp();
 
   try {
-    // Twenty-three checked-in players.
+    // Thirty checked-in players.
     const regIds: string[] = [];
-    for (let i = 1; i <= 23; i += 1) {
+    for (let i = 1; i <= 30; i += 1) {
       const reg = await openPlayRegistrationService.registerWeeknightWalkIn(
         TEST_DATE,
         { playerName: `${PREFIX} P${i} ${Date.now()}`, phone: "1", skillLevel: "NOVICE" },
@@ -109,9 +110,29 @@ async function main(): Promise<void> {
 
     // 2. Play the game: the tab charge carries court and time.
     const game = await prisma.gameAssignment.findFirstOrThrow({ where: { date: TEST_DATE, courtId: court.id } });
+    // A group starts forming while that game is still on court.
+    const waitingGroup = await stage("RACK_6", 3);
     await openPlayRotationService.confirmAssignment(game.id, owner.id);
     await openPlayRotationService.completeAssignment(game.id, owner.id);
     const charge = await prisma.tabLineItem.findFirstOrThrow({ where: { gameAssignmentId: game.id } });
+
+    // Returning-player rule: a waiting group completed by someone who just
+    // played goes to the back; the same group completed by a fresh player
+    // stays where it is.
+    const returning = nextUp.members[0].registrationId;
+    const backOfLine = (await prisma.stagedGroup.findMany({ where: { date: TEST_DATE } }))
+      .map((g) => g.slot)
+      .sort((a, b) => STAGED_SLOTS.indexOf(b) - STAGED_SLOTS.indexOf(a))[0];
+    await openPlayRotationService.addPlayerToStagedGroup(waitingGroup.id, returning, owner.id);
+    const movedTo = await slotOf(waitingGroup.id);
+    assert(
+      movedTo !== null && STAGED_SLOTS.indexOf(movedTo) > STAGED_SLOTS.indexOf(backOfLine),
+      `a group completed by a just-played player moves behind everyone (was behind ${backOfLine}, now ${movedTo})`,
+    );
+    const freshGroup = await stage("RACK_6", 3);
+    await openPlayRotationService.addPlayerToStagedGroup(freshGroup.id, take(1)[0], owner.id);
+    assert((await slotOf(freshGroup.id)) === "RACK_6", "a group completed by a fresh player keeps its place");
+    console.log(`PASS: a group completed by a player who just played goes to the back (${movedTo}); a fresh player's does not.`);
     assert(charge.description.startsWith(`OP · ${court.name} · `), `the charge names the court, got "${charge.description}"`);
     assert(/\d{1,2}:\d{2}\s?[AP]M–\d{1,2}:\d{2}\s?[AP]M$/.test(charge.description), `the charge shows start–end, got "${charge.description}"`);
     console.log(`PASS: a finished game is billed as "${charge.description}".`);

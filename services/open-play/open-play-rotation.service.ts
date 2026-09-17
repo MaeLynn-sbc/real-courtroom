@@ -708,11 +708,12 @@ export class OpenPlayRotationService {
     stagedGroupId: string,
     registrationId: string,
     actorUserId: string,
-  ): Promise<StagedGroupWithMembers> {
+  ): Promise<StagedGroupWithMembers & { movedToBack: boolean }> {
     // An empty id would make the lookup below match ANY queued player.
     if (!registrationId) {
       throw new Error("Pick a player to add.");
     }
+    let movedToBack = false;
     await runSerializableWithRetry(async (tx) => {
       const group = await tx.stagedGroup.findUnique({
         where: { id: stagedGroupId },
@@ -743,6 +744,21 @@ export class OpenPlayRotationService {
       }
 
       await tx.queueEntry.update({ where: { id: entry.id }, data: { stagedGroupId } });
+
+      // Owner rule (2026-09-17): a group completed by someone who JUST
+      // PLAYED goes to the back of the line. "Just played" = their last
+      // game ended after this group started forming, i.e. they came off a
+      // court and filled a group others were already waiting in. The
+      // whole group moves behind every other group; full groups behind its
+      // old place then move up as usual.
+      const completedByReturningPlayer =
+        group.queueEntries.length + 1 >= 4 &&
+        entry.lastPlayedAt !== null &&
+        entry.lastPlayedAt > group.createdAt;
+      if (completedByReturningPlayer) {
+        movedToBack = await this.moveGroupToBackTx(tx, group.id, group.date);
+      }
+
       // A rack that just became complete may now move forward.
       await this.compactPipelineTx(tx, group.date);
     });
@@ -752,10 +768,10 @@ export class OpenPlayRotationService {
       action: "staged_group.player_added",
       entityType: "StagedGroup",
       entityId: stagedGroupId,
-      newValues: { registrationId },
+      newValues: { registrationId, movedToBack },
     });
 
-    return this.loadStagedGroupWithMembers(stagedGroupId);
+    return { ...(await this.loadStagedGroupWithMembers(stagedGroupId)), movedToBack };
   }
 
   // The × control on a staged chip — un-stages exactly one player.
@@ -816,6 +832,34 @@ export class OpenPlayRotationService {
   // Run after anything that can open or fill a position. Deliberately
   // does NOT touch announcementRequestedAt or announce anything — moving
   // up is silent; Announce stays a separate, manual staff action.
+  // Moves a group behind every other group in the line. Returns false
+  // (and leaves it in place) only when the last position is already
+  // taken, i.e. there is no room behind the others.
+  private async moveGroupToBackTx(
+    tx: Prisma.TransactionClient,
+    groupId: string,
+    date: Date,
+  ): Promise<boolean> {
+    const others = await tx.stagedGroup.findMany({
+      where: { date, id: { not: groupId } },
+      select: { slot: true },
+    });
+    const lastOther = Math.max(-1, ...others.map((other) => STAGED_SLOTS.indexOf(other.slot)));
+    const target = STAGED_SLOTS[lastOther + 1];
+    if (!target) {
+      return false;
+    }
+    const current = await tx.stagedGroup.findUniqueOrThrow({
+      where: { id: groupId },
+      select: { slot: true },
+    });
+    if (STAGED_SLOTS.indexOf(current.slot) >= lastOther + 1) {
+      return false; // already at the back
+    }
+    await tx.stagedGroup.update({ where: { id: groupId }, data: { slot: target } });
+    return true;
+  }
+
   private async compactPipelineTx(tx: Prisma.TransactionClient, date: Date): Promise<void> {
     const groups = await tx.stagedGroup.findMany({
       where: { date },
