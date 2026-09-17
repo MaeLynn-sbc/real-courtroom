@@ -34,7 +34,7 @@ export const STAGED_SLOTS: StagedGroupSlot[] = [...STAGED_SLOT_VALUES];
 
 // The three about to play, and the twelve racks behind them. Racks 1-6
 // are always shown; Racks 7-12 (EXTRA_RACK_SLOTS, added 2026-09-17) are
-// tucked away until used.
+// tucked away on the staff board until used, and never shown on a TV.
 export const PLAY_SLOTS: StagedGroupSlot[] = STAGED_SLOTS.slice(0, 3);
 export const RACK_SLOTS: StagedGroupSlot[] = STAGED_SLOTS.slice(3);
 export const BASE_RACK_SLOTS: StagedGroupSlot[] = STAGED_SLOTS.slice(3, 9);
