@@ -10,6 +10,7 @@ import {
 } from "@/types/open-play-skill-levels";
 
 const RACK_COUNT = 6;
+const SPOTS_PER_RACK = 4;
 const VISIBLE_WAITING = 16;
 
 const timeFormatter = new Intl.DateTimeFormat("en-PH", {
@@ -22,23 +23,25 @@ function cls(...names: (string | false | undefined)[]): string {
   return names.filter(Boolean).join(" ");
 }
 
-// /rtv, right side: the six virtual paddle racks (owner, 2026-09-17),
-// drawn with /tv's own "Next up" box styles so the two screens read the
-// same. Rack 1 is green (plays next); the rest are slate. A full rack
-// shows the court it is expected to take; a short one says how many it
-// still needs. Names are coloured by skill.
-export function RackColumn({ data }: { data: DisplayData }) {
+// /rtv, the big lower panel: six virtual paddle racks (owner,
+// 2026-09-17), three across and two down, drawn with /tv's own "Next up"
+// box styles so the two screens read the same. Each rack has four spots,
+// like four paddles; an open spot shows a dash. Rack 1 is green (plays
+// next); the rest are slate. A full rack shows the court it is expected
+// to take; a short one says how many it still needs. Names are coloured
+// by skill.
+export function RackGrid({ data }: { data: DisplayData }) {
   const racks = buildLine(data).filter((set) => set.kind === "staged");
   const byLabel = new Map(racks.map((rack) => [rack.label, rack]));
 
   return (
     <div
       style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "0.9vh",
-        width: "34vw",
-        flexShrink: 0,
+        display: "grid",
+        gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+        gridTemplateRows: "repeat(2, minmax(0, 1fr))",
+        gap: "1.2vh 1.2vw",
+        flex: 1,
         minHeight: 0,
       }}
     >
@@ -50,7 +53,7 @@ export function RackColumn({ data }: { data: DisplayData }) {
           <div
             key={label}
             className={cls(styles["next-up"], index > 0 && styles.later)}
-            style={{ flex: 1, minHeight: 0, padding: "0.8vh 1vw" }}
+            style={{ minHeight: 0, padding: "1vh 1vw" }}
           >
             <span className={styles.tag}>{label}</span>
             <div
@@ -59,36 +62,40 @@ export function RackColumn({ data }: { data: DisplayData }) {
                 minWidth: 0,
                 display: "flex",
                 flexDirection: "column",
-                gap: "0.4vh",
+                gap: "0.6vh",
               }}
             >
-              <span className={styles.names} style={{ gap: "0.2vh 1vw" }}>
-                {rack ? (
-                  rack.players.map((player, i) => (
+              <span className={styles.names} style={{ gap: "0.6vh 1vw" }}>
+                {Array.from({ length: SPOTS_PER_RACK }, (_, i) => {
+                  const player = rack?.players[i];
+                  return (
                     <span
-                      key={`${player.name}-${i}`}
+                      key={player ? `${player.name}-${i}` : `open-${i}`}
                       className={styles.n}
-                      style={{ fontSize: "2.6vh", color: skillColor(player.skill) }}
+                      style={{
+                        fontSize: "3.4vh",
+                        color: player ? skillColor(player.skill) : "var(--line)",
+                      }}
                     >
-                      {player.name}
+                      {player ? player.name : "—"}
                     </span>
-                  ))
-                ) : (
-                  <span className={styles.n} style={{ fontSize: "2.6vh" }}>
-                    —
-                  </span>
-                )}
+                  );
+                })}
               </span>
               {rack ? (
                 <span
                   style={{
                     fontFamily: "var(--mono)",
-                    fontSize: "1.4vh",
+                    fontSize: "1.8vh",
                     color: ready ? "var(--bone)" : "var(--amber)",
                   }}
                 >
                   {ready && rack.court
-                    ? `${rack.court.courtName} · ${rack.court.readyAt ? `~${timeFormatter.format(new Date(rack.court.readyAt))}` : "open now"}`
+                    ? `${rack.court.courtName} · ${
+                        rack.court.readyAt
+                          ? `~${timeFormatter.format(new Date(rack.court.readyAt))}`
+                          : "open now"
+                      }`
                     : rack.missing > 0
                       ? `needs ${rack.missing} more`
                       : ""}
@@ -102,9 +109,9 @@ export function RackColumn({ data }: { data: DisplayData }) {
   );
 }
 
-// /rtv, bottom: everyone waiting who isn't on a rack yet, numbered in
-// line order — /tv's own waiting row — with names coloured by skill and
-// the colour legend beside it.
+// /rtv, under the racks: everyone waiting who isn't on a rack yet,
+// numbered in line order — /tv's own waiting row — with names coloured
+// by skill and the colour legend beside it.
 export function WaitingStrip({ data }: { data: DisplayData }) {
   const players = (data.queueUnits ?? data.queue.map((name) => [{ name, skill: null }])).flat();
   const shown = players.slice(0, VISIBLE_WAITING);
@@ -112,9 +119,12 @@ export function WaitingStrip({ data }: { data: DisplayData }) {
   const onRacks = data.stagedGroups.reduce((n, g) => n + g.names.length, 0);
 
   return (
-    <div className={cls(styles["q-row"], styles.rest)} style={{ borderTop: 0, paddingTop: 0 }}>
+    <div
+      className={cls(styles["q-row"], styles.rest)}
+      style={{ flex: "0 0 auto", paddingTop: "1vh" }}
+    >
       <div className={styles["q-label"]} style={{ minWidth: "11vw" }}>
-        <em className={styles["count-n"]} style={{ marginTop: 0 }}>
+        <em className={styles["count-n"]} style={{ marginTop: 0, fontSize: "3.6vh" }}>
           {players.length + onRacks}
         </em>
         <span>Waiting</span>

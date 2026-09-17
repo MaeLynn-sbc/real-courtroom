@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { RackColumn, WaitingStrip } from "@/features/display/components/line-panel";
+import { RackGrid, WaitingStrip } from "@/features/display/components/line-panel";
 import { createAnnouncementRepeater } from "@/features/display/lib/announcement-repeater";
 import type { DisplayCourt, DisplayData } from "@/services/display/display.service";
 
@@ -762,16 +762,14 @@ export function TvDisplayClient({
 
       {variant === "line" ? (
         <>
-          {/* /rtv (owner, 2026-09-17): the same court cards as /tv on the
-              left, the six virtual paddle racks down the right, and /tv's
-              waiting row along the bottom. */}
-          <div style={{ display: "flex", gap: "1.2vw", flex: 1, minHeight: 0 }}>
-            <div className={styles.courts} style={{ flex: 1, minWidth: 0 }}>
-              {courtCards}
-            </div>
-            <RackColumn data={data} />
+          {/* /rtv (owner, 2026-09-17): /tv's court cards across the top,
+              the six virtual paddle racks filling the big lower panel,
+              and a numbered waiting row under them. */}
+          <div className={styles.courts} style={{ flex: "0 0 36vh" }}>
+            {courtCards}
           </div>
-          <div className={styles.queue} style={{ minHeight: "12vh" }}>
+          <div className={styles.queue} style={{ flex: 1, minHeight: 0, gap: "1.2vh" }}>
+            <RackGrid data={data} />
             <WaitingStrip data={data} />
           </div>
         </>
