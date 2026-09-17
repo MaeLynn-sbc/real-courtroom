@@ -14,6 +14,7 @@ import {
   unstageGroupAction,
   unstageQueueEntryAction,
 } from "@/actions/open-play-rotation.actions";
+import { updateRegistrationDetailsAction } from "@/actions/open-play-registration.actions";
 
 jest.mock("@/actions/open-play-rotation.actions", () => ({
   addPlayerToStagedGroupAction: jest.fn(),
@@ -33,6 +34,10 @@ jest.mock("@/actions/open-play-rotation.actions", () => ({
   stageManualGroupAction: jest.fn(),
   unstageGroupAction: jest.fn(),
   unstageQueueEntryAction: jest.fn(),
+}));
+
+jest.mock("@/actions/open-play-registration.actions", () => ({
+  updateRegistrationDetailsAction: jest.fn(),
 }));
 
 jest.mock("next/navigation", () => ({
@@ -1227,5 +1232,42 @@ describe("RotationBoard — send a waiting unit to a staged slot", () => {
     expect(within(benRow).getByRole("button", { name: /^next up \(3\/4\)$/i })).toBeDisabled();
     // The empty slots still take the whole pair.
     expect(within(benRow).getByRole("button", { name: /^after that$/i })).toBeEnabled();
+  });
+});
+
+// Owner (2026-09-17): Edit after the skill label corrects name, skill
+// and phone for a waiting player.
+describe("RotationBoard — edit a waiting player's details", () => {
+  const mockedUpdate = updateRegistrationDetailsAction as jest.MockedFunction<typeof updateRegistrationDetailsAction>;
+  const waiting: RotationBoardProps["waiting"] = [
+    {
+      partyId: null,
+      members: [{ queueEntryId: "qe-j", registrationId: "r-j", playerName: "Jestoni", skillLevel: "BEGINNER" }],
+      waitMinutes: 5,
+      pastMaxWait: false,
+    },
+  ];
+
+  beforeEach(() => mockedUpdate.mockReset());
+
+  it("opens a form prefilled with name and skill, and sends only what changed", async () => {
+    mockedUpdate.mockResolvedValue({ error: null });
+    render(<RotationBoard {...baseProps({})} waiting={waiting} />);
+    await clickAsync(screen.getByRole("button", { name: "Edit Jestoni" }));
+
+    expect(screen.getByLabelText("Name")).toHaveValue("Jestoni");
+    expect(screen.getByLabelText("Skill")).toHaveValue("BEGINNER");
+    expect(screen.getByLabelText("Phone")).toHaveValue("");
+
+    fireEvent.change(screen.getByLabelText("Skill"), { target: { value: "NOVICE" } });
+    fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "09171234567" } });
+    await clickAsync(screen.getByRole("button", { name: "Save" }));
+
+    expect(mockedUpdate).toHaveBeenCalledWith({
+      registrationId: "r-j",
+      playerName: undefined,
+      skillLevel: "NOVICE",
+      phone: "09171234567",
+    });
   });
 });

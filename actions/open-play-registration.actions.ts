@@ -191,7 +191,7 @@ export async function updateRegistrationDetailsAction(
   try {
     await openPlayRegistrationService.updateRegistrationDetails(
       parsed.data.registrationId,
-      { playerName: parsed.data.playerName, phone: parsed.data.phone },
+      { playerName: parsed.data.playerName, phone: parsed.data.phone, skillLevel: parsed.data.skillLevel },
       authz.userId,
     );
     revalidateSession();

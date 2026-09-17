@@ -242,6 +242,12 @@ export class TournamentDisplayService {
       RACK_7: 6,
       RACK_8: 7,
       RACK_9: 8,
+      RACK_10: 9,
+      RACK_11: 10,
+      RACK_12: 11,
+      RACK_13: 12,
+      RACK_14: 13,
+      RACK_15: 14,
     };
     staged.sort((a, b) => stagedSlotOrder[a.stagedSlot!] - stagedSlotOrder[b.stagedSlot!]);
 

@@ -25,13 +25,22 @@ import {
   unstageQueueEntryAction,
   type OpenPlayRotationActionState,
 } from "@/actions/open-play-rotation.actions";
+import { updateRegistrationDetailsAction } from "@/actions/open-play-registration.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { STAGED_SLOTS, perSlot, stagedSlotLabel } from "@/lib/staged-slots";
+import { EXTRA_RACK_SLOTS, STAGED_SLOTS, perSlot, stagedSlotLabel } from "@/lib/staged-slots";
+
+// Next up / After that / Then + Racks 1-6: always on screen. Racks 7-12
+// (EXTRA_RACK_SLOTS) are tucked away until opened or in use (owner,
+// 2026-09-17: "add 6 more racks but minimize them when not used").
+const MAIN_SLOTS = STAGED_SLOTS.filter((slot) => !EXTRA_RACK_SLOTS.includes(slot));
 import { skillTextClass } from "@/types/open-play-skill-color";
-import { OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
+import {
+  OPEN_PLAY_SKILL_LEVEL_ORDER,
+  OPEN_PLAY_SKILL_LEVELS,
+} from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel, StagedGroupSlot } from "@/lib/generated/prisma/enums";
 
 interface BoardMember {
@@ -173,10 +182,17 @@ function NextUpSection({
   runAction,
   isPending,
   totalWaiting,
+  extraRacksOpen,
+  extraRacksInUse,
+  onToggleExtraRacks,
 }: {
   date: string;
   stagedGroups: BoardStagedGroup[];
   courts: BoardCourt[];
+  // Racks 7-12: shown when opened or when any of them holds a group.
+  extraRacksOpen: boolean;
+  extraRacksInUse: boolean;
+  onToggleExtraRacks: () => void;
   // "Add a player to an existing group" / swap (× then add, back to
   // back — see addPlayerToStagedGroupAction's own comment for why this
   // isn't a separate swap mechanism). Already the exact set the server
@@ -536,11 +552,34 @@ function NextUpSection({
             court cards: Next up / After that / Then on the first row, then
             Racks 1-6. When Next up goes on court, everything behind moves
             up one. */}
-        {STAGED_SLOTS.map((slot, index) => (
+        {MAIN_SLOTS.map((slot, index) => (
           <div key={slot} className="min-w-0">
             {renderSlot(slot, index === 0)}
           </div>
         ))}
+        <div className="md:col-span-3">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-expanded={extraRacksOpen}
+            disabled={extraRacksInUse}
+            onClick={onToggleExtraRacks}
+          >
+            {extraRacksInUse
+              ? "Racks 7–12 (in use)"
+              : extraRacksOpen
+                ? "Hide Racks 7–12 ▴"
+                : "More racks (7–12) ▾"}
+          </Button>
+        </div>
+        {extraRacksOpen
+          ? EXTRA_RACK_SLOTS.map((slot) => (
+              <div key={slot} className="min-w-0">
+                {renderSlot(slot, false)}
+              </div>
+            ))
+          : null}
       </CardContent>
     </Card>
   );
@@ -558,6 +597,17 @@ export function RotationBoard({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [manualPicks, setManualPicks] = useState<string[]>([]);
+  const [showExtraRacks, setShowExtraRacks] = useState(false);
+  // Inline edit of a waiting player's details (owner, 2026-09-17: "after
+  // the word beginner, put edit for the details, skill and number").
+  const [editing, setEditing] = useState<{
+    registrationId: string;
+    playerName: string;
+    skillLevel: OpenPlaySkillLevel;
+    phone: string;
+  } | null>(null);
+  const extraRacksInUse = stagedGroups.some((group) => EXTRA_RACK_SLOTS.includes(group.slot));
+  const extraRacksOpen = showExtraRacks || extraRacksInUse;
   // Build a group by hand's destination — a slot (staging) or a specific
   // court (straight to a game, unchanged from before this feature).
   // "slot:NEXT_UP" / "court:<id>" — a single dropdown covers both, per
@@ -912,6 +962,9 @@ export function RotationBoard({
         runAction={runAction}
         isPending={isPending}
         totalWaiting={totalWaiting}
+        extraRacksOpen={extraRacksOpen}
+        extraRacksInUse={extraRacksInUse}
+        onToggleExtraRacks={() => setShowExtraRacks((open) => !open)}
       />
 
       <Card>
@@ -1042,11 +1095,9 @@ export function RotationBoard({
                         {unit.members.map((member) => {
                           const picked = manualPicks.includes(member.registrationId);
                           return (
-                            <label
-                              key={member.registrationId}
-                              className="flex items-center gap-1.5 text-sm"
-                            >
-                              {/* Reported live: the raw, unstyled native
+                            <span key={member.registrationId} className="flex items-center gap-1.5">
+                              <label className="flex items-center gap-1.5 text-sm">
+                                {/* Reported live: the raw, unstyled native
                                 checkbox rendered as an ambiguous solid
                                 dark square against this app's dark theme
                                 — no visible border, no clear "this is
@@ -1056,28 +1107,49 @@ export function RotationBoard({
                                 icon is drawn separately (appearance-none
                                 removes the native glyph too), overlaid
                                 only while checked. */}
-                              <span className="relative inline-flex size-4 shrink-0">
-                                <input
-                                  type="checkbox"
-                                  checked={picked}
-                                  onChange={() => toggleManualPick(member.registrationId)}
-                                  className="border-input checked:border-court-blue checked:bg-court-blue size-4 shrink-0 cursor-pointer appearance-none rounded border-2 bg-white"
-                                />
-                                {picked ? (
-                                  <Check
-                                    className="pointer-events-none absolute inset-0 size-4 p-0.5 text-white"
-                                    strokeWidth={3}
-                                    aria-hidden="true"
+                                <span className="relative inline-flex size-4 shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={picked}
+                                    onChange={() => toggleManualPick(member.registrationId)}
+                                    className="border-input checked:border-court-blue checked:bg-court-blue size-4 shrink-0 cursor-pointer appearance-none rounded border-2 bg-white"
                                   />
-                                ) : null}
-                              </span>
-                              <span className={skillTextClass(member.skillLevel)}>
-                                {displayPlayerName(member.playerName)}
-                              </span>{" "}
-                              <span className="text-muted-foreground text-xs">
-                                ({skillLabel(member.skillLevel)})
-                              </span>
-                            </label>
+                                  {picked ? (
+                                    <Check
+                                      className="pointer-events-none absolute inset-0 size-4 p-0.5 text-white"
+                                      strokeWidth={3}
+                                      aria-hidden="true"
+                                    />
+                                  ) : null}
+                                </span>
+                                <span className={skillTextClass(member.skillLevel)}>
+                                  {displayPlayerName(member.playerName)}
+                                </span>{" "}
+                                <span className="text-muted-foreground text-xs">
+                                  ({skillLabel(member.skillLevel)})
+                                </span>
+                              </label>
+                              <button
+                                type="button"
+                                className="text-court-blue text-xs font-medium hover:underline"
+                                aria-label={`Edit ${displayPlayerName(member.playerName)}`}
+                                disabled={isPending}
+                                onClick={() =>
+                                  setEditing(
+                                    editing?.registrationId === member.registrationId
+                                      ? null
+                                      : {
+                                          registrationId: member.registrationId,
+                                          playerName: member.playerName,
+                                          skillLevel: member.skillLevel,
+                                          phone: "",
+                                        },
+                                  )
+                                }
+                              >
+                                Edit
+                              </button>
+                            </span>
                           );
                         })}
                         {unit.partyId ? <Badge variant="outline">party</Badge> : null}
@@ -1122,9 +1194,97 @@ export function RotationBoard({
                         </Button>
                       </div>
                     </div>
+                    {editing &&
+                    unit.members.some((m) => m.registrationId === editing.registrationId) ? (
+                      <form
+                        className="bg-muted/40 flex flex-wrap items-end gap-2 rounded-md border p-2"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          const member = unit.members.find(
+                            (m) => m.registrationId === editing.registrationId,
+                          );
+                          const playerName = editing.playerName.trim();
+                          const phone = editing.phone.trim();
+                          runAction(
+                            updateRegistrationDetailsAction({
+                              registrationId: editing.registrationId,
+                              playerName:
+                                playerName && playerName !== member?.playerName
+                                  ? playerName
+                                  : undefined,
+                              skillLevel:
+                                editing.skillLevel !== member?.skillLevel
+                                  ? editing.skillLevel
+                                  : undefined,
+                              // Blank keeps the phone on file.
+                              phone: phone || undefined,
+                            }).then((r) => {
+                              if (!r.error) setEditing(null);
+                              return r;
+                            }),
+                            "Details updated.",
+                          );
+                        }}
+                      >
+                        <label className="flex flex-col gap-1 text-xs">
+                          Name
+                          <input
+                            className="border-input bg-background rounded-md border px-2 py-1 text-sm"
+                            value={editing.playerName}
+                            maxLength={200}
+                            onChange={(event) =>
+                              setEditing({ ...editing, playerName: event.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          Skill
+                          <select
+                            className="border-input bg-background rounded-md border px-2 py-1 text-sm"
+                            value={editing.skillLevel}
+                            onChange={(event) =>
+                              setEditing({
+                                ...editing,
+                                skillLevel: event.target.value as OpenPlaySkillLevel,
+                              })
+                            }
+                          >
+                            {OPEN_PLAY_SKILL_LEVEL_ORDER.map((level) => (
+                              <option key={level} value={level}>
+                                {OPEN_PLAY_SKILL_LEVELS[level].label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                          Phone
+                          <input
+                            className="border-input bg-background rounded-md border px-2 py-1 text-sm"
+                            value={editing.phone}
+                            maxLength={50}
+                            inputMode="tel"
+                            placeholder="Leave blank to keep"
+                            onChange={(event) =>
+                              setEditing({ ...editing, phone: event.target.value })
+                            }
+                          />
+                        </label>
+                        <Button type="submit" size="sm" disabled={isPending}>
+                          Save
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditing(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </form>
+                    ) : null}
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-muted-foreground text-xs">Put in line</span>
-                      {STAGED_SLOTS.map((slot) => {
+                      {(extraRacksOpen ? STAGED_SLOTS : MAIN_SLOTS).map((slot) => {
                         const group = stagedGroups.find((g) => g.slot === slot);
                         const room = slotRoomFor(unit, slot);
                         return (

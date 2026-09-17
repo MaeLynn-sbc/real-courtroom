@@ -865,7 +865,7 @@ export class OpenPlayRegistrationService {
   // would be an arbitrary limit the actual reported need never asked for.
   async updateRegistrationDetails(
     registrationId: string,
-    input: { playerName?: string; phone?: string },
+    input: { playerName?: string; phone?: string; skillLevel?: OpenPlaySkillLevel },
     actorUserId: string,
   ): Promise<OpenPlayNightRegistration> {
     const existing = await prisma.openPlayNightRegistration.findUniqueOrThrow({
@@ -877,8 +877,25 @@ export class OpenPlayRegistrationService {
       data: {
         playerName: input.playerName,
         phone: input.phone,
+        skillLevel: input.skillLevel,
       },
     });
+
+    // Skill is snapshotted onto the queue entry too (the rotation board
+    // matches and colours by it), and a corrected skill or real phone is
+    // saved to the player's profile so next visit starts right.
+    if (input.skillLevel) {
+      await prisma.queueEntry.updateMany({ where: { registrationId }, data: { skillLevel: input.skillLevel } });
+    }
+    if (existing.playerId && (input.skillLevel || realPhone(input.phone))) {
+      await prisma.player.update({
+        where: { id: existing.playerId },
+        data: {
+          ...(input.skillLevel ? { openPlaySkillLevel: input.skillLevel } : {}),
+          ...(realPhone(input.phone) ? { phone: input.phone } : {}),
+        },
+      });
+    }
 
     // playerName is snapshotted (copied, not joined) onto QueueEntry
     // (rotation board grouping/display) and PlayerTab (billing) at
@@ -901,8 +918,8 @@ export class OpenPlayRegistrationService {
       action: "open_play_night_registration.details_updated",
       entityType: "OpenPlayNightRegistration",
       entityId: registrationId,
-      oldValues: { playerName: existing.playerName, phone: existing.phone },
-      newValues: { playerName: updated.playerName, phone: updated.phone },
+      oldValues: { playerName: existing.playerName, phone: existing.phone, skillLevel: existing.skillLevel },
+      newValues: { playerName: updated.playerName, phone: updated.phone, skillLevel: updated.skillLevel },
     });
 
     return updated;

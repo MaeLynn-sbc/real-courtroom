@@ -62,9 +62,9 @@ async function main(): Promise<void> {
   await cleanUp();
 
   try {
-    // Thirty checked-in players.
+    // Thirty-four checked-in players.
     const regIds: string[] = [];
-    for (let i = 1; i <= 30; i += 1) {
+    for (let i = 1; i <= 34; i += 1) {
       const reg = await openPlayRegistrationService.registerWeeknightWalkIn(
         TEST_DATE,
         { playerName: `${PREFIX} P${i} ${Date.now()}`, phone: "1", skillLevel: "NOVICE" },
@@ -190,6 +190,29 @@ async function main(): Promise<void> {
     console.log(
       `PASS: a group completed by a player who just played goes to the back (${movedTo}); a fresh player's does not.`,
     );
+
+    // Racks 7-12: a full group put on Rack 12 moves forward like any other.
+    const farGroup = await stage("RACK_15", 4);
+    const farSlot = await slotOf(farGroup.id);
+    assert(farSlot !== "RACK_15", `a full group on Rack 12 moves forward, stayed at ${farSlot}`);
+    console.log(`PASS: Racks 7-12 exist and a full group there moves forward (to ${farSlot}).`);
+
+    // Edit: a corrected skill reaches the queue entry and the player profile.
+    const edited = await prisma.openPlayNightRegistration.findUniqueOrThrow({ where: { id: regIds[1] } });
+    await openPlayRegistrationService.updateRegistrationDetails(
+      regIds[1],
+      { skillLevel: "ADVANCED", phone: "09175550999" },
+      owner.id,
+    );
+    const editedEntry = await prisma.queueEntry.findUniqueOrThrow({ where: { registrationId: regIds[1] } });
+    assert(editedEntry.skillLevel === "ADVANCED", "the edited skill reaches the rotation queue");
+    assert(edited.playerId, "walk-ins are linked to a player");
+    const profile = await prisma.player.findUniqueOrThrow({ where: { id: edited.playerId } });
+    assert(
+      profile.openPlaySkillLevel === "ADVANCED" && profile.phone === "09175550999",
+      "the edited skill and phone reach the player profile",
+    );
+    console.log("PASS: editing a waiting player's skill and phone updates the queue and their profile.");
     assert(
       charge.description.startsWith(`OP · ${court.name} · `),
       `the charge names the court, got "${charge.description}"`,

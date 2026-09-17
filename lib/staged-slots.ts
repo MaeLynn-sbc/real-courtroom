@@ -22,13 +22,23 @@ export const STAGED_SLOT_VALUES = [
   "RACK_7",
   "RACK_8",
   "RACK_9",
+  "RACK_10",
+  "RACK_11",
+  "RACK_12",
+  "RACK_13",
+  "RACK_14",
+  "RACK_15",
 ] as const;
 
 export const STAGED_SLOTS: StagedGroupSlot[] = [...STAGED_SLOT_VALUES];
 
-// The three about to play, and the six racks behind them.
+// The three about to play, and the twelve racks behind them. Racks 1-6
+// are always shown; Racks 7-12 (EXTRA_RACK_SLOTS, added 2026-09-17) are
+// tucked away until used.
 export const PLAY_SLOTS: StagedGroupSlot[] = STAGED_SLOTS.slice(0, 3);
 export const RACK_SLOTS: StagedGroupSlot[] = STAGED_SLOTS.slice(3);
+export const BASE_RACK_SLOTS: StagedGroupSlot[] = STAGED_SLOTS.slice(3, 9);
+export const EXTRA_RACK_SLOTS: StagedGroupSlot[] = STAGED_SLOTS.slice(9);
 
 const PLAY_LABELS: Partial<Record<StagedGroupSlot, string>> = {
   NEXT_UP: "Next up",

@@ -45,9 +45,12 @@ export const updateRegistrationDetailsInputSchema = z
     registrationId: z.string().min(1),
     playerName: z.string().trim().min(1, "Name can't be empty.").max(200).optional(),
     phone: z.string().trim().min(1, "Phone can't be empty.").max(50).optional(),
+    // Owner (2026-09-17): the waiting list's Edit also corrects skill.
+    skillLevel: z.enum(["BEGINNER", "NOVICE", "INTERMEDIATE", "ADVANCED"]).optional(),
   })
-  .refine((value) => value.playerName !== undefined || value.phone !== undefined, {
-    message: "Enter a name or phone number to update.",
-  });
+  .refine(
+    (value) => value.playerName !== undefined || value.phone !== undefined || value.skillLevel !== undefined,
+    { message: "Enter a name, phone number or skill to update." },
+  );
 
 export type UpdateRegistrationDetailsInput = z.infer<typeof updateRegistrationDetailsInputSchema>;

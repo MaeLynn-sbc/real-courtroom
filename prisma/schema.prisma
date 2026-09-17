@@ -1988,8 +1988,9 @@ model QueueEntry {
 
 // The waiting line, in order: Next up, After that, Then, then six
 // virtual paddle racks. RACK_4..RACK_9 are the 4th-9th positions and are
-// SHOWN as Rack 1..Rack 6 (lib/staged-slots.ts). Added 2026-09-17
-// (migrations 83 and 84); the first three are unchanged.
+// SHOWN as Rack 1..Rack 6; RACK_10..RACK_15 as Rack 7..Rack 12
+// (lib/staged-slots.ts). Added 2026-09-17 (migrations 83, 84, 85); the
+// first three are unchanged.
 enum StagedGroupSlot {
   NEXT_UP
   AFTER_THAT
@@ -2000,6 +2001,12 @@ enum StagedGroupSlot {
   RACK_7
   RACK_8
   RACK_9
+  RACK_10
+  RACK_11
+  RACK_12
+  RACK_13
+  RACK_14
+  RACK_15
 }
 
 enum StagedGroupSource {

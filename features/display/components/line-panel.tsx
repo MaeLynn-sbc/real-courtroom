@@ -2,7 +2,7 @@
 
 import { buildLine } from "@/features/display/lib/line-sets";
 import styles from "@/app/display/[slug]/tv-display.module.css";
-import { RACK_SLOTS, stagedSlotLabel } from "@/lib/staged-slots";
+import { BASE_RACK_SLOTS, EXTRA_RACK_SLOTS, stagedSlotLabel } from "@/lib/staged-slots";
 import type { DisplayData } from "@/services/display/display.service";
 import { skillColor } from "@/types/open-play-skill-color";
 
@@ -22,7 +22,9 @@ const timeFormatter = new Intl.DateTimeFormat("en-PH", {
 // shows the court it's expected to take.
 export function RackColumn({ data }: { data: DisplayData }) {
   const line = buildLine(data);
-  const racks = RACK_SLOTS.map((slot) => ({
+  // Racks 1-6 always; Racks 7-12 only while they hold a group.
+  const usedExtras = EXTRA_RACK_SLOTS.filter((slot) => data.stagedGroups.some((group) => group.slot === slot));
+  const racks = [...BASE_RACK_SLOTS, ...usedExtras].map((slot) => ({
     label: stagedSlotLabel(slot),
     set: line.find((entry) => entry.kind === "staged" && entry.label === stagedSlotLabel(slot)),
   }));
