@@ -1,5 +1,6 @@
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import { logger } from "@/lib/logger";
+import { gameChargeDescription } from "@/lib/game-charge-description";
 import { isPracticeDate, practiceDate } from "@/lib/practice";
 import { prisma } from "@/lib/prisma";
 import { settingsService } from "@/services/settings/settings.service";
@@ -18,6 +19,14 @@ const SAMPLE_NAMES: Record<OpenPlaySkillLevel, string[]> = {
 };
 
 export const SAMPLE_PLAYERS_PER_LEVEL = 10;
+
+export interface PracticeBill {
+  registrationId: string;
+  playerName: string;
+  skillLevel: OpenPlaySkillLevel;
+  items: { id: string; description: string; amountCents: number }[];
+  totalCents: number;
+}
 
 export class PracticeService {
   // Owner (2026-09-17): "add test name players, 10 for each category".
@@ -157,6 +166,58 @@ export class PracticeService {
     });
     await this.audit(actorUserId, "practice.cleared", null, counts);
     return counts;
+  }
+
+  // Mock settle (owner, 2026-09-17: "where's the names when they want to
+  // settle"). What each practice player WOULD owe for their finished
+  // practice games at tonight's weeknight rate, itemised like a real
+  // tab. Read-only: nothing is stored, nothing can be paid, no sale.
+  async getPracticeBills(): Promise<PracticeBill[]> {
+    const date = practiceDate();
+    const [registrations, settings] = await Promise.all([
+      prisma.openPlayNightRegistration.findMany({
+        where: { date },
+        orderBy: { playerName: "asc" },
+        select: {
+          id: true,
+          playerName: true,
+          skillLevel: true,
+          gameAssignmentEntries: {
+            where: { assignment: { status: "DONE" } },
+            select: {
+              assignment: {
+                select: {
+                  id: true,
+                  startedAt: true,
+                  endedAt: true,
+                  court: { select: { name: true } },
+                },
+              },
+            },
+            orderBy: { assignment: { startedAt: "asc" } },
+          },
+        },
+      }),
+      settingsService.getOpenPlaySettings(),
+    ]);
+    const rate = settings.weeknightGameRateCents;
+    return registrations
+      .filter((r) => r.gameAssignmentEntries.length > 0)
+      .map((r) => ({
+        registrationId: r.id,
+        playerName: r.playerName,
+        skillLevel: r.skillLevel,
+        items: r.gameAssignmentEntries.map(({ assignment }) => ({
+          id: assignment.id,
+          description: gameChargeDescription({
+            courtName: assignment.court.name,
+            startedAt: assignment.startedAt,
+            endedAt: assignment.endedAt,
+          }),
+          amountCents: rate,
+        })),
+        totalCents: rate * r.gameAssignmentEntries.length,
+      }));
   }
 
   async setTakeoverRtv(value: boolean, actorUserId: string) {

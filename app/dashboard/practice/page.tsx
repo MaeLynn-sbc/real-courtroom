@@ -4,10 +4,12 @@ import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { RotationBoard } from "@/features/open-play-capacity/components/rotation-board";
 import { serializeBoard } from "@/features/open-play-capacity/lib/serialize-rotation-board";
+import { PracticeBills } from "@/features/practice/components/practice-bills";
 import { PracticeControls } from "@/features/practice/components/practice-controls";
 import { PRACTICE_DATE_VALUE, practiceDate } from "@/lib/practice";
 import { prisma } from "@/lib/prisma";
 import { openPlayRotationService } from "@/services/open-play/open-play-rotation.service";
+import { practiceService } from "@/services/open-play/practice.service";
 import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
@@ -23,7 +25,7 @@ export const dynamic = "force-dynamic";
 // play. Nothing on this page can create a tab or a sale.
 export default async function PracticePage() {
   const date = practiceDate();
-  const [board, openPlaySettings, takeoverRtv, registrations] = await Promise.all([
+  const [board, openPlaySettings, takeoverRtv, registrations, bills] = await Promise.all([
     openPlayRotationService.getRotationBoardData(date),
     settingsService.getOpenPlaySettings(),
     settingsService.getPracticeTakeoverRtv(),
@@ -32,6 +34,7 @@ export default async function PracticePage() {
       select: { id: true, playerName: true, skillLevel: true, status: true },
       orderBy: { registeredAt: "asc" },
     }),
+    practiceService.getPracticeBills(),
   ]);
 
   return (
@@ -43,7 +46,11 @@ export default async function PracticePage() {
             Try the open play line with sample names. Not real players, not charged, not in sales.
           </p>
         </div>
-        <Link href="/rtv" target="_blank" className={buttonVariants({ variant: "outline", size: "sm" })}>
+        <Link
+          href="/rtv"
+          target="_blank"
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
           Open /rtv
         </Link>
       </div>
@@ -58,7 +65,11 @@ export default async function PracticePage() {
         }))}
       />
 
-      <RotationBoard {...serializeBoard(PRACTICE_DATE_VALUE, board, openPlaySettings.targetGameMinutes)} />
+      <RotationBoard
+        {...serializeBoard(PRACTICE_DATE_VALUE, board, openPlaySettings.targetGameMinutes)}
+      />
+
+      <PracticeBills bills={bills} />
     </div>
   );
 }

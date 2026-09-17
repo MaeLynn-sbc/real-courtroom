@@ -72,6 +72,19 @@ async function main(): Promise<void> {
     assert((await prisma.sale.count()) === salesBefore, "no sale was created at all");
     console.log("PASS: a full practice game (staged, on court, started, finished) bills nothing and records no sale.");
 
+    // Mock settle: the finished game appears on each player's practice
+    // bill, with court and time, without creating anything.
+    const bills = await practiceService.getPracticeBills();
+    assert(bills.length === 4, `four practice bills, got ${bills.length}`);
+    assert(
+      bills.every((b) => b.items.length === 1 && b.items[0].description.startsWith(`OP · ${court.name} · `) && b.totalCents > 0),
+      `each bill lists the game with court and time, got ${JSON.stringify(bills[0])}`,
+    );
+    assert((await prisma.sale.count()) === salesBefore, "reading practice bills creates no sale");
+    const practiceBoard = await openPlayRotationService.getRotationBoardData(date);
+    assert(practiceBoard.courts.every((c) => !c.booked), "real bookings never mark a practice court booked");
+    console.log("PASS: practice bills itemise finished games; practice courts are never blocked by real bookings.");
+
     // 3. The paid paths refuse practice outright.
     let tabRefused = false;
     try {

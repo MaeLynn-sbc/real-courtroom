@@ -1463,58 +1463,72 @@ export class OpenPlayRotationService {
   // up... Per court: who's on, elapsed time, next proposed foursome."
   async getRotationBoardData(date: Date): Promise<RotationBoardData> {
     const nowInstant = new Date();
-    const [courts, assignments, units, restingEntries, settings, stagedGroupRows, currentBookings, currentMaintenance] =
-      await Promise.all([
-        prisma.court.findMany({ where: { deletedAt: null }, orderBy: { name: "asc" } }),
-        prisma.gameAssignment.findMany({
-          where: { date, status: { in: ["ACTIVE", "PROPOSED"] } },
-          include: { participants: { include: { registration: true } } },
-        }),
-        fetchWaitingUnits(date),
-        prisma.queueEntry.findMany({
-          where: { date, status: "RESTING" },
-          orderBy: { playerName: "asc" },
-        }),
-        settingsService.getOpenPlaySettings(),
-        prisma.stagedGroup.findMany({
-          where: { date },
-          include: { queueEntries: true },
-        }),
-        // See RotationBoardCourt.booked's own comment — a currently
-        // occupying Booking, checked at this exact instant, not a whole
-        // day range like listOccupiedWindows (this board only ever cares
-        // about right now).
-        prisma.booking.findMany({
-          where: {
-            status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-            startAt: { lte: nowInstant },
-            endAt: { gt: nowInstant },
-          },
-          select: { courtId: true },
-        }),
-        prisma.courtMaintenance.findMany({
-          where: {
-            status: { in: ["SCHEDULED", "IN_PROGRESS"] },
-            startAt: { lte: nowInstant },
-            endAt: { gt: nowInstant },
-            // An OPEN_PLAY block hands the court TO open play — it is the
-            // opposite of unavailable here. Without this the rotation
-            // board reported the court "Booked — reserved for a court
-            // booking right now, not open play" and refused to let staff
-            // assign players to the very court they had just freed for
-            // the night.
-            //
-            // MAINTENANCE and SPECIAL_EVENT still block, unchanged: those
-            // genuinely occupy the court for a non-open-play reason.
-            kind: { not: "OPEN_PLAY" },
-          },
-          select: { courtId: true },
-        }),
-      ]);
-    const bookedCourtIds = new Set([
-      ...currentBookings.map((b) => b.courtId),
-      ...currentMaintenance.map((m) => m.courtId),
+    const [
+      courts,
+      assignments,
+      units,
+      restingEntries,
+      settings,
+      stagedGroupRows,
+      currentBookings,
+      currentMaintenance,
+    ] = await Promise.all([
+      prisma.court.findMany({ where: { deletedAt: null }, orderBy: { name: "asc" } }),
+      prisma.gameAssignment.findMany({
+        where: { date, status: { in: ["ACTIVE", "PROPOSED"] } },
+        include: { participants: { include: { registration: true } } },
+      }),
+      fetchWaitingUnits(date),
+      prisma.queueEntry.findMany({
+        where: { date, status: "RESTING" },
+        orderBy: { playerName: "asc" },
+      }),
+      settingsService.getOpenPlaySettings(),
+      prisma.stagedGroup.findMany({
+        where: { date },
+        include: { queueEntries: true },
+      }),
+      // See RotationBoardCourt.booked's own comment — a currently
+      // occupying Booking, checked at this exact instant, not a whole
+      // day range like listOccupiedWindows (this board only ever cares
+      // about right now).
+      prisma.booking.findMany({
+        where: {
+          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+          startAt: { lte: nowInstant },
+          endAt: { gt: nowInstant },
+        },
+        select: { courtId: true },
+      }),
+      prisma.courtMaintenance.findMany({
+        where: {
+          status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+          startAt: { lte: nowInstant },
+          endAt: { gt: nowInstant },
+          // An OPEN_PLAY block hands the court TO open play — it is the
+          // opposite of unavailable here. Without this the rotation
+          // board reported the court "Booked — reserved for a court
+          // booking right now, not open play" and refused to let staff
+          // assign players to the very court they had just freed for
+          // the night.
+          //
+          // MAINTENANCE and SPECIAL_EVENT still block, unchanged: those
+          // genuinely occupy the court for a non-open-play reason.
+          kind: { not: "OPEN_PLAY" },
+        },
+        select: { courtId: true },
+      }),
     ]);
+    // Practice (lib/practice.ts) is a mock-up on the practice date: real
+    // bookings and blocks don't occupy its courts (owner, 2026-09-17:
+    // "free up courts 1-3, we are just doing mock ups"). The real
+    // bookings are only ignored here, never touched.
+    const bookedCourtIds = isPracticeDate(date)
+      ? new Set<string>()
+      : new Set([
+          ...currentBookings.map((b) => b.courtId),
+          ...currentMaintenance.map((m) => m.courtId),
+        ]);
 
     const stagedGroups: StagedGroupWithMembers[] = stagedGroupRows.map(
       ({ queueEntries, ...group }) => ({
@@ -1634,33 +1648,38 @@ export class OpenPlayRotationService {
     // choke point" precedent as booking.service.ts's
     // checkAvailabilityWithClient.
     const nowInstant = new Date();
-    const [currentBooking, currentMaintenance] = await Promise.all([
-      tx.booking.findFirst({
-        where: {
-          courtId: input.courtId,
-          status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
-          startAt: { lte: nowInstant },
-          endAt: { gt: nowInstant },
-        },
-      }),
-      tx.courtMaintenance.findFirst({
-        where: {
-          courtId: input.courtId,
-          status: { in: ["SCHEDULED", "IN_PROGRESS"] },
-          startAt: { lte: nowInstant },
-          endAt: { gt: nowInstant },
-          // Same exclusion as getRotationBoardData's bookedCourtIds: an
-          // OPEN_PLAY block hands the court TO open play, so it must not
-          // be the reason an open-play assignment is refused. Without
-          // this the board showed the court as assignable and then threw
-          // "This court is currently booked" on Propose — worse than the
-          // board simply hiding the control.
-          //
-          // MAINTENANCE and SPECIAL_EVENT still block, unchanged.
-          kind: { not: "OPEN_PLAY" },
-        },
-      }),
-    ]);
+    // Practice assignments never collide with real bookings (see
+    // getRotationBoardData): the practice date skips the check entirely.
+    const skipBookingCheck = isPracticeDate(input.date);
+    const [currentBooking, currentMaintenance] = skipBookingCheck
+      ? [null, null]
+      : await Promise.all([
+          tx.booking.findFirst({
+            where: {
+              courtId: input.courtId,
+              status: { notIn: ["CANCELLED", "NO_SHOW", "REJECTED"] },
+              startAt: { lte: nowInstant },
+              endAt: { gt: nowInstant },
+            },
+          }),
+          tx.courtMaintenance.findFirst({
+            where: {
+              courtId: input.courtId,
+              status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+              startAt: { lte: nowInstant },
+              endAt: { gt: nowInstant },
+              // Same exclusion as getRotationBoardData's bookedCourtIds: an
+              // OPEN_PLAY block hands the court TO open play, so it must not
+              // be the reason an open-play assignment is refused. Without
+              // this the board showed the court as assignable and then threw
+              // "This court is currently booked" on Propose — worse than the
+              // board simply hiding the control.
+              //
+              // MAINTENANCE and SPECIAL_EVENT still block, unchanged.
+              kind: { not: "OPEN_PLAY" },
+            },
+          }),
+        ]);
     if (currentBooking || currentMaintenance) {
       throw new Error("This court is currently booked — not available for open play right now.");
     }
