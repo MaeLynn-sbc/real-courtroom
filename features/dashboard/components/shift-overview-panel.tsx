@@ -5,7 +5,7 @@ import { CloseShiftWithoutCountButton } from "@/features/shifts/components/close
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatVariance } from "@/lib/utils";
+import { formatVariance, varianceTextClass } from "@/lib/utils";
 
 interface OnDutyShift {
   id: string;
@@ -127,7 +127,11 @@ export function ShiftOverviewPanel({ onDuty, recentShifts }: ShiftOverviewPanelP
                     // the same 12px muted-weight type as the timestamp
                     // beside it. Given a chip so it separates from the
                     // "Matched" rows at a glance rather than on a read.
-                    <span className="bg-destructive/10 text-destructive shrink-0 rounded-md px-2 py-1 text-xs font-bold tabular-nums">
+                    <span
+                      className={`${
+                        shift.varianceCents < 0 ? "bg-destructive/10" : "bg-success/10"
+                      } ${varianceTextClass(shift.varianceCents)} shrink-0 rounded-md px-2 py-1 text-xs font-bold tabular-nums`}
+                    >
                       {formatVariance(shift.varianceCents)}
                     </span>
                   ) : (

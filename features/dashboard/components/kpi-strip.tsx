@@ -87,7 +87,13 @@ export function KpiStrip({ revenueTodayCents, courtsInUse, courtsTotal, onDuty, 
                 : "Matched"
               : "—"
           }
-          tone={latestClosedShift?.varianceCents ? "destructive" : latestClosedShift ? "success" : "neutral"}
+          tone={
+            !latestClosedShift
+              ? "neutral"
+              : (latestClosedShift.varianceCents ?? 0) < 0
+                ? "destructive"
+                : "success"
+          }
           detail="Most recent closed shift"
         />
       ) : null}

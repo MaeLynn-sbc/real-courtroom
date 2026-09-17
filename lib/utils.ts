@@ -16,6 +16,12 @@ export function formatVariance(cents: number): string {
   return `${cents > 0 ? "Over" : "Deficit"} ${formatCurrency(Math.abs(cents))}`;
 }
 
+// Colour for a variance (owner, 2026-09-18: "over green, short red"):
+// balanced or over is green, a deficit is red.
+export function varianceTextClass(cents: number | null | undefined): string {
+  return (cents ?? 0) < 0 ? "text-destructive" : "text-success";
+}
+
 // Extracted from features/notifications/components/notification-bell.tsx,
 // the first place this convention existed — reused rather than a second
 // relative-time convention being invented for booking.createdAt.

@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ExpenseEntryForm } from "@/features/expenses/components/expense-entry-form";
-import { formatCurrency, formatVariance } from "@/lib/utils";
+import { formatCurrency, formatVariance, varianceTextClass } from "@/lib/utils";
 import type { gcashReconciliationService } from "@/services/gcash/gcash-reconciliation.service";
 
 const dateFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" });
@@ -383,9 +383,7 @@ function ConfirmBalanceCard({
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Variance</span>
               <span
-                className={
-                  hasVariance ? "text-destructive font-semibold" : "text-success font-semibold"
-                }
+                className={`${varianceTextClass(varianceCents)} font-semibold`}
               >
                 {formatVariance(varianceCents)}
               </span>
@@ -529,9 +527,7 @@ function AlreadyConfirmedCard({
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Variance</span>
           <span
-            className={
-              balance.varianceCents ? "text-destructive font-medium" : "text-success font-medium"
-            }
+            className={`${varianceTextClass(balance.varianceCents)} font-medium`}
           >
             {formatVariance(balance.varianceCents ?? 0)}
           </span>
@@ -630,11 +626,7 @@ export function GcashReconciliationWorkspace({
                         "—"
                       ) : (
                         <span
-                          className={
-                            balance.varianceCents === 0
-                              ? "text-success"
-                              : "text-destructive font-medium"
-                          }
+                          className={`${varianceTextClass(balance.varianceCents)} font-medium`}
                         >
                           {formatVariance(balance.varianceCents)}
                         </span>

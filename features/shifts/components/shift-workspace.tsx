@@ -17,7 +17,7 @@ import { deriveSettlementMethod, SettlementPaymentFields } from "@/components/sh
 import { CASH_DENOMINATIONS_PESOS, sumCashDenominationBreakdown } from "@/lib/cash-denominations";
 import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
 import type { shiftService } from "@/services/shift/shift.service";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, varianceTextClass } from "@/lib/utils";
 
 export interface ManualSaleView {
   id: string;
@@ -383,7 +383,7 @@ function EndShiftForm({ shift, expectedCashCents }: { shift: NonNullable<Shift>;
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Variance</span>
-              <span className={hasVariance ? "text-destructive font-semibold" : "text-success font-semibold"}>
+              <span className={`${varianceTextClass(varianceCents)} font-semibold`}>
                 {varianceCents > 0 ? "+" : ""}
                 {formatCurrency(varianceCents)}
               </span>
@@ -498,7 +498,7 @@ export function ShiftWorkspace({
                       ) : shift.varianceCents === 0 ? (
                         <span className="text-success">₱0.00</span>
                       ) : (
-                        <span className="text-destructive font-medium">
+                        <span className={`${varianceTextClass(shift.varianceCents)} font-medium`}>
                           {shift.varianceCents > 0 ? "+" : ""}
                           {formatCurrency(shift.varianceCents)}
                         </span>
