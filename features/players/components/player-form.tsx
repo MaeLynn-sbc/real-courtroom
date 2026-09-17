@@ -125,7 +125,11 @@ export function PlayerForm({ player }: PlayerFormProps) {
         toast.error(message);
         return;
       }
-      toast.success("Player created.");
+      toast.success(
+        result.matchedExisting
+          ? "This player is already on file — opened their profile and added the new details."
+          : "Player created.",
+      );
       router.push(`/dashboard/players/${result.playerId}`);
     });
   });

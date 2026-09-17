@@ -4,6 +4,7 @@ import type {
   RegisterTeamInput,
   UpdateRegistrationPlayerNamesInput,
 } from "@/features/tournaments/schemas/tournament.schema";
+import { findMatchingPlayer } from "@/services/player/player-match";
 import type {
   Match,
   MatchStage,
@@ -512,18 +513,20 @@ export class TournamentService {
         // its underlying User) is created here on the spot — no email,
         // same as playerService.createPlayer's User.create shape, just
         // inlined in this transaction rather than opening a second one.
-        // Deliberately always creates fresh rows rather than matching an
-        // existing name (name collisions/typos make that unreliable) —
-        // the accepted tradeoff is that a repeat walk-in gets a new
-        // Player row each tournament, same as a paper sign-up sheet
-        // would never dedupe them either.
-        async function createWalkInPlayer(name: string) {
-          const user = await tx.user.create({ data: { name, roleId: memberRole.id } });
+        // Reversed 2026-09-17 (owner: "every time the staff inputs a new
+        // player, make sure it merges with the existing"): a typed name
+        // now resolves to the existing player when it is the same person,
+        // by the shared rule in player-match.ts, and only creates one when
+        // nobody matches. Partners are never resolved to the same player.
+        async function resolveWalkInPlayer(name: string, notPlayerId?: string) {
+          const match = await findMatchingPlayer(tx, { name });
+          if (match && match.playerId !== notPlayerId) return { id: match.playerId };
+          const user = await tx.user.create({ data: { name: name.trim().replace(/\s+/g, " "), roleId: memberRole.id } });
           return tx.player.create({ data: { userId: user.id } });
         }
 
-        const player1 = await createWalkInPlayer(input.player1Name);
-        const player2 = input.player2Name ? await createWalkInPlayer(input.player2Name) : null;
+        const player1 = await resolveWalkInPlayer(input.player1Name);
+        const player2 = input.player2Name ? await resolveWalkInPlayer(input.player2Name, player1.id) : null;
 
         const team = await tx.team.create({
           data: { player1Id: player1.id, player2Id: player2?.id },

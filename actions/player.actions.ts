@@ -19,6 +19,9 @@ export interface PlayerActionState {
 
 export interface CreatePlayerActionState extends PlayerActionState {
   playerId?: string;
+  // True when the form described someone already on file: no new player
+  // was made, the existing one was returned (and filled in).
+  matchedExisting?: boolean;
 }
 
 function requirePlayersManage() {
@@ -37,9 +40,9 @@ export async function createPlayerAction(input: CreatePlayerInput): Promise<Crea
   }
 
   try {
-    const player = await playerService.createPlayer(parsed.data, authz.userId);
+    const { player, matchedExisting } = await playerService.createPlayer(parsed.data, authz.userId);
     revalidatePath("/dashboard/players");
-    return { error: null, playerId: player.id };
+    return { error: null, playerId: player.id, matchedExisting };
   } catch (error) {
     return { error: toActionError(error, { action: "createPlayerAction", userId: authz.userId }) };
   }

@@ -14,6 +14,7 @@ import type {
   OpenPlayRegistrationPaymentProofStatus,
 } from "@/lib/generated/prisma/enums";
 import { canTransitionOpenPlayWaitlistEntryStatus } from "@/services/open-play/open-play-waitlist-status";
+import { findMatchingPlayer, realPhone } from "@/services/player/player-match";
 import { playerService } from "@/services/player/player.service";
 import { saleService } from "@/services/sales/sale.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -345,45 +346,25 @@ export class OpenPlayRegistrationService {
     input: { playerName: string; phone: string; skillLevel: OpenPlaySkillLevel },
     actorUserId: string,
   ): Promise<{ playerId: string; isNewPlayer: boolean }> {
-    const last10Digits = (value: string) => value.replace(/\D/g, "").slice(-10);
-    const normalizedPhone = last10Digits(input.phone);
-    const hasRealPhone = normalizedPhone.length === 10;
-
-    if (hasRealPhone) {
-      const candidates = await tx.player.findMany({
-        where: { deletedAt: null, phone: { not: null } },
-        select: { id: true, phone: true },
+    // The same-person rule every player-creating flow shares (see
+    // services/player/player-match.ts). Staff type "1" or "." for the
+    // phone at the desk, so until 2026-09-17 every visit by "Wax" or
+    // "Steph" created a brand-new player: 139 duplicate groups.
+    const match = await findMatchingPlayer(tx, { name: input.playerName, phone: input.phone });
+    if (match) {
+      // Fill what the existing record is missing, so next time the phone
+      // match catches them first and the level prefills.
+      const existing = await tx.player.findUniqueOrThrow({
+        where: { id: match.playerId },
+        select: { phone: true, openPlaySkillLevel: true },
       });
-      const existing = candidates.find(
-        (candidate) => candidate.phone && last10Digits(candidate.phone) === normalizedPhone,
-      );
-      if (existing) {
-        return { playerId: existing.id, isNewPlayer: false };
+      const data: Prisma.PlayerUpdateInput = {};
+      if (realPhone(input.phone) && !realPhone(existing.phone)) data.phone = input.phone;
+      if (!existing.openPlaySkillLevel) data.openPlaySkillLevel = input.skillLevel;
+      if (Object.keys(data).length > 0) {
+        await tx.player.update({ where: { id: match.playerId }, data });
       }
-    }
-
-    // Name match (owner, 2026-09-17). Staff type "1" or "." for the phone
-    // at the desk, so until now every visit by "Wax" or "Steph" created a
-    // brand-new player: 139 duplicate groups, 238 extra rows. Same name
-    // (case and spacing ignored) on a player WITHOUT a real phone is the
-    // same person — a real phone that differs is the only signal that it
-    // is not, and that case still creates a new player. A real phone
-    // typed today is saved onto the matched player, so next time the
-    // phone match above catches them first.
-    const normalizedName = input.playerName.trim().replace(/\s+/g, " ").toLowerCase();
-    if (normalizedName) {
-      const sameName = await tx.player.findMany({
-        where: { deletedAt: null, user: { name: { equals: normalizedName, mode: "insensitive" } } },
-        select: { id: true, phone: true, createdAt: true },
-        orderBy: { createdAt: "asc" },
-      });
-      const match = sameName.find((candidate) => last10Digits(candidate.phone ?? "").length !== 10);
-      if (match) {
-        if (hasRealPhone) {
-          await tx.player.update({ where: { id: match.id }, data: { phone: input.phone } });
-        }
-        return { playerId: match.id, isNewPlayer: false };
-      }
+      return { playerId: match.playerId, isNewPlayer: false };
     }
 
     const memberRole = await tx.role.findUniqueOrThrow({ where: { name: SYSTEM_ROLES.MEMBER } });

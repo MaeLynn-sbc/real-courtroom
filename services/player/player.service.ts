@@ -8,6 +8,7 @@ import type { SaleCategory } from "@/lib/generated/prisma/enums";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/utils";
+import { findMatchingPlayer, realPhone } from "@/services/player/player-match";
 import { mergeTimelineEvents, type PlayerTimelineEvent } from "@/services/player/player-timeline";
 import { SYSTEM_ROLES } from "@/types/roles";
 
@@ -123,12 +124,58 @@ export class PlayerService {
     });
   }
 
-  // Always creates a fresh User + Player pair (roleId = Member) — there is
-  // no flow for attaching a Player profile to an existing staff User.
-  async createPlayer(input: CreatePlayerInput, actorUserId: string) {
+  // Creates a User + Player pair (roleId = Member) — UNLESS the same
+  // person already exists (owner, 2026-09-17: "every time the staff
+  // inputs a new player, make sure it merges with the existing"). Then
+  // the existing player is returned, with anything the form supplied
+  // that it was missing filled in, and `matchedExisting` is true. The
+  // same-person rule lives in player-match.ts.
+  async createPlayer(
+    input: CreatePlayerInput,
+    actorUserId: string,
+  ): Promise<{ player: Prisma.PlayerGetPayload<{ include: typeof playerWithUser }>; matchedExisting: boolean }> {
     const memberRole = await prisma.role.findUniqueOrThrow({
       where: { name: SYSTEM_ROLES.MEMBER },
     });
+
+    const matched = await prisma.$transaction(async (tx) => {
+      const match = await findMatchingPlayer(tx, { name: input.name, phone: input.phone, email: input.email });
+      if (!match) return null;
+      const existing = await tx.player.findUniqueOrThrow({ where: { id: match.playerId }, include: { user: true } });
+      const data: Prisma.PlayerUpdateInput = {};
+      if (input.phone && realPhone(input.phone) && !realPhone(existing.phone)) data.phone = input.phone;
+      if (input.bio && !existing.bio) data.bio = input.bio;
+      if (input.dateOfBirth && !existing.dateOfBirth) data.dateOfBirth = input.dateOfBirth;
+      if (input.skillLevel && !existing.skillLevel) data.skillLevel = input.skillLevel;
+      if (input.openPlaySkillLevel && !existing.openPlaySkillLevel) data.openPlaySkillLevel = input.openPlaySkillLevel;
+      if (input.dominantHand && !existing.dominantHand) data.dominantHand = input.dominantHand;
+      if (input.position && !existing.position) data.position = input.position;
+      if (Object.keys(data).length > 0) {
+        await tx.player.update({ where: { id: existing.id }, data });
+      }
+      // An email is unique across users: only attach it when this person
+      // has none and nobody else already uses it.
+      if (input.email && !existing.user.email) {
+        const taken = await tx.user.findFirst({
+          where: { email: { equals: input.email, mode: "insensitive" } },
+          select: { id: true },
+        });
+        if (!taken) await tx.user.update({ where: { id: existing.user.id }, data: { email: input.email } });
+      }
+      return { id: existing.id, matchedBy: match.matchedBy, filled: Object.keys(data) };
+    });
+
+    if (matched) {
+      await this.writeAuditLog({
+        actorUserId,
+        action: "player.matched_existing",
+        entityType: "Player",
+        entityId: matched.id,
+        newValues: { source: "players_form", matchedBy: matched.matchedBy, filled: matched.filled, input },
+      });
+      const player = await prisma.player.findUniqueOrThrow({ where: { id: matched.id }, include: playerWithUser });
+      return { player, matchedExisting: true };
+    }
 
     const player = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
@@ -158,7 +205,7 @@ export class PlayerService {
       newValues: player,
     });
 
-    return player;
+    return { player, matchedExisting: false };
   }
 
   async updatePlayer(playerId: string, input: UpdatePlayerInput, actorUserId: string) {
