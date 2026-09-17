@@ -101,9 +101,20 @@ async function main(): Promise<void> {
     assert(await settingsService.getPracticeTakeoverRtv(), "the /rtv takeover switch turns on");
     console.log("PASS: /rtv data is practice only while the switch is on; live data never includes practice.");
 
-    // 5. Clear practice.
+    // 5. Sample players: 10 per skill level, and pressing twice adds none.
+    await practiceService.clearPractice(owner.id);
+    const first = await practiceService.addSamplePlayers(owner.id);
+    const again = await practiceService.addSamplePlayers(owner.id);
+    assert(first.added === 40 && again.added === 0, `sample players: first ${first.added}, again ${again.added}`);
+    const byLevel = await prisma.openPlayNightRegistration.groupBy({ by: ["skillLevel"], where: { date }, _count: true });
+    assert(byLevel.length === 4 && byLevel.every((g) => g._count === 10), `10 per level, got ${JSON.stringify(byLevel)}`);
+    assert((await prisma.player.count()) === playersBefore, "sample players create no Player rows");
+    assert((await prisma.sale.count()) === salesBefore, "sample players create no sales");
+    console.log("PASS: Add sample players adds 10 per skill level, once, with no players or sales.");
+
+    // 6. Clear practice.
     const cleared = await practiceService.clearPractice(owner.id);
-    assert(cleared.players === 4 && cleared.games === 1, `clear reports what it removed, got ${JSON.stringify(cleared)}`);
+    assert(cleared.players === 40 && cleared.games === 0, `clear reports what it removed, got ${JSON.stringify(cleared)}`);
     assert((await prisma.openPlayNightRegistration.count({ where: { date } })) === 0, "no practice names remain");
     assert((await prisma.gameAssignment.count({ where: { date } })) === 0, "no practice games remain");
     assert((await prisma.stagedGroup.count({ where: { date } })) === 0, "no practice staged sets remain");

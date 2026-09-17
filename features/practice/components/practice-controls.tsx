@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import {
   addPracticePlayerAction,
+  addSamplePracticePlayersAction,
   clearPracticeAction,
   removePracticePlayerAction,
   setPracticeTakeoverRtvAction,
@@ -28,7 +29,10 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import { skillTextClass } from "@/types/open-play-skill-color";
-import { OPEN_PLAY_SKILL_LEVEL_ORDER, OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
+import {
+  OPEN_PLAY_SKILL_LEVEL_ORDER,
+  OPEN_PLAY_SKILL_LEVELS,
+} from "@/types/open-play-skill-levels";
 
 export interface PracticePlayerRow {
   registrationId: string;
@@ -40,7 +44,13 @@ export interface PracticePlayerRow {
 // Owner (2026-09-17): a sandbox for the open play rotation with sample
 // names, shown on the real /rtv while the switch is on. Nothing here can
 // charge anyone — see lib/practice.ts.
-export function PracticeControls({ takeoverRtv, players }: { takeoverRtv: boolean; players: PracticePlayerRow[] }) {
+export function PracticeControls({
+  takeoverRtv,
+  players,
+}: {
+  takeoverRtv: boolean;
+  players: PracticePlayerRow[];
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState("");
@@ -64,7 +74,11 @@ export function PracticeControls({ takeoverRtv, players }: { takeoverRtv: boolea
     event.preventDefault();
     const playerName = name.trim();
     if (!playerName) return;
-    run(addPracticePlayerAction({ playerName, skillLevel: skill }), `${playerName} added to practice.`, () => setName(""));
+    run(
+      addPracticePlayerAction({ playerName, skillLevel: skill }),
+      `${playerName} added to practice.`,
+      () => setName(""),
+    );
   }
 
   return (
@@ -84,7 +98,10 @@ export function PracticeControls({ takeoverRtv, players }: { takeoverRtv: boolea
             disabled={isPending}
             aria-label="Show practice on /rtv"
             onCheckedChange={(value) =>
-              run(setPracticeTakeoverRtvAction(value), value ? "/rtv now shows practice." : "/rtv is back to live open play.")
+              run(
+                setPracticeTakeoverRtvAction(value),
+                value ? "/rtv now shows practice." : "/rtv is back to live open play.",
+              )
             }
           />
         </CardContent>
@@ -96,8 +113,8 @@ export function PracticeControls({ takeoverRtv, players }: { takeoverRtv: boolea
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <p className="text-muted-foreground text-sm">
-            Sample names only. They go straight into the practice line below, never appear on the Players tab,
-            and are never charged. No sale is ever recorded for practice.
+            Sample names only. They go straight into the practice line below, never appear on the
+            Players tab, and are never charged. No sale is ever recorded for practice.
           </p>
           <form onSubmit={addPlayer} className="flex flex-wrap items-end gap-3">
             <div className="flex flex-col gap-1.5">
@@ -134,16 +151,26 @@ export function PracticeControls({ takeoverRtv, players }: { takeoverRtv: boolea
           {players.length > 0 ? (
             <ul className="flex flex-wrap gap-2">
               {players.map((player) => (
-                <li key={player.registrationId} className="flex items-center gap-1 rounded-md border px-2 py-1 text-sm">
-                  <span className={`font-medium ${skillTextClass(player.skillLevel)}`}>{player.playerName}</span>
-                  <span className="text-muted-foreground text-xs">({OPEN_PLAY_SKILL_LEVELS[player.skillLevel].label})</span>
+                <li
+                  key={player.registrationId}
+                  className="flex items-center gap-1 rounded-md border px-2 py-1 text-sm"
+                >
+                  <span className={`font-medium ${skillTextClass(player.skillLevel)}`}>
+                    {player.playerName}
+                  </span>
+                  <span className="text-muted-foreground text-xs">
+                    ({OPEN_PLAY_SKILL_LEVELS[player.skillLevel].label})
+                  </span>
                   <button
                     type="button"
                     className="text-muted-foreground hover:text-destructive ml-1 text-xs"
                     aria-label={`Remove ${player.playerName}`}
                     disabled={isPending}
                     onClick={() =>
-                      run(removePracticePlayerAction(player.registrationId), `${player.playerName} removed.`)
+                      run(
+                        removePracticePlayerAction(player.registrationId),
+                        `${player.playerName} removed.`,
+                      )
                     }
                   >
                     ✕
@@ -153,7 +180,30 @@ export function PracticeControls({ takeoverRtv, players }: { takeoverRtv: boolea
             </ul>
           ) : null}
 
-          <div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={isPending}
+              onClick={() =>
+                startTransition(async () => {
+                  const result = await addSamplePracticePlayersAction();
+                  if (result.error) {
+                    toast.error(result.error);
+                    return;
+                  }
+                  toast.success(
+                    result.added
+                      ? `${result.added} sample players added.`
+                      : "All sample players are already in practice.",
+                  );
+                  router.refresh();
+                })
+              }
+            >
+              Add sample players (10 per skill)
+            </Button>
             <Button
               type="button"
               size="sm"
@@ -173,8 +223,8 @@ export function PracticeControls({ takeoverRtv, players }: { takeoverRtv: boolea
           <AlertDialogHeader>
             <AlertDialogTitle>Clear all practice?</AlertDialogTitle>
             <AlertDialogDescription>
-              Removes every practice name, staged set and practice game. Real open play, players and sales are not
-              touched.
+              Removes every practice name, staged set and practice game. Real open play, players and
+              sales are not touched.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -182,7 +232,9 @@ export function PracticeControls({ takeoverRtv, players }: { takeoverRtv: boolea
             <AlertDialogAction
               variant="destructive"
               disabled={isPending}
-              onClick={() => run(clearPracticeAction(), "Practice cleared.", () => setConfirmClear(false))}
+              onClick={() =>
+                run(clearPracticeAction(), "Practice cleared.", () => setConfirmClear(false))
+              }
             >
               Clear practice
             </AlertDialogAction>

@@ -7,12 +7,53 @@ import { settingsService } from "@/services/settings/settings.service";
 // Practice mode — see lib/practice.ts for why it lives on a fixed date
 // and why it can never touch money.
 
+// Sample names for "Add sample players": ten per skill level, distinct
+// first names so each reads clearly on the TV ("Ana T."). Every one ends
+// in "Test" so nobody mistakes them for customers.
+const SAMPLE_NAMES: Record<OpenPlaySkillLevel, string[]> = {
+  BEGINNER: ["Ana", "Ben", "Cai", "Dee", "Eli", "Fay", "Gio", "Hana", "Ivy", "Jon"],
+  NOVICE: ["Kat", "Leo", "Mia", "Nico", "Olga", "Pat", "Quin", "Rhea", "Sol", "Tess"],
+  INTERMEDIATE: ["Uma", "Vic", "Wes", "Xia", "Yuri", "Zed", "Abby", "Bryce", "Cleo", "Dino"],
+  ADVANCED: ["Ezra", "Faith", "Gabe", "Hugo", "Iris", "Jade", "Kobe", "Luna", "Milo", "Nora"],
+};
+
+export const SAMPLE_PLAYERS_PER_LEVEL = 10;
+
 export class PracticeService {
+  // Owner (2026-09-17): "add test name players, 10 for each category".
+  // Adds whichever sample names aren't already in practice, interleaved by
+  // level (Beginner, Novice, Intermediate, Advanced, Beginner, ...) so the
+  // line reads like a real mixed night. Safe to press twice.
+  async addSamplePlayers(actorUserId: string) {
+    const existing = new Set(
+      (
+        await prisma.openPlayNightRegistration.findMany({
+          where: { date: practiceDate() },
+          select: { playerName: true },
+        })
+      ).map((r) => r.playerName),
+    );
+    const levels = Object.keys(SAMPLE_NAMES) as OpenPlaySkillLevel[];
+    let added = 0;
+    for (let i = 0; i < SAMPLE_PLAYERS_PER_LEVEL; i += 1) {
+      for (const skillLevel of levels) {
+        const playerName = `${SAMPLE_NAMES[skillLevel][i]} Test`;
+        if (existing.has(playerName)) continue;
+        await this.addPracticePlayer({ playerName, skillLevel }, actorUserId);
+        added += 1;
+      }
+    }
+    return { added };
+  }
+
   // A typed sample name goes straight into the practice queue. No Player
   // row, no name matching, no check-in (check-in is what opens a tab),
   // no sale. The phone is left blank: it is a practice name, not a
   // person.
-  async addPracticePlayer(input: { playerName: string; skillLevel: OpenPlaySkillLevel }, actorUserId: string) {
+  async addPracticePlayer(
+    input: { playerName: string; skillLevel: OpenPlaySkillLevel },
+    actorUserId: string,
+  ) {
     const playerName = input.playerName.trim().replace(/\s+/g, " ");
     if (!playerName) throw new Error("Enter a name.");
     const date = practiceDate();
@@ -46,13 +87,18 @@ export class PracticeService {
       return created;
     });
 
-    await this.audit(actorUserId, "practice.player_added", registration.id, { playerName, skillLevel: input.skillLevel });
+    await this.audit(actorUserId, "practice.player_added", registration.id, {
+      playerName,
+      skillLevel: input.skillLevel,
+    });
     return registration;
   }
 
   // Removes one practice name and everything it touched.
   async removePracticePlayer(registrationId: string, actorUserId: string) {
-    const registration = await prisma.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+    const registration = await prisma.openPlayNightRegistration.findUniqueOrThrow({
+      where: { id: registrationId },
+    });
     if (!isPracticeDate(registration.date)) {
       throw new Error("That is a real registration, not a practice player.");
     }
@@ -64,27 +110,42 @@ export class PracticeService {
       const assignmentIds = participations.map((p) => p.assignmentId);
       // A game that player was in is practice data too: drop it whole so
       // no court is left holding a half-empty practice game.
-      await tx.gameAssignment.deleteMany({ where: { id: { in: assignmentIds }, date: registration.date } });
+      await tx.gameAssignment.deleteMany({
+        where: { id: { in: assignmentIds }, date: registration.date },
+      });
       await tx.recentPairing.deleteMany({
-        where: { date: registration.date, OR: [{ registrationIdA: registrationId }, { registrationIdB: registrationId }] },
+        where: {
+          date: registration.date,
+          OR: [{ registrationIdA: registrationId }, { registrationIdB: registrationId }],
+        },
       });
       await tx.queueEntry.deleteMany({ where: { registrationId } });
       await tx.openPlayNightRegistration.delete({ where: { id: registrationId } });
       // A staged group left with nobody in it is removed too.
-      await tx.stagedGroup.deleteMany({ where: { date: registration.date, queueEntries: { none: {} } } });
+      await tx.stagedGroup.deleteMany({
+        where: { date: registration.date, queueEntries: { none: {} } },
+      });
     });
-    await this.audit(actorUserId, "practice.player_removed", registrationId, { playerName: registration.playerName });
+    await this.audit(actorUserId, "practice.player_removed", registrationId, {
+      playerName: registration.playerName,
+    });
   }
 
   // Wipes every practice row: games, staged sets, the queue, the names.
   async clearPractice(actorUserId: string) {
     const date = practiceDate();
     const counts = await prisma.$transaction(async (tx) => {
-      const registrations = await tx.openPlayNightRegistration.findMany({ where: { date }, select: { id: true } });
+      const registrations = await tx.openPlayNightRegistration.findMany({
+        where: { date },
+        select: { id: true },
+      });
       const ids = registrations.map((r) => r.id);
       // Defensive: a practice registration should never have a tab, but
       // if one ever appeared its line items must go before it does.
-      const tabs = await tx.playerTab.findMany({ where: { registrationId: { in: ids } }, select: { id: true } });
+      const tabs = await tx.playerTab.findMany({
+        where: { registrationId: { in: ids } },
+        select: { id: true },
+      });
       await tx.tabLineItem.deleteMany({ where: { tabId: { in: tabs.map((t) => t.id) } } });
       await tx.playerTab.deleteMany({ where: { id: { in: tabs.map((t) => t.id) } } });
       const games = await tx.gameAssignment.deleteMany({ where: { date } });
@@ -102,10 +163,21 @@ export class PracticeService {
     await settingsService.setPracticeTakeoverRtv(value, actorUserId);
   }
 
-  private async audit(actorUserId: string, action: string, entityId: string | null, newValues: object) {
+  private async audit(
+    actorUserId: string,
+    action: string,
+    entityId: string | null,
+    newValues: object,
+  ) {
     try {
       await prisma.auditLog.create({
-        data: { userId: actorUserId, action, entityType: "Practice", entityId, newValues: newValues as never },
+        data: {
+          userId: actorUserId,
+          action,
+          entityType: "Practice",
+          entityId,
+          newValues: newValues as never,
+        },
       });
     } catch (error) {
       logger.error({ err: error, action }, "Failed to write practice audit log entry");
