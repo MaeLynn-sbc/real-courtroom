@@ -158,7 +158,6 @@ function formatGameTimeRemaining(endAt: string | null): { text: string; overtime
   return { text: `${minutes}m left`, overtime: false };
 }
 
-
 // Staging pipeline (reported live: "staff need to compose the staging
 // slots, not just watch them fill"). Next up/After that/Then are real,
 // saved groups now — not a recomputed preview of the top of the queue.
@@ -194,17 +193,27 @@ function NextUpSection({
   // driven by the page's own 10-second poll via OpenPlaySessionTabs) —
   // never cached in state, so a court freeing up or filling mid-session
   // shows up here without any extra wiring.
-  const [assignCourtPicks, setAssignCourtPicks] = useState<Record<StagedGroupSlot, string>>(perSlot(""));
-  const [autoQueueSizes, setAutoQueueSizes] = useState<Record<StagedGroupSlot, string>>(perSlot("4"));
-  const [addPlayerPicks, setAddPlayerPicks] = useState<Record<StagedGroupSlot, string>>(perSlot(""));
+  const [assignCourtPicks, setAssignCourtPicks] = useState<Record<StagedGroupSlot, string>>(
+    perSlot(""),
+  );
+  const [autoQueueSizes, setAutoQueueSizes] = useState<Record<StagedGroupSlot, string>>(
+    perSlot("4"),
+  );
+  const [addPlayerPicks, setAddPlayerPicks] = useState<Record<StagedGroupSlot, string>>(
+    perSlot(""),
+  );
   // "Same as the court cards" (reported live) — a self-contained hand-pick
   // checkbox picker directly on each empty slot, not just the separate
   // "Build a group by hand" card further down the page (which still works
   // too — this is a second, more convenient path to the exact same
   // stageManualGroup action, same relationship Quick-queue has to the
   // shared card's court destination). Closed by default; opens per slot.
-  const [handPickOpen, setHandPickOpen] = useState<Record<StagedGroupSlot, boolean>>(perSlot(false));
-  const [handPicks, setHandPicks] = useState<Record<StagedGroupSlot, string[]>>(perSlot<string[]>([]));
+  const [handPickOpen, setHandPickOpen] = useState<Record<StagedGroupSlot, boolean>>(
+    perSlot(false),
+  );
+  const [handPicks, setHandPicks] = useState<Record<StagedGroupSlot, string[]>>(
+    perSlot<string[]>([]),
+  );
   // Owner request (2026-08-11): "make this alphabetical order so we can
   // check the players name easily. and when we type the first letter it
   // appears right away" — sorted for the hand-pick checkbox list and the
@@ -218,7 +227,9 @@ function NextUpSection({
   const alphabeticalWaitingMembers = [...flatWaitingMembers].sort((a, b) =>
     a.playerName.localeCompare(b.playerName),
   );
-  const [handPickSearch, setHandPickSearch] = useState<Record<StagedGroupSlot, string>>(perSlot(""));
+  const [handPickSearch, setHandPickSearch] = useState<Record<StagedGroupSlot, string>>(
+    perSlot(""),
+  );
   const vacantCourts = courts.filter((court) => !court.active && !court.proposed && !court.booked);
 
   function toggleHandPick(slot: StagedGroupSlot, registrationId: string) {
@@ -371,22 +382,24 @@ function NextUpSection({
                         .includes(handPickSearch[slot].trim().toLowerCase()),
                     )
                     .map((member) => {
-                    const picked = handPicks[slot].includes(member.registrationId);
-                    return (
-                      <label
-                        key={member.registrationId}
-                        className="flex items-center gap-1.5 text-xs"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={picked}
-                          onChange={() => toggleHandPick(slot, member.registrationId)}
-                          className="border-input checked:border-court-blue checked:bg-court-blue size-3.5 shrink-0 cursor-pointer appearance-none rounded border bg-white"
-                        />
-                        <span className={skillTextClass(member.skillLevel)}>{displayPlayerName(member.playerName)}</span>
-                      </label>
-                    );
-                  })}
+                      const picked = handPicks[slot].includes(member.registrationId);
+                      return (
+                        <label
+                          key={member.registrationId}
+                          className="flex items-center gap-1.5 text-xs"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={picked}
+                            onChange={() => toggleHandPick(slot, member.registrationId)}
+                            className="border-input checked:border-court-blue checked:bg-court-blue size-3.5 shrink-0 cursor-pointer appearance-none rounded border bg-white"
+                          />
+                          <span className={skillTextClass(member.skillLevel)}>
+                            {displayPlayerName(member.playerName)}
+                          </span>
+                        </label>
+                      );
+                    })}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground text-xs">
@@ -419,7 +432,9 @@ function NextUpSection({
                   // reported as "black box, text is black."
                   className="bg-card flex items-center gap-1 rounded-md border px-2 py-1 text-sm"
                 >
-                  <span className={`font-medium ${skillTextClass(member.skillLevel) || "text-card-foreground"}`}>
+                  <span
+                    className={`font-medium ${skillTextClass(member.skillLevel) || "text-card-foreground"}`}
+                  >
                     {displayPlayerName(member.playerName)}
                   </span>
                   {/* text-card-foreground/N, not text-muted-foreground:
@@ -516,11 +531,14 @@ function NextUpSection({
       <CardHeader>
         <CardTitle className="text-base">Racks</CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {/* Six virtual paddle racks (lib/staged-slots.ts). Rack 1 plays
-            next; when it goes on court, every rack behind moves up. */}
+      <CardContent className="grid gap-3 md:grid-cols-3">
+        {/* Six virtual paddle racks (lib/staged-slots.ts), three across
+            like the court cards: Racks 1-3 play next. Rack 1 goes first;
+            when it goes on court, every rack behind moves up. */}
         {STAGED_SLOTS.map((slot, index) => (
-          <div key={slot}>{renderSlot(slot, index === 0)}</div>
+          <div key={slot} className="min-w-0">
+            {renderSlot(slot, index === 0)}
+          </div>
         ))}
       </CardContent>
     </Card>
@@ -601,7 +619,10 @@ export function RotationBoard({
     runAction(
       (async () => {
         for (const registrationId of registrationIds) {
-          const result = await addPlayerToStagedGroupAction({ stagedGroupId: group.id, registrationId });
+          const result = await addPlayerToStagedGroupAction({
+            stagedGroupId: group.id,
+            registrationId,
+          });
           if (result.error) return result;
         }
         return { error: null };
@@ -665,8 +686,10 @@ export function RotationBoard({
                   <ul className="text-sm">
                     {court.active.participants.map((p) => (
                       <li key={p.registrationId}>
-                        <span className={skillTextClass(p.skillLevel)}>{displayPlayerName(p.playerName)}</span> ·{" "}
-                        {skillLabel(p.skillLevel)}
+                        <span className={skillTextClass(p.skillLevel)}>
+                          {displayPlayerName(p.playerName)}
+                        </span>{" "}
+                        · {skillLabel(p.skillLevel)}
                       </li>
                     ))}
                   </ul>
@@ -763,8 +786,10 @@ export function RotationBoard({
                   <ul className="text-sm">
                     {court.proposed.participants.map((p) => (
                       <li key={p.registrationId}>
-                        <span className={skillTextClass(p.skillLevel)}>{displayPlayerName(p.playerName)}</span> ·{" "}
-                        {skillLabel(p.skillLevel)}
+                        <span className={skillTextClass(p.skillLevel)}>
+                          {displayPlayerName(p.playerName)}
+                        </span>{" "}
+                        · {skillLabel(p.skillLevel)}
                       </li>
                     ))}
                   </ul>
@@ -870,6 +895,18 @@ export function RotationBoard({
         ))}
       </div>
 
+      {/* Racks right under the courts (owner, 2026-09-17): the groups
+          about to play sit next to the courts they're waiting for. */}
+      <NextUpSection
+        date={date}
+        stagedGroups={stagedGroups}
+        courts={courts}
+        flatWaitingMembers={flatWaitingMembers}
+        runAction={runAction}
+        isPending={isPending}
+        totalWaiting={totalWaiting}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Build a group by hand</CardTitle>
@@ -935,16 +972,6 @@ export function RotationBoard({
           </div>
         </CardContent>
       </Card>
-
-      <NextUpSection
-        date={date}
-        stagedGroups={stagedGroups}
-        courts={courts}
-        flatWaitingMembers={flatWaitingMembers}
-        runAction={runAction}
-        isPending={isPending}
-        totalWaiting={totalWaiting}
-      />
 
       <Card>
         <CardHeader>
@@ -1037,7 +1064,9 @@ export function RotationBoard({
                                   />
                                 ) : null}
                               </span>
-                              <span className={skillTextClass(member.skillLevel)}>{displayPlayerName(member.playerName)}</span>{" "}
+                              <span className={skillTextClass(member.skillLevel)}>
+                                {displayPlayerName(member.playerName)}
+                              </span>{" "}
                               <span className="text-muted-foreground text-xs">
                                 ({skillLabel(member.skillLevel)})
                               </span>
@@ -1176,7 +1205,9 @@ export function RotationBoard({
                 className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
               >
                 <span className="text-sm">
-                  <span className={skillTextClass(player.skillLevel)}>{displayPlayerName(player.playerName)}</span>{" "}
+                  <span className={skillTextClass(player.skillLevel)}>
+                    {displayPlayerName(player.playerName)}
+                  </span>{" "}
                   <span className="text-muted-foreground text-xs">
                     ({skillLabel(player.skillLevel)})
                   </span>

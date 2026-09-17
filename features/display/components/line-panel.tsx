@@ -128,21 +128,6 @@ export function WaitingStrip({ data }: { data: DisplayData }) {
           {players.length + onRacks}
         </em>
         <span>Waiting</span>
-        <span
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "0.2vh 0.6vw",
-            marginTop: "0.6vh",
-            letterSpacing: 0,
-          }}
-        >
-          {OPEN_PLAY_SKILL_LEVEL_ORDER.map((level) => (
-            <span key={level} style={{ color: OPEN_PLAY_SKILL_COLOR[level].hex }}>
-              {OPEN_PLAY_SKILL_LEVELS[level].label}
-            </span>
-          ))}
-        </span>
       </div>
       <div
         className={styles.waiting}
@@ -159,6 +144,31 @@ export function WaitingStrip({ data }: { data: DisplayData }) {
           </span>
         ))}
         {extra > 0 && <span className={cls(styles.w, styles.more)}>+{extra} more</span>}
+      </div>
+      {/* Skill colour legend, on the right: the bottom-left corner
+          belongs to the fixed "Announcements" toggle. */}
+      <div
+        className={styles["q-count"]}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.3vh",
+          fontFamily: "var(--mono)",
+          fontSize: "1.5vh",
+        }}
+      >
+        {OPEN_PLAY_SKILL_LEVEL_ORDER.map((level) => (
+          <span
+            key={level}
+            style={{
+              color: OPEN_PLAY_SKILL_COLOR[level].hex,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+            }}
+          >
+            {OPEN_PLAY_SKILL_LEVELS[level].label}
+          </span>
+        ))}
       </div>
     </div>
   );
