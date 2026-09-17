@@ -41,7 +41,9 @@ export function PlayerSearchCombobox<T extends PlayerSearchOption>({
   placeholder,
   noMatchHint,
 }: PlayerSearchComboboxProps<T>) {
-  const selectedPlayer = selectedPlayerId ? players.find((player) => player.id === selectedPlayerId) : null;
+  const selectedPlayer = selectedPlayerId
+    ? players.find((player) => player.id === selectedPlayerId)
+    : null;
   const displayValue = selectedPlayer ? selectedPlayer.label : text;
   const [isOpen, setIsOpen] = useState(false);
   const blurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,7 +66,9 @@ export function PlayerSearchCombobox<T extends PlayerSearchOption>({
   // relevance concern the way it might be on a public-facing search.
   const query = displayValue.trim();
   const matches = query
-    ? players.filter((player) => player.label.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
+    ? players
+        .filter((player) => player.label.toLowerCase().includes(query.toLowerCase()))
+        .slice(0, 8)
     : [];
 
   function handleChange(value: string) {
@@ -109,7 +113,10 @@ export function PlayerSearchCombobox<T extends PlayerSearchOption>({
               key={player.id}
               type="button"
               onClick={() => handlePick(player)}
-              className="hover:bg-accent block w-full px-3 py-2 text-left text-sm"
+              // The highlight is the theme's accent (dark navy in dark mode):
+              // its text must switch with it, or a hovered name reads as a
+              // blank dark bar (reported again 2026-09-17).
+              className="hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground block w-full px-3 py-2 text-left text-sm outline-none"
             >
               {player.label}
             </button>

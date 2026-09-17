@@ -159,7 +159,7 @@ export function SellProductForm({ products, players, paymentMethods }: SellProdu
                 onClick={() => setValue("productId", product.id)}
                 className={cn(
                   "bg-card flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition-colors",
-                  selected ? "border-primary/50 bg-primary/[0.04]" : "hover:bg-accent",
+                  selected ? "border-primary/50 bg-primary/[0.04]" : "hover:bg-accent hover:text-accent-foreground",
                 )}
               >
                 {/* Reported live: the name/price here were unreadable —
@@ -208,7 +208,7 @@ export function SellProductForm({ products, players, paymentMethods }: SellProdu
             onClick={() => setValue("productId", CUSTOM_ITEM_VALUE)}
             className={cn(
               "bg-card flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition-colors",
-              isCustomItem ? "border-primary/50 bg-primary/[0.04]" : "hover:bg-accent",
+              isCustomItem ? "border-primary/50 bg-primary/[0.04]" : "hover:bg-accent hover:text-accent-foreground",
             )}
           >
             <PackagePlus

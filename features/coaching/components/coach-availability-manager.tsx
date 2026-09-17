@@ -412,7 +412,7 @@ export function CoachAvailabilityManager({
                         // dark text on a dark background. bg-card matches
                         // the parent Card's own white background (same
                         // pairing card.tsx always uses) instead.
-                        "bg-card text-card-foreground hover:bg-accent border-input",
+                        "bg-card text-card-foreground hover:bg-accent hover:text-accent-foreground border-input",
                   )}
                 >
                   <span className="tracking-wide uppercase opacity-80">

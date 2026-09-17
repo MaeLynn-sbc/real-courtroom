@@ -246,7 +246,7 @@ export function ShortCodeReveal({ shortCode, bookingReference }: { shortCode: st
       <button
         type="button"
         onClick={handleCopy}
-        className="border-input hover:bg-accent flex items-center gap-3 rounded-xl border-2 px-6 py-4 transition-colors"
+        className="border-input hover:bg-accent hover:text-accent-foreground flex items-center gap-3 rounded-xl border-2 px-6 py-4 transition-colors"
       >
         <span className="font-mono text-5xl font-bold tracking-[0.2em]">{shortCode}</span>
         {copied ? (

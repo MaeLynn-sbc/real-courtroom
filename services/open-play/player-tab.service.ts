@@ -1,5 +1,6 @@
 import { logger } from "@/lib/logger";
 import { gameChargeDescription } from "@/lib/game-charge-description";
+import { getPlacementsForDate } from "@/services/open-play/player-placement";
 import { isPracticeDate } from "@/lib/practice";
 import { prisma } from "@/lib/prisma";
 import type { PlayerTab, Prisma, TabLineItem } from "@/lib/generated/prisma/client";
@@ -50,9 +51,7 @@ export interface SaleContext {
   paymentMethodId: string;
 }
 
-async function computeGameRateCents(
-  registration: { sessionId: string | null },
-): Promise<number> {
+async function computeGameRateCents(registration: { sessionId: string | null }): Promise<number> {
   // Fri/Sat games are "counted for rotation fairness, billed at ₱0" (§9) —
   // the flat ₱150 fee is a separate, not-yet-built §8 payment, not a tab
   // line item.
@@ -69,7 +68,16 @@ export interface TabItemView {
   description: string;
   qty: number;
   amountCents: number;
+  // When a non-game item was added ("7:45 PM"); a game's time range is
+  // already in its description.
+  time: string | null;
 }
+
+const itemTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
 
 export class PlayerTabService {
   // Idempotent — same precedent as getOrCreateSessionForDate. Accepts an
@@ -85,7 +93,9 @@ export class PlayerTabService {
       return existing;
     }
 
-    const registration = await client.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+    const registration = await client.openPlayNightRegistration.findUniqueOrThrow({
+      where: { id: registrationId },
+    });
     // Practice players never get a tab (lib/practice.ts). Without a tab
     // there is nothing to charge or settle, so no sale can follow.
     if (isPracticeDate(registration.date)) {
@@ -188,7 +198,10 @@ export class PlayerTabService {
   // this and settleTab/writeOffTab's own atomic update can't both act on
   // it at once — whichever gets there first, the other waits and then
   // sees the fresh (already-settled) state.
-  private async lockAndCheckTabOpen(tx: Prisma.TransactionClient, tabId: string): Promise<PlayerTab> {
+  private async lockAndCheckTabOpen(
+    tx: Prisma.TransactionClient,
+    tabId: string,
+  ): Promise<PlayerTab> {
     await tx.$queryRaw`SELECT id FROM "PlayerTab" WHERE id = ${tabId} FOR UPDATE`;
     const tab = await tx.playerTab.findUniqueOrThrow({ where: { id: tabId } });
     if (tab.status !== "OPEN") {
@@ -207,7 +220,10 @@ export class PlayerTabService {
   // the session row here means a concurrent closeSession (which also
   // locks that row as part of its own UPDATE) and this call serialize
   // properly — whichever wins, the other sees the fresh state.
-  private async assertSessionNotClosed(tx: Prisma.TransactionClient, sessionId: string): Promise<void> {
+  private async assertSessionNotClosed(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+  ): Promise<void> {
     await tx.$queryRaw`SELECT id FROM "OpenPlayNightSession" WHERE id = ${sessionId} FOR UPDATE`;
     const session = await tx.openPlayNightSession.findUniqueOrThrow({ where: { id: sessionId } });
     if (session.status !== "OPEN") {
@@ -267,7 +283,12 @@ export class PlayerTabService {
   // not "RENTAL") so these show up as what they are — a one-time
   // consumable sale, not equipment rental — without touching the
   // RENTAL path at all.
-  async addProductLineItem(tabId: string, productId: string, qty: number, actorUserId: string): Promise<TabLineItem> {
+  async addProductLineItem(
+    tabId: string,
+    productId: string,
+    qty: number,
+    actorUserId: string,
+  ): Promise<TabLineItem> {
     const product = await productService.getActiveProductPriceCents(productId);
     if (!product) {
       throw new Error("This add-on isn't available.");
@@ -312,7 +333,13 @@ export class PlayerTabService {
   // BUILD-SPEC.md §9 "Staff can add an adjustment (discount, correction)
   // with a required reason." amountCents can be negative (a discount) or
   // positive (a correction that adds to the tab).
-  async addAdjustment(tabId: string, description: string, amountCents: number, reason: string, actorUserId: string): Promise<TabLineItem> {
+  async addAdjustment(
+    tabId: string,
+    description: string,
+    amountCents: number,
+    reason: string,
+    actorUserId: string,
+  ): Promise<TabLineItem> {
     if (!reason.trim()) {
       throw new Error("A reason is required for an adjustment.");
     }
@@ -354,7 +381,12 @@ export class PlayerTabService {
   // the session-not-closed check — a void only ever reduces a tab's
   // balance, which can never be the thing that makes closeSession wrongly
   // let a session through with money outstanding.
-  async voidLineItem(tabId: string, lineItemId: string, reason: string, actorUserId: string): Promise<TabLineItem> {
+  async voidLineItem(
+    tabId: string,
+    lineItemId: string,
+    reason: string,
+    actorUserId: string,
+  ): Promise<TabLineItem> {
     if (!reason.trim()) {
       throw new Error("A reason is required to void a charge.");
     }
@@ -501,14 +533,17 @@ export class PlayerTabService {
       // below too (by checking what the void TARGETS, not just its own
       // type), rather than leaking a stray negative charge into the
       // open-play total that has nothing to do with open play money.
-      const productItems = lineItems.filter((item) => item.type === "PRODUCT" && item.voidedByItems.length === 0);
+      const productItems = lineItems.filter(
+        (item) => item.type === "PRODUCT" && item.voidedByItems.length === 0,
+      );
       const openPlayItems = lineItems.filter((item) => {
         if (item.type === "PRODUCT") return false;
         if (item.voidsLineItemId && item.voidsLineItem?.type === "PRODUCT") return false;
         return true;
       });
       const openPlayTotalCents = openPlayItems.reduce((sum, item) => sum + item.amountCents, 0);
-      const totalCents = openPlayTotalCents + productItems.reduce((sum, item) => sum + item.amountCents, 0);
+      const totalCents =
+        openPlayTotalCents + productItems.reduce((sum, item) => sum + item.amountCents, 0);
 
       const registration = await tx.openPlayNightRegistration.findUniqueOrThrow({
         where: { id: updated.registrationId },
@@ -541,7 +576,8 @@ export class PlayerTabService {
             playerId: registration.playerId ?? undefined,
             productId: item.productId ?? undefined,
             playerTabId: tabId,
-            description: item.qtyOrGames > 1 ? `${item.description} x${item.qtyOrGames}` : item.description,
+            description:
+              item.qtyOrGames > 1 ? `${item.description} x${item.qtyOrGames}` : item.description,
           },
           tx,
         );
@@ -568,7 +604,12 @@ export class PlayerTabService {
   // Employee, not just the signed-in User, and a reason. Idempotent the
   // same way as settleTab: an atomic `status: "OPEN"`-guarded update
   // inside a transaction, not a check-then-act race.
-  async writeOffTab(tabId: string, reason: string, employeeId: string, actorUserId: string): Promise<PlayerTab> {
+  async writeOffTab(
+    tabId: string,
+    reason: string,
+    employeeId: string,
+    actorUserId: string,
+  ): Promise<PlayerTab> {
     if (!reason.trim()) {
       throw new Error("A reason is required to write off a tab.");
     }
@@ -608,21 +649,34 @@ export class PlayerTabService {
   // not close silently. They appear in an Unsettled list... until
   // resolved." Zero-total open tabs (checked in, never charged for
   // anything) are excluded — nothing to settle, nothing to nag about.
-  async listUnsettledForDate(date: Date): Promise<(PlayerTab & { totalCents: number; gamesPlayed: number })[]> {
+  async listUnsettledForDate(
+    date: Date,
+  ): Promise<(PlayerTab & { totalCents: number; gamesPlayed: number })[]> {
     const tabs = await this.listTabsForDate(date);
     return tabs.filter((tab) => tab.status === "OPEN" && tab.totalCents > 0);
   }
 
   // Every tab for the night regardless of status — powers the check-in
   // screen's Tabs panel (settle/adjust/write-off actions live there).
-  async listTabsForDate(date: Date): Promise<(PlayerTab & { totalCents: number; gamesPlayed: number; items: TabItemView[] })[]> {
+  async listTabsForDate(
+    date: Date,
+  ): Promise<
+    (PlayerTab & {
+      totalCents: number;
+      gamesPlayed: number;
+      items: TabItemView[];
+      placement: string | null;
+    })[]
+  > {
     const tabs = await prisma.playerTab.findMany({
       where: { date },
       include: {
         lineItems: {
           include: {
             voidedByItems: { select: { id: true } },
-            gameAssignment: { select: { startedAt: true, endedAt: true, court: { select: { name: true } } } },
+            gameAssignment: {
+              select: { startedAt: true, endedAt: true, court: { select: { name: true } } },
+            },
           },
           orderBy: { createdAt: "asc" },
         },
@@ -630,7 +684,13 @@ export class PlayerTabService {
       orderBy: { playerName: "asc" },
     });
 
-    const results: (PlayerTab & { totalCents: number; gamesPlayed: number; items: TabItemView[] })[] = [];
+    const placements = await getPlacementsForDate(date);
+    const results: (PlayerTab & {
+      totalCents: number;
+      gamesPlayed: number;
+      items: TabItemView[];
+      placement: string | null;
+    })[] = [];
     for (const tab of tabs) {
       const totalCents = tab.lineItems.reduce((sum, item) => sum + item.amountCents, 0);
       const gamesPlayed = await prisma.gameAssignmentParticipant.count({
@@ -656,10 +716,17 @@ export class PlayerTabService {
               : item.description,
           qty: item.qtyOrGames,
           amountCents: item.amountCents,
+          time: item.type === "GAME" ? null : itemTimeFormatter.format(item.createdAt),
         }));
       const { lineItems: _lineItems, ...tabFields } = tab;
       void _lineItems;
-      results.push({ ...tabFields, totalCents, gamesPlayed, items });
+      results.push({
+        ...tabFields,
+        totalCents,
+        gamesPlayed,
+        items,
+        placement: placements.get(tab.registrationId) ?? null,
+      });
     }
     return results;
   }
@@ -677,7 +744,10 @@ export class PlayerTabService {
         },
       });
     } catch (error) {
-      logger.error({ err: error, action: entry.action, userId: entry.actorUserId }, "Failed to write audit log entry");
+      logger.error(
+        { err: error, action: entry.action, userId: entry.actorUserId },
+        "Failed to write audit log entry",
+      );
     }
   }
 }

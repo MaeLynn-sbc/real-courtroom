@@ -187,7 +187,11 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
               {session.status}
             </p>
             <div className="mt-2 flex flex-col gap-3">
-              <OpenPlayDateNav dateValue={dateParam} prevDateValue={previousDateValue} nextDateValue={nextDateValue} />
+              <OpenPlayDateNav
+                dateValue={dateParam}
+                prevDateValue={previousDateValue}
+                nextDateValue={nextDateValue}
+              />
               <OnlineRegistrationBlockToggle
                 date={dateParam}
                 blocked={session.onlineRegistrationBlocked}
@@ -315,7 +319,11 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
           Regular drop-in — no capacity, no prepayment.
         </p>
         <div className="mt-2">
-          <OpenPlayDateNav dateValue={dateParam} prevDateValue={previousDateValue} nextDateValue={nextDateValue} />
+          <OpenPlayDateNav
+            dateValue={dateParam}
+            prevDateValue={previousDateValue}
+            nextDateValue={nextDateValue}
+          />
         </div>
       </div>
 
@@ -339,7 +347,14 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
   );
 }
 
-function serializeTabs(tabs: (PlayerTab & { totalCents: number; gamesPlayed: number; items: TabItemView[] })[]) {
+function serializeTabs(
+  tabs: (PlayerTab & {
+    totalCents: number;
+    gamesPlayed: number;
+    items: TabItemView[];
+    placement: string | null;
+  })[],
+) {
   return tabs.map((tab) => ({
     id: tab.id,
     registrationId: tab.registrationId,
@@ -349,6 +364,7 @@ function serializeTabs(tabs: (PlayerTab & { totalCents: number; gamesPlayed: num
     gamesPlayed: tab.gamesPlayed,
     settledVia: tab.settledVia,
     items: tab.items,
+    placement: tab.placement,
   }));
 }
 

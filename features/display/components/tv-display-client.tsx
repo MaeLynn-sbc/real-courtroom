@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RackColumn } from "@/features/display/components/line-panel";
 import { createAnnouncementRepeater } from "@/features/display/lib/announcement-repeater";
+import { OPEN_PLAY_SKILL_COLOR, skillColor } from "@/types/open-play-skill-color";
+import {
+  OPEN_PLAY_SKILL_LEVEL_ORDER,
+  OPEN_PLAY_SKILL_LEVELS,
+} from "@/types/open-play-skill-levels";
 import type { DisplayCourt, DisplayData } from "@/services/display/display.service";
 
 import styles from "@/app/display/[slug]/tv-display.module.css";
@@ -697,6 +702,12 @@ export function TvDisplayClient({
   // the same empty state the other two boxes already used, rather than
   // borrowing 4 names from whoever's currently at the front of Waiting.
   const stagedBySlot = new Map(data.stagedGroups.map((group) => [group.slot, group.names]));
+  // Skill per name, for the name colours (owner, 2026-09-17). Staged
+  // groups and the waiting row carry it; older payloads simply don't.
+  const skillsBySlot = new Map(
+    data.stagedGroups.map((group) => [group.slot, group.members?.map((m) => m.skill) ?? []]),
+  );
+  const waitingSkills = (data.queueUnits ?? []).flat().map((player) => player.skill);
   const queueUp = stagedBySlot.get("NEXT_UP") ?? [];
   const queueThen = stagedBySlot.get("AFTER_THAT") ?? [];
   const queueLater = stagedBySlot.get("THEN") ?? [];
@@ -738,7 +749,11 @@ export function TvDisplayClient({
             <span className={styles.names}>
               {queueUp.length ? (
                 queueUp.map((name, i) => (
-                  <span key={`${name}-${i}`} className={cls(styles.n, styles[`c${i % 4}`])}>
+                  <span
+                    key={`${name}-${i}`}
+                    className={cls(styles.n, styles[`c${i % 4}`])}
+                    style={{ color: skillColor(skillsBySlot.get("NEXT_UP")?.[i]) }}
+                  >
                     {name}
                   </span>
                 ))
@@ -752,7 +767,11 @@ export function TvDisplayClient({
             <span className={styles.names}>
               {queueThen.length ? (
                 queueThen.map((name, i) => (
-                  <span key={`${name}-${i}`} className={styles.n}>
+                  <span
+                    key={`${name}-${i}`}
+                    className={styles.n}
+                    style={{ color: skillColor(skillsBySlot.get("AFTER_THAT")?.[i]) }}
+                  >
                     {name}
                   </span>
                 ))
@@ -766,7 +785,11 @@ export function TvDisplayClient({
             <span className={styles.names}>
               {queueLater.length ? (
                 queueLater.map((name, i) => (
-                  <span key={`${name}-${i}`} className={styles.n}>
+                  <span
+                    key={`${name}-${i}`}
+                    className={styles.n}
+                    style={{ color: skillColor(skillsBySlot.get("THEN")?.[i]) }}
+                  >
                     {name}
                   </span>
                 ))
@@ -779,7 +802,11 @@ export function TvDisplayClient({
         <div className={cls(styles["q-row"], styles.rest)}>
           <div className={styles.waiting}>
             {queueShown.map((name, i) => (
-              <span key={`${name}-${i}`} className={styles.w}>
+              <span
+                key={`${name}-${i}`}
+                className={styles.w}
+                style={{ color: skillColor(waitingSkills[i]) }}
+              >
                 <i>{i + 1}</i>
                 {name}
               </span>
@@ -821,6 +848,32 @@ export function TvDisplayClient({
           {data.practice ? "Practice mode · sample names only · " : "Live · "}Updates every{" "}
           {refreshIntervalSeconds} second
           {refreshIntervalSeconds === 1 ? "" : "s"}
+          {/* Skill colour key (owner, 2026-09-17): open play names on
+              this screen are coloured by skill level. */}
+          <span
+            style={{ display: "flex", justifyContent: "center", gap: "1.4vw", marginTop: "0.6vh" }}
+          >
+            {OPEN_PLAY_SKILL_LEVEL_ORDER.map((level) => (
+              <span
+                key={level}
+                style={{ display: "inline-flex", alignItems: "center", gap: "0.4vw" }}
+              >
+                <i
+                  aria-hidden="true"
+                  style={{
+                    display: "inline-block",
+                    width: "1.2vh",
+                    height: "1.2vh",
+                    borderRadius: "50%",
+                    background: OPEN_PLAY_SKILL_COLOR[level].hex,
+                  }}
+                />
+                <span style={{ color: OPEN_PLAY_SKILL_COLOR[level].hex }}>
+                  {OPEN_PLAY_SKILL_LEVELS[level].label}
+                </span>
+              </span>
+            ))}
+          </span>
         </div>
         <div className={styles.clock}>
           <b>{clockFormatter.format(now)}</b>
@@ -911,7 +964,11 @@ function CourtCard({
         </div>
         <div className={styles.players}>
           {court.players.map((player, i) => (
-            <span key={`${player.name}-${i}`} className={cls(styles.pname, styles[`c${i % 4}`])}>
+            <span
+              key={`${player.name}-${i}`}
+              className={cls(styles.pname, styles[`c${i % 4}`])}
+              style={{ color: skillColor(player.skill) }}
+            >
               <span className={styles.pnameText}>{player.name}</span>
             </span>
           ))}
@@ -1001,7 +1058,11 @@ function CourtCard({
       </div>
       <div className={styles.players}>
         {court.players.map((player, i) => (
-          <span key={`${player.name}-${i}`} className={cls(styles.pname, styles[`c${i % 4}`])}>
+          <span
+            key={`${player.name}-${i}`}
+            className={cls(styles.pname, styles[`c${i % 4}`])}
+            style={{ color: skillColor(player.skill) }}
+          >
             <span className={styles.pnameText}>{player.name}</span>
           </span>
         ))}

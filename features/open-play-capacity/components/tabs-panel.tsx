@@ -44,7 +44,16 @@ interface TabRow {
   settledVia: "CASH" | "GCASH" | null;
   // What the total is made of, shown when settling (owner, 2026-09-17).
   // Optional so older callers and tests still render.
-  items?: { id: string; type: string; description: string; qty: number; amountCents: number }[];
+  items?: {
+    id: string;
+    type: string;
+    description: string;
+    qty: number;
+    amountCents: number;
+    time?: string | null;
+  }[];
+  // Where the player is right now ("On Court 2", "Rack 3", "Waiting").
+  placement?: string | null;
 }
 
 interface ProductOption {
@@ -264,6 +273,11 @@ export function TabsPanel({
                             </button>
                           </p>
                           <p className="text-muted-foreground text-xs">
+                            {tab.placement ? (
+                              <span className="text-foreground font-medium">
+                                {tab.placement} ·{" "}
+                              </span>
+                            ) : null}
                             {tab.gamesPlayed} game{tab.gamesPlayed === 1 ? "" : "s"}
                           </p>
                         </div>
@@ -387,14 +401,22 @@ export function TabsPanel({
                             adjustment. The add-on button above and the
                             payment options below are unchanged. */}
                         {tab.items && tab.items.length > 0 ? (
-                          <ul className="flex flex-col gap-1 text-sm" aria-label={`${tab.playerName}'s charges`}>
+                          <ul
+                            className="flex flex-col gap-1 text-sm"
+                            aria-label={`${tab.playerName}'s charges`}
+                          >
                             {tab.items.map((item) => (
                               <li key={item.id} className="flex justify-between gap-3">
                                 <span>
                                   {item.description}
                                   {item.type !== "GAME" && item.qty > 1 ? ` ×${item.qty}` : ""}
+                                  {item.time ? (
+                                    <span className="text-muted-foreground"> · {item.time}</span>
+                                  ) : null}
                                 </span>
-                                <span className="tabular-nums">{formatCurrency(item.amountCents)}</span>
+                                <span className="tabular-nums">
+                                  {formatCurrency(item.amountCents)}
+                                </span>
                               </li>
                             ))}
                             <li className="flex justify-between gap-3 border-t pt-1 font-semibold">

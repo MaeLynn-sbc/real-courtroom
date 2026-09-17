@@ -13,6 +13,9 @@ import { settingsService } from "@/services/settings/settings.service";
 
 export interface DisplayPlayer {
   name: string;
+  // Open play players only: their skill, shown as a name colour on the
+  // TV (owner, 2026-09-17). Never the label; booked-court names have none.
+  skill?: OpenPlaySkillLevel;
 }
 
 export interface DisplayNextBooking {
@@ -241,7 +244,9 @@ export class DisplayService {
   // `practice`: show the practice rotation (lib/practice.ts) instead of
   // tonight's. Court bookings are left out in that mode — the practice
   // board ignores them too, so the TV shows exactly what staff set up.
-  async getDisplayData(options: { nameFormat?: NameFormat; practice?: boolean } = {}): Promise<DisplayData> {
+  async getDisplayData(
+    options: { nameFormat?: NameFormat; practice?: boolean } = {},
+  ): Promise<DisplayData> {
     const nameFormat = options.nameFormat ?? "initial";
     const courtHours = await settingsService.getCourtHours();
     const now = new Date();
@@ -263,7 +268,9 @@ export class DisplayService {
     ]);
 
     const activeCourtIds = allCourts.map((court) => court.id);
-    const bookings = options.practice ? [] : await fetchRelevantBookings(activeCourtIds, now, businessDateEnd);
+    const bookings = options.practice
+      ? []
+      : await fetchRelevantBookings(activeCourtIds, now, businessDateEnd);
 
     const currentByCourtId = new Map<string, CourtBooking>();
     const nextByCourtId = new Map<string, CourtBooking>();
@@ -307,6 +314,7 @@ export class DisplayService {
           state: "op",
           players: activeAssignment.participants.map((participant) => ({
             name: shortDisplayName(participant.registration.playerName, nameFormat),
+            skill: participant.registration.skillLevel,
           })),
           startAt: start.toISOString(),
           endAt: end.toISOString(),
@@ -328,6 +336,7 @@ export class DisplayService {
           state: "op-pending",
           players: proposedAssignment.participants.map((participant) => ({
             name: shortDisplayName(participant.registration.playerName, nameFormat),
+            skill: participant.registration.skillLevel,
           })),
           proposedAt: proposedAssignment.proposedAt.toISOString(),
           nudgeAt: nudgeAt.toISOString(),

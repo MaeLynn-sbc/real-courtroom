@@ -40,14 +40,14 @@ export function SiteHeaderMobileMenu({ navLinks }: SiteHeaderMobileMenuProps) {
         </SheetHeader>
         <nav className="flex flex-col gap-1 p-3 text-sm font-semibold">
           {navLinks.map((link) => (
-            <Link key={link.href} href={link.href} className="hover:bg-accent rounded-lg px-3 py-2">
+            <Link key={link.href} href={link.href} className="hover:bg-accent hover:text-accent-foreground rounded-lg px-3 py-2">
               {link.label}
             </Link>
           ))}
-          <Link href="/lookup" className="hover:bg-accent rounded-lg px-3 py-2">
+          <Link href="/lookup" className="hover:bg-accent hover:text-accent-foreground rounded-lg px-3 py-2">
             Find my booking
           </Link>
-          <Link href="/login" className="hover:bg-accent rounded-lg px-3 py-2">
+          <Link href="/login" className="hover:bg-accent hover:text-accent-foreground rounded-lg px-3 py-2">
             Sign in
           </Link>
         </nav>

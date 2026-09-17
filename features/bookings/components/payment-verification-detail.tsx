@@ -277,7 +277,7 @@ export function PaymentVerificationDetail({
             type="button"
             onClick={handleCopyPhone}
             disabled={!proof.booking.guestPhone}
-            className="border-input hover:bg-accent flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+            className="border-input hover:bg-accent hover:text-accent-foreground flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span className="font-mono text-lg font-semibold tracking-wide select-all">
               {proof.booking.guestPhone ?? "No phone on file"}
@@ -303,7 +303,7 @@ export function PaymentVerificationDetail({
               <button
                 type="button"
                 onClick={handleCopyReference}
-                className="border-input hover:bg-accent flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                className="border-input hover:bg-accent hover:text-accent-foreground flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span className="font-mono text-2xl font-semibold tracking-wide select-all">
                   {proof.gcashReference}

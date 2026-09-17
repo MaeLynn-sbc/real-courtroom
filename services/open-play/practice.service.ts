@@ -3,6 +3,7 @@ import { logger } from "@/lib/logger";
 import { gameChargeDescription } from "@/lib/game-charge-description";
 import { isPracticeDate, practiceDate } from "@/lib/practice";
 import { prisma } from "@/lib/prisma";
+import { getPlacementsForDate } from "@/services/open-play/player-placement";
 import { settingsService } from "@/services/settings/settings.service";
 
 // Practice mode — see lib/practice.ts for why it lives on a fixed date
@@ -23,6 +24,7 @@ export const SAMPLE_PLAYERS_PER_LEVEL = 10;
 export interface PracticeBill {
   registrationId: string;
   playerName: string;
+  placement: string | null;
   skillLevel: OpenPlaySkillLevel;
   items: { id: string; description: string; amountCents: number }[];
   totalCents: number;
@@ -201,23 +203,25 @@ export class PracticeService {
       settingsService.getOpenPlaySettings(),
     ]);
     const rate = settings.weeknightGameRateCents;
-    return registrations
-      .filter((r) => r.gameAssignmentEntries.length > 0)
-      .map((r) => ({
-        registrationId: r.id,
-        playerName: r.playerName,
-        skillLevel: r.skillLevel,
-        items: r.gameAssignmentEntries.map(({ assignment }) => ({
-          id: assignment.id,
-          description: gameChargeDescription({
-            courtName: assignment.court.name,
-            startedAt: assignment.startedAt,
-            endedAt: assignment.endedAt,
-          }),
-          amountCents: rate,
-        })),
-        totalCents: rate * r.gameAssignmentEntries.length,
-      }));
+    const placements = await getPlacementsForDate(date);
+    // Every practice player is listed, like the real Settle list, with
+    // where they are now; games appear as they finish.
+    return registrations.map((r) => ({
+      registrationId: r.id,
+      playerName: r.playerName,
+      placement: placements.get(r.id) ?? null,
+      skillLevel: r.skillLevel,
+      items: r.gameAssignmentEntries.map(({ assignment }) => ({
+        id: assignment.id,
+        description: gameChargeDescription({
+          courtName: assignment.court.name,
+          startedAt: assignment.startedAt,
+          endedAt: assignment.endedAt,
+        }),
+        amountCents: rate,
+      })),
+      totalCents: rate * r.gameAssignmentEntries.length,
+    }));
   }
 
   async setTakeoverRtv(value: boolean, actorUserId: string) {

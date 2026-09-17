@@ -652,7 +652,7 @@ export function SpecialOpenPlayBoard({
                                 <li key={match.id}>
                                   <button
                                     type="button"
-                                    className="hover:bg-accent w-full px-2 py-1.5 text-left text-sm"
+                                    className="hover:bg-accent hover:text-accent-foreground w-full px-2 py-1.5 text-left text-sm"
                                     onMouseDown={(event) => {
                                       event.preventDefault();
                                       handleQuickAddExisting(match.id, match.playerName, slot);

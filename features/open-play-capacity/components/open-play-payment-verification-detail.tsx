@@ -149,7 +149,7 @@ export function OpenPlayPaymentVerificationDetail({ proof, expectedAmountCents }
               <button
                 type="button"
                 onClick={handleCopyReference}
-                className="border-input hover:bg-accent flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors"
+                className="border-input hover:bg-accent hover:text-accent-foreground flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors"
               >
                 <span className="font-mono text-2xl font-semibold tracking-wide select-all">
                   {proof.gcashReference}

@@ -19,7 +19,7 @@ export function PracticeBills({ bills }: { bills: PracticeBill[] }) {
           — nothing here is charged or recorded as a sale.
         </p>
         {bills.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No finished practice games yet.</p>
+          <p className="text-muted-foreground text-sm">No practice players yet.</p>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {bills.map((bill) => (
