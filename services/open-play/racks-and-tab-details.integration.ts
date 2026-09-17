@@ -1,7 +1,8 @@
 /**
  * Owner requests, 2026-09-17:
- *  - Six virtual paddle racks: when Rack 1 goes on court, Racks 2-6 each
- *    move up one, all the way down the line.
+ *  - The line (Next up, After that, Then, Racks 1-6) moves up only with
+ *    complete groups: an incomplete rack holds its place and nothing
+ *    passes it.
  *  - "When the customer settles the tab, the details appear": a finished
  *    game is billed as "OP · Court N · start–end", and the tab list
  *    returns an itemised breakdown with voided charges left out.
@@ -46,10 +47,9 @@ async function main(): Promise<void> {
   await cleanUp();
 
   try {
-    // Seven checked-in players: two on Rack 1 (a game needs two), one on
-    // each of the others.
+    // Twenty-three checked-in players.
     const regIds: string[] = [];
-    for (let i = 1; i <= 7; i += 1) {
+    for (let i = 1; i <= 23; i += 1) {
       const reg = await openPlayRegistrationService.registerWeeknightWalkIn(
         TEST_DATE,
         { playerName: `${PREFIX} P${i} ${Date.now()}`, phone: "1", skillLevel: "NOVICE" },
@@ -58,33 +58,54 @@ async function main(): Promise<void> {
       await openPlayCheckinService.checkIn(reg.id, owner.id);
       regIds.push(reg.id);
     }
-    const slots = ["NEXT_UP", "AFTER_THAT", "THEN", "RACK_4", "RACK_5", "RACK_6"] as const;
-    const groups = [];
-    for (const [i, slot] of slots.entries()) {
-      const members = i === 0 ? [regIds[0], regIds[6]] : [regIds[i]];
-      groups.push(await openPlayRotationService.stageManualGroup(TEST_DATE, slot, members, owner.id));
-    }
+    let cursor = 0;
+    const take = (n: number) => {
+      const ids = regIds.slice(cursor, cursor + n);
+      cursor += n;
+      return ids;
+    };
+    const stage = (slot: Parameters<typeof openPlayRotationService.stageManualGroup>[1], n: number) =>
+      openPlayRotationService.stageManualGroup(TEST_DATE, slot, take(n), owner.id);
+    const slotOf = async (id: string) => (await prisma.stagedGroup.findUnique({ where: { id } }))?.slot ?? null;
 
-    // A one-player rack can't go on court, and says why.
+    // Next up 2 (short but playable), After that 4, Then 4, Rack 1 with
+    // 3 (incomplete), Rack 2 with 4, and a full group put on Rack 4.
+    const nextUp = await stage("NEXT_UP", 2);
+    const afterThat = await stage("AFTER_THAT", 4);
+    const then = await stage("THEN", 4);
+    const rack1 = await stage("RACK_4", 3);
+    const rack2 = await stage("RACK_5", 4);
+    const rack4 = await stage("RACK_7", 4);
+    assert((await slotOf(rack4.id)) === "RACK_6", "a full group put on Rack 4 closes the gap to Rack 3");
+    assert((await slotOf(rack2.id)) === "RACK_5", "a full group behind an incomplete rack stays behind it");
+    console.log("PASS: full groups close gaps but never pass an incomplete rack.");
+
+    // 0. A one-player group can't go on court, and says why.
+    const solo = await openPlayRotationService.stageManualGroup(TEST_DATE, "RACK_8", take(1), owner.id);
     let refused = "";
     try {
-      await openPlayRotationService.assignPendingGroupToCourt(TEST_DATE, court.id, groups[1].id, owner.id);
+      await openPlayRotationService.assignPendingGroupToCourt(TEST_DATE, court.id, solo.id, owner.id);
     } catch (error) {
       refused = (error as Error).message;
     }
-    assert(/at least 2 players/.test(refused), `a one-player rack explains it needs two, got "${refused}"`);
+    assert(/at least 2 players/.test(refused), `a one-player group explains it needs two, got "${refused}"`);
 
-    // 1. Rack 1 goes on court: every rack behind moves up one.
-    await openPlayRotationService.assignPendingGroupToCourt(TEST_DATE, court.id, groups[0].id, owner.id);
-    const after = await prisma.stagedGroup.findMany({ where: { date: TEST_DATE } });
-    const slotOf = (id: string) => after.find((g) => g.id === id)?.slot;
-    assert(slotOf(groups[1].id) === "NEXT_UP", "Rack 2 became Rack 1");
-    assert(slotOf(groups[2].id) === "AFTER_THAT", "Rack 3 became Rack 2");
-    assert(slotOf(groups[3].id) === "THEN", "Rack 4 became Rack 3");
-    assert(slotOf(groups[4].id) === "RACK_4", "Rack 5 became Rack 4");
-    assert(slotOf(groups[5].id) === "RACK_5", "Rack 6 became Rack 5");
-    assert(!after.some((g) => g.slot === "RACK_6"), "Rack 6 is empty and free to fill");
-    console.log("PASS: sending Rack 1 to court moves all five racks behind it up one.");
+    // 1. Next up goes on court. After that and Then move up; Rack 1 is
+    //    incomplete, so it stays — and so does everything behind it.
+    await openPlayRotationService.assignPendingGroupToCourt(TEST_DATE, court.id, nextUp.id, owner.id);
+    assert((await slotOf(afterThat.id)) === "NEXT_UP", "After that became Next up");
+    assert((await slotOf(then.id)) === "AFTER_THAT", "Then became After that");
+    assert((await slotOf(rack1.id)) === "RACK_4", "incomplete Rack 1 did NOT move forward into Then");
+    assert((await slotOf(rack2.id)) === "RACK_5", "Rack 2 did not pass the incomplete Rack 1");
+    assert((await slotOf(rack4.id)) === "RACK_6", "Rack 3 stayed in order");
+    console.log("PASS: when Next up goes on court, complete groups move up and an incomplete rack holds its place.");
+
+    // 2. Completing Rack 1 moves it forward, and the full racks follow.
+    await openPlayRotationService.addPlayerToStagedGroup(rack1.id, take(1)[0], owner.id);
+    assert((await slotOf(rack1.id)) === "THEN", "a completed Rack 1 moved up into Then");
+    assert((await slotOf(rack2.id)) === "RACK_4", "Rack 2 followed into Rack 1");
+    assert((await slotOf(rack4.id)) === "RACK_5", "Rack 3 followed into Rack 2");
+    console.log("PASS: completing an incomplete rack lets it, and the full racks behind it, move up.");
 
     // 2. Play the game: the tab charge carries court and time.
     const game = await prisma.gameAssignment.findFirstOrThrow({ where: { date: TEST_DATE, courtId: court.id } });
@@ -98,7 +119,7 @@ async function main(): Promise<void> {
     // 3. The tab list itemises it; an old plain "Game" charge is rebuilt
     //    from its game; a voided charge is left out.
     await prisma.tabLineItem.update({ where: { id: charge.id }, data: { description: "Game" } });
-    const tab = await prisma.playerTab.findUniqueOrThrow({ where: { registrationId: regIds[0] } });
+    const tab = await prisma.playerTab.findUniqueOrThrow({ where: { registrationId: nextUp.members[0].registrationId } });
     const extra = await prisma.tabLineItem.create({
       data: { tabId: tab.id, type: "ADJUSTMENT", description: "Mistake", qtyOrGames: 1, unitPriceCents: 500, amountCents: 500 },
     });

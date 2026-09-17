@@ -1,7 +1,7 @@
 import { logger } from "@/lib/logger";
 import { gameChargeDescription } from "@/lib/game-charge-description";
 import { isPracticeDate } from "@/lib/practice";
-import { slotBehind, stagedSlotLabel } from "@/lib/staged-slots";
+import { STAGED_SLOTS, stagedSlotLabel } from "@/lib/staged-slots";
 import { prisma } from "@/lib/prisma";
 import type {
   Court,
@@ -611,6 +611,8 @@ export class OpenPlayRotationService {
         where: { date, status: "WAITING", registrationId: { in: flatIds } },
         data: { stagedGroupId: group.id },
       });
+      // A full group placed behind an empty position moves forward.
+      await this.compactPipelineTx(tx, date);
       return group;
     });
 
@@ -675,6 +677,8 @@ export class OpenPlayRotationService {
         where: { id: { in: entries.map((entry) => entry.id) } },
         data: { stagedGroupId: group.id },
       });
+      // A full group placed behind an empty position moves forward.
+      await this.compactPipelineTx(tx, date);
       return group;
     });
 
@@ -705,6 +709,10 @@ export class OpenPlayRotationService {
     registrationId: string,
     actorUserId: string,
   ): Promise<StagedGroupWithMembers> {
+    // An empty id would make the lookup below match ANY queued player.
+    if (!registrationId) {
+      throw new Error("Pick a player to add.");
+    }
     await runSerializableWithRetry(async (tx) => {
       const group = await tx.stagedGroup.findUnique({
         where: { id: stagedGroupId },
@@ -735,6 +743,8 @@ export class OpenPlayRotationService {
       }
 
       await tx.queueEntry.update({ where: { id: entry.id }, data: { stagedGroupId } });
+      // A rack that just became complete may now move forward.
+      await this.compactPipelineTx(tx, group.date);
     });
 
     await this.writeAuditLog({
@@ -776,8 +786,14 @@ export class OpenPlayRotationService {
   // same effect as pressing × on every chip, in one transaction.
   async unstageGroup(stagedGroupId: string, actorUserId: string): Promise<void> {
     await prisma.$transaction(async (tx) => {
+      const group = await tx.stagedGroup.findUnique({
+        where: { id: stagedGroupId },
+        select: { date: true },
+      });
       await tx.queueEntry.updateMany({ where: { stagedGroupId }, data: { stagedGroupId: null } });
       await tx.stagedGroup.deleteMany({ where: { id: stagedGroupId } });
+      // Full groups behind the removed one move up into its place.
+      if (group) await this.compactPipelineTx(tx, group.date);
     });
 
     await this.writeAuditLog({
@@ -788,30 +804,39 @@ export class OpenPlayRotationService {
     });
   }
 
-  // Pipeline auto-advance: whatever staged group sits in the slot right
-  // behind the one that was just vacated moves up to fill it, and so on
-  // forward. Deliberately does NOT touch announcementRequestedAt or call
-  // announce anywhere — advancing the pipeline is silent; Announce stays
-  // its own, separate, manual staff action, same as it always has been.
-  private async advancePipelineTx(
-    tx: Prisma.TransactionClient,
-    date: Date,
-    vacatedSlot: StagedGroupSlot,
-  ): Promise<void> {
-    // Six racks now (lib/staged-slots.ts): every rack behind the vacated
-    // one moves up, all the way down the line.
-    const nextSlot = slotBehind(vacatedSlot);
-    if (!nextSlot) {
-      return;
-    }
-    const groupBehind = await tx.stagedGroup.findUnique({
-      where: { date_slot: { date, slot: nextSlot } },
+  // The line moves up (owner, 2026-09-17: "if incomplete in the virtual
+  // racks, cannot move forward to next up and so on"). Walks the nine
+  // positions in order (lib/staged-slots.ts):
+  //  - a COMPLETE group (4 players) moves forward into the earliest empty
+  //    position ahead of it;
+  //  - an INCOMPLETE group stays exactly where it is, and nothing behind
+  //    it may pass it — the line keeps its order;
+  //  - full groups behind an incomplete one still close any gap between
+  //    them and it.
+  // Run after anything that can open or fill a position. Deliberately
+  // does NOT touch announcementRequestedAt or announce anything — moving
+  // up is silent; Announce stays a separate, manual staff action.
+  private async compactPipelineTx(tx: Prisma.TransactionClient, date: Date): Promise<void> {
+    const groups = await tx.stagedGroup.findMany({
+      where: { date },
+      include: { _count: { select: { queueEntries: true } } },
     });
-    if (!groupBehind) {
-      return;
+    const bySlot = new Map(groups.map((group) => [group.slot, group]));
+    let nextFree = 0;
+    for (let index = 0; index < STAGED_SLOTS.length; index += 1) {
+      const group = bySlot.get(STAGED_SLOTS[index]);
+      if (!group) continue;
+      const complete = group._count.queueEntries >= 4;
+      if (complete && nextFree < index) {
+        await tx.stagedGroup.update({
+          where: { id: group.id },
+          data: { slot: STAGED_SLOTS[nextFree] },
+        });
+        nextFree += 1;
+      } else {
+        nextFree = index + 1;
+      }
     }
-    await tx.stagedGroup.update({ where: { id: groupBehind.id }, data: { slot: vacatedSlot } });
-    await this.advancePipelineTx(tx, date, nextSlot);
   }
 
   // "Put the action where the group is" — a court-assignment control on
@@ -902,7 +927,7 @@ export class OpenPlayRotationService {
       // from being staged there (StagedGroup's own @@unique([date,
       // slot])), then shift whatever's staged behind it forward.
       await tx.stagedGroup.deleteMany({ where: { id: stagedGroupId } });
-      await this.advancePipelineTx(tx, date, group.slot);
+      await this.compactPipelineTx(tx, date);
 
       return assignment;
     });
@@ -1243,8 +1268,13 @@ export class OpenPlayRotationService {
     await tx.queueEntry.update({ where: { id: queueEntryId }, data: { stagedGroupId: null } });
     const remaining = await tx.queueEntry.count({ where: { stagedGroupId } });
     if (remaining < 2) {
+      const group = await tx.stagedGroup.findUnique({
+        where: { id: stagedGroupId },
+        select: { date: true },
+      });
       await tx.queueEntry.updateMany({ where: { stagedGroupId }, data: { stagedGroupId: null } });
       await tx.stagedGroup.deleteMany({ where: { id: stagedGroupId } });
+      if (group) await this.compactPipelineTx(tx, group.date);
     }
   }
 
