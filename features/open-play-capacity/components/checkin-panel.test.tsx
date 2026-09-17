@@ -59,3 +59,30 @@ describe("CheckInPanel — tapping the 'Tap to check in' badge itself works", ()
     expect(mockedCheckIn).toHaveBeenCalledWith({ registrationId: "reg-1" });
   });
 });
+
+// Owner (2026-09-17): the Checked in list is one button until clicked.
+describe("CheckInPanel — collapsible Checked in list", () => {
+  const arrived = {
+    id: "reg-arrived",
+    playerName: "Arrived Ana",
+    phone: "1",
+    skillLevel: "NOVICE" as const,
+    status: "CONFIRMED",
+    checkedInAt: new Date(2026, 8, 17, 17, 15).toISOString(),
+    sessionId: null,
+  };
+
+  it("shows only the count until opened, then lists arrivals, and closes again", () => {
+    render(<CheckInPanel expected={[]} checkedIn={[arrived] as never} />);
+    const toggle = screen.getByRole("button", { name: /checked in \(1\)/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Arrived Ana")).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Arrived Ana")).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(screen.queryByText("Arrived Ana")).not.toBeInTheDocument();
+  });
+});

@@ -51,13 +51,15 @@ export function CheckInPanel({
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [showCheckedIn, setShowCheckedIn] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const filteredExpected = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return expected;
     return expected.filter(
-      (registration) => registration.playerName.toLowerCase().includes(q) || registration.phone.includes(q),
+      (registration) =>
+        registration.playerName.toLowerCase().includes(q) || registration.phone.includes(q),
     );
   }, [expected, query]);
 
@@ -147,13 +149,17 @@ export function CheckInPanel({
                             same reasoning as every other "which rate
                             applies" indicator this session added. */}
                         {isCapacityNight ? (
-                          <Badge variant={registration.sessionId ? "warning" : "status"} className="ml-2 align-middle">
+                          <Badge
+                            variant={registration.sessionId ? "warning" : "status"}
+                            className="ml-2 align-middle"
+                          >
                             {registration.sessionId ? "Unlimited" : "Regular"}
                           </Badge>
                         ) : null}
                       </p>
                       <p className="text-muted-foreground text-xs">
-                        {registration.phone} · {OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}
+                        {registration.phone} ·{" "}
+                        {OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}
                         {registration.partyId ? " · party" : ""}
                       </p>
                     </div>
@@ -178,53 +184,73 @@ export function CheckInPanel({
         </CardContent>
       </Card>
 
+      {/* Collapsed by default (owner, 2026-09-17): the arrivals list
+          grows to dozens of rows a night and pushed the rotation board
+          far down the page. One button shows the count and opens it. */}
       <Card>
         <CardHeader>
-          <CardTitle>Checked in ({checkedIn.length})</CardTitle>
+          <button
+            type="button"
+            onClick={() => setShowCheckedIn((open) => !open)}
+            aria-expanded={showCheckedIn}
+            aria-controls="checked-in-list"
+            className="hover:bg-muted flex w-full items-center justify-between gap-3 rounded-lg px-1 py-1 text-left"
+          >
+            <CardTitle>Checked in ({checkedIn.length})</CardTitle>
+            <span className="text-muted-foreground text-sm">
+              {showCheckedIn ? "Hide ▴" : "Show ▾"}
+            </span>
+          </button>
         </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {checkedIn.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No arrivals yet.</p>
-          ) : (
-            checkedIn.map((registration) => {
-              const canUndo =
-                registration.checkedInAt !== null &&
-                Date.now() - new Date(registration.checkedInAt).getTime() < UNDO_WINDOW_MS;
-              return (
-                <div
-                  key={registration.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3"
-                >
-                  <div>
-                    <p className="font-medium">
-                      {registration.playerName}
-                      {isCapacityNight ? (
-                        <Badge variant={registration.sessionId ? "warning" : "status"} className="ml-2 align-middle">
-                          {registration.sessionId ? "Unlimited" : "Regular"}
-                        </Badge>
-                      ) : null}
-                    </p>
-                    <p className="text-muted-foreground text-xs">
-                      Arrived {registration.checkedInAt ? timeFormat(registration.checkedInAt) : "—"} ·{" "}
-                      {OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}
-                    </p>
+        {showCheckedIn ? (
+          <CardContent id="checked-in-list" className="flex flex-col gap-2">
+            {checkedIn.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No arrivals yet.</p>
+            ) : (
+              checkedIn.map((registration) => {
+                const canUndo =
+                  registration.checkedInAt !== null &&
+                  Date.now() - new Date(registration.checkedInAt).getTime() < UNDO_WINDOW_MS;
+                return (
+                  <div
+                    key={registration.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3"
+                  >
+                    <div>
+                      <p className="font-medium">
+                        {registration.playerName}
+                        {isCapacityNight ? (
+                          <Badge
+                            variant={registration.sessionId ? "warning" : "status"}
+                            className="ml-2 align-middle"
+                          >
+                            {registration.sessionId ? "Unlimited" : "Regular"}
+                          </Badge>
+                        ) : null}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        Arrived{" "}
+                        {registration.checkedInAt ? timeFormat(registration.checkedInAt) : "—"} ·{" "}
+                        {OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}
+                      </p>
+                    </div>
+                    {canUndo ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={isPending}
+                        onClick={() => handleUndo(registration.id, registration.playerName)}
+                      >
+                        Undo
+                      </Button>
+                    ) : null}
                   </div>
-                  {canUndo ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      disabled={isPending}
-                      onClick={() => handleUndo(registration.id, registration.playerName)}
-                    >
-                      Undo
-                    </Button>
-                  ) : null}
-                </div>
-              );
-            })
-          )}
-        </CardContent>
+                );
+              })
+            )}
+          </CardContent>
+        ) : null}
       </Card>
     </div>
   );
