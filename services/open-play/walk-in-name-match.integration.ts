@@ -47,6 +47,7 @@ async function main(): Promise<void> {
     // 1. Junk phone, same name, two nights: ONE player.
     const first = await openPlayRegistrationService.registerWalkIn(fri.id, { playerName: NAME, phone: "1", skillLevel: "NOVICE" }, owner.id);
     const second = await openPlayRegistrationService.registerWalkIn(sat.id, { playerName: NAME.toUpperCase(), phone: ".", skillLevel: "NOVICE" }, owner.id);
+    assert(first.playerId, "a walk-in is linked to a player");
     assert(first.playerId === second.playerId, "a junk-phone walk-in with the same name reuses the player");
     console.log("PASS: same name with a junk phone reuses the existing player (case-insensitive).");
 
