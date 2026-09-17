@@ -76,3 +76,36 @@ describe("TabsPanel — edit name", () => {
     expect(mockedUpdateName).not.toHaveBeenCalled();
   });
 });
+
+// Owner (2026-09-17): "when the customer will settle tab, please make
+// sure the details will appear — e.g. OP court 1 7:20-7:40pm", without
+// losing the add-on button or the payment options.
+describe("TabsPanel — itemised charges when settling", () => {
+  const itemised = [
+    {
+      ...tabs[0],
+      totalCents: 9000,
+      items: [
+        { id: "li-1", type: "GAME", description: "OP · Court 1 · 7:20 PM–7:40 PM", qty: 1, amountCents: 3500 },
+        { id: "li-2", type: "GAME", description: "OP · Court 2 · 7:45 PM–8:05 PM", qty: 1, amountCents: 3500 },
+        { id: "li-3", type: "PRODUCT", description: "Water", qty: 2, amountCents: 2000 },
+      ],
+    },
+  ];
+
+  it("lists every game with its court and time, each add-on, and the total", async () => {
+    render(<TabsPanel tabs={itemised} paymentMethods={[]} products={[]} />);
+    expect(screen.queryByText("OP · Court 1 · 7:20 PM–7:40 PM")).not.toBeInTheDocument();
+
+    await clickAsync(screen.getByRole("button", { name: /^settle$/i }));
+
+    const list = screen.getByRole("list", { name: "Typo Namez's charges" });
+    expect(list).toHaveTextContent("OP · Court 1 · 7:20 PM–7:40 PM");
+    expect(list).toHaveTextContent("OP · Court 2 · 7:45 PM–8:05 PM");
+    expect(list).toHaveTextContent("Water ×2");
+    expect(list).toHaveTextContent("Total");
+    // The add-on button and the settle confirmation are still there.
+    expect(screen.getByRole("button", { name: /add-on/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /settled$/i })).toBeInTheDocument();
+  });
+});

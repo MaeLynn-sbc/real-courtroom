@@ -546,7 +546,7 @@ describe("RotationBoard — assign a staged group to court", () => {
   };
 
   function nextUpGroup(): HTMLElement {
-    const label = screen.getByText("Next up", { selector: "p" });
+    const label = screen.getByText("Rack 1", { selector: "p" });
     return label.closest("div.rounded-lg")!;
   }
 
@@ -656,7 +656,7 @@ describe("RotationBoard — staging slots", () => {
   }));
 
   function nextUpGroup(): HTMLElement {
-    const label = screen.getByText("Next up", { selector: "p" });
+    const label = screen.getByText("Rack 1", { selector: "p" });
     return label.closest("div.rounded-lg")!;
   }
 
@@ -1053,9 +1053,9 @@ describe("RotationBoard — build a group by hand, slot destination", () => {
     const options = Array.from(document.querySelectorAll("select option")).map(
       (o) => o.textContent,
     );
-    expect(options).not.toContain("Next up");
-    expect(options).toContain("After that");
-    expect(options).toContain("Then");
+    expect(options).not.toContain("Rack 1");
+    expect(options).toContain("Rack 2");
+    expect(options).toContain("Rack 3");
   });
 
   it("sends a slot destination via stageManualGroupAction, not createManualAssignmentAction", async () => {
@@ -1203,7 +1203,7 @@ describe("RotationBoard — send a waiting unit to a staged slot", () => {
   it("opens an empty slot with just that player — one is enough to start a group", async () => {
     mockedStageManualGroup.mockResolvedValue({ error: null });
     renderBoard([]);
-    await clickAsync(within(findRow("Alice")).getByRole("button", { name: /^next up$/i }));
+    await clickAsync(within(findRow("Alice")).getByRole("button", { name: /^rack 1$/i }));
     expect(mockedStageManualGroup).toHaveBeenCalledWith({
       date: "2026-08-01",
       slot: "NEXT_UP",
@@ -1215,7 +1215,7 @@ describe("RotationBoard — send a waiting unit to a staged slot", () => {
   it("joins an existing group that has room, and shows how full it is", async () => {
     mockedAddPlayer.mockResolvedValue({ error: null });
     renderBoard(threeStaged);
-    const button = within(findRow("Alice")).getByRole("button", { name: /^next up \(3\/4\)$/i });
+    const button = within(findRow("Alice")).getByRole("button", { name: /^rack 1 \(3\/4\)$/i });
     await clickAsync(button);
     expect(mockedAddPlayer).toHaveBeenCalledWith({ stagedGroupId: "sg-next", registrationId: "r-alice" });
     expect(mockedStageManualGroup).not.toHaveBeenCalled();
@@ -1224,8 +1224,8 @@ describe("RotationBoard — send a waiting unit to a staged slot", () => {
   it("keeps a pair together: a slot with room for only one is disabled for them", () => {
     renderBoard(threeStaged);
     const benRow = findRow("Ben");
-    expect(within(benRow).getByRole("button", { name: /^next up \(3\/4\)$/i })).toBeDisabled();
+    expect(within(benRow).getByRole("button", { name: /^rack 1 \(3\/4\)$/i })).toBeDisabled();
     // The empty slots still take the whole pair.
-    expect(within(benRow).getByRole("button", { name: /^after that$/i })).toBeEnabled();
+    expect(within(benRow).getByRole("button", { name: /^rack 2$/i })).toBeEnabled();
   });
 });

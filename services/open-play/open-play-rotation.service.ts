@@ -1,5 +1,7 @@
 import { logger } from "@/lib/logger";
+import { gameChargeDescription } from "@/lib/game-charge-description";
 import { isPracticeDate } from "@/lib/practice";
+import { slotBehind, stagedSlotLabel } from "@/lib/staged-slots";
 import { prisma } from "@/lib/prisma";
 import type {
   Court,
@@ -550,7 +552,7 @@ export class OpenPlayRotationService {
   // Human-readable label for error messages only; the enum values
   // themselves are what's actually stored/compared everywhere else.
   private stagedSlotLabel(slot: StagedGroupSlot): string {
-    return slot === "NEXT_UP" ? "Next up" : slot === "AFTER_THAT" ? "After that" : "Then";
+    return stagedSlotLabel(slot);
   }
 
   private async loadStagedGroupWithMembers(stagedGroupId: string): Promise<StagedGroupWithMembers> {
@@ -796,10 +798,12 @@ export class OpenPlayRotationService {
     date: Date,
     vacatedSlot: StagedGroupSlot,
   ): Promise<void> {
-    if (vacatedSlot === "THEN") {
+    // Six racks now (lib/staged-slots.ts): every rack behind the vacated
+    // one moves up, all the way down the line.
+    const nextSlot = slotBehind(vacatedSlot);
+    if (!nextSlot) {
       return;
     }
-    const nextSlot: StagedGroupSlot = vacatedSlot === "NEXT_UP" ? "AFTER_THAT" : "THEN";
     const groupBehind = await tx.stagedGroup.findUnique({
       where: { date_slot: { date, slot: nextSlot } },
     });
@@ -858,8 +862,13 @@ export class OpenPlayRotationService {
         );
       }
       const entries = group.queueEntries;
-      if (entries.length < 2) {
+      // A rack can be opened with one player (Put on rack), but a game
+      // needs two. Say so plainly rather than calling one player "empty".
+      if (entries.length === 0) {
         throw new Error("That group is empty — nothing to assign.");
+      }
+      if (entries.length < 2) {
+        throw new Error("A game needs at least 2 players — add another player to this rack first.");
       }
       for (const entry of entries) {
         if (entry.status !== "WAITING") {
@@ -1127,7 +1136,7 @@ export class OpenPlayRotationService {
 
       const assignment = await tx.gameAssignment.findUniqueOrThrow({
         where: { id: assignmentId },
-        include: { participants: true },
+        include: { participants: true, court: { select: { name: true } } },
       });
       // DONE specifically is the benign case — a double-tap or a losing
       // concurrent call after the lock above forces the rest to wait and
@@ -1186,8 +1195,14 @@ export class OpenPlayRotationService {
       // Practice games are never billed (lib/practice.ts): no tab line
       // item, so nothing to settle and no sale.
       if (!isPracticeDate(assignment.date)) {
+        // "OP · Court 1 · 7:20 PM–7:40 PM" on the tab (owner, 2026-09-17).
+        const description = gameChargeDescription({
+          courtName: assignment.court.name,
+          startedAt: assignment.startedAt,
+          endedAt: now,
+        });
         for (const registrationId of registrationIds) {
-          await playerTabService.creditGame(registrationId, assignmentId, tx);
+          await playerTabService.creditGame(registrationId, assignmentId, tx, description);
         }
       }
 

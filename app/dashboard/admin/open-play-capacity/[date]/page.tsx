@@ -28,7 +28,7 @@ import { openPlayCapacityService } from "@/services/open-play/open-play-capacity
 import { openPlayCheckinService } from "@/services/open-play/open-play-checkin.service";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
 import { openPlayRotationService } from "@/services/open-play/open-play-rotation.service";
-import { playerTabService } from "@/services/open-play/player-tab.service";
+import { playerTabService, type TabItemView } from "@/services/open-play/player-tab.service";
 import { playerService } from "@/services/player/player.service";
 import { productService } from "@/services/products/product.service";
 import { saleService } from "@/services/sales/sale.service";
@@ -339,7 +339,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
   );
 }
 
-function serializeTabs(tabs: (PlayerTab & { totalCents: number; gamesPlayed: number })[]) {
+function serializeTabs(tabs: (PlayerTab & { totalCents: number; gamesPlayed: number; items: TabItemView[] })[]) {
   return tabs.map((tab) => ({
     id: tab.id,
     registrationId: tab.registrationId,
@@ -348,6 +348,7 @@ function serializeTabs(tabs: (PlayerTab & { totalCents: number; gamesPlayed: num
     totalCents: tab.totalCents,
     gamesPlayed: tab.gamesPlayed,
     settledVia: tab.settledVia,
+    items: tab.items,
   }));
 }
 

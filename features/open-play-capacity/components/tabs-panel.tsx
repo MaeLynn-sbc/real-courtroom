@@ -42,6 +42,9 @@ interface TabRow {
   totalCents: number;
   gamesPlayed: number;
   settledVia: "CASH" | "GCASH" | null;
+  // What the total is made of, shown when settling (owner, 2026-09-17).
+  // Optional so older callers and tests still render.
+  items?: { id: string; type: string; description: string; qty: number; amountCents: number }[];
 }
 
 interface ProductOption {
@@ -379,6 +382,27 @@ export function TabsPanel({
 
                     {isSettling ? (
                       <div className="mt-3 flex flex-col gap-3 border-t pt-3">
+                        {/* The breakdown the customer is paying for: every
+                            game with its court and time, every add-on and
+                            adjustment. The add-on button above and the
+                            payment options below are unchanged. */}
+                        {tab.items && tab.items.length > 0 ? (
+                          <ul className="flex flex-col gap-1 text-sm" aria-label={`${tab.playerName}'s charges`}>
+                            {tab.items.map((item) => (
+                              <li key={item.id} className="flex justify-between gap-3">
+                                <span>
+                                  {item.description}
+                                  {item.type !== "GAME" && item.qty > 1 ? ` ×${item.qty}` : ""}
+                                </span>
+                                <span className="tabular-nums">{formatCurrency(item.amountCents)}</span>
+                              </li>
+                            ))}
+                            <li className="flex justify-between gap-3 border-t pt-1 font-semibold">
+                              <span>Total</span>
+                              <span className="tabular-nums">{formatCurrency(tab.totalCents)}</span>
+                            </li>
+                          </ul>
+                        ) : null}
                         <div className="flex flex-wrap items-end gap-2">
                           <SettlementPaymentFields
                             paymentMethods={paymentMethods}

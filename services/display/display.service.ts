@@ -1,4 +1,4 @@
-import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
+import type { OpenPlaySkillLevel, StagedGroupSlot } from "@/lib/generated/prisma/enums";
 import { practiceDate } from "@/lib/practice";
 import { computeBusinessDate, getBusinessDateRange } from "@/lib/business-date";
 import { prisma } from "@/lib/prisma";
@@ -102,7 +102,7 @@ export type DisplayCourt = DisplayCourtFree | DisplayCourtActive | DisplayCourtO
 // whoever happened to be at the front of Waiting. Names arrive pre-
 // shortened, same as everywhere else in this file.
 export interface DisplayStagedGroup {
-  slot: "NEXT_UP" | "AFTER_THAT" | "THEN";
+  slot: StagedGroupSlot;
   names: string[];
   // Same people with their skill level, for /rtv's colour coding.
   // Optional for the same reason as DisplayData.queueUnits.

@@ -230,7 +230,16 @@ export class TournamentDisplayService {
         unscheduled.push(displayMatch);
       }
     }
-    const stagedSlotOrder: Record<StagedGroupSlot, number> = { NEXT_UP: 0, AFTER_THAT: 1, THEN: 2 };
+    // Tournaments only ever use the first three; the rack values exist
+    // for open play (lib/staged-slots.ts) and sort after them.
+    const stagedSlotOrder: Record<StagedGroupSlot, number> = {
+      NEXT_UP: 0,
+      AFTER_THAT: 1,
+      THEN: 2,
+      RACK_4: 3,
+      RACK_5: 4,
+      RACK_6: 5,
+    };
     staged.sort((a, b) => stagedSlotOrder[a.stagedSlot!] - stagedSlotOrder[b.stagedSlot!]);
 
     const courts: TournamentDisplayCourt[] = Array.from(courtsByName.entries())

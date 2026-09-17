@@ -1986,10 +1986,16 @@ model QueueEntry {
   @@index([stagedGroupId])
 }
 
+// Six virtual paddle racks, shown as Rack 1-6 (lib/staged-slots.ts).
+// The first three keep their original names so existing rows are
+// untouched; RACK_4-6 were added 2026-09-17 (migration 83).
 enum StagedGroupSlot {
   NEXT_UP
   AFTER_THAT
   THEN
+  RACK_4
+  RACK_5
+  RACK_6
 }
 
 enum StagedGroupSource {

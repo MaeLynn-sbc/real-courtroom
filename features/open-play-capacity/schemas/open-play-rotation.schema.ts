@@ -1,9 +1,12 @@
 import { z } from "zod";
 
+import { STAGED_SLOT_VALUES } from "@/lib/staged-slots";
+
 // Staging pipeline (Next up/After that/Then — reported live: "staff need
 // to compose the staging slots, not just watch them fill"). Real, saved
 // groups now, not a computed preview.
-export const stagedGroupSlotSchema = z.enum(["NEXT_UP", "AFTER_THAT", "THEN"]);
+// Six racks (lib/staged-slots.ts).
+export const stagedGroupSlotSchema = z.enum(STAGED_SLOT_VALUES);
 
 export const proposeAssignmentInputSchema = z.object({
   date: z.string().min(1),

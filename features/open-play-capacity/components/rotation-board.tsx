@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { STAGED_SLOTS, perSlot, stagedSlotLabel } from "@/lib/staged-slots";
 import { skillTextClass } from "@/types/open-play-skill-color";
 import { OPEN_PLAY_SKILL_LEVELS } from "@/types/open-play-skill-levels";
 import type { OpenPlaySkillLevel, StagedGroupSlot } from "@/lib/generated/prisma/enums";
@@ -157,11 +158,6 @@ function formatGameTimeRemaining(endAt: string | null): { text: string; overtime
   return { text: `${minutes}m left`, overtime: false };
 }
 
-const STAGED_SLOTS: StagedGroupSlot[] = ["NEXT_UP", "AFTER_THAT", "THEN"];
-
-function stagedSlotLabel(slot: StagedGroupSlot): string {
-  return slot === "NEXT_UP" ? "Next up" : slot === "AFTER_THAT" ? "After that" : "Then";
-}
 
 // Staging pipeline (reported live: "staff need to compose the staging
 // slots, not just watch them fill"). Next up/After that/Then are real,
@@ -198,37 +194,17 @@ function NextUpSection({
   // driven by the page's own 10-second poll via OpenPlaySessionTabs) —
   // never cached in state, so a court freeing up or filling mid-session
   // shows up here without any extra wiring.
-  const [assignCourtPicks, setAssignCourtPicks] = useState<Record<StagedGroupSlot, string>>({
-    NEXT_UP: "",
-    AFTER_THAT: "",
-    THEN: "",
-  });
-  const [autoQueueSizes, setAutoQueueSizes] = useState<Record<StagedGroupSlot, string>>({
-    NEXT_UP: "4",
-    AFTER_THAT: "4",
-    THEN: "4",
-  });
-  const [addPlayerPicks, setAddPlayerPicks] = useState<Record<StagedGroupSlot, string>>({
-    NEXT_UP: "",
-    AFTER_THAT: "",
-    THEN: "",
-  });
+  const [assignCourtPicks, setAssignCourtPicks] = useState<Record<StagedGroupSlot, string>>(perSlot(""));
+  const [autoQueueSizes, setAutoQueueSizes] = useState<Record<StagedGroupSlot, string>>(perSlot("4"));
+  const [addPlayerPicks, setAddPlayerPicks] = useState<Record<StagedGroupSlot, string>>(perSlot(""));
   // "Same as the court cards" (reported live) — a self-contained hand-pick
   // checkbox picker directly on each empty slot, not just the separate
   // "Build a group by hand" card further down the page (which still works
   // too — this is a second, more convenient path to the exact same
   // stageManualGroup action, same relationship Quick-queue has to the
   // shared card's court destination). Closed by default; opens per slot.
-  const [handPickOpen, setHandPickOpen] = useState<Record<StagedGroupSlot, boolean>>({
-    NEXT_UP: false,
-    AFTER_THAT: false,
-    THEN: false,
-  });
-  const [handPicks, setHandPicks] = useState<Record<StagedGroupSlot, string[]>>({
-    NEXT_UP: [],
-    AFTER_THAT: [],
-    THEN: [],
-  });
+  const [handPickOpen, setHandPickOpen] = useState<Record<StagedGroupSlot, boolean>>(perSlot(false));
+  const [handPicks, setHandPicks] = useState<Record<StagedGroupSlot, string[]>>(perSlot<string[]>([]));
   // Owner request (2026-08-11): "make this alphabetical order so we can
   // check the players name easily. and when we type the first letter it
   // appears right away" — sorted for the hand-pick checkbox list and the
@@ -242,11 +218,7 @@ function NextUpSection({
   const alphabeticalWaitingMembers = [...flatWaitingMembers].sort((a, b) =>
     a.playerName.localeCompare(b.playerName),
   );
-  const [handPickSearch, setHandPickSearch] = useState<Record<StagedGroupSlot, string>>({
-    NEXT_UP: "",
-    AFTER_THAT: "",
-    THEN: "",
-  });
+  const [handPickSearch, setHandPickSearch] = useState<Record<StagedGroupSlot, string>>(perSlot(""));
   const vacantCourts = courts.filter((court) => !court.active && !court.proposed && !court.booked);
 
   function toggleHandPick(slot: StagedGroupSlot, registrationId: string) {
@@ -542,12 +514,14 @@ function NextUpSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Next up</CardTitle>
+        <CardTitle className="text-base">Racks</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {renderSlot("NEXT_UP", true)}
-        {renderSlot("AFTER_THAT", false)}
-        {renderSlot("THEN", false)}
+        {/* Six virtual paddle racks (lib/staged-slots.ts). Rack 1 plays
+            next; when it goes on court, every rack behind moves up. */}
+        {STAGED_SLOTS.map((slot, index) => (
+          <div key={slot}>{renderSlot(slot, index === 0)}</div>
+        ))}
       </CardContent>
     </Card>
   );
@@ -1113,8 +1087,8 @@ export function RotationBoard({
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-muted-foreground text-xs">Send to</span>
-                      {(["NEXT_UP", "AFTER_THAT", "THEN"] as const).map((slot) => {
+                      <span className="text-muted-foreground text-xs">Put on rack</span>
+                      {STAGED_SLOTS.map((slot) => {
                         const group = stagedGroups.find((g) => g.slot === slot);
                         const room = slotRoomFor(unit, slot);
                         return (

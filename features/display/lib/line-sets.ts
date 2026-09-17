@@ -1,3 +1,4 @@
+import { STAGED_SLOTS, stagedSlotLabel } from "@/lib/staged-slots";
 import type { DisplayData, DisplayLinePlayer } from "@/services/display/display.service";
 
 export const SET_SIZE = 4;
@@ -30,6 +31,18 @@ export function forecastCourts(data: Pick<DisplayData, "courts" | "targetGameMin
   return [...free, ...busy];
 }
 
+// With six racks and only a few courts, the line wraps: once every court
+// has a rack, the next full rack waits for the first court to free up
+// AGAIN, one game after the rack ahead of it. A forecast, not a booking.
+function courtForSet(forecast: CourtForecast[], index: number, targetGameMinutes: number): CourtForecast | undefined {
+  if (forecast.length === 0) return undefined;
+  const base = forecast[index % forecast.length];
+  const laps = Math.floor(index / forecast.length);
+  if (laps === 0) return base;
+  const from = base.readyAt ? new Date(base.readyAt).getTime() : Date.now();
+  return { courtName: base.courtName, readyAt: new Date(from + laps * targetGameMinutes * 60_000).toISOString() };
+}
+
 export interface LineSet {
   number: number;
   // Staged sets only: the court expected to take them, in pipeline
@@ -48,13 +61,6 @@ export interface LineSet {
   kind: "staged" | "preview";
   label: string;
 }
-
-const STAGED_LABELS: Record<"NEXT_UP" | "AFTER_THAT" | "THEN", string> = {
-  NEXT_UP: "Next up",
-  AFTER_THAT: "After that",
-  THEN: "Then",
-};
-const STAGED_ORDER = ["NEXT_UP", "AFTER_THAT", "THEN"] as const;
 
 // Pack waiting units (a pair who registered together is one unit) into
 // FULL sets of four, in queue order, never splitting a unit. Owner
@@ -91,19 +97,19 @@ export function buildLine(
   const line: LineSet[] = [];
   let courtsClaimed = 0;
   const forecast = data.courts ? forecastCourts({ courts: data.courts, targetGameMinutes: data.targetGameMinutes ?? 0 }) : [];
-  for (const slot of STAGED_ORDER) {
+  for (const slot of STAGED_SLOTS) {
     const group = data.stagedGroups.find((g) => g.slot === slot);
     if (!group || group.names.length === 0) continue;
     const players = group.members ?? group.names.map((name) => ({ name, skill: null }));
     const missing = Math.max(0, SET_SIZE - players.length);
     line.push({
       number: line.length + 1,
-      court: missing === 0 ? forecast[courtsClaimed++] : undefined,
+      court: missing === 0 ? courtForSet(forecast, courtsClaimed++, data.targetGameMinutes ?? 0) : undefined,
       missing,
       names: group.names,
       players,
       kind: "staged",
-      label: STAGED_LABELS[slot],
+      label: stagedSlotLabel(slot),
     });
   }
   const units: { name: string; skill: DisplayLinePlayer["skill"] | null }[][] =

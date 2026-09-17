@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { gameChargeDescription } from "@/lib/game-charge-description";
 import { isPracticeDate } from "@/lib/practice";
 import { prisma } from "@/lib/prisma";
 import type { PlayerTab, Prisma, TabLineItem } from "@/lib/generated/prisma/client";
@@ -62,6 +63,14 @@ async function computeGameRateCents(
   return settings.weeknightGameRateCents;
 }
 
+export interface TabItemView {
+  id: string;
+  type: string;
+  description: string;
+  qty: number;
+  amountCents: number;
+}
+
 export class PlayerTabService {
   // Idempotent — same precedent as getOrCreateSessionForDate. Accepts an
   // optional transaction client so callers already inside a transaction
@@ -116,6 +125,9 @@ export class PlayerTabService {
     registrationId: string,
     gameAssignmentId: string,
     tx: Prisma.TransactionClient,
+    // What the tab shows for this game, e.g. "OP · Court 1 · 7:20 PM–7:40 PM"
+    // (lib/game-charge-description.ts). Defaults to the old plain "Game".
+    description = "Game",
   ): Promise<void> {
     const tab = await this.getOrCreateTab(registrationId, null, tx);
 
@@ -156,7 +168,7 @@ export class PlayerTabService {
       data: {
         tabId: tab.id,
         type: "GAME",
-        description: "Game",
+        description,
         qtyOrGames: 1,
         unitPriceCents: tab.gameRateCents,
         amountCents: tab.gameRateCents,
@@ -603,22 +615,51 @@ export class PlayerTabService {
 
   // Every tab for the night regardless of status — powers the check-in
   // screen's Tabs panel (settle/adjust/write-off actions live there).
-  async listTabsForDate(date: Date): Promise<(PlayerTab & { totalCents: number; gamesPlayed: number })[]> {
+  async listTabsForDate(date: Date): Promise<(PlayerTab & { totalCents: number; gamesPlayed: number; items: TabItemView[] })[]> {
     const tabs = await prisma.playerTab.findMany({
       where: { date },
-      include: { lineItems: true },
+      include: {
+        lineItems: {
+          include: {
+            voidedByItems: { select: { id: true } },
+            gameAssignment: { select: { startedAt: true, endedAt: true, court: { select: { name: true } } } },
+          },
+          orderBy: { createdAt: "asc" },
+        },
+      },
       orderBy: { playerName: "asc" },
     });
 
-    const results: (PlayerTab & { totalCents: number; gamesPlayed: number })[] = [];
+    const results: (PlayerTab & { totalCents: number; gamesPlayed: number; items: TabItemView[] })[] = [];
     for (const tab of tabs) {
       const totalCents = tab.lineItems.reduce((sum, item) => sum + item.amountCents, 0);
       const gamesPlayed = await prisma.gameAssignmentParticipant.count({
         where: { registrationId: tab.registrationId, assignment: { status: "DONE" } },
       });
+      // What the customer is paying for, itemised for the Settle view
+      // (owner, 2026-09-17). Voided charges and the rows that void them
+      // cancel out, so neither is listed. A game charge shows its court
+      // and time, rebuilt from the game itself so charges billed before
+      // this existed ("Game") read the same as new ones.
+      const items: TabItemView[] = tab.lineItems
+        .filter((item) => !item.voidsLineItemId && item.voidedByItems.length === 0)
+        .map((item) => ({
+          id: item.id,
+          type: item.type,
+          description:
+            item.type === "GAME" && item.gameAssignment
+              ? gameChargeDescription({
+                  courtName: item.gameAssignment.court?.name,
+                  startedAt: item.gameAssignment.startedAt,
+                  endedAt: item.gameAssignment.endedAt,
+                })
+              : item.description,
+          qty: item.qtyOrGames,
+          amountCents: item.amountCents,
+        }));
       const { lineItems: _lineItems, ...tabFields } = tab;
       void _lineItems;
-      results.push({ ...tabFields, totalCents, gamesPlayed });
+      results.push({ ...tabFields, totalCents, gamesPlayed, items });
     }
     return results;
   }

@@ -35,8 +35,8 @@ describe("buildLine", () => {
       ],
     });
     expect(line.map((s) => [s.number, s.kind, s.label, s.names, s.missing])).toEqual([
-      [1, "staged", "Next up", ["W", "X", "Y", "Z"], 0],
-      [2, "staged", "After that", ["P", "Q", "R", "S"], 0],
+      [1, "staged", "Rack 1", ["W", "X", "Y", "Z"], 0],
+      [2, "staged", "Rack 2", ["P", "Q", "R", "S"], 0],
       [3, "preview", "Set 3", ["Ana", "Ben", "Cai", "Dee"], 0],
       [4, "preview", "Set 4", ["Eli"], 3],
     ]);
@@ -95,8 +95,10 @@ describe("forecastCourts", () => {
     });
     expect(line[0].court?.courtName).toBe("Court 1");
     expect(line[1].court?.courtName).toBe("Court 2");
-    expect(line[2].court).toBeUndefined();
-    expect(line[3].court).toBeUndefined();
+    // More full racks than courts: the line wraps back to the first court.
+    expect(line[2].court?.courtName).toBe("Court 1");
+    expect(line[2].court?.readyAt).not.toBeNull();
+    expect(line[3].court).toBeUndefined(); // a waiting preview set never gets a court
   });
 
   it("a staged set of three is not next on any court; the next full set takes it", () => {
@@ -112,5 +114,36 @@ describe("forecastCourts", () => {
     expect(line[0].missing).toBe(1);
     expect(line[0].court).toBeUndefined();
     expect(line[1].court?.courtName).toBe("Court 1");
+  });
+});
+
+describe("buildLine — six racks", () => {
+  const busy = (name: string, endAt: string) =>
+    ({ id: name, name, state: "op" as const, players: [], startAt: "2031-04-07T10:00:00.000Z", endAt, announcementRequestedAt: null, timesUpRequestedAt: null, next: null }) as never;
+  const four = (p: string) => [`${p}1`, `${p}2`, `${p}3`, `${p}4`];
+
+  it("labels racks 1 to 6 and wraps the court forecast one game later per lap", () => {
+    const line = buildLine({
+      courts: [busy("Court 1", "2031-04-07T10:20:00.000Z"), busy("Court 2", "2031-04-07T10:30:00.000Z")],
+      targetGameMinutes: 20,
+      queue: [],
+      stagedGroups: [
+        { slot: "NEXT_UP", names: four("a") },
+        { slot: "AFTER_THAT", names: four("b") },
+        { slot: "THEN", names: four("c") },
+        { slot: "RACK_4", names: four("d") },
+        { slot: "RACK_5", names: ["e1"] },
+        { slot: "RACK_6", names: four("f") },
+      ],
+    });
+    expect(line.map((s) => s.label)).toEqual(["Rack 1", "Rack 2", "Rack 3", "Rack 4", "Rack 5", "Rack 6"]);
+    expect(line.map((s) => [s.court?.courtName, s.court?.readyAt])).toEqual([
+      ["Court 1", "2031-04-07T10:20:00.000Z"],
+      ["Court 2", "2031-04-07T10:30:00.000Z"],
+      ["Court 1", "2031-04-07T10:40:00.000Z"],
+      ["Court 2", "2031-04-07T10:50:00.000Z"],
+      [undefined, undefined], // Rack 5 has one player: not a game yet
+      ["Court 1", "2031-04-07T11:00:00.000Z"],
+    ]);
   });
 });

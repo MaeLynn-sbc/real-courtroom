@@ -1,5 +1,6 @@
 "use client";
 
+import type { StagedGroupSlot } from "@/lib/generated/prisma/enums";
 import Link from "next/link";
 import { Megaphone, Printer } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -10,7 +11,9 @@ import { scheduleMatchAction, stageMatchAction } from "@/actions/tournament.acti
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-type StagedSlot = "NEXT_UP" | "AFTER_THAT" | "THEN";
+// The shared slot enum. Tournaments offer only the first three (see the
+// page's stageOptions); the rest belong to open play's racks.
+type StagedSlot = StagedGroupSlot;
 
 interface ScoresheetMatch {
   id: string;
@@ -213,7 +216,7 @@ function ScoresheetRow({
       // silently never cleared anything (see scheduleMatchSchema's own
       // comment).
       const result = isStageOption
-        ? await stageMatchAction(tournamentId, categoryId, match.id, { slot: selected as StagedSlot })
+        ? await stageMatchAction(tournamentId, categoryId, match.id, { slot: selected as "NEXT_UP" | "AFTER_THAT" | "THEN" })
         : await scheduleMatchAction(tournamentId, categoryId, match.id, {
             courtId: selected === NO_COURT_VALUE ? null : selected,
           });
