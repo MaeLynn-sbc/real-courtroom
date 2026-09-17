@@ -1,3 +1,4 @@
+import { gameMinutesOf } from "@/lib/game-format";
 import type {
   GameAssignmentWithParticipants,
   RotationBoardData,
@@ -22,7 +23,9 @@ function serializeAssignment(
   // a PROPOSED group hasn't started its clock yet.
   const endAt =
     assignment.status === "ACTIVE" && assignment.startedAt
-      ? new Date(assignment.startedAt.getTime() + targetGameMinutes * 60_000).toISOString()
+      ? new Date(
+          assignment.startedAt.getTime() + gameMinutesOf(assignment, targetGameMinutes) * 60_000,
+        ).toISOString()
       : null;
   return {
     id: assignment.id,
@@ -51,7 +54,11 @@ function serializeAssignment(
   };
 }
 
-export function serializeBoard(dateParam: string, board: RotationBoardData, targetGameMinutes: number) {
+export function serializeBoard(
+  dateParam: string,
+  board: RotationBoardData,
+  targetGameMinutes: number,
+) {
   return {
     date: dateParam,
     courts: board.courts.map((c) => ({
@@ -77,4 +84,3 @@ export function serializeBoard(dateParam: string, board: RotationBoardData, targ
     })),
   };
 }
-

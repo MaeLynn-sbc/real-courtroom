@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { currentGameFormat } from "@/lib/game-format";
 import type {
   BookingCommunicationSettings,
   BusinessInfo,
@@ -211,6 +212,11 @@ const OPEN_PLAY_CLOSED_SHOWS_FULL_KEY = "openPlay.closedShowsFull";
 // practice rotation (lib/practice.ts) instead of live open play. Off (no
 // row, the default): /rtv is live. /tv never looks at this.
 const PRACTICE_TAKEOVER_RTV_KEY = "practice.takeoverRtv";
+
+// Short game format (owner, 2026-09-18): on = new games are 15 min ·
+// ₱30 (lib/game-format.ts); off (no row, the default) = the regular
+// targetGameMinutes / weeknightGameRateCents.
+const OPEN_PLAY_SHORT_GAME_KEY = "openPlay.shortGame";
 
 // SMS master switch (owner decision, 2026-08-28, revised the same day).
 // Defaults to OFF. The owner wants TWO deliberate actions between a
@@ -554,6 +560,21 @@ export class SettingsService {
 
   async setOpenPlayClosedShowsFull(value: boolean, actorUserId: string) {
     return this.setBooleanFlag(OPEN_PLAY_CLOSED_SHOWS_FULL_KEY, value, actorUserId);
+  }
+
+  async getOpenPlayShortGame(): Promise<boolean> {
+    const flags = await this.getBooleanFlags([OPEN_PLAY_SHORT_GAME_KEY]);
+    return flags[OPEN_PLAY_SHORT_GAME_KEY];
+  }
+
+  async setOpenPlayShortGame(value: boolean, actorUserId: string) {
+    return this.setBooleanFlag(OPEN_PLAY_SHORT_GAME_KEY, value, actorUserId);
+  }
+
+  // The format a game put on court right now gets.
+  async getCurrentGameFormat() {
+    const [settings, shortGame] = await Promise.all([this.getOpenPlaySettings(), this.getOpenPlayShortGame()]);
+    return currentGameFormat(settings, shortGame);
   }
 
   async getPracticeTakeoverRtv(): Promise<boolean> {

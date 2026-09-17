@@ -138,6 +138,9 @@ export class PlayerTabService {
     // What the tab shows for this game, e.g. "OP · Court 1 · 7:20 PM–7:40 PM"
     // (lib/game-charge-description.ts). Defaults to the old plain "Game".
     description = "Game",
+    // The game's own price (GameAssignment.gameRateCents). Ignored on a
+    // tab that bills ₱0 (Fri/Sat); null falls back to the tab's rate.
+    gameRateCents: number | null = null,
   ): Promise<void> {
     const tab = await this.getOrCreateTab(registrationId, null, tx);
 
@@ -174,14 +177,15 @@ export class PlayerTabService {
       return;
     }
 
+    const price = tab.gameRateCents === 0 ? 0 : (gameRateCents ?? tab.gameRateCents);
     await tx.tabLineItem.create({
       data: {
         tabId: tab.id,
         type: "GAME",
         description,
         qtyOrGames: 1,
-        unitPriceCents: tab.gameRateCents,
-        amountCents: tab.gameRateCents,
+        unitPriceCents: price,
+        amountCents: price,
         gameAssignmentId,
       },
     });
@@ -675,7 +679,12 @@ export class PlayerTabService {
           include: {
             voidedByItems: { select: { id: true } },
             gameAssignment: {
-              select: { startedAt: true, endedAt: true, court: { select: { name: true } } },
+              select: {
+                startedAt: true,
+                endedAt: true,
+                gameMinutes: true,
+                court: { select: { name: true } },
+              },
             },
           },
           orderBy: { createdAt: "asc" },
@@ -712,6 +721,7 @@ export class PlayerTabService {
                   courtName: item.gameAssignment.court?.name,
                   startedAt: item.gameAssignment.startedAt,
                   endedAt: item.gameAssignment.endedAt,
+                  gameMinutes: item.gameAssignment.gameMinutes,
                 })
               : item.description,
           qty: item.qtyOrGames,

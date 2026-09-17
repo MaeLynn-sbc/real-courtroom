@@ -603,3 +603,25 @@ export async function markDoneAction(
     return { error: toActionError(error, { action: "markDoneAction", userId: authz.userId }) };
   }
 }
+
+// Game format switch (owner, 2026-09-18): 15 min · ₱30 per game when on,
+// the regular settings when off. Only games put on court after the change
+// use the new format (lib/game-format.ts). Same permission as running the
+// rotation, since the staff at the desk are the ones who flip it.
+export async function setOpenPlayShortGameAction(
+  value: boolean,
+): Promise<OpenPlayRotationActionState> {
+  const authz = await requireOpenPlayManage();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+  try {
+    await settingsService.setOpenPlayShortGame(value, authz.userId);
+    revalidateRotation();
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "setOpenPlayShortGameAction", userId: authz.userId }),
+    };
+  }
+}

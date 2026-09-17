@@ -11,6 +11,7 @@ import { OpenPlayDateNav } from "@/features/open-play-capacity/components/open-p
 import { OpenPlaySessionTabs } from "@/features/open-play-capacity/components/open-play-session-tabs";
 import { OpenTabsCarryoverBanner } from "@/features/open-play-capacity/components/open-tabs-carryover-banner";
 import { RegistrationRosterPanel } from "@/features/open-play-capacity/components/registration-roster-panel";
+import { GameFormatToggle } from "@/features/open-play-capacity/components/game-format-toggle";
 import { RotationBoard } from "@/features/open-play-capacity/components/rotation-board";
 import { StartTimeOverrideField } from "@/features/open-play-capacity/components/start-time-override-field";
 import { TabsPanel } from "@/features/open-play-capacity/components/tabs-panel";
@@ -20,6 +21,7 @@ import {
 } from "@/features/open-play-capacity/components/walk-in-registration-form";
 import type { PlayerTab } from "@/lib/generated/prisma/client";
 import { isBeforeFridaySaturdayOpenPlayCutoff } from "@/lib/court-hours";
+import { currentGameFormat } from "@/lib/game-format";
 import { shouldShowCarryoverBanner } from "@/lib/open-play-carryover";
 import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
 import { serializeBoard } from "@/features/open-play-capacity/lib/serialize-rotation-board";
@@ -108,10 +110,19 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
   const nextDateValue = toDateValue(addDays(date, 1));
 
   const isCapacityNight = [5, 6].includes(date.getDay());
-  const [players, openPlaySettings] = await Promise.all([
+  const [players, openPlaySettings, shortGame] = await Promise.all([
     playerService.listPlayers("regulars").then(toRegistrablePlayers),
     settingsService.getOpenPlaySettings(),
+    settingsService.getOpenPlayShortGame(),
   ]);
+  const gameFormat = currentGameFormat(openPlaySettings, shortGame);
+  const gameFormatToggle = (
+    <GameFormatToggle
+      shortGame={shortGame}
+      regularMinutes={openPlaySettings.targetGameMinutes}
+      regularRateCents={openPlaySettings.weeknightGameRateCents}
+    />
+  );
 
   if (isCapacityNight) {
     // Reported live: walk-in registration was always routed into the
@@ -213,9 +224,12 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
           expectedNotCheckedInCount={expected.length}
           refreshIntervalSeconds={refreshIntervalSeconds}
           rotation={
-            <RotationBoard
-              {...serializeBoard(dateParam, board, openPlaySettings.targetGameMinutes)}
-            />
+            <div className="flex flex-col gap-4">
+              {gameFormatToggle}
+              <RotationBoard
+                {...serializeBoard(dateParam, board, openPlaySettings.targetGameMinutes)}
+              />
+            </div>
           }
           checkIn={
             <div className="flex flex-col gap-4">
@@ -236,7 +250,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
                     title="Register a walk-in (playing now)"
                     target={{ date: dateParam }}
                     players={players}
-                    weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
+                    weeknightGameRateCents={gameFormat.rateCents}
                   />
                   <WalkInRegistrationForm
                     formId="unlimitedWalkIn"
@@ -252,7 +266,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
                   target={{ sessionId: session.id }}
                   players={players}
                   paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
-                  weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
+                  weeknightGameRateCents={gameFormat.rateCents}
                   friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
                 />
               )}
@@ -331,12 +345,13 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
         target={{ date: dateParam }}
         players={players}
         showRegisterOnly={false}
-        weeknightGameRateCents={openPlaySettings.weeknightGameRateCents}
+        weeknightGameRateCents={gameFormat.rateCents}
       />
       <CheckInPanel
         expected={serializeRegistrations(expected)}
         checkedIn={serializeRegistrations(checkedIn)}
       />
+      {gameFormatToggle}
       <RotationBoard {...serializeBoard(dateParam, board, openPlaySettings.targetGameMinutes)} />
       <TabsPanel
         tabs={serializeTabs(tabs)}

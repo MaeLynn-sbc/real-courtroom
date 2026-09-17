@@ -1,4 +1,5 @@
 import type { OpenPlaySkillLevel, StagedGroupSlot } from "@/lib/generated/prisma/enums";
+import { currentGameFormat, gameMinutesOf } from "@/lib/game-format";
 import { practiceDate } from "@/lib/practice";
 import { computeBusinessDate, getBusinessDateRange } from "@/lib/business-date";
 import { prisma } from "@/lib/prisma";
@@ -267,6 +268,7 @@ export class DisplayService {
       }),
     ]);
 
+    const currentFormat = currentGameFormat(settings, await settingsService.getOpenPlayShortGame());
     const activeCourtIds = allCourts.map((court) => court.id);
     const bookings = options.practice
       ? []
@@ -307,7 +309,10 @@ export class DisplayService {
       const activeAssignment = boardByCourtId.get(court.id)?.active ?? null;
       if (activeAssignment) {
         const start = activeAssignment.startedAt ?? activeAssignment.proposedAt;
-        const end = new Date(start.getTime() + settings.targetGameMinutes * 60_000);
+        // The game's own length (15 or 20 min, lib/game-format.ts).
+        const end = new Date(
+          start.getTime() + gameMinutesOf(activeAssignment, settings.targetGameMinutes) * 60_000,
+        );
         return {
           id: court.id,
           name: court.name,
@@ -379,7 +384,8 @@ export class DisplayService {
     return {
       generatedAt: now.toISOString(),
       practice: Boolean(options.practice),
-      targetGameMinutes: settings.targetGameMinutes,
+      // The length a game put on court now will run, for the line forecast.
+      targetGameMinutes: currentFormat.minutes,
       courts,
       queue,
       queueUnits,

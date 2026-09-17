@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
+import { GameFormatToggle } from "@/features/open-play-capacity/components/game-format-toggle";
 import { RotationBoard } from "@/features/open-play-capacity/components/rotation-board";
 import { serializeBoard } from "@/features/open-play-capacity/lib/serialize-rotation-board";
 import { PracticeBills } from "@/features/practice/components/practice-bills";
@@ -25,17 +26,20 @@ export const dynamic = "force-dynamic";
 // play. Nothing on this page can create a tab or a sale.
 export default async function PracticePage() {
   const date = practiceDate();
-  const [board, openPlaySettings, takeoverRtv, registrations, bills] = await Promise.all([
-    openPlayRotationService.getRotationBoardData(date),
-    settingsService.getOpenPlaySettings(),
-    settingsService.getPracticeTakeoverRtv(),
-    prisma.openPlayNightRegistration.findMany({
-      where: { date },
-      select: { id: true, playerName: true, skillLevel: true, status: true },
-      orderBy: { registeredAt: "asc" },
-    }),
-    practiceService.getPracticeBills(),
-  ]);
+  const [board, openPlaySettings, takeoverRtv, registrations, bills, shortGame] = await Promise.all(
+    [
+      openPlayRotationService.getRotationBoardData(date),
+      settingsService.getOpenPlaySettings(),
+      settingsService.getPracticeTakeoverRtv(),
+      prisma.openPlayNightRegistration.findMany({
+        where: { date },
+        select: { id: true, playerName: true, skillLevel: true, status: true },
+        orderBy: { registeredAt: "asc" },
+      }),
+      practiceService.getPracticeBills(),
+      settingsService.getOpenPlayShortGame(),
+    ],
+  );
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -63,6 +67,13 @@ export default async function PracticePage() {
           skillLevel: r.skillLevel,
           status: r.status,
         }))}
+      />
+
+      {/* The same switch as the real open play page: it is one setting. */}
+      <GameFormatToggle
+        shortGame={shortGame}
+        regularMinutes={openPlaySettings.targetGameMinutes}
+        regularRateCents={openPlaySettings.weeknightGameRateCents}
       />
 
       <RotationBoard

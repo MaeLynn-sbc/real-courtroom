@@ -2227,6 +2227,11 @@ model GameAssignment {
   // getGameWarningSettings) — that one is purely clock-driven with no
   // human judgment involved, this one is the opposite.
   timesUpRequestedAt      DateTime?
+  // The format this game was put on court with (lib/game-format.ts):
+  // its timer length and its per-game price. Null for games created
+  // before 2026-09-18, which fall back to the open play settings.
+  gameMinutes             Int?
+  gameRateCents           Int?
   status                  GameAssignmentStatus @default(PROPOSED)
   createdAt               DateTime             @default(now())
   updatedAt               DateTime             @updatedAt

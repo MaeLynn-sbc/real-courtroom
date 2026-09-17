@@ -9,6 +9,8 @@ export function gameChargeDescription(game: {
   courtName: string | null | undefined;
   startedAt: Date | null | undefined;
   endedAt: Date | null | undefined;
+  // The game format's length ("15 min"), when the game recorded one.
+  gameMinutes?: number | null;
 }): string {
   const parts = ["OP"];
   if (game.courtName) parts.push(game.courtName);
@@ -17,5 +19,6 @@ export function gameChargeDescription(game: {
   } else if (game.startedAt) {
     parts.push(`from ${time.format(game.startedAt)}`);
   }
+  if (game.gameMinutes) parts.push(`${game.gameMinutes} min`);
   return parts.join(" · ");
 }

@@ -210,7 +210,7 @@ async function main(): Promise<void> {
       `the charge names the court, got "${charge.description}"`,
     );
     assert(
-      /\d{1,2}:\d{2}\s?[AP]M–\d{1,2}:\d{2}\s?[AP]M$/.test(charge.description),
+      /\d{1,2}:\d{2}\s?[AP]M–\d{1,2}:\d{2}\s?[AP]M · \d+ min$/.test(charge.description),
       `the charge shows start–end, got "${charge.description}"`,
     );
     console.log(`PASS: a finished game is billed as "${charge.description}".`);

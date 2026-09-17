@@ -192,6 +192,8 @@ export class PracticeService {
                   id: true,
                   startedAt: true,
                   endedAt: true,
+                  gameMinutes: true,
+                  gameRateCents: true,
                   court: { select: { name: true } },
                 },
               },
@@ -217,10 +219,14 @@ export class PracticeService {
           courtName: assignment.court.name,
           startedAt: assignment.startedAt,
           endedAt: assignment.endedAt,
+          gameMinutes: assignment.gameMinutes,
         }),
-        amountCents: rate,
+        amountCents: assignment.gameRateCents ?? rate,
       })),
-      totalCents: rate * r.gameAssignmentEntries.length,
+      totalCents: r.gameAssignmentEntries.reduce(
+        (sum, { assignment }) => sum + (assignment.gameRateCents ?? rate),
+        0,
+      ),
     }));
   }
 

@@ -1263,9 +1263,16 @@ export class OpenPlayRotationService {
           courtName: assignment.court.name,
           startedAt: assignment.startedAt,
           endedAt: now,
+          gameMinutes: assignment.gameMinutes,
         });
         for (const registrationId of registrationIds) {
-          await playerTabService.creditGame(registrationId, assignmentId, tx, description);
+          await playerTabService.creditGame(
+            registrationId,
+            assignmentId,
+            tx,
+            description,
+            assignment.gameRateCents,
+          );
         }
       }
 
@@ -1768,8 +1775,12 @@ export class OpenPlayRotationService {
     // creation path (auto-pairing, manual staff assignment, staged-group
     // promotion) already funnels through, so this one line covers all of
     // them.
+    // Snapshot the current game format (lib/game-format.ts) onto the game.
+    const format = await settingsService.getCurrentGameFormat();
     const assignment = await tx.gameAssignment.create({
       data: {
+        gameMinutes: format.minutes,
+        gameRateCents: format.rateCents,
         courtId: input.courtId,
         sessionId: input.sessionId,
         date: input.date,
