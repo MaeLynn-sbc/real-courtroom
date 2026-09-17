@@ -112,7 +112,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
 
   const isCapacityNight = [5, 6].includes(date.getDay());
   const [players, openPlaySettings] = await Promise.all([
-    playerService.listPlayers().then(toRegistrablePlayers),
+    playerService.listPlayers("regulars").then(toRegistrablePlayers),
     settingsService.getOpenPlaySettings(),
   ]);
 

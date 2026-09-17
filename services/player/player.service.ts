@@ -8,6 +8,7 @@ import type { SaleCategory } from "@/lib/generated/prisma/enums";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/utils";
+import { playerGroupWhere, type PlayerGroup } from "@/services/player/player-group";
 import { findMatchingPlayer, realPhone } from "@/services/player/player-match";
 import { mergeTimelineEvents, type PlayerTimelineEvent } from "@/services/player/player-timeline";
 import { SYSTEM_ROLES } from "@/types/roles";
@@ -45,11 +46,13 @@ const SALE_CATEGORY_LABELS: Record<SaleCategory, string> = {
 };
 
 export class PlayerService {
-  // Unchanged signature/behavior — Booking's, Open Play's, and
-  // Tournament's registration forms already depend on this exact method.
-  async listPlayers() {
+  // Booking's, Open Play's, and Tournament's registration forms depend on
+  // this. `group` defaults to "all", so every existing caller is
+  // unchanged; the open-play pickers pass "regulars" so one-off
+  // tournament entrants don't crowd the check-in search.
+  async listPlayers(group: PlayerGroup = "all") {
     return prisma.player.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, ...playerGroupWhere(group) },
       include: playerWithUser,
       orderBy: { user: { name: "asc" } },
       // Defensive cap, not real pagination (this feeds registration-form
@@ -94,8 +97,18 @@ export class PlayerService {
     });
   }
 
-  async searchPlayers(input: SearchPlayersInput) {
-    const where: Prisma.PlayerWhereInput = { deletedAt: null };
+  // How many active players fall in each group, for the Players tab.
+  async countPlayersByGroup(): Promise<Record<PlayerGroup, number>> {
+    const [regulars, tournament, all] = await Promise.all([
+      prisma.player.count({ where: { deletedAt: null, ...playerGroupWhere("regulars") } }),
+      prisma.player.count({ where: { deletedAt: null, ...playerGroupWhere("tournament") } }),
+      prisma.player.count({ where: { deletedAt: null } }),
+    ]);
+    return { regulars, tournament, all };
+  }
+
+  async searchPlayers(input: SearchPlayersInput, group: PlayerGroup = "all") {
+    const where: Prisma.PlayerWhereInput = { deletedAt: null, ...playerGroupWhere(group) };
 
     if (input.skillLevel) {
       where.skillLevel = input.skillLevel;

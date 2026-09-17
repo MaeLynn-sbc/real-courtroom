@@ -40,7 +40,7 @@ export default async function OpenPlaySessionPage({ params }: OpenPlaySessionPag
     rotationEngine.getRotationView(sessionId),
     rotationEngine.getQueueStats(sessionId),
     openPlaySessionService.getAttendance(sessionId),
-    playerService.listPlayers(),
+    playerService.listPlayers("regulars"),
   ]);
 
   const playerOptions = players.map((player) => ({

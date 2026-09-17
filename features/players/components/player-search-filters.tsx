@@ -1,6 +1,8 @@
 interface PlayerSearchFiltersProps {
   query?: string;
   skillLevel?: string;
+  // Keeps the selected group tab when the filter form submits.
+  group?: string;
 }
 
 const SKILL_LEVEL_OPTIONS = [
@@ -10,9 +12,10 @@ const SKILL_LEVEL_OPTIONS = [
   { value: "PRO", label: "Pro" },
 ] as const;
 
-export function PlayerSearchFilters({ query, skillLevel }: PlayerSearchFiltersProps) {
+export function PlayerSearchFilters({ query, skillLevel, group }: PlayerSearchFiltersProps) {
   return (
     <form method="get" className="flex flex-wrap items-end gap-3">
+      {group ? <input type="hidden" name="group" value={group} /> : null}
       <div className="flex flex-col gap-1.5">
         <label htmlFor="query" className="text-sm font-medium">
           Search
