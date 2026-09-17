@@ -26,7 +26,7 @@ export default async function RotationLineTvPage() {
     gameWarning,
     timesUpTemplate,
   ] = await Promise.all([
-    displayService.getDisplayData(),
+    settingsService.getPracticeTakeoverRtv().then((practice) => displayService.getDisplayData({ practice })),
     settingsService.getAnnouncementRepeatCount(),
     settingsService.getTimeUpFlashDurationSeconds(),
     settingsService.getAnnouncementVoice(),

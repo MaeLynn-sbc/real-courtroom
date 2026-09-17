@@ -30,6 +30,7 @@ import { requirePermission } from "@/lib/action-auth";
 import { assertIsCurrentBusinessDate } from "@/lib/business-date";
 import { toActionError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
+import { isPracticeDate } from "@/lib/practice";
 import {
   AssignmentAlreadyCompletedError,
   openPlayRotationService,
@@ -50,6 +51,7 @@ function requireOpenPlayManage() {
 
 function revalidateRotation(): void {
   revalidatePath("/dashboard/admin/open-play-capacity");
+  revalidatePath("/dashboard/practice");
 }
 
 function parseDate(dateParam: string): Date {
@@ -70,6 +72,12 @@ function parseDate(dateParam: string): Date {
 // live server, not a trusted internal/test caller.
 async function parseAndValidateTodayDate(dateParam: string): Promise<Date> {
   const date = parseDate(dateParam);
+  // The one exception: the practice date (lib/practice.ts) is where the
+  // Practice page runs the rotation. It holds sample names only and is
+  // never billed, so it can't be the stale-tab incident above.
+  if (isPracticeDate(date)) {
+    return date;
+  }
   const courtHours = await settingsService.getCourtHours();
   assertIsCurrentBusinessDate(date, courtHours.businessDateRolloverHour);
   return date;

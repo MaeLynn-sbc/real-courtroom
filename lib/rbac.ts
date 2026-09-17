@@ -14,6 +14,7 @@ const PROTECTED_ROUTES: RouteRule[] = [
   { prefix: "/dashboard/courts/new", permission: PERMISSIONS.COURTS_MANAGE },
   { prefix: "/dashboard/bookings", permission: PERMISSIONS.BOOKINGS_MANAGE },
   { prefix: "/dashboard/open-play", permission: PERMISSIONS.OPEN_PLAY_MANAGE },
+  { prefix: "/dashboard/practice", permission: PERMISSIONS.OPEN_PLAY_MANAGE },
   { prefix: "/dashboard/tournaments", permission: PERMISSIONS.TOURNAMENTS_MANAGE },
   { prefix: "/dashboard/players", permission: PERMISSIONS.PLAYERS_MANAGE },
   { prefix: "/dashboard/memberships", permission: PERMISSIONS.PLAYERS_MANAGE },

@@ -51,6 +51,10 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
       // sit below the verification screens.
       { title: "Regular Open Play", href: "/dashboard/admin/open-play-capacity/today" },
       { title: "Fri/Sat Open Play", href: "/dashboard/admin/open-play-capacity" },
+      // Sandbox for the rotation line on /rtv (owner, 2026-09-17). Sample
+      // names only, never charged; meant to replace the two entries above
+      // once it's proven.
+      { title: "Practice", href: "/dashboard/practice" },
       { title: "Bookings", href: "/dashboard/bookings" },
       { title: "Verify Payments", href: "/dashboard/bookings/verify-payments" },
       {

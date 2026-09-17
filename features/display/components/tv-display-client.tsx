@@ -490,7 +490,9 @@ export function TvDisplayClient({
 
     async function poll() {
       try {
-        const response = await fetch("/api/display", { cache: "no-store" });
+        const response = await fetch(variant === "line" ? "/api/display?screen=rtv" : "/api/display", {
+          cache: "no-store",
+        });
         if (!response.ok) {
           throw new Error(`Unexpected status ${response.status}`);
         }
@@ -562,6 +564,7 @@ export function TvDisplayClient({
     scheduleTimesUpAnnouncement,
     timesUpRepeater,
     refreshIntervalSeconds,
+    variant,
   ]);
 
   // Long names shrink, never truncate (BUILD-SPEC.md §12) — same pass
@@ -718,6 +721,11 @@ export function TvDisplayClient({
             {variant === "line" ? (
               <>
                 The <span>Line</span>
+                {/* Practice takeover (Practice page switch): say so on the
+                    screen, so nobody mistakes sample names for tonight. */}
+                {data.practice ? (
+                  <span style={{ marginLeft: "1vw", color: "#e8b23f", fontSize: "0.6em" }}>· Practice</span>
+                ) : null}
               </>
             ) : (
               <>
@@ -727,7 +735,7 @@ export function TvDisplayClient({
           </div>
         </div>
         <div className={styles.sub}>
-          Live · Updates every {refreshIntervalSeconds} second
+          {data.practice ? "Practice mode · sample names only · " : "Live · "}Updates every {refreshIntervalSeconds} second
           {refreshIntervalSeconds === 1 ? "" : "s"}
         </div>
         <div className={styles.clock}>

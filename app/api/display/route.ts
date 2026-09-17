@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { displayService } from "@/services/display/display.service";
+import { settingsService } from "@/services/settings/settings.service";
 
 // BUILD-SPEC.md §12: "Enforce by excluding the fields from /api/display
 // entirely, not by omitting them in the template." displayService's
@@ -26,7 +27,12 @@ import { displayService } from "@/services/display/display.service";
 // as it was.
 export async function GET(request: NextRequest) {
   const nameFormat = request.nextUrl.searchParams.get("names") === "first" ? "first" : "initial";
-  const data = await displayService.getDisplayData({ nameFormat });
+  // /rtv asks with screen=rtv, and the server decides whether that is
+  // live open play or practice (owner switch on the Practice page), so an
+  // open TV follows the switch on its next poll. /tv never passes it.
+  const practice =
+    request.nextUrl.searchParams.get("screen") === "rtv" && (await settingsService.getPracticeTakeoverRtv());
+  const data = await displayService.getDisplayData({ nameFormat, practice });
 
   return NextResponse.json(data, {
     headers: {

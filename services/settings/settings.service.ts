@@ -207,6 +207,11 @@ const OPEN_PLAY_ONLINE_REGISTRATION_ENABLED_KEY = "openPlay.onlineRegistrationEn
 // right here — nothing changes until someone deliberately flips it.
 const OPEN_PLAY_CLOSED_SHOWS_FULL_KEY = "openPlay.closedShowsFull";
 
+// Practice takeover of /rtv (owner, 2026-09-17). On: /rtv shows the
+// practice rotation (lib/practice.ts) instead of live open play. Off (no
+// row, the default): /rtv is live. /tv never looks at this.
+const PRACTICE_TAKEOVER_RTV_KEY = "practice.takeoverRtv";
+
 // SMS master switch (owner decision, 2026-08-28, revised the same day).
 // Defaults to OFF. The owner wants TWO deliberate actions between a
 // deploy and a customer receiving a message — setting SMS_PROVIDER at the
@@ -549,6 +554,15 @@ export class SettingsService {
 
   async setOpenPlayClosedShowsFull(value: boolean, actorUserId: string) {
     return this.setBooleanFlag(OPEN_PLAY_CLOSED_SHOWS_FULL_KEY, value, actorUserId);
+  }
+
+  async getPracticeTakeoverRtv(): Promise<boolean> {
+    const flags = await this.getBooleanFlags([PRACTICE_TAKEOVER_RTV_KEY]);
+    return flags[PRACTICE_TAKEOVER_RTV_KEY];
+  }
+
+  async setPracticeTakeoverRtv(value: boolean, actorUserId: string) {
+    return this.setBooleanFlag(PRACTICE_TAKEOVER_RTV_KEY, value, actorUserId);
   }
 
   async getEquipmentHideLowStockAlert(): Promise<boolean> {

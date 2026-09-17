@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { isPracticeDate } from "@/lib/practice";
 import { prisma } from "@/lib/prisma";
 import type { PlayerTab, Prisma, TabLineItem } from "@/lib/generated/prisma/client";
 import { equipmentService } from "@/services/equipment/equipment.service";
@@ -76,6 +77,11 @@ export class PlayerTabService {
     }
 
     const registration = await client.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+    // Practice players never get a tab (lib/practice.ts). Without a tab
+    // there is nothing to charge or settle, so no sale can follow.
+    if (isPracticeDate(registration.date)) {
+      throw new Error("Practice players have no tab — practice never charges anyone.");
+    }
     const gameRateCents = await computeGameRateCents(registration);
 
     const tab = await client.playerTab.create({

@@ -1,4 +1,5 @@
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
+import { practiceDate } from "@/lib/practice";
 import { computeBusinessDate, getBusinessDateRange } from "@/lib/business-date";
 import { prisma } from "@/lib/prisma";
 import { openPlayRotationService } from "@/services/open-play/open-play-rotation.service";
@@ -119,6 +120,9 @@ export interface DisplayLinePlayer {
 
 export interface DisplayData {
   generatedAt: string;
+  // True when this frame is the practice rotation, so the screen can say
+  // so. Optional so older fixtures still typecheck.
+  practice?: boolean;
   targetGameMinutes: number;
   courts: DisplayCourt[];
   // Flattened wait-order names (parties expand to their members,
@@ -234,11 +238,16 @@ export class DisplayService {
   // shared court/queue aggregation) for open-play state, and adds one
   // new query this codebase didn't have yet: current + next booking per
   // court, needed for the reservation half of the grid.
-  async getDisplayData(options: { nameFormat?: NameFormat } = {}): Promise<DisplayData> {
+  // `practice`: show the practice rotation (lib/practice.ts) instead of
+  // tonight's. Court bookings are left out in that mode — the practice
+  // board ignores them too, so the TV shows exactly what staff set up.
+  async getDisplayData(options: { nameFormat?: NameFormat; practice?: boolean } = {}): Promise<DisplayData> {
     const nameFormat = options.nameFormat ?? "initial";
     const courtHours = await settingsService.getCourtHours();
     const now = new Date();
-    const businessDate = computeBusinessDate(now, courtHours.businessDateRolloverHour);
+    const businessDate = options.practice
+      ? practiceDate()
+      : computeBusinessDate(now, courtHours.businessDateRolloverHour);
     const { end: businessDateEnd } = getBusinessDateRange(
       businessDate,
       courtHours.businessDateRolloverHour,
@@ -254,7 +263,7 @@ export class DisplayService {
     ]);
 
     const activeCourtIds = allCourts.map((court) => court.id);
-    const bookings = await fetchRelevantBookings(activeCourtIds, now, businessDateEnd);
+    const bookings = options.practice ? [] : await fetchRelevantBookings(activeCourtIds, now, businessDateEnd);
 
     const currentByCourtId = new Map<string, CourtBooking>();
     const nextByCourtId = new Map<string, CourtBooking>();
@@ -360,6 +369,7 @@ export class DisplayService {
 
     return {
       generatedAt: now.toISOString(),
+      practice: Boolean(options.practice),
       targetGameMinutes: settings.targetGameMinutes,
       courts,
       queue,

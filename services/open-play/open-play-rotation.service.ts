@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { isPracticeDate } from "@/lib/practice";
 import { prisma } from "@/lib/prisma";
 import type {
   Court,
@@ -1182,8 +1183,12 @@ export class OpenPlayRotationService {
       // without being billed (or vice versa). A cancelled assignment never
       // reaches this code, satisfying §9 correctness #4 ("voided
       // assignments credit no games and bill nothing") by construction.
-      for (const registrationId of registrationIds) {
-        await playerTabService.creditGame(registrationId, assignmentId, tx);
+      // Practice games are never billed (lib/practice.ts): no tab line
+      // item, so nothing to settle and no sale.
+      if (!isPracticeDate(assignment.date)) {
+        for (const registrationId of registrationIds) {
+          await playerTabService.creditGame(registrationId, assignmentId, tx);
+        }
       }
 
       return tx.gameAssignment.update({

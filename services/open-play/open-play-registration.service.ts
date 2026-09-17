@@ -14,6 +14,7 @@ import type {
   OpenPlayRegistrationPaymentProofStatus,
 } from "@/lib/generated/prisma/enums";
 import { canTransitionOpenPlayWaitlistEntryStatus } from "@/services/open-play/open-play-waitlist-status";
+import { isPracticeDate } from "@/lib/practice";
 import { findMatchingPlayer, realPhone } from "@/services/player/player-match";
 import { playerService } from "@/services/player/player.service";
 import { saleService } from "@/services/sales/sale.service";
@@ -519,6 +520,11 @@ export class OpenPlayRegistrationService {
     input: RegisterWalkInInput,
     actorUserId: string,
   ): Promise<OpenPlayNightRegistration> {
+    // The practice date takes sample names only, through practiceService
+    // — never a real, paid walk-in (lib/practice.ts).
+    if (isPracticeDate(date)) {
+      throw new Error("Use the Practice page to add practice players.");
+    }
     // Same resolution as registerWalkIn's Fri/Sat path, and same reason
     // it runs standalone rather than inside a transaction with the
     // registration insert below — see findOrCreatePlayerForWalkIn's own
