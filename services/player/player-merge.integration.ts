@@ -16,8 +16,14 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`FAIL: ${message}`);
 }
 
-async function createPlayer(name: string, phone: string | null, level: "NOVICE" | "ADVANCED" | null, roleId: string) {
-  const user = await prisma.user.create({ data: { name, roleId } });
+async function createPlayer(
+  name: string,
+  phone: string | null,
+  level: "NOVICE" | "ADVANCED" | null,
+  roleId: string,
+  email?: string,
+) {
+  const user = await prisma.user.create({ data: { name, roleId, email } });
   return prisma.player.create({ data: { userId: user.id, phone, openPlaySkillLevel: level } });
 }
 
@@ -49,7 +55,9 @@ async function main(): Promise<void> {
 
     // Three rows for one person: junk phones, one real phone on the newest.
     const oldest = await createPlayer(SAME.toLowerCase(), "1", null, role.id);
-    const middle = await createPlayer(SAME, ".", "NOVICE", role.id);
+    // A contact email from the website form is not a login: it must not
+    // stop the merge.
+    const middle = await createPlayer(SAME, ".", "NOVICE", role.id, `mergetest-${Date.now()}@example.com`);
     const newest = await createPlayer(SAME.toUpperCase(), "0917 123 4567", null, role.id);
     // Two rows with DIFFERENT real phones: must be left alone.
     await createPlayer(CONFLICT, "09170000001", null, role.id);

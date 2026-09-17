@@ -126,7 +126,11 @@ export function planMerges(players: MergeRow[]): MergePlan {
       plan.phoneConflicts.push({ name: rows[0].user.name ?? "", phones, rows: rows.length });
       continue;
     }
-    const withLogin = rows.filter((r) => r.user.email || r.user.username || r.user.passwordHash);
+    // A login is something someone can actually sign in with: a username
+    // or a password. A bare email is just contact info a website
+    // registration collected (BendJohns, 2026-09-17: two contact emails,
+    // no password, one person) and does not protect a group.
+    const withLogin = rows.filter((r) => r.user.username || r.user.passwordHash);
     if (withLogin.length > 1) {
       plan.loginConflicts.push({ name: rows[0].user.name ?? "", rows: rows.length });
       continue;

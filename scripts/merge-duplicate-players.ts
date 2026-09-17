@@ -16,8 +16,9 @@
  *  - A group is SKIPPED when two rows carry DIFFERENT real phone numbers:
  *    that is the one signal they may be different people. Those are
  *    listed for the owner to resolve by hand (Players tab, Edit/Delete).
- *  - A group is SKIPPED when more than one row has a login (email,
- *    username or password). Merging real accounts is not a cleanup.
+ *  - A group is SKIPPED when more than one row has a login (a username
+ *    or a password). Merging real accounts is not a cleanup. A contact
+ *    email alone is not a login.
  *  - The keeper is the row with a login if there is one, else the oldest. Every booking, registration, sale,
  *    coach session, membership, rental and team slot on the others is
  *    moved onto it. The others are soft-deleted (Player.deletedAt), the
