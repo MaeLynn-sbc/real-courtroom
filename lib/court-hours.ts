@@ -294,16 +294,24 @@ export function classifyCourtSlot(params: {
 }): CourtSlotState {
   const { hour, slotStart, slotEnd, now, window, maintenanceRanges, bookedRanges } = params;
   if (rangesOverlap(slotStart, slotEnd, maintenanceRanges)) {
-    // Checked BEFORE the special-event branch: an open-play block reuses
-    // the same "openPlay" state the cutoff-driven hours produce, so it
-    // renders as the identical green "Open play" cell rather than a
-    // yellow "Booked for special events" one.
+    // A SPECIAL EVENT wins over an open-play block on the same hour
+    // (reported live 2026-09-18: a 10-11PM tournament block "doesn't
+    // reflect on the website"). Both blocks existed for that hour — the
+    // nightly open-play handover and the event — and the open-play check
+    // used to come first, so the cell read "OPEN PLAY", identical to
+    // every other after-cutoff hour, and the event was invisible. The
+    // event is the more specific reason the court is unavailable, so it
+    // is what the public sees.
+    if (overlappingRangeIsSpecialEvent(slotStart, slotEnd, maintenanceRanges)) {
+      return "specialEvent";
+    }
+    // An open-play block reuses the same "openPlay" state the
+    // cutoff-driven hours produce, so it renders as the identical green
+    // "Open play" cell rather than a yellow "unavailable" one.
     if (overlappingRangeIsOpenPlayBlock(slotStart, slotEnd, maintenanceRanges)) {
       return "openPlay";
     }
-    return overlappingRangeIsSpecialEvent(slotStart, slotEnd, maintenanceRanges)
-      ? "specialEvent"
-      : "unavailable";
+    return "unavailable";
   }
   // BOOKED before the open-play window (owner, 2026-09-15: "only apply
   // it to available courts"). A cutoff moved EARLIER hands open play the

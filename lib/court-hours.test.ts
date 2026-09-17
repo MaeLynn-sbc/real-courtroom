@@ -359,3 +359,43 @@ describe("isBeforeFridaySaturdayOpenPlayCutoff", () => {
     ).toBe(false);
   });
 });
+
+// Reported live (2026-09-18): a 10-11PM tournament block "doesn't reflect
+// on the website" — the nightly open-play block covered the same hour and
+// won, so the cell read OPEN PLAY like every other after-cutoff hour.
+describe("classifyCourtSlot — a special event beside an open-play block", () => {
+  const tenPm = new Date(2026, 8, 18, 22, 0);
+  const elevenPm = new Date(2026, 8, 18, 23, 0);
+  const window = { openMinutes: 7 * 60, closeMinutes: 18 * 60 };
+
+  it("shows the special event when both blocks cover the hour", () => {
+    expect(
+      classifyCourtSlot({
+        hour: 22,
+        slotStart: tenPm,
+        slotEnd: elevenPm,
+        now: tenPm.getTime() - 3_600_000,
+        window,
+        maintenanceRanges: [
+          { startAt: tenPm, endAt: elevenPm, isOpenPlayBlock: true },
+          { startAt: tenPm, endAt: elevenPm, isSpecialEvent: true },
+        ],
+        bookedRanges: [],
+      }),
+    ).toBe("specialEvent");
+  });
+
+  it("still shows open play when only the open-play block covers the hour", () => {
+    expect(
+      classifyCourtSlot({
+        hour: 22,
+        slotStart: tenPm,
+        slotEnd: elevenPm,
+        now: tenPm.getTime() - 3_600_000,
+        window,
+        maintenanceRanges: [{ startAt: tenPm, endAt: elevenPm, isOpenPlayBlock: true }],
+        bookedRanges: [],
+      }),
+    ).toBe("openPlay");
+  });
+});
