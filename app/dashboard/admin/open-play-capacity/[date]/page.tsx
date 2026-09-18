@@ -121,6 +121,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
       shortGame={shortGame}
       regularMinutes={openPlaySettings.targetGameMinutes}
       regularRateCents={openPlaySettings.weeknightGameRateCents}
+      unliNight={isCapacityNight}
     />
   );
 

@@ -18,10 +18,18 @@ export function GameFormatToggle({
   shortGame,
   regularMinutes,
   regularRateCents,
+  unliNight = false,
 }: {
   shortGame: boolean;
   regularMinutes: number;
   regularRateCents: number;
+  // Fri/Sat, where the players paid the flat unlimited fee up front.
+  // Owner (2026-09-18): the switch works the same on an unli night —
+  // only the length changes, because an unli player's games are already
+  // billed at ₱0 (player-tab.service.ts's computeGameRateCents). Said
+  // out loud here so staff flipping it mid-night don't have to wonder
+  // whether it starts charging the prepaid players ₱30.
+  unliNight?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -51,6 +59,12 @@ export function GameFormatToggle({
           On: {shortLabel}. Off: {regularLabel}. Applies to games put on a court from now on — the
           TV timer and the tab charge follow each game&apos;s own format.
         </p>
+        {unliNight ? (
+          <p className="text-muted-foreground text-sm">
+            Unli players already paid for the night — only the timer changes, their games stay ₱0 at
+            either length.
+          </p>
+        ) : null}
       </div>
       <Switch
         id="shortGameFormat"

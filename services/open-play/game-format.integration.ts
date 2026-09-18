@@ -12,11 +12,13 @@ import { SHORT_GAME_MINUTES, SHORT_GAME_RATE_CENTS } from "../../lib/game-format
 import { prisma } from "../../lib/prisma";
 import { displayService } from "../display/display.service";
 import { settingsService } from "../settings/settings.service";
+import { openPlayCapacityService } from "./open-play-capacity.service";
 import { openPlayCheckinService } from "./open-play-checkin.service";
 import { openPlayRegistrationService } from "./open-play-registration.service";
 import { openPlayRotationService } from "./open-play-rotation.service";
 
 const TEST_DATE = new Date(2031, 6, 21); // a Monday, not used by other fixtures
+const FRI_DATE = new Date(2031, 6, 25); // the Friday of that week — an unli night
 const PREFIX = "Formattest";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -24,15 +26,18 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 async function cleanUp(): Promise<void> {
-  const regs = await prisma.openPlayNightRegistration.findMany({ where: { date: TEST_DATE }, select: { id: true } });
-  const ids = regs.map((r) => r.id);
-  await prisma.tabLineItem.deleteMany({ where: { tab: { registrationId: { in: ids } } } });
-  await prisma.playerTab.deleteMany({ where: { registrationId: { in: ids } } });
-  await prisma.gameAssignment.deleteMany({ where: { date: TEST_DATE } });
-  await prisma.recentPairing.deleteMany({ where: { date: TEST_DATE } });
-  await prisma.queueEntry.deleteMany({ where: { date: TEST_DATE } });
-  await prisma.stagedGroup.deleteMany({ where: { date: TEST_DATE } });
-  await prisma.openPlayNightRegistration.deleteMany({ where: { id: { in: ids } } });
+  for (const date of [TEST_DATE, FRI_DATE]) {
+    const regs = await prisma.openPlayNightRegistration.findMany({ where: { date }, select: { id: true } });
+    const ids = regs.map((r) => r.id);
+    await prisma.tabLineItem.deleteMany({ where: { tab: { registrationId: { in: ids } } } });
+    await prisma.playerTab.deleteMany({ where: { registrationId: { in: ids } } });
+    await prisma.gameAssignment.deleteMany({ where: { date } });
+    await prisma.recentPairing.deleteMany({ where: { date } });
+    await prisma.queueEntry.deleteMany({ where: { date } });
+    await prisma.stagedGroup.deleteMany({ where: { date } });
+    await prisma.openPlayNightRegistration.deleteMany({ where: { id: { in: ids } } });
+  }
+  await prisma.openPlayNightSession.deleteMany({ where: { date: FRI_DATE } });
   const users = await prisma.user.findMany({ where: { name: { startsWith: PREFIX } }, select: { id: true } });
   const players = await prisma.player.findMany({ where: { userId: { in: users.map((u) => u.id) } }, select: { id: true } });
   await prisma.player.deleteMany({ where: { id: { in: players.map((p) => p.id) } } });
@@ -98,6 +103,46 @@ async function main(): Promise<void> {
     assert(regularCharge.amountCents === settings.weeknightGameRateCents, "regular game charged the regular rate");
     assert(regularCharge.description.endsWith(`· ${settings.targetGameMinutes} min`), `regular charge shows its length, got "${regularCharge.description}"`);
     console.log(`PASS: tabs are charged per game — "${shortCharge.description}" at ₱${shortCharge.amountCents / 100}.`);
+
+    // Unli night (owner, 2026-09-18): "no payment for unli play coz its
+    // already pre paid". The same switch shortens an unli night's games
+    // to 15 minutes, and the prepaid players are still charged ₱0 — the
+    // game is counted for rotation fairness only (§9), exactly as it
+    // already was at the regular length.
+    const session = await openPlayCapacityService.getOrCreateSessionForDate(FRI_DATE);
+    const unliRegIds: string[] = [];
+    for (let i = 1; i <= 2; i += 1) {
+      const reg = await openPlayRegistrationService.registerWalkIn(
+        session.id,
+        { playerName: `${PREFIX} U${i} ${Date.now()}`, phone: "1", skillLevel: "NOVICE" },
+        owner.id,
+      );
+      await openPlayCheckinService.checkIn(reg.id, owner.id);
+      unliRegIds.push(reg.id);
+    }
+    await settingsService.setOpenPlayShortGame(true, owner.id);
+    const unliGame = await openPlayRotationService.createManualAssignment(FRI_DATE, courts[0].id, unliRegIds, owner.id);
+    assert(
+      unliGame.gameMinutes === SHORT_GAME_MINUTES,
+      `an unli night's game runs 15 minutes too, got ${unliGame.gameMinutes}`,
+    );
+    await openPlayRotationService.confirmAssignment(unliGame.id, owner.id);
+    await openPlayRotationService.completeAssignment(unliGame.id, owner.id);
+    const unliCharges = await prisma.tabLineItem.findMany({ where: { gameAssignmentId: unliGame.id } });
+    assert(unliCharges.length === unliRegIds.length, `one game item per unli player, got ${unliCharges.length}`);
+    for (const charge of unliCharges) {
+      assert(charge.amountCents === 0, `unli play is prepaid — a 15 min game must be ₱0, got ${charge.amountCents}`);
+      assert(
+        charge.description.endsWith(`· ${SHORT_GAME_MINUTES} min`),
+        `the unli game item still shows its 15 min, got "${charge.description}"`,
+      );
+    }
+    const unliTabs = await prisma.playerTab.findMany({ where: { registrationId: { in: unliRegIds } } });
+    assert(
+      unliTabs.length === unliRegIds.length && unliTabs.every((tab) => tab.gameRateCents === 0),
+      "an unli player's tab bills games at ₱0 whatever the format",
+    );
+    console.log(`PASS: unli play stays free at 15 min — "${unliCharges[0].description}" at ₱0.`);
   } finally {
     await settingsService.setOpenPlayShortGame(shortBefore, owner.id);
     await cleanUp();
