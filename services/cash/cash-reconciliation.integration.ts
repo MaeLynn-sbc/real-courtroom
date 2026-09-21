@@ -49,6 +49,9 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 const TEST_USERNAME_PREFIX = "cash-recon-test-";
+// This test's own marker on the balance row it confirms, so cleanUp can
+// find it by something other than its date.
+const CONFIRM_NOTE = "Counted over — will investigate.";
 
 function toMidnight(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -70,6 +73,13 @@ async function createEmployee(username: string): Promise<{ id: string; userId: s
 async function cleanUp(employeeId?: string): Promise<void> {
   const today = toMidnight(new Date());
   await prisma.cashDailyBalance.deleteMany({ where: { date: { gte: today } } });
+  // Also by this test's own fixture note, not only by date. An aborted
+  // run (found 2026-09-22: a CONFIRMED row for Sep 17 still sitting in
+  // the dev database) leaves a row that later reads as a real prior
+  // CONFIRMED day, and the date filter above — today and later only —
+  // can never reach it again once the clock moves on. The first
+  // assertion below then fails on every future run.
+  await prisma.cashDailyBalance.deleteMany({ where: { notes: CONFIRM_NOTE } });
 
   if (employeeId) {
     await prisma.sale.deleteMany({ where: { employeeId } });
@@ -214,7 +224,7 @@ async function main(): Promise<void> {
       today,
       mismatchedCents,
       withdrawnCents,
-      "Counted over — will investigate.",
+      CONFIRM_NOTE,
       employee.id,
       owner.id,
     );

@@ -49,6 +49,11 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 const TEST_USERNAME_PREFIX = "gcash-recon-test-";
+// This test's own markers on the balance rows it confirms, so cleanUp can
+// find them by something other than their date — see the cash twin's own
+// comment for the aborted-run landmine this closes.
+const CONFIRM_NOTE = "Counted over — will investigate.";
+const OVERRIDE_NOTE = "expected shift after override";
 
 function toMidnight(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -65,6 +70,9 @@ async function createEmployee(username: string): Promise<{ id: string; userId: s
 async function cleanUp(employeeId?: string): Promise<void> {
   const today = toMidnight(new Date());
   await prisma.gcashDailyBalance.deleteMany({ where: { date: { gte: today } } });
+  await prisma.gcashDailyBalance.deleteMany({
+    where: { notes: { in: [CONFIRM_NOTE, OVERRIDE_NOTE] } },
+  });
 
   if (employeeId) {
     await prisma.sale.deleteMany({ where: { employeeId } });
@@ -164,7 +172,7 @@ async function main(): Promise<void> {
     const confirmedToday = await gcashReconciliationService.confirmBalance(
       today,
       mismatchedCents,
-      "Counted over — will investigate.",
+      CONFIRM_NOTE,
       employee.id,
       owner.id,
     );
@@ -275,7 +283,7 @@ async function main(): Promise<void> {
     console.log("PASS: overriding the starting balance requires a reason and is fully audit-logged (who/when already on the row, old/new/reason in the log).");
 
     // Override refused once the day is CONFIRMED.
-    await gcashReconciliationService.confirmBalance(tomorrow, tomorrowExpected + 30000, "expected shift after override", employee.id, owner.id);
+    await gcashReconciliationService.confirmBalance(tomorrow, tomorrowExpected + 30000, OVERRIDE_NOTE, employee.id, owner.id);
     let overrideRejectedAfterConfirm = false;
     try {
       await gcashReconciliationService.overrideStartingBalance(tomorrow, 1, "too late", owner.id);
