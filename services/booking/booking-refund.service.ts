@@ -1,6 +1,7 @@
 import type { Booking, BookingRefund, Prisma } from "@/lib/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { saleService } from "@/services/sales/sale.service";
 
 function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
@@ -45,6 +46,19 @@ export class BookingRefundService {
       throw new Error("A reason is required to refund a booking.");
     }
 
+    // Checked before the transaction opens, deliberately: it is a read
+    // against the reconciliation tables and its message has to reach the
+    // staff member (reopen that day first), not be swallowed as a
+    // transaction failure. See saleService.assertSaleDayOpenForReversal.
+    const preflight = await prisma.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      include: { sale: true },
+    });
+    if (preflight.status !== "CONFIRMED" || !preflight.sale) {
+      throw new BookingNotRefundableError();
+    }
+    await saleService.assertSaleDayOpenForReversal(preflight.sale, "refunding this booking");
+
     const { booking, refund, sale } = await prisma.$transaction(async (tx) => {
       const existing = await tx.booking.findUniqueOrThrow({
         where: { id: bookingId },
@@ -72,6 +86,26 @@ export class BookingRefundService {
 
       return { booking: updatedBooking, refund: createdRefund, sale: voidedSale };
     });
+
+    // Same cascade updateBookingStatus performs for CANCELLED, and for
+    // the same reason ("cancelling the court booking removes the coach
+    // session" — CoachSession reads its time through this booking rather
+    // than duplicating it). Found 2026-09-22 while closing the paid-
+    // cancel hole: refundBooking writes the status itself rather than
+    // going through updateBookingStatus, so it never inherited this, and
+    // a refunded booking would leave its coach session CONFIRMED —
+    // holding the coach's availability for a court slot nobody paid for.
+    // After the transaction, matching updateBookingStatus's own ordering.
+    const coachSession = await prisma.coachSession.findUnique({
+      where: { bookingId: booking.id },
+    });
+    if (coachSession && coachSession.status !== "CANCELLED") {
+      await coachSessionService.cancelCoachSession(
+        coachSession.id,
+        actorUserId,
+        "Parent court booking was refunded.",
+      );
+    }
 
     await this.writeBookingHistory(booking.id, "REFUNDED", actorUserId, trimmedReason);
     await saleService.logSaleVoided(sale, actorUserId);

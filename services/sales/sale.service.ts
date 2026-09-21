@@ -417,9 +417,29 @@ export class SaleService {
   // (CashDailyBalance/GcashDailyBalance.date, midnight-normalized) — a
   // payment method with no daily-balance concept (Bank Transfer, Card,
   // Pay at Venue) has nothing to check here and is always allowed through.
+  // The refund path's door into the two private helpers above. Owner rule
+  // (2026-08-08): "a confirmed day is a number someone signed off on; if a
+  // correction can silently change it afterwards, the confirmation means
+  // nothing." That applied to payment-method corrections and voids from
+  // day one, but bookingRefundService.refundBooking went through the bare
+  // voidSale primitive and skipped it — so refunding a payment taken on an
+  // already-closed day would silently rewrite that day's expected total.
+  // Same block, same required reopen-first remedy.
+  async assertSaleDayOpenForReversal(sale: Sale, action: string): Promise<void> {
+    const paymentMethod = await prisma.paymentMethod.findUniqueOrThrow({
+      where: { id: sale.paymentMethodId },
+    });
+    await this.assertReconciliationDayNotConfirmed(
+      await this.resolveReconciliationDate(sale),
+      paymentMethod.key,
+      action,
+    );
+  }
+
   private async assertReconciliationDayNotConfirmed(
     saleBusinessDate: Date,
     paymentMethodKey: string,
+    action = "correcting this sale",
   ): Promise<void> {
     if (paymentMethodKey !== "CASH" && paymentMethodKey !== "GCASH") {
       return;
@@ -437,14 +457,14 @@ export class SaleService {
       const balance = await prisma.cashDailyBalance.findUnique({ where: { date } });
       if (balance?.status === "CONFIRMED") {
         throw new Error(
-          `The cash reconciliation for ${date.toDateString()} is already confirmed — reopen it first before correcting this sale.`,
+          `The cash reconciliation for ${date.toDateString()} is already confirmed — reopen it first before ${action}.`,
         );
       }
     } else {
       const balance = await prisma.gcashDailyBalance.findUnique({ where: { date } });
       if (balance?.status === "CONFIRMED") {
         throw new Error(
-          `The GCash reconciliation for ${date.toDateString()} is already confirmed — reopen it first before correcting this sale.`,
+          `The GCash reconciliation for ${date.toDateString()} is already confirmed — reopen it first before ${action}.`,
         );
       }
     }

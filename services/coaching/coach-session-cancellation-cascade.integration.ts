@@ -13,6 +13,7 @@
 import "dotenv/config";
 
 import { prisma } from "../../lib/prisma";
+import { bookingRefundService } from "../booking/booking-refund.service";
 import { bookingService, type CreateBookingSaleContext } from "../booking/booking.service";
 import { coachAvailabilityService } from "./coach-availability.service";
 import { coachRateService } from "./coach-rate.service";
@@ -42,6 +43,9 @@ async function cleanUp(courtId: string): Promise<void> {
   await prisma.coachSessionHistory.deleteMany({ where: { coachSession: { bookingId: { in: bookingIds } } } });
   await prisma.coachSession.deleteMany({ where: { bookingId: { in: bookingIds } } });
   await prisma.sale.deleteMany({ where: { bookingId: { in: bookingIds } } });
+  // The refund case below leaves a BookingRefund row, which references
+  // both the booking and the employee cleaned up here.
+  await prisma.bookingRefund.deleteMany({ where: { bookingId: { in: bookingIds } } });
   await prisma.bookingHistory.deleteMany({ where: { bookingId: { in: bookingIds } } });
   await prisma.booking.deleteMany({ where: { id: { in: bookingIds } } });
 
@@ -95,6 +99,14 @@ async function main(): Promise<void> {
   assert(coachSession.status === "CONFIRMED", "expected the coach session to start CONFIRMED");
   console.log("PASS: booking + coach session created, both active.");
 
+  // An UNPAID booking, which since 2026-09-22 is the only kind that can be
+  // cancelled at all: cancelling a booking whose payment was already
+  // collected is refused (BookingPaidCannotCancelError), because it would
+  // leave that money counting as revenue. createBooking always records a
+  // Sale, so the fixture drops it to model the walk-in/hold case this
+  // cancel path still serves. The paid path is proven below, via refund.
+  await prisma.sale.deleteMany({ where: { bookingId: booking.id } });
+
   await bookingService.updateBookingStatus(booking.id, "CANCELLED", owner.id, "Test cancellation");
 
   const refetchedSession = await prisma.coachSession.findUniqueOrThrow({ where: { id: coachSession.id } });
@@ -114,8 +126,42 @@ async function main(): Promise<void> {
     owner.id,
     saleContext,
   );
+  await prisma.sale.deleteMany({ where: { bookingId: bareBooking.id } });
   await bookingService.updateBookingStatus(bareBooking.id, "CANCELLED", owner.id);
   console.log("PASS: cancelling a booking with no coach session doesn't error.");
+
+  // The PAID path. A booking whose money was collected can't be
+  // cancelled; it gets refunded instead, and refundBooking writes the
+  // REFUNDED status itself rather than going through updateBookingStatus
+  // — so it had to be taught this same cascade explicitly. Without it a
+  // refunded booking left its coach session CONFIRMED, holding the
+  // coach's availability for a slot nobody had paid for.
+  const refundSlot = slot(15);
+  const paidBooking = await bookingService.createBooking(
+    { courtId: court.id, type: "HOURLY", startAt: refundSlot.startAt, endAt: refundSlot.endAt, guestName: "Refund Cascade Guest" },
+    owner.id,
+    saleContext,
+  );
+  const refundedSession = await coachSessionService.createCoachSession(
+    { bookingId: paidBooking.id, coachId: coach.id, groupSize: 1 },
+    "STAFF",
+    owner.id,
+  );
+  await bookingRefundService.refundBooking(paidBooking.id, "Duplicate booking", employee.id, owner.id);
+  const afterRefund = await prisma.coachSession.findUniqueOrThrow({ where: { id: refundedSession.id } });
+  assert(
+    afterRefund.status === "CANCELLED" && afterRefund.cancelledAt !== null,
+    `expected refunding to cascade CANCELLED onto the coach session, got ${afterRefund.status}`,
+  );
+  const refundHistory = await prisma.coachSessionHistory.findMany({
+    where: { coachSessionId: refundedSession.id },
+    orderBy: { createdAt: "desc" },
+  });
+  assert(
+    refundHistory[0]?.note === "Parent court booking was refunded.",
+    `expected the cascade note to say the booking was refunded, got "${refundHistory[0]?.note}"`,
+  );
+  console.log("PASS: refunding the court booking cascaded CANCELLED onto its coach session.");
 
   await cleanUp(court.id);
   console.log("PASS: booking-cancellation-to-coach-session cascade proven against real rows.");

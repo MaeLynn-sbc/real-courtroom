@@ -6,20 +6,24 @@ import {
   changeBookingSlotSchema,
   checkInByTokenSchema,
   createBookingSchema,
+  refundBookingSchema,
   settleBookingSchema,
   updateBookingStatusSchema,
   type ChangeBookingSlotInput,
   type CheckInByTokenInput,
   type CreateBookingInput,
+  type RefundBookingInput,
   type SettleBookingInput,
   type UpdateBookingStatusInput,
 } from "@/features/bookings/schemas/booking.schema";
 import {
+  requireEmployee,
   requireEmployeeForBookingCreation,
   requireEmployeeForSaleWithShiftBypass,
   requirePermission,
 } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
+import { bookingRefundService } from "@/services/booking/booking-refund.service";
 import {
   BookingConflictError,
   bookingService,
@@ -154,6 +158,53 @@ export async function updateBookingStatusAction(
   } catch (error) {
     return {
       error: toActionError(error, { action: "updateBookingStatusAction", userId: authz.userId }),
+    };
+  }
+}
+
+// Owner request (2026-09-22), after the P700 duplicate-booking incident:
+// bookingRefundService.refundBooking has existed (and been tested) since
+// the August double-submit incident it was written for, but nothing ever
+// called it — no action, no button. Staff therefore had only Cancel,
+// which leaves a settled payment counting as revenue, and ended up
+// logging the money they gave back as an operating expense instead.
+// This is that missing wiring.
+//
+// Gated on ACCOUNTS_VOID_SALE rather than BOOKINGS_MANAGE, and via
+// requireEmployee not requirePermission: a refund voids a Sale, so it is
+// the same authority (and the same "a real employee is attributed to
+// this" rule) as voidSaleAction. Owner-only by default; grant it to a
+// staff role from the Roles screen if the desk should do refunds.
+export async function refundBookingAction(
+  input: RefundBookingInput,
+): Promise<BookingActionState> {
+  const authz = await requireEmployee(
+    PERMISSIONS.ACCOUNTS_VOID_SALE,
+    "You don't have permission to refund a booking.",
+  );
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = refundBookingSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid refund." };
+  }
+
+  try {
+    await bookingRefundService.refundBooking(
+      parsed.data.bookingId,
+      parsed.data.reason,
+      authz.employeeId,
+      authz.userId,
+    );
+    revalidatePath("/dashboard/bookings");
+    revalidatePath(`/dashboard/bookings/${parsed.data.bookingId}`);
+    revalidatePath("/dashboard/sales");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: toActionError(error, { action: "refundBookingAction", userId: authz.userId }),
     };
   }
 }

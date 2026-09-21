@@ -123,3 +123,14 @@ export const changeBookingSlotSchema = z
   });
 
 export type ChangeBookingSlotInput = z.infer<typeof changeBookingSlotSchema>;
+
+// Refunding a paid booking: gives the money back and voids the sale, so
+// it stops counting as revenue. Same "no anonymous reversals" shape as
+// voidSaleInputSchema and PlayerTab write-offs — the reason is required
+// and is the only durable record of WHY the money went back.
+export const refundBookingSchema = z.object({
+  bookingId: z.string().min(1),
+  reason: z.string().trim().min(1, "Enter a reason for this refund."),
+});
+
+export type RefundBookingInput = z.infer<typeof refundBookingSchema>;

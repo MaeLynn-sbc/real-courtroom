@@ -10,6 +10,7 @@ import { BookingSourceBadge } from "@/features/bookings/components/booking-sourc
 import { BookingStatusActions } from "@/features/bookings/components/booking-status-actions";
 import { BookingStatusBadge } from "@/features/bookings/components/booking-status-badge";
 import { CorrectSalePaymentMethodForm } from "@/features/bookings/components/correct-sale-payment-method-form";
+import { RefundBookingForm } from "@/features/bookings/components/refund-booking-form";
 import { RecordGcashPaymentForm } from "@/features/bookings/components/record-gcash-payment-form";
 import { RegenerateQrButton } from "@/features/bookings/components/regenerate-qr-button";
 import { SettleBookingForm } from "@/features/bookings/components/settle-booking-form";
@@ -242,7 +243,11 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Status</h2>
-        <BookingStatusActions bookingId={booking.id} currentStatus={booking.status} />
+        <BookingStatusActions
+          bookingId={booking.id}
+          currentStatus={booking.status}
+          isPaid={booking.sale?.status === "COMPLETED"}
+        />
       </section>
 
       {booking.sale ? (
@@ -273,6 +278,25 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
             }
             paymentMethods={paymentMethodOptions}
           />
+          {/* The P700 incident (2026-09-13, diagnosed 2026-09-22): a
+              settled duplicate was cancelled, which left its sale
+              standing as revenue and blew a hole in that day's GCash
+              reconciliation. Cancel now refuses a paid booking and
+              points here. Same CONFIRMED + COMPLETED precondition
+              refundBooking enforces server-side, so the button is only
+              offered where it can actually succeed. */}
+          {booking.status === "CONFIRMED" && booking.sale.status === "COMPLETED" ? (
+            <div className="mt-3">
+              <RefundBookingForm
+                bookingId={booking.id}
+                amountCents={booking.sale.amountCents}
+                paymentMethodLabel={
+                  paymentMethods.find((method) => method.id === booking.sale!.paymentMethodId)
+                    ?.label ?? "an unknown method"
+                }
+              />
+            </div>
+          ) : null}
         </section>
       ) : showSettleForm ? (
         <section>

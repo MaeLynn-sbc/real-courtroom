@@ -158,6 +158,24 @@ export class BookingAlreadySettledError extends Error {
   }
 }
 
+// Real incident (2026-09-13, diagnosed 2026-09-22): staff settled a
+// booking for PHP 700 by GCash, noticed the time was wrong a minute
+// later, CANCELLED it and booked the correct slot — settling a second
+// PHP 700 for the same one payment. Cancelling is a bare status flip
+// with no side effects, so the first sale stayed COMPLETED: the money
+// remained on the books as revenue, that day's GCash reconciliation
+// came out PHP 700 short, and the only record of why was a staff note
+// on the variance. Money that was collected has to be REVERSED, never
+// left behind on a cancelled booking.
+export class BookingPaidCannotCancelError extends Error {
+  constructor() {
+    super(
+      "This booking has already been paid. Use Refund to give the money back (it voids the sale), or Move booking if only the court or time was wrong — cancelling would leave the payment on the books.",
+    );
+    this.name = "BookingPaidCannotCancelError";
+  }
+}
+
 function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
   if (value === undefined) {
     return undefined;
@@ -1246,6 +1264,23 @@ export class BookingService {
 
     if (!canTransitionBookingStatus(existing.status, status)) {
       throw new Error(`Cannot move a booking from ${existing.status} to ${status}.`);
+    }
+
+    // See BookingPaidCannotCancelError's own comment for the incident this
+    // closes. Scoped to CANCELLED only: NO_SHOW on a paid booking is a
+    // real, different outcome (they paid and didn't turn up) and the venue
+    // keeps that money, so it stays allowed. Every other caller that
+    // cancels — the public "payment screenshot failed" path, stale-hold
+    // release — is cancelling an unpaid hold with no Sale at all, so
+    // nothing legitimate is blocked here.
+    if (status === "CANCELLED") {
+      const sale = await prisma.sale.findUnique({
+        where: { bookingId },
+        select: { status: true },
+      });
+      if (sale?.status === "COMPLETED") {
+        throw new BookingPaidCannotCancelError();
+      }
     }
 
     const booking = await prisma.booking.update({
