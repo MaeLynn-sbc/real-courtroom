@@ -24,7 +24,7 @@ import type {
   RentalStatus,
   TournamentStatus,
 } from "@/lib/generated/prisma/enums";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, varianceTextClass } from "@/lib/utils";
 import { resolveDateRangeFromSearchParams, type DateRange } from "@/services/analytics/date-range";
 import { settingsService } from "@/services/settings/settings.service";
 import {
@@ -238,34 +238,73 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
       // till must not read as a balanced one. Same rule the CSV follows
       // with an empty cell.
       const money = (cents: number | null) => (cents === null ? "—" : formatCurrency(cents));
-      // Variance is the column people scan for, so it is signed and shown
-      // in red when it is not zero.
+      // Variance is the column people scan for, so it is signed and
+      // coloured by the owner's own convention (2026-09-18): over green,
+      // short red. Same varianceTextClass the reconciliation screens use.
       const variance = (cents: number | null) =>
         cents === null ? (
           "—"
         ) : cents === 0 ? (
           formatCurrency(0)
         ) : (
-          <span className="text-destructive font-medium">
+          <span className={`font-medium ${varianceTextClass(cents)}`}>
             {cents > 0 ? "+" : ""}
             {formatCurrency(cents)}
           </span>
         );
+      const sum = (pick: (r: DailyReconciliationRow) => number) =>
+        rows.reduce((total, row) => total + pick(row), 0);
+      // A month total of the variances only counts the days that were
+      // actually confirmed — summing nulls as zero would read as "these
+      // days balanced". Null when no day in the range was confirmed.
+      const sumVariance = (pick: (r: DailyReconciliationRow) => number | null) => {
+        const known = rows.map(pick).filter((cents): cents is number => cents !== null);
+        return known.length === 0 ? null : known.reduce((total, cents) => total + cents, 0);
+      };
       const columns: ReportTableColumn<DailyReconciliationRow>[] = [
         { header: "Date", render: (r) => r.date.toISOString().slice(0, 10) },
         { header: "Txns", render: (r) => r.transactionCount },
-        { header: "Total", render: (r) => formatCurrency(r.totalSalesCents) },
-        { header: "Cash", render: (r) => formatCurrency(r.cashSalesCents) },
-        { header: "GCash", render: (r) => formatCurrency(r.gcashSalesCents) },
+        { header: "Total sales", render: (r) => formatCurrency(r.totalSalesCents) },
+        { header: "Cash sales", render: (r) => formatCurrency(r.cashSalesCents) },
+        { header: "GCash sales", render: (r) => formatCurrency(r.gcashSalesCents) },
+        { header: "Cash exp.", render: (r) => formatCurrency(r.cashExpensesCents) },
+        { header: "GCash exp.", render: (r) => formatCurrency(r.gcashExpensesCents) },
+        { header: "Total exp.", render: (r) => formatCurrency(r.totalExpensesCents) },
         { header: "Cash expected", render: (r) => money(r.cashExpectedCents) },
         { header: "Cash counted", render: (r) => money(r.cashCountedCents) },
         { header: "Cash var.", render: (r) => variance(r.cashVarianceCents) },
         { header: "GCash expected", render: (r) => money(r.gcashExpectedCents) },
         { header: "GCash counted", render: (r) => money(r.gcashCountedCents) },
         { header: "GCash var.", render: (r) => variance(r.gcashVarianceCents) },
+        { header: "Total var.", render: (r) => variance(r.totalVarianceCents) },
       ];
       return (
-        <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.date.toISOString()} />
+        <ReportTable
+          rows={rows}
+          columns={columns}
+          getRowKey={(r) => r.date.toISOString()}
+          // Month totals, in the same column order. Expected/counted
+          // balances are deliberately blank: they are running floats that
+          // carry night to night, so adding them down a month would
+          // count the same money over and over.
+          renderFooter={(monthRows) => [
+            `${monthRows.length} ${monthRows.length === 1 ? "day" : "days"}`,
+            sum((r) => r.transactionCount),
+            formatCurrency(sum((r) => r.totalSalesCents)),
+            formatCurrency(sum((r) => r.cashSalesCents)),
+            formatCurrency(sum((r) => r.gcashSalesCents)),
+            formatCurrency(sum((r) => r.cashExpensesCents)),
+            formatCurrency(sum((r) => r.gcashExpensesCents)),
+            formatCurrency(sum((r) => r.totalExpensesCents)),
+            null,
+            null,
+            variance(sumVariance((r) => r.cashVarianceCents)),
+            null,
+            null,
+            variance(sumVariance((r) => r.gcashVarianceCents)),
+            variance(sumVariance((r) => r.totalVarianceCents)),
+          ]}
+        />
       );
     }
     case "salesByProduct": {

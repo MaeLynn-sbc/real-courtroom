@@ -37,7 +37,7 @@ const REPORT_LINKS: { reportType: string; title: string; description: string }[]
     reportType: "dailyReconciliation",
     title: "Daily sales & reconciliation",
     description:
-      "One row per day: sales split by tender, plus each till's starting, expected, counted and variance. Export 30 days for a month-end sheet.",
+      "One row per day: sales and expenses split by tender, each till's starting, expected, counted and variance, and the day's total variance. Pick a whole month for a month-end sheet, with totals at the bottom.",
   },
   {
     reportType: "salesByProduct",

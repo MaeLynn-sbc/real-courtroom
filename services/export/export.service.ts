@@ -135,6 +135,19 @@ export const REPORT_CSV_COLUMNS = {
     { header: "Cash Sales (cents)", value: (r: DailyReconciliationRow) => r.cashSalesCents },
     { header: "GCash Sales (cents)", value: (r: DailyReconciliationRow) => r.gcashSalesCents },
     { header: "Other Sales (cents)", value: (r: DailyReconciliationRow) => r.otherSalesCents },
+    { header: "Cash Expenses (cents)", value: (r: DailyReconciliationRow) => r.cashExpensesCents },
+    {
+      header: "GCash Expenses (cents)",
+      value: (r: DailyReconciliationRow) => r.gcashExpensesCents,
+    },
+    {
+      header: "Other Expenses (cents)",
+      value: (r: DailyReconciliationRow) => r.otherExpensesCents,
+    },
+    {
+      header: "Total Expenses (cents)",
+      value: (r: DailyReconciliationRow) => r.totalExpensesCents,
+    },
     { header: "Cash Starting (cents)", value: (r: DailyReconciliationRow) => r.cashStartingCents },
     { header: "Cash Expected (cents)", value: (r: DailyReconciliationRow) => r.cashExpectedCents },
     { header: "Cash Counted (cents)", value: (r: DailyReconciliationRow) => r.cashCountedCents },
@@ -145,6 +158,10 @@ export const REPORT_CSV_COLUMNS = {
     { header: "GCash Counted (cents)", value: (r: DailyReconciliationRow) => r.gcashCountedCents },
     { header: "GCash Variance (cents)", value: (r: DailyReconciliationRow) => r.gcashVarianceCents },
     { header: "GCash Status", value: (r: DailyReconciliationRow) => r.gcashStatus },
+    {
+      header: "Total Variance (cents)",
+      value: (r: DailyReconciliationRow) => r.totalVarianceCents,
+    },
   ] satisfies CsvColumn<DailyReconciliationRow>[],
   salesByCategory: [
     { header: "Category", value: (r: SalesByCategoryRow) => r.category },

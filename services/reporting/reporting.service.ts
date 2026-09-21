@@ -164,6 +164,19 @@ export interface DailyReconciliationRow {
   cashSalesCents: number;
   gcashSalesCents: number;
   otherSalesCents: number;
+  // Owner request (2026-09-22): "the total sales from cash, gcash and the
+  // expenses and the total variance daily" — a month range then reads as
+  // one row per day with everything the daily reconciliation screens
+  // show. Expenses are plain numbers, not nullable: a day with no
+  // expenses really did have zero of them, unlike an unopened till.
+  // Dated by Expense.date and split by payment method exactly as
+  // cash/gcashReconciliationService's own getExpectedEndingBalance
+  // subtracts them, so these columns explain the expected figures beside
+  // them instead of being a second, independent count.
+  cashExpensesCents: number;
+  gcashExpensesCents: number;
+  otherExpensesCents: number;
+  totalExpensesCents: number;
   cashStartingCents: number | null;
   cashExpectedCents: number | null;
   cashCountedCents: number | null;
@@ -174,6 +187,11 @@ export interface DailyReconciliationRow {
   gcashCountedCents: number | null;
   gcashVarianceCents: number | null;
   gcashStatus: string | null;
+  // Cash + GCash variance for the day, the single number the owner scans
+  // a month by. Null only when NEITHER till was confirmed; when just one
+  // was, this is that one's variance, because the other contributes
+  // nothing known — the two status columns say which case a row is.
+  totalVarianceCents: number | null;
 }
 
 // --- Sales by category / payment method reports (v1.1 Sub-phase 3) -----------
@@ -711,12 +729,21 @@ export class ReportingService {
     const from = widenToBusinessDateRangeStart(range.from, rolloverHour);
     const to = computeBusinessDate(range.to, rolloverHour);
 
-    const [sales, cashBalances, gcashBalances] = await Promise.all([
+    const [sales, expenses, cashBalances, gcashBalances] = await Promise.all([
       prisma.sale.groupBy({
         by: ["businessDate", "paymentMethodId"],
         where: this.dateAwareSaleWhere(range, rolloverHour),
         _sum: { amountCents: true },
         _count: true,
+      }),
+      // Expense.date is the day itself (stored at midnight), which is what
+      // the reconciliation services match on — no business-date widening,
+      // deliberately, so these totals equal the ones already subtracted
+      // from each day's expected balance.
+      prisma.expense.groupBy({
+        by: ["date", "paymentMethodId"],
+        where: { date: { gte: from, lte: to } },
+        _sum: { amountCents: true },
       }),
       prisma.cashDailyBalance.findMany({ where: { date: { gte: from, lte: to } } }),
       prisma.gcashDailyBalance.findMany({ where: { date: { gte: from, lte: to } } }),
@@ -751,6 +778,26 @@ export class ReportingService {
       salesByDate.set(key, bucket);
     }
 
+    const expensesByDate = new Map<
+      number,
+      { total: number; cash: number; gcash: number; other: number }
+    >();
+    for (const row of expenses) {
+      const key = row.date.getTime();
+      const bucket = expensesByDate.get(key) ?? { total: 0, cash: 0, gcash: 0, other: 0 };
+      const amount = row._sum.amountCents ?? 0;
+      const methodKey = methodKeyById.get(row.paymentMethodId);
+      bucket.total += amount;
+      if (methodKey === "CASH") {
+        bucket.cash += amount;
+      } else if (methodKey === "GCASH") {
+        bucket.gcash += amount;
+      } else {
+        bucket.other += amount;
+      }
+      expensesByDate.set(key, bucket);
+    }
+
     // Walk every calendar day in the range rather than only the days that
     // happen to have rows, so a day with no sales AND no till is still
     // visible as a gap.
@@ -758,8 +805,11 @@ export class ReportingService {
     for (const cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
       const key = cursor.getTime();
       const sale = salesByDate.get(key);
+      const expense = expensesByDate.get(key);
       const cash = cashByDate.get(key);
       const gcash = gcashByDate.get(key);
+      const cashVarianceCents = cash?.varianceCents ?? null;
+      const gcashVarianceCents = gcash?.varianceCents ?? null;
       rows.push({
         date: new Date(cursor),
         transactionCount: sale?.count ?? 0,
@@ -767,16 +817,24 @@ export class ReportingService {
         cashSalesCents: sale?.cash ?? 0,
         gcashSalesCents: sale?.gcash ?? 0,
         otherSalesCents: sale?.other ?? 0,
+        cashExpensesCents: expense?.cash ?? 0,
+        gcashExpensesCents: expense?.gcash ?? 0,
+        otherExpensesCents: expense?.other ?? 0,
+        totalExpensesCents: expense?.total ?? 0,
         cashStartingCents: cash?.startingBalanceCents ?? null,
         cashExpectedCents: cash?.expectedEndingBalanceCents ?? null,
         cashCountedCents: cash?.confirmedEndingBalanceCents ?? null,
-        cashVarianceCents: cash?.varianceCents ?? null,
+        cashVarianceCents,
         cashStatus: cash?.status ?? null,
         gcashStartingCents: gcash?.startingBalanceCents ?? null,
         gcashExpectedCents: gcash?.expectedEndingBalanceCents ?? null,
         gcashCountedCents: gcash?.confirmedEndingBalanceCents ?? null,
-        gcashVarianceCents: gcash?.varianceCents ?? null,
+        gcashVarianceCents,
         gcashStatus: gcash?.status ?? null,
+        totalVarianceCents:
+          cashVarianceCents === null && gcashVarianceCents === null
+            ? null
+            : (cashVarianceCents ?? 0) + (gcashVarianceCents ?? 0),
       });
     }
     return rows;
