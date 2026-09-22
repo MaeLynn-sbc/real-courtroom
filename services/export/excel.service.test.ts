@@ -85,6 +85,10 @@ describe("toXlsx", () => {
     // Title, blank, header, one data row, totals.
     expect(sheet!.rowCount).toBe(5);
     expect(sheet!.getRow(3).getCell(1).value).toBe("Date");
+    // Reported live (2026-09-22): the sheet and the screen both labelled
+    // every business date one day early, because local midnight is the
+    // previous day in UTC. Aug 1 must read as Aug 1.
+    expect(sheet!.getRow(4).getCell(1).value).toBe("2026-08-01");
     // Money cells are numbers in pesos — a string like "₱700.00" would
     // sum to zero in Excel, which is the whole point of the xlsx export.
     expect(sheet!.getRow(4).getCell(3).value).toBe(700);

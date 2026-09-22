@@ -1,3 +1,4 @@
+import { toDateValue } from "@/lib/date-value";
 import type {
   DailyReconciliationRow,
   BookingReportRow,
@@ -129,7 +130,7 @@ export const REPORT_CSV_COLUMNS = {
   // as a balanced one. Excel shows blank, and a SUM over the column
   // ignores it rather than counting a day nobody reconciled.
   dailyReconciliation: [
-    { header: "Date", value: (r: DailyReconciliationRow) => r.date.toISOString().slice(0, 10) },
+    { header: "Date", value: (r: DailyReconciliationRow) => toDateValue(r.date) },
     { header: "Transactions", value: (r: DailyReconciliationRow) => r.transactionCount },
     { header: "Total Sales (cents)", value: (r: DailyReconciliationRow) => r.totalSalesCents },
     { header: "Cash Sales (cents)", value: (r: DailyReconciliationRow) => r.cashSalesCents },

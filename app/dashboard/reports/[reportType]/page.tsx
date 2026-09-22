@@ -24,6 +24,7 @@ import type {
   RentalStatus,
   TournamentStatus,
 } from "@/lib/generated/prisma/enums";
+import { toDateValue } from "@/lib/date-value";
 import { formatCurrency, varianceTextClass } from "@/lib/utils";
 import { resolveDateRangeFromSearchParams, type DateRange } from "@/services/analytics/date-range";
 import { settingsService } from "@/services/settings/settings.service";
@@ -263,7 +264,7 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
         return known.length === 0 ? null : known.reduce((total, cents) => total + cents, 0);
       };
       const columns: ReportTableColumn<DailyReconciliationRow>[] = [
-        { header: "Date", render: (r) => r.date.toISOString().slice(0, 10) },
+        { header: "Date", render: (r) => toDateValue(r.date) },
         { header: "Txns", render: (r) => r.transactionCount },
         { header: "Total sales", render: (r) => formatCurrency(r.totalSalesCents) },
         { header: "Cash sales", render: (r) => formatCurrency(r.cashSalesCents) },

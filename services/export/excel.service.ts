@@ -1,5 +1,7 @@
 import ExcelJS from "exceljs";
 
+import { toDateValue } from "@/lib/date-value";
+
 import type { DailyReconciliationRow } from "@/services/reporting/reporting.service";
 
 // Owner request (2026-09-22): the sales report has to leave the app as a
@@ -35,7 +37,7 @@ export function pesos(cents: number | null | undefined): number | null {
 // accountant checking a month wants the full ledger, not the scannable
 // subset the screen shows.
 export const SALES_REPORT_EXCEL_COLUMNS: ExcelColumn<DailyReconciliationRow>[] = [
-  { header: "Date", value: (r) => r.date.toISOString().slice(0, 10), width: 12 },
+  { header: "Date", value: (r) => toDateValue(r.date), width: 12 },
   { header: "Transactions", value: (r) => r.transactionCount },
   { header: "Total sales", value: (r) => r.totalSalesCents, money: true, width: 14 },
   { header: "Cash sales", value: (r) => r.cashSalesCents, money: true, width: 14 },
