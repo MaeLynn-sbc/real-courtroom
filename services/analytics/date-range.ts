@@ -1,6 +1,6 @@
 import { computeBusinessDate } from "@/lib/business-date";
 
-export type DateRangePreset = "TODAY" | "7_DAYS" | "30_DAYS" | "90_DAYS" | "CUSTOM";
+export type DateRangePreset = "TODAY" | "7_DAYS" | "30_DAYS" | "90_DAYS" | "MONTH" | "CUSTOM";
 
 export interface DateRange {
   from: Date;
@@ -42,13 +42,24 @@ export function resolveDateRange(
   now: Date | undefined,
   rolloverHour: number,
 ): DateRange {
-  if (preset === "CUSTOM" && custom) {
+  if ((preset === "CUSTOM" || preset === "MONTH") && custom) {
     return { from: custom.from, to: custom.to };
   }
 
   const resolvedNow = now ?? new Date();
   const to = resolvedNow;
   const from = new Date(resolvedNow);
+
+  // Owner request (2026-09-22): a whole-calendar-month selector, for
+  // reading the sales report a month at a time. With no month picked
+  // this falls back to the month `now` is in, never to a rolling
+  // 30 days — "September" must mean Sep 1-30, not Aug 23-Sep 22.
+  if (preset === "MONTH") {
+    return {
+      from: new Date(resolvedNow.getFullYear(), resolvedNow.getMonth(), 1),
+      to: endOfLocalDay(new Date(resolvedNow.getFullYear(), resolvedNow.getMonth() + 1, 0)),
+    };
+  }
 
   switch (preset) {
     case "TODAY":
@@ -75,7 +86,34 @@ function endOfLocalDay(date: Date): Date {
   return end;
 }
 
-const PRESET_VALUES: DateRangePreset[] = ["TODAY", "7_DAYS", "30_DAYS", "90_DAYS", "CUSTOM"];
+const PRESET_VALUES: DateRangePreset[] = [
+  "TODAY",
+  "7_DAYS",
+  "30_DAYS",
+  "90_DAYS",
+  "MONTH",
+  "CUSTOM",
+];
+
+// "2026-08" -> Aug 1 00:00:00 local .. Aug 31 23:59:59.999 local. Day 0
+// of the NEXT month is the last day of this one, so month lengths and
+// leap years need no table. Local construction throughout, for the same
+// UTC-parsing reason the custom range below spells out.
+export function resolveMonthRange(value: string): { from: Date; to: Date } | undefined {
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) {
+    return undefined;
+  }
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  if (monthIndex < 0 || monthIndex > 11) {
+    return undefined;
+  }
+  return {
+    from: new Date(year, monthIndex, 1),
+    to: endOfLocalDay(new Date(year, monthIndex + 1, 0)),
+  };
+}
 
 function isDateRangePreset(value: string): value is DateRangePreset {
   return (PRESET_VALUES as string[]).includes(value);
@@ -109,6 +147,16 @@ export function resolveDateRangeFromSearchParams(
   // the cash/gcash reconciliation actions); `to` is then pushed to the
   // end of that same local day so a single selected day is fully
   // inclusive instead of only its first instant.
+  // A picked month wins over from/to: the picker writes `month` and
+  // clears the other two, so both are never meaningfully set at once.
+  const monthParam = searchParams.month;
+  if (preset === "MONTH" && typeof monthParam === "string") {
+    const monthRange = resolveMonthRange(monthParam);
+    if (monthRange) {
+      return resolveDateRange(preset, monthRange, undefined, rolloverHour);
+    }
+  }
+
   const custom =
     typeof fromParam === "string" && typeof toParam === "string"
       ? {

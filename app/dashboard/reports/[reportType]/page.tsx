@@ -8,7 +8,7 @@ import { EquipmentRentalStatusBadge } from "@/features/equipment/components/equi
 import { LockerRentalStatusBadge } from "@/features/lockers/components/locker-rental-status-badge";
 import { MembershipStatusBadge } from "@/features/memberships/components/membership-status-badge";
 import { CoachingWeeklyReport } from "@/features/reports/components/coaching-weekly-report";
-import { ExportCsvButton } from "@/features/reports/components/export-csv-button";
+import { ExportButtons } from "@/features/reports/components/export-buttons";
 import { ReportTable, type ReportTableColumn } from "@/features/reports/components/report-table";
 import {
   dateRangeSchema,
@@ -53,7 +53,7 @@ const REPORT_TITLES: Record<string, string> = {
   salesByCategory: "Sales by category",
   salesByPaymentMethod: "Sales by payment method",
   salesByProduct: "Sales by product",
-  dailyReconciliation: "Daily sales & reconciliation",
+  dailyReconciliation: "Sales report",
 };
 
 interface ReportPageProps {
@@ -86,6 +86,7 @@ export default async function ReportPage({ params, searchParams }: ReportPagePro
     preset: rawSearchParams.preset,
     from: rawSearchParams.from,
     to: rawSearchParams.to,
+    month: rawSearchParams.month,
   });
   const rangeInput: DateRangeInput = parsedRangeInput.success
     ? parsedRangeInput.data
@@ -104,9 +105,9 @@ export default async function ReportPage({ params, searchParams }: ReportPagePro
             {range.from.toLocaleDateString()} – {range.to.toLocaleDateString()}
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-end gap-3 print:hidden">
           <DateRangePicker />
-          <ExportCsvButton input={{ reportType: parsedType.data, range: rangeInput }} />
+          <ExportButtons input={{ reportType: parsedType.data, range: rangeInput }} />
         </div>
       </div>
 
@@ -272,6 +273,7 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
         { header: "Total exp.", render: (r) => formatCurrency(r.totalExpensesCents) },
         { header: "Cash expected", render: (r) => money(r.cashExpectedCents) },
         { header: "Cash counted", render: (r) => money(r.cashCountedCents) },
+        { header: "Deposited", render: (r) => money(r.cashDepositedCents) },
         { header: "Cash var.", render: (r) => variance(r.cashVarianceCents) },
         { header: "GCash expected", render: (r) => money(r.gcashExpectedCents) },
         { header: "GCash counted", render: (r) => money(r.gcashCountedCents) },
@@ -298,6 +300,7 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
             formatCurrency(sum((r) => r.totalExpensesCents)),
             null,
             null,
+            formatCurrency(sum((r) => r.cashDepositedCents ?? 0)),
             variance(sumVariance((r) => r.cashVarianceCents)),
             null,
             null,

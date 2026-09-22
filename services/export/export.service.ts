@@ -151,6 +151,10 @@ export const REPORT_CSV_COLUMNS = {
     { header: "Cash Starting (cents)", value: (r: DailyReconciliationRow) => r.cashStartingCents },
     { header: "Cash Expected (cents)", value: (r: DailyReconciliationRow) => r.cashExpectedCents },
     { header: "Cash Counted (cents)", value: (r: DailyReconciliationRow) => r.cashCountedCents },
+    {
+      header: "Cash Deposited (cents)",
+      value: (r: DailyReconciliationRow) => r.cashDepositedCents,
+    },
     { header: "Cash Variance (cents)", value: (r: DailyReconciliationRow) => r.cashVarianceCents },
     { header: "Cash Status", value: (r: DailyReconciliationRow) => r.cashStatus },
     { header: "GCash Starting (cents)", value: (r: DailyReconciliationRow) => r.gcashStartingCents },

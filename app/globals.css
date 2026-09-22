@@ -249,3 +249,60 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Owner request (2026-09-22): export the sales report "to pdf". This is
+   that PDF — the browser's own Save as PDF, off the real page, so what
+   prints is exactly what was on screen and there is no second rendering
+   engine to keep in step with the table.
+
+   The dashboard chrome (sidebar, header, any control marked
+   print:hidden) drops out, the page goes to landscape so a wide
+   month-end sheet fits across, and the table header repeats on every
+   sheet. Backgrounds print, or the header row and totals rule vanish on
+   most printers' default "no background graphics" setting. */
+@media print {
+  @page {
+    size: landscape;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* The dashboard shell: everything that isn't the page's own content. */
+  aside,
+  nav,
+  header {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+  }
+
+  table {
+    width: 100% !important;
+    font-size: 9pt;
+    border-collapse: collapse;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    break-inside: avoid;
+  }
+
+  th,
+  td {
+    padding: 2px 4px !important;
+    border: 1px solid #ddd;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

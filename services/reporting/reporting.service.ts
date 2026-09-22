@@ -181,6 +181,13 @@ export interface DailyReconciliationRow {
   cashExpectedCents: number | null;
   cashCountedCents: number | null;
   cashVarianceCents: number | null;
+  // Cash physically pulled from the drawer for the bank/safe at close
+  // (CashDailyBalance.withdrawnCents). Owner request (2026-09-22): the
+  // month-end sheet has to show what was banked, not only what was
+  // counted — only the leftover carries into the next day's float.
+  // Nullable like its siblings: no balance row means nobody closed that
+  // till, which is not the same as banking nothing.
+  cashDepositedCents: number | null;
   cashStatus: string | null;
   gcashStartingCents: number | null;
   gcashExpectedCents: number | null;
@@ -825,6 +832,7 @@ export class ReportingService {
         cashExpectedCents: cash?.expectedEndingBalanceCents ?? null,
         cashCountedCents: cash?.confirmedEndingBalanceCents ?? null,
         cashVarianceCents,
+        cashDepositedCents: cash ? cash.withdrawnCents : null,
         cashStatus: cash?.status ?? null,
         gcashStartingCents: gcash?.startingBalanceCents ?? null,
         gcashExpectedCents: gcash?.expectedEndingBalanceCents ?? null,

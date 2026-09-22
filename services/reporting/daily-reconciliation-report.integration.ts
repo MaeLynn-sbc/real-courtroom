@@ -15,6 +15,9 @@
  *      till was confirmed (so an unopened day never reads as balanced).
  *   4. A day with only ONE till confirmed reports that till's variance,
  *      not a silent zero for the other.
+ *   5. Deposited (cash banked at close) reports what was withdrawn, 0
+ *      when a closed till banked nothing, and null when nobody closed
+ *      up at all.
  *
  * Run via `npm run test:integration`. Requires the dev database up.
  */
@@ -112,7 +115,7 @@ async function main(): Promise<void> {
         expectedEndingBalanceCents: 157400,
         confirmedEndingBalanceCents: 147400,
         varianceCents: -10000,
-        withdrawnCents: 0,
+        withdrawnCents: 100000,
         status: "CONFIRMED",
         confirmedAt: DAY_TWO,
         notes: MARKER,
@@ -202,6 +205,21 @@ async function main(): Promise<void> {
       `day three should report the cash till alone, got ${dayThree.totalVarianceCents}`,
     );
     console.log("PASS: a day with one till closed reports that till, not a silent zero.");
+
+    // ============== 5. Deposited (owner request, 2026-09-22) ==============
+    assert(
+      dayTwo.cashDepositedCents === 100000,
+      `day two banked P1,000, got ${dayTwo.cashDepositedCents}`,
+    );
+    assert(
+      dayThree.cashDepositedCents === 0,
+      "a closed till that banked nothing reports 0, not null",
+    );
+    assert(
+      dayOne.cashDepositedCents === null,
+      `an unopened till reports null deposited, not 0, got ${dayOne.cashDepositedCents}`,
+    );
+    console.log("PASS: deposited reports what was banked, and stays null when nobody closed up.");
   } finally {
     await cleanUp();
   }

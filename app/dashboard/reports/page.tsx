@@ -35,9 +35,9 @@ const REPORT_LINKS: { reportType: string; title: string; description: string }[]
   },
   {
     reportType: "dailyReconciliation",
-    title: "Daily sales & reconciliation",
+    title: "Sales report",
     description:
-      "One row per day: sales and expenses split by tender, each till's starting, expected, counted and variance, and the day's total variance. Pick a whole month for a month-end sheet, with totals at the bottom.",
+      "One row per day: cash and GCash sales, expenses, deposited, expected, counted and variance. Pick a whole month for a month-end sheet, with totals at the bottom. Exports to Excel, PDF or CSV.",
   },
   {
     reportType: "salesByProduct",

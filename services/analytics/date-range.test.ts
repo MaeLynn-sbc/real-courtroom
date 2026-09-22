@@ -1,6 +1,7 @@
 import {
   resolveDateRange,
   resolveDateRangeFromSearchParams,
+  resolveMonthRange,
 } from "@/services/analytics/date-range";
 
 // rolloverHour is now a REQUIRED parameter (it used to default to 0).
@@ -113,6 +114,43 @@ describe("resolveDateRangeFromSearchParams", () => {
   it("ignores an array-valued search param", () => {
     const result = resolveDateRangeFromSearchParams({ preset: ["7_DAYS", "TODAY"] }, TEST_ROLLOVER_HOUR);
     expect(result.to.getTime() - result.from.getTime()).toBeCloseTo(30 * 24 * 60 * 60 * 1000, -3);
+  });
+
+  // Owner request (2026-09-22): a whole-month selector on the sales
+  // report. "August" has to mean Aug 1-31, never a rolling 30 days.
+  it("MONTH covers the whole picked calendar month, inclusive of its last day", () => {
+    const result = resolveDateRangeFromSearchParams({ preset: "MONTH", month: "2026-08" }, 3);
+    expect(result.from).toEqual(new Date(2026, 7, 1, 0, 0, 0, 0));
+    expect(result.to).toEqual(new Date(2026, 7, 31, 23, 59, 59, 999));
+  });
+
+  it("MONTH handles a short month and a leap February without a day table", () => {
+    expect(resolveMonthRange("2026-09")?.to).toEqual(new Date(2026, 8, 30, 23, 59, 59, 999));
+    expect(resolveMonthRange("2028-02")?.to).toEqual(new Date(2028, 1, 29, 23, 59, 59, 999));
+  });
+
+  it("MONTH with no month picked falls back to the month we are in, not 30 rolling days", () => {
+    jest.useFakeTimers().setSystemTime(new Date(2026, 7, 20, 12, 0));
+    try {
+      const result = resolveDateRangeFromSearchParams({ preset: "MONTH" }, 3);
+      expect(result.from).toEqual(new Date(2026, 7, 1, 0, 0, 0, 0));
+      expect(result.to).toEqual(new Date(2026, 7, 31, 23, 59, 59, 999));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("a picked month wins over stale from/to still in the URL", () => {
+    const result = resolveDateRangeFromSearchParams(
+      { preset: "MONTH", month: "2026-08", from: "2026-01-01", to: "2026-01-31" },
+      3,
+    );
+    expect(result.from).toEqual(new Date(2026, 7, 1, 0, 0, 0, 0));
+  });
+
+  it("a malformed month falls back rather than throwing", () => {
+    expect(resolveMonthRange("2026-13")).toBeUndefined();
+    expect(resolveMonthRange("nonsense")).toBeUndefined();
   });
 
   it("threads rolloverHour through to a TODAY preset", () => {

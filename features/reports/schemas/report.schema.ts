@@ -1,9 +1,15 @@
 import { z } from "zod";
 
 export const dateRangeSchema = z.object({
-  preset: z.enum(["TODAY", "7_DAYS", "30_DAYS", "90_DAYS", "CUSTOM"]),
+  preset: z.enum(["TODAY", "7_DAYS", "30_DAYS", "90_DAYS", "MONTH", "CUSTOM"]),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
+  // "2026-08", from the Whole month selector. Carried separately from
+  // from/to so an export resolves the exact same range the screen shows.
+  month: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/)
+    .optional(),
 });
 
 export type DateRangeInput = z.infer<typeof dateRangeSchema>;
