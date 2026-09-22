@@ -38,10 +38,21 @@ export interface CreateExpenseInput {
   receipt?: ReceiptInput;
 }
 
+// How far back findRecentDuplicate looks. Long enough to catch the real
+// shape of the mistake — a slow submit, an uncertain pause, a second tap
+// (the reported pair was 15 seconds apart) — and to cover someone
+// re-entering it minutes later after the first attempt seemed to fail.
+// It only ever produces a WARNING naming the existing expense, never a
+// block, so erring long costs a confirmation click; erring short costs
+// the venue real money. Deliberately not all day: two coaches genuinely
+// do get paid the same amount on the same evening.
+const DUPLICATE_WINDOW_MS = 30 * 60 * 1000;
+
 export type ExpenseWithRelations = Expense & {
   category: { name: string };
   paymentMethod: { label: string };
   recordedByEmployee: { firstName: string; lastName: string };
+  voidedByEmployee: { firstName: string; lastName: string } | null;
 };
 
 // GCash reconciliation dependency (spec point 6): Expense.paymentMethodId
@@ -151,12 +162,16 @@ export class ExpenseService {
     return expense;
   }
 
+  // Voided expenses stay in this list, marked, rather than disappearing:
+  // "where did that P8,200 go" has to be answerable from the screen, not
+  // only from the audit log. Every TOTAL above excludes them.
   async listRecentExpenses(limit = 50): Promise<ExpenseWithRelations[]> {
     return prisma.expense.findMany({
       include: {
         category: { select: { name: true } },
         paymentMethod: { select: { label: true } },
         recordedByEmployee: { select: { firstName: true, lastName: true } },
+        voidedByEmployee: { select: { firstName: true, lastName: true } },
       },
       orderBy: { date: "desc" },
       take: limit,
@@ -168,7 +183,7 @@ export class ExpenseService {
   // listRecentExpenses sorts by, not createdAt.
   async getExpensesTotalForRange(range: DateRange): Promise<number> {
     const result = await prisma.expense.aggregate({
-      where: { date: { gte: range.from, lte: range.to } },
+      where: { date: { gte: range.from, lte: range.to }, voidedAt: null },
       _sum: { amountCents: true },
     });
     return result._sum.amountCents ?? 0;
@@ -188,7 +203,7 @@ export class ExpenseService {
     const gcashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "GCASH" } });
 
     const result = await prisma.expense.aggregate({
-      where: { paymentMethodId: gcashMethod.id, date },
+      where: { paymentMethodId: gcashMethod.id, date, voidedAt: null },
       _sum: { amountCents: true },
     });
     return result._sum.amountCents ?? 0;
@@ -199,10 +214,102 @@ export class ExpenseService {
     const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
 
     const result = await prisma.expense.aggregate({
-      where: { paymentMethodId: cashMethod.id, date },
+      where: { paymentMethodId: cashMethod.id, date, voidedAt: null },
       _sum: { amountCents: true },
     });
     return result._sum.amountCents ?? 0;
+  }
+
+  // Owner-reported incident (2026-09-21): a PHP 8,200 coach payout was
+  // submitted twice, 15 seconds apart, on a slow connection. The money
+  // left GCash once. Nothing in this app could take the duplicate off the
+  // books — there was no delete and no void for an expense at all.
+  //
+  // Voids, never deletes, for the same reason saleService.voidSale does:
+  // the row, its receipt and its author stay, so a reconciliation can
+  // still be explained months later. Reason required, employee
+  // attributed — the same "no anonymous reversals" rule write-offs,
+  // refunds and sale voids already follow. Idempotent by claim-check: a
+  // double-submitted VOID can't fight itself either.
+  async voidExpense(
+    expenseId: string,
+    reason: string,
+    employeeId: string,
+    actorUserId: string,
+  ): Promise<Expense> {
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      throw new Error("A reason is required to void an expense.");
+    }
+    if (!employeeId) {
+      throw new Error("An employee must be attributed to a void.");
+    }
+
+    const existing = await prisma.expense.findUniqueOrThrow({ where: { id: expenseId } });
+    if (existing.voidedAt) {
+      throw new Error("This expense has already been voided.");
+    }
+
+    const claim = await prisma.expense.updateMany({
+      where: { id: expenseId, voidedAt: null },
+      data: {
+        voidedAt: new Date(),
+        voidReason: trimmedReason,
+        voidedByEmployeeId: employeeId,
+      },
+    });
+    if (claim.count === 0) {
+      throw new Error("This expense has already been voided — refresh and check.");
+    }
+
+    const voided = await prisma.expense.findUniqueOrThrow({ where: { id: expenseId } });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "expense.voided",
+      entityType: "Expense",
+      entityId: expenseId,
+      oldValues: { voidedAt: null, amountCents: existing.amountCents },
+      newValues: {
+        voidedAt: voided.voidedAt,
+        voidReason: trimmedReason,
+        voidedByEmployeeId: employeeId,
+      },
+    });
+
+    return voided;
+  }
+
+  // The other half of the same incident: stop the duplicate being created
+  // in the first place. Two expenses that match on amount, category,
+  // payment method and business date, entered within this window, are
+  // almost certainly one payment recorded twice — a slow connection and a
+  // second tap, not two identical real outflows minutes apart. The caller
+  // decides what to do with the answer; recording it anyway stays
+  // possible, because the venue genuinely does pay two coaches the same
+  // amount on the same day.
+  async findRecentDuplicate(
+    input: Pick<CreateExpenseInput, "amountCents" | "date" | "categoryId" | "paymentMethodId">,
+    withinMs = DUPLICATE_WINDOW_MS,
+    now: Date = new Date(),
+  ): Promise<ExpenseWithRelations | null> {
+    return prisma.expense.findFirst({
+      where: {
+        amountCents: input.amountCents,
+        date: input.date,
+        categoryId: input.categoryId,
+        paymentMethodId: input.paymentMethodId,
+        voidedAt: null,
+        createdAt: { gte: new Date(now.getTime() - withinMs) },
+      },
+      include: {
+        category: { select: { name: true } },
+        paymentMethod: { select: { label: true } },
+        recordedByEmployee: { select: { firstName: true, lastName: true } },
+        voidedByEmployee: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
   }
 
   private async writeAuditLog(entry: AuditLogEntry): Promise<void> {

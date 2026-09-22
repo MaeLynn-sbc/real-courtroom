@@ -749,7 +749,10 @@ export class ReportingService {
       // from each day's expected balance.
       prisma.expense.groupBy({
         by: ["date", "paymentMethodId"],
-        where: { date: { gte: from, lte: to } },
+        // Voided expenses are excluded here exactly as they are from
+        // expenseService's own totals — a reversed duplicate must not
+        // keep showing as money out on the month-end sheet.
+        where: { date: { gte: from, lte: to }, voidedAt: null },
         _sum: { amountCents: true },
       }),
       prisma.cashDailyBalance.findMany({ where: { date: { gte: from, lte: to } } }),

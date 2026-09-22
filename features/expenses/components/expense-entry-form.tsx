@@ -5,14 +5,19 @@ import { useState, useTransition } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 
-import { createExpenseAction } from "@/actions/expense.actions";
+import {
+  createExpenseAction,
+  type CreateExpenseActionState,
+} from "@/actions/expense.actions";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
+
+type EntryDuplicate = NonNullable<CreateExpenseActionState["duplicate"]>;
 
 interface ExpenseEntryCategory {
   id: string;
@@ -73,7 +78,12 @@ export function ExpenseEntryForm({ categories, paymentMethods }: ExpenseEntryFor
   const [receipt, setReceipt] = useState<File | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const { control, register, handleSubmit, reset } = useForm<ExpenseEntryFormValues>({
+  // Owner-reported incident (2026-09-21): a P8,200 coach payout recorded
+  // twice on a slow connection. The action answers with the matching
+  // expense instead of writing a second one; this holds that answer.
+  const [duplicate, setDuplicate] = useState<EntryDuplicate | null>(null);
+
+  const { control, register, handleSubmit, reset, getValues } = useForm<ExpenseEntryFormValues>({
     defaultValues: {
       amount: "",
       date: todayDateValue(),
@@ -83,7 +93,7 @@ export function ExpenseEntryForm({ categories, paymentMethods }: ExpenseEntryFor
     },
   });
 
-  const onSubmit = handleSubmit((values) => {
+  function submit(values: ExpenseEntryFormValues, confirmDuplicate: boolean) {
     setServerError(null);
 
     const amountCents = Math.round(Number(values.amount) * 100);
@@ -99,6 +109,7 @@ export function ExpenseEntryForm({ categories, paymentMethods }: ExpenseEntryFor
     startTransition(async () => {
       const result = await createExpenseAction({
         amountCents,
+        confirmDuplicate,
         date: values.date,
         description: values.description.trim(),
         categoryId: values.categoryId,
@@ -116,6 +127,15 @@ export function ExpenseEntryForm({ categories, paymentMethods }: ExpenseEntryFor
         toast.error(result.error);
         return;
       }
+      // A matching expense is already on file and NOTHING was saved
+      // (owner-reported duplicate payout, 2026-09-21). Must be handled
+      // here, not ignored — reporting success on a write that never
+      // happened would be worse than the duplicate it prevents.
+      if (result.duplicate) {
+        setDuplicate(result.duplicate);
+        return;
+      }
+      setDuplicate(null);
       toast.success("Expense recorded.");
       reset({
         amount: "",
@@ -127,7 +147,9 @@ export function ExpenseEntryForm({ categories, paymentMethods }: ExpenseEntryFor
       setReceipt(null);
       router.refresh();
     });
-  });
+  }
+
+  const onSubmit = handleSubmit((values) => submit(values, false));
 
   if (categories.length === 0) {
     return (
@@ -242,6 +264,47 @@ export function ExpenseEntryForm({ categories, paymentMethods }: ExpenseEntryFor
             <p className="text-destructive text-sm" role="alert">
               {serverError}
             </p>
+          ) : null}
+
+          {duplicate ? (
+            <div
+              className="border-destructive/50 bg-destructive/5 flex flex-col gap-2 rounded-lg border p-3"
+              role="alert"
+            >
+              <p className="text-destructive text-sm font-medium">
+                This looks like it was already recorded — nothing has been saved.
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {formatCurrency(duplicate.amountCents)} from{" "}
+                {duplicate.paymentMethodLabel.toUpperCase()} ({duplicate.categoryName}) was recorded
+                by {duplicate.recordedBy} at{" "}
+                {new Date(duplicate.recordedAt).toLocaleTimeString("en-PH", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+                : &ldquo;{duplicate.description}&rdquo;
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={isPending}
+                  onClick={() => setDuplicate(null)}
+                >
+                  Don&apos;t record it
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isPending}
+                  onClick={() => submit(getValues(), true)}
+                >
+                  {isPending ? "Recording…" : "This is a different expense — record it"}
+                </Button>
+              </div>
+            </div>
           ) : null}
 
           <Button type="submit" disabled={isPending} className="self-start">

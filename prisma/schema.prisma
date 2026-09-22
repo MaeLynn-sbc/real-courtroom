@@ -373,7 +373,7 @@ model Employee {
   // Owner request (2026-08-10): "the staff encoded wrong product and
   // wants it to void" — see Sale.voidedByEmployeeId below, and
   // saleService.voidSaleAsCorrection's own comment.
-  voidedSales                                Sale[]                             @relation("SaleVoidedBy")
+  voidedSales                               Sale[]                             @relation("SaleVoidedBy")
   // Phase 8 plumbing — see BookingPaymentProof/BookingRefund, below Sale.
   resolvedBookingPaymentProofs              BookingPaymentProof[]
   issuedBookingRefunds                      BookingRefund[]
@@ -391,6 +391,8 @@ model Employee {
   // Expenses tracking Gate 1 — see Expense, below GcashDailyBalance's spot
   // in the file (or Sale, whichever lands nearest at merge time).
   recordedExpenses                          Expense[]
+  // Who reversed a duplicate/mistaken expense — see Expense.voidedAt.
+  voidedExpenses                            Expense[]                          @relation("ExpenseVoidedBy")
   // Payroll Batch 1 — see ScheduleAssignment/AttendanceRecord, below
   // Shift's own spot in the file.
   scheduleAssignments                       ScheduleAssignment[]
@@ -983,7 +985,7 @@ model SmsLog {
 
   // The normalised 09XXXXXXXXX actually dialled. Null when normalisation
   // rejected the input — there was no number to send to.
-  phone String?
+  phone    String?
   // Exactly what was stored on the entity, kept verbatim. This is the
   // evidence for a SKIPPED_INVALID row: without it "we didn't text them"
   // is unfalsifiable, and the junk-data picture can't be re-measured.
@@ -2492,8 +2494,8 @@ enum MatchStatus {
 }
 
 model Tournament {
-  id   String @id @default(cuid())
-  name String
+  id                    String           @id @default(cuid())
+  name                  String
   // Owner request (2026-08-17): "can u create a good url for it. like
   // /tournament/sayans and friends" — the public page was reachable only
   // by cuid (/tournaments/clx8f2a9k...), which is impossible to read out
@@ -2542,14 +2544,14 @@ model Tournament {
 }
 
 model TournamentCategory {
-  id           String             @id @default(cuid())
-  tournamentId String
-  name         String
-  format       TournamentFormat
-  division     TournamentDivision
-  skillLevel   SkillLevel?
-  feeCents     Int                @default(0)
-  maxTeams     Int?
+  id                 String             @id @default(cuid())
+  tournamentId       String
+  name               String
+  format             TournamentFormat
+  division           TournamentDivision
+  skillLevel         SkillLevel?
+  feeCents           Int                @default(0)
+  maxTeams           Int?
   // Owner request (2026-08-17), against a reference bracket showing a
   // "BRONZE" slot beside the final: a third-place playoff between the two
   // SEMIFINAL LOSERS. Opt-in per category rather than automatic — plenty
@@ -2562,10 +2564,10 @@ model TournamentCategory {
   // @@unique([tournamentCategoryId, round, bracketPosition]) already
   // accommodates. It is deliberately NOT part of winner advancement —
   // nothing ever advances out of it.
-  hasThirdPlaceMatch Boolean         @default(false)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  deletedAt    DateTime?
+  hasThirdPlaceMatch Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  deletedAt          DateTime?
 
   tournament    Tournament               @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   registrations TournamentRegistration[]
@@ -2617,7 +2619,7 @@ model TournamentRegistration {
 }
 
 model Match {
-  id                      String      @id @default(cuid())
+  id                      String           @id @default(cuid())
   tournamentCategoryId    String?
   courtId                 String?
   round                   Int?
@@ -2653,7 +2655,7 @@ model Match {
   team1Id                 String
   team2Id                 String?
   winnerTeamId            String?
-  status                  MatchStatus @default(SCHEDULED)
+  status                  MatchStatus      @default(SCHEDULED)
   scheduledAt             DateTime?
   startedAt               DateTime?
   completedAt             DateTime?
@@ -2678,8 +2680,8 @@ model Match {
   // matches can share the same slot value (no uniqueness constraint) —
   // display-layer concern, not enforced here.
   stagedSlot              StagedGroupSlot?
-  createdAt               DateTime    @default(now())
-  updatedAt               DateTime    @updatedAt
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
 
   tournamentCategory TournamentCategory? @relation(fields: [tournamentCategoryId], references: [id])
   court              Court?              @relation(fields: [courtId], references: [id])
@@ -2975,10 +2977,10 @@ model ExpenseCategory {
 }
 
 model Expense {
-  id                   String   @id @default(cuid())
+  id                   String    @id @default(cuid())
   // "EXP-20260722-0001" — same date + per-day-sequence pattern as every
   // other human-facing reference code in this app (Sale, Shift, Booking).
-  expenseNumber        String   @unique
+  expenseNumber        String    @unique
   amountCents          Int
   // The business date the expense applies to — staff-entered, may differ
   // from createdAt (e.g. recording a rent payment a day after it cleared).
@@ -2993,12 +2995,25 @@ model Expense {
   // proof screenshots (services/upload/), not a second upload path.
   // Null when no receipt was attached.
   receiptStorageKey    String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  // Voiding, not deleting. Real incident (2026-09-21, reported 2026-09-22):
+  // a coach payout of PHP 8,200 was submitted twice, 15 seconds apart, on a
+  // slow connection. The money only left GCash once, so the second row had
+  // to come off the books — but nothing in this app hard-deletes a money
+  // row, and an expense that simply vanished would leave that day's
+  // reconciliation unexplainable after the fact. A voided expense keeps its
+  // row, its receipt and its author, stops counting in every total, and
+  // says who reversed it and why. Same shape as Sale's own void columns.
+  // All null on every expense that has never been voided.
+  voidedAt             DateTime?
+  voidReason           String?
+  voidedByEmployeeId   String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   category           ExpenseCategory @relation(fields: [categoryId], references: [id])
   paymentMethod      PaymentMethod   @relation(fields: [paymentMethodId], references: [id])
   recordedByEmployee Employee        @relation(fields: [recordedByEmployeeId], references: [id])
+  voidedByEmployee   Employee?       @relation("ExpenseVoidedBy", fields: [voidedByEmployeeId], references: [id])
 
   @@index([date])
   @@index([categoryId])

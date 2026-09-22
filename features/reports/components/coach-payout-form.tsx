@@ -10,6 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency } from "@/lib/utils";
 import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
+import type { CreateExpenseActionState } from "@/actions/expense.actions";
+
+type PayoutDuplicate = NonNullable<CreateExpenseActionState["duplicate"]>;
 
 function toDateInputValue(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -61,9 +64,15 @@ export function CoachPayoutForm({
   // default selection, must actively choose.
   const [paymentMethodId, setPaymentMethodId] = useState("");
   const [isPending, startTransition] = useTransition();
+  // Owner-reported incident (2026-09-21): this exact form recorded the
+  // same P8,200 payout twice, 15 seconds apart, on a slow connection.
+  // The action now answers with a matching expense instead of writing a
+  // second one; this holds that answer until the owner either backs out
+  // or says to record it anyway.
+  const [duplicate, setDuplicate] = useState<PayoutDuplicate | null>(null);
   const selected = paymentMethods.find((method) => method.id === paymentMethodId);
 
-  function handleSubmit() {
+  function handleSubmit(confirmDuplicate = false) {
     const amountCents = Math.round(Number(amount) * 100);
     if (!Number.isFinite(amountCents) || amountCents <= 0) {
       toast.error("Enter a valid amount.");
@@ -81,11 +90,18 @@ export function CoachPayoutForm({
         description: description.trim() || `Coach payout — ${coachName}`,
         categoryId,
         paymentMethodId,
+        confirmDuplicate,
       });
       if (result.error) {
         toast.error(result.error);
         return;
       }
+      if (result.duplicate) {
+        // Nothing was saved. The owner decides.
+        setDuplicate(result.duplicate);
+        return;
+      }
+      setDuplicate(null);
       toast.success(`Payout to ${coachName} recorded.`);
       setIsOpen(false);
       router.refresh();
@@ -169,8 +185,55 @@ export function CoachPayoutForm({
           </span>
         ) : null}
       </div>
+      {duplicate ? (
+        <div
+          className="border-destructive/50 bg-destructive/5 flex flex-col gap-2 rounded-lg border p-3"
+          role="alert"
+        >
+          <p className="text-destructive text-sm font-medium">
+            You already paid this out — nothing has been saved.
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {formatCurrency(duplicate.amountCents)} from {duplicate.paymentMethodLabel.toUpperCase()}{" "}
+            was recorded by {duplicate.recordedBy} at{" "}
+            {new Date(duplicate.recordedAt).toLocaleTimeString("en-PH", {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+            : &ldquo;{duplicate.description}&rdquo;
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={isPending}
+              onClick={() => {
+                setDuplicate(null);
+                setIsOpen(false);
+              }}
+            >
+              Don&apos;t pay again
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={isPending}
+              onClick={() => handleSubmit(true)}
+            >
+              {isPending ? "Saving…" : "This is a different payout — record it"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className="flex gap-2">
-        <Button type="button" size="sm" disabled={isPending || !paymentMethodId} onClick={handleSubmit}>
+        <Button
+          type="button"
+          size="sm"
+          disabled={isPending || !paymentMethodId}
+          onClick={() => handleSubmit()}
+        >
           {isPending ? "Saving…" : "Confirm payout"}
         </Button>
         <Button
