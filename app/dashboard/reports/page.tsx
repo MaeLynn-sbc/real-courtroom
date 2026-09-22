@@ -34,6 +34,12 @@ const REPORT_LINKS: { reportType: string; title: string; description: string }[]
     description: "Coaching sessions, coaches, and fees in range.",
   },
   {
+    reportType: "expenses",
+    title: "Expenses (detailed)",
+    description:
+      "Every expense in range with its description, category, who recorded it and the time — totalled separately for cash and GCash.",
+  },
+  {
     reportType: "dailyReconciliation",
     title: "Sales report",
     description:

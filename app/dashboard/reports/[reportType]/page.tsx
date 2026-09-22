@@ -25,8 +25,10 @@ import type {
   TournamentStatus,
 } from "@/lib/generated/prisma/enums";
 import { toDateValue } from "@/lib/date-value";
+import { paymentMethodStyle } from "@/lib/payment-method-style";
 import { formatCurrency, varianceTextClass } from "@/lib/utils";
 import { resolveDateRangeFromSearchParams, type DateRange } from "@/services/analytics/date-range";
+import { expenseService, type ExpenseReportRow } from "@/services/expenses/expense.service";
 import { settingsService } from "@/services/settings/settings.service";
 import {
   reportingService,
@@ -43,6 +45,15 @@ import {
 } from "@/services/reporting/reporting.service";
 
 const dateFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" });
+// Manila-pinned, like every other staff-facing time in the app — never
+// the server's ambient zone.
+const timeFormatter = new Intl.DateTimeFormat("en-PH", {
+  timeZone: "Asia/Manila",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
 const REPORT_TITLES: Record<string, string> = {
   booking: "Booking report",
   courtUtilization: "Court utilization report",
@@ -233,6 +244,91 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
         { header: "Amount", render: (r) => formatCurrency(r.amountCents) },
       ];
       return <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.paymentMethodLabel} />;
+    }
+    case "expenses": {
+      const rows = await expenseService.getExpensesReport(range);
+      // Split by the STABLE key, not the label — labels are editable.
+      const total = (key: string) =>
+        rows
+          .filter((r) => !r.isVoided && r.paymentMethodKey === key)
+          .reduce((sum, r) => sum + r.amountCents, 0);
+      const cashTotal = total("CASH");
+      const gcashTotal = total("GCASH");
+      const otherTotal = rows
+        .filter((r) => !r.isVoided && r.paymentMethodKey !== "CASH" && r.paymentMethodKey !== "GCASH")
+        .reduce((sum, r) => sum + r.amountCents, 0);
+
+      const columns: ReportTableColumn<ExpenseReportRow>[] = [
+        { header: "Date", render: (r) => toDateValue(r.date) },
+        // `date` is date-only, so the time has to come from when it was
+        // keyed in. Labelled "Recorded" rather than implying a spend time
+        // that was never captured.
+        { header: "Recorded", render: (r) => timeFormatter.format(r.recordedAt) },
+        { header: "Description", render: (r) => r.description },
+        { header: "Category", render: (r) => r.category },
+        {
+          header: "Paid by",
+          render: (r) => (
+            <span
+              className={`rounded-full border px-2 py-0.5 text-xs font-medium ${paymentMethodStyle(r.paymentMethodKey).badge}`}
+            >
+              {r.paymentMethodLabel}
+            </span>
+          ),
+        },
+        {
+          header: "Amount",
+          render: (r) =>
+            r.isVoided ? (
+              <span className="text-muted-foreground line-through">
+                {formatCurrency(r.amountCents)}
+              </span>
+            ) : (
+              formatCurrency(r.amountCents)
+            ),
+        },
+        { header: "Recorded by", render: (r) => r.recordedBy },
+        {
+          header: "Status",
+          render: (r) =>
+            r.isVoided ? (
+              <span className="text-destructive text-xs">
+                Voided{r.voidReason ? `: ${r.voidReason}` : ""}
+              </span>
+            ) : (
+              ""
+            ),
+        },
+      ];
+
+      return (
+        <div className="flex flex-col gap-4">
+          {/* Totals split by tender — the question this report is opened
+              to answer. Voided rows are excluded here but still listed
+              below, struck through, so a reversal is visible rather than
+              silently missing. */}
+          <div className="flex flex-wrap gap-3 text-sm">
+            <span className={`rounded-md border px-3 py-1.5 ${paymentMethodStyle("CASH").badge}`}>
+              Cash: <span className="font-bold">{formatCurrency(cashTotal)}</span>
+            </span>
+            <span className={`rounded-md border px-3 py-1.5 ${paymentMethodStyle("GCASH").badge}`}>
+              GCash: <span className="font-bold">{formatCurrency(gcashTotal)}</span>
+            </span>
+            {otherTotal > 0 ? (
+              <span className="rounded-md border px-3 py-1.5">
+                Other: <span className="font-bold">{formatCurrency(otherTotal)}</span>
+              </span>
+            ) : null}
+            <span className="rounded-md border px-3 py-1.5">
+              Total:{" "}
+              <span className="font-bold">
+                {formatCurrency(cashTotal + gcashTotal + otherTotal)}
+              </span>
+            </span>
+          </div>
+          <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.expenseNumber} />
+        </div>
+      );
     }
     case "dailyReconciliation": {
       const rows = await reportingService.getDailyReconciliationReport(range, rolloverHour);

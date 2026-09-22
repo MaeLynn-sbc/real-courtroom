@@ -62,6 +62,26 @@ export type ExpenseWithRelations = Expense & {
 // getExpectedEndingBalance, so a same-day expense against the matching
 // payment method now actually reduces the expected balance instead of
 // only ever showing up as an unexplained variance note.
+// One row per expense. paymentMethodKey is carried alongside the label so
+// a consumer can split cash from GCash on the STABLE key rather than on
+// display text, which is editable.
+export interface ExpenseReportRow {
+  date: Date;
+  /** When it was keyed in — `date` itself is date-only. */
+  recordedAt: Date;
+  expenseNumber: string;
+  description: string;
+  category: string;
+  paymentMethodKey: string;
+  paymentMethodLabel: string;
+  amountCents: number;
+  recordedBy: string;
+  isVoided: boolean;
+  voidReason: string | null;
+  voidedBy: string | null;
+  hasReceipt: boolean;
+}
+
 export class ExpenseService {
   // Receipt is optional, but when present the upload-then-write-then-
   // cleanup-on-failure shape mirrors bookingPaymentProofService's own
@@ -181,6 +201,54 @@ export class ExpenseService {
   // For the Reports page's summary card — total money out for the range,
   // by Expense.date (the business date it applies to), same field
   // listRecentExpenses sorts by, not createdAt.
+  // Detailed expense report (owner request, 2026-09-22): every expense in
+  // a range, with its payment method, description and time.
+  //
+  // TWO DIFFERENT TIMESTAMPS, and the difference matters. `date` is the
+  // day the money was spent and is DATE-ONLY — the entry form stores it
+  // as T00:00:00 — so it carries no time at all. `createdAt` is the
+  // moment the expense was keyed in. The report shows the date from
+  // `date` and the time from `createdAt`, labelled "Recorded at", rather
+  // than inventing a spend time that was never captured.
+  //
+  // VOIDED expenses are INCLUDED, flagged, and excluded from the totals.
+  // Leaving them out would make a reversed duplicate vanish with no
+  // trace, which is exactly the case someone reads this report to
+  // understand; getExpensesTotalForRange already filters voidedAt: null,
+  // and the Amount column here stays consistent with it.
+  async getExpensesReport(range: DateRange): Promise<ExpenseReportRow[]> {
+    const rows = await prisma.expense.findMany({
+      where: { date: { gte: range.from, lte: range.to } },
+      include: {
+        category: { select: { name: true } },
+        paymentMethod: { select: { key: true, label: true } },
+        recordedByEmployee: { select: { firstName: true, lastName: true } },
+        voidedByEmployee: { select: { firstName: true, lastName: true } },
+      },
+      // Chronological within the range, then by when it was keyed in, so
+      // a day's entries read in the order they actually happened.
+      orderBy: [{ date: "asc" }, { createdAt: "asc" }],
+    });
+
+    return rows.map((row) => ({
+      date: row.date,
+      recordedAt: row.createdAt,
+      expenseNumber: row.expenseNumber,
+      description: row.description,
+      category: row.category.name,
+      paymentMethodKey: row.paymentMethod.key,
+      paymentMethodLabel: row.paymentMethod.label,
+      amountCents: row.amountCents,
+      recordedBy: `${row.recordedByEmployee.firstName} ${row.recordedByEmployee.lastName}`,
+      isVoided: row.voidedAt !== null,
+      voidReason: row.voidReason,
+      voidedBy: row.voidedByEmployee
+        ? `${row.voidedByEmployee.firstName} ${row.voidedByEmployee.lastName}`
+        : null,
+      hasReceipt: row.receiptStorageKey !== null,
+    }));
+  }
+
   async getExpensesTotalForRange(range: DateRange): Promise<number> {
     const result = await prisma.expense.aggregate({
       where: { date: { gte: range.from, lte: range.to }, voidedAt: null },

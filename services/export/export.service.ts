@@ -12,6 +12,7 @@ import type {
   SalesByProductRow,
   TournamentReportRow,
 } from "@/services/reporting/reporting.service";
+import type { ExpenseReportRow } from "@/services/expenses/expense.service";
 
 export interface CsvColumn<T> {
   header: string;
@@ -129,6 +130,28 @@ export const REPORT_CSV_COLUMNS = {
   // Nulls export as an empty cell, NOT 0 — an unopened till must not read
   // as a balanced one. Excel shows blank, and a SUM over the column
   // ignores it rather than counting a day nobody reconciled.
+  // Detailed expenses. Date and "Recorded at" are separate columns
+  // because they are different facts: `date` is the day spent (date-only,
+  // no time), `recordedAt` is when it was keyed in.
+  //
+  // Payment Method Key sits beside the label so a spreadsheet can filter
+  // or pivot cash vs GCash on a stable value — labels are editable in
+  // the CMS, keys are not.
+  expenses: [
+    { header: "Date", value: (r: ExpenseReportRow) => r.date.toISOString().slice(0, 10) },
+    { header: "Recorded At", value: (r: ExpenseReportRow) => r.recordedAt.toISOString() },
+    { header: "Expense #", value: (r: ExpenseReportRow) => r.expenseNumber },
+    { header: "Description", value: (r: ExpenseReportRow) => r.description },
+    { header: "Category", value: (r: ExpenseReportRow) => r.category },
+    { header: "Payment Method", value: (r: ExpenseReportRow) => r.paymentMethodLabel },
+    { header: "Payment Method Key", value: (r: ExpenseReportRow) => r.paymentMethodKey },
+    { header: "Amount (cents)", value: (r: ExpenseReportRow) => r.amountCents },
+    { header: "Recorded By", value: (r: ExpenseReportRow) => r.recordedBy },
+    { header: "Voided", value: (r: ExpenseReportRow) => (r.isVoided ? "YES" : "") },
+    { header: "Void Reason", value: (r: ExpenseReportRow) => r.voidReason },
+    { header: "Voided By", value: (r: ExpenseReportRow) => r.voidedBy },
+    { header: "Receipt", value: (r: ExpenseReportRow) => (r.hasReceipt ? "yes" : "") },
+  ] satisfies CsvColumn<ExpenseReportRow>[],
   dailyReconciliation: [
     { header: "Date", value: (r: DailyReconciliationRow) => toDateValue(r.date) },
     { header: "Transactions", value: (r: DailyReconciliationRow) => r.transactionCount },

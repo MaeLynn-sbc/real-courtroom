@@ -17,6 +17,7 @@ import {
   salesReportExcelTotals,
   toXlsx,
 } from "@/services/export/excel.service";
+import { expenseService } from "@/services/expenses/expense.service";
 import { REPORT_CSV_COLUMNS, toCsv } from "@/services/export/export.service";
 import { reportingService } from "@/services/reporting/reporting.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -97,6 +98,10 @@ async function buildReportCsv(
     case "lockerRental": {
       const rows = await reportingService.getLockerRentalReport(range);
       return toCsv(rows, REPORT_CSV_COLUMNS.lockerRental);
+    }
+    case "expenses": {
+      const rows = await expenseService.getExpensesReport(range);
+      return toCsv(rows, REPORT_CSV_COLUMNS.expenses);
     }
     case "dailyReconciliation": {
       const rows = await reportingService.getDailyReconciliationReport(range, rolloverHour);
