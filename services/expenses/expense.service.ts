@@ -288,6 +288,22 @@ export class ExpenseService {
     return result._sum.amountCents ?? 0;
   }
 
+  // Cash paid out of the drawer while a shift was open. Expense has no
+  // shiftId, so it is attributed by when it was keyed in (createdAt), not
+  // by its staff-entered `date`. Owner request (2026-09-25): a shift that
+  // paid ₱506 of expenses from the drawer closed as a ₱506 deficit while
+  // the day's cash reconciliation — which already subtracts expenses —
+  // read Balanced. The shortfall was never the attendant's.
+  async getCashExpensesBetween(from: Date, to: Date): Promise<number> {
+    const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
+
+    const result = await prisma.expense.aggregate({
+      where: { paymentMethodId: cashMethod.id, createdAt: { gte: from, lte: to }, voidedAt: null },
+      _sum: { amountCents: true },
+    });
+    return result._sum.amountCents ?? 0;
+  }
+
   // Owner-reported incident (2026-09-21): a PHP 8,200 coach payout was
   // submitted twice, 15 seconds apart, on a slow connection. The money
   // left GCash once. Nothing in this app could take the duplicate off the

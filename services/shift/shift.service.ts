@@ -3,6 +3,7 @@ import type { Prisma, Shift } from "@/lib/generated/prisma/client";
 import { sumCashDenominationBreakdown } from "@/lib/cash-denominations";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { expenseService } from "@/services/expenses/expense.service";
 import { attendanceRecordService } from "@/services/payroll/attendance-record.service";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
 import { WEBSITE_SYSTEM_USER_EMAIL } from "@/lib/system-identities";
@@ -204,14 +205,22 @@ export class ShiftService {
     return shift;
   }
 
-  // Gate 1: openingCashCents + cash-only Sales for this shift — what the
-  // drawer SHOULD hold before anyone counts it. Exposed separately (not
+  // Gate 1: openingCashCents + cash-only Sales for this shift, minus cash
+  // expenses paid out while it was open — what the drawer SHOULD hold
+  // before anyone counts it. Same shape as the daily cash reconciliation's
+  // own expected balance, so the two can no longer disagree over money
+  // that legitimately left the drawer. Exposed separately (not
   // just inlined into endShift) so the close-shift screen can show this
   // to staff BEFORE they enter their physical count, same "expected"
   // wording end-to-end.
-  async getExpectedCashForShift(shift: Pick<Shift, "id" | "openingCashCents">): Promise<number> {
-    const cashSales = await saleService.getCashSalesForShift(shift.id);
-    return shift.openingCashCents + cashSales.totalAmountCents;
+  async getExpectedCashForShift(
+    shift: Pick<Shift, "id" | "openingCashCents" | "startedAt" | "endedAt">,
+  ): Promise<number> {
+    const [cashSales, cashExpensesCents] = await Promise.all([
+      saleService.getCashSalesForShift(shift.id),
+      expenseService.getCashExpensesBetween(shift.startedAt, shift.endedAt ?? new Date()),
+    ]);
+    return shift.openingCashCents + cashSales.totalAmountCents - cashExpensesCents;
   }
 
   // Gate 1 (fix for the existing gap): varianceCents now actually gets

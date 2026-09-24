@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { endShiftAction, recordManualSaleAction, startShiftAction } from "@/actions/shift.actions";
+import { CloseShiftWithoutCountButton } from "@/features/shifts/components/close-shift-without-count-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -346,7 +347,7 @@ function EndShiftForm({ shift, expectedCashCents }: { shift: NonNullable<Shift>;
             rung up so far this shift, so closing is a real comparison,
             not a blind entry. */}
         <div className="bg-muted/40 flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
-          <span className="text-muted-foreground">Expected cash (opening + cash sales so far)</span>
+          <span className="text-muted-foreground">Expected cash (opening + cash sales − cash expenses so far)</span>
           <span className="font-semibold">{formatCurrency(expectedCashCents)}</span>
         </div>
 
@@ -458,6 +459,7 @@ export function ShiftWorkspace({
                   <TableHead>Variance</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Ended</TableHead>
+                  {showEmployeeColumn ? <TableHead className="sr-only">Actions</TableHead> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -508,6 +510,21 @@ export function ShiftWorkspace({
                     <TableCell>
                       {shift.endedAt ? dateTimeFormatter.format(shift.endedAt) : "—"}
                     </TableCell>
+                    {/* Reviewer-only, and only for a shift still OPEN.
+                        showEmployeeColumn IS canReviewAllShifts — this
+                        table only lists other people's shifts in that
+                        mode — and the action re-checks reports:manage
+                        server-side regardless. */}
+                    {showEmployeeColumn ? (
+                      <TableCell className="align-top">
+                        {shift.status === "OPEN" ? (
+                          <CloseShiftWithoutCountButton
+                            shiftId={shift.id}
+                            employeeName={`${shift.employee.firstName} ${shift.employee.lastName}`}
+                          />
+                        ) : null}
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 ))}
               </TableBody>
