@@ -270,7 +270,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     courtHours.businessDateRolloverHour,
     closedShowsFull,
   );
-  // Slot counter on the hero's "Join open play" button.
+  // Slot counter on the hero's "Join Unliplay" button.
   //
   // Derived from the SAME card states rendered further down the page, not
   // recomputed. An earlier version of this checked only status === "OPEN"
@@ -378,7 +378,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                     href="/open-play/register"
                     className={`${PILL_BUTTON} border-line text-bone hover:border-green border font-semibold`}
                   >
-                    Join open play
+                    Join Unliplay
                     <span
                       className="bg-green text-navy-900 ml-2 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums"
                       aria-label={`${heroSlotState.remaining} spots left`}
@@ -391,7 +391,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                     aria-disabled="true"
                     className={`${PILL_BUTTON} border-line text-bone/50 cursor-not-allowed border font-semibold`}
                   >
-                    Join open play
+                    Join Unliplay
                     <span
                       className="bg-bone/15 text-bone/70 ml-2 rounded-full px-2 py-0.5 text-xs font-bold"
                     >
