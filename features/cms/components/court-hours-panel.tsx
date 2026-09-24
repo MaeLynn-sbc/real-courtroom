@@ -26,6 +26,26 @@ const WEEKDAYS: { key: keyof CourtHoursSettings["facilityCloseTimes"]; label: st
   { key: "6", label: "Sat" },
 ];
 
+// Fri/Sat are left out: those nights run the Unliplay handover off their
+// own settings above, and getCourtBookingWindow ignores this map for them.
+const SUN_TO_THU = WEEKDAYS.filter((day) => day.key !== "5" && day.key !== "6");
+
+// A cleared time input gives "", which the schema rejects. Blank means "no
+// exception", so drop it — and any weekday left with no courts — keeping
+// the stored map sparse.
+function pruneWeekdayOverrides(
+  overrides: NonNullable<CourtHoursSettings["courtCloseTimesByWeekday"]>,
+): NonNullable<CourtHoursSettings["courtCloseTimesByWeekday"]> {
+  const pruned: NonNullable<CourtHoursSettings["courtCloseTimesByWeekday"]> = {};
+  for (const [dayKey, byCourt] of Object.entries(overrides)) {
+    const kept = Object.fromEntries(Object.entries(byCourt).filter(([, time]) => time));
+    if (Object.keys(kept).length > 0) {
+      pruned[dayKey] = kept;
+    }
+  }
+  return pruned;
+}
+
 export function CourtHoursPanel({
   courtHours,
   courts,
@@ -40,6 +60,9 @@ export function CourtHoursPanel({
   const [courtCloseTimes, setCourtCloseTimes] = useState(courtHours.courtCloseTimes);
   const [fridaySaturdayCourtCloseTimes, setFridaySaturdayCourtCloseTimes] = useState(
     courtHours.fridaySaturdayCourtCloseTimes ?? {},
+  );
+  const [courtCloseTimesByWeekday, setCourtCloseTimesByWeekday] = useState(
+    courtHours.courtCloseTimesByWeekday ?? {},
   );
   const [businessDateRolloverHour, setBusinessDateRolloverHour] = useState(courtHours.businessDateRolloverHour);
   const [isPending, startTransition] = useTransition();
@@ -56,6 +79,7 @@ export function CourtHoursPanel({
       setFridaySaturdayCloseTime(next.fridaySaturdayCloseTime);
       setCourtCloseTimes(next.courtCloseTimes);
       setFridaySaturdayCourtCloseTimes(next.fridaySaturdayCourtCloseTimes ?? {});
+      setCourtCloseTimesByWeekday(next.courtCloseTimesByWeekday ?? {});
       setBusinessDateRolloverHour(next.businessDateRolloverHour);
       toast.success("Court hours saved.");
       router.refresh();
@@ -69,8 +93,16 @@ export function CourtHoursPanel({
       fridaySaturdayCloseTime,
       fridaySaturdayCourtCloseTimes,
       courtCloseTimes,
+      courtCloseTimesByWeekday: pruneWeekdayOverrides(courtCloseTimesByWeekday),
       businessDateRolloverHour,
     });
+  }
+
+  function setWeekdayOverride(dayKey: string, courtName: string, time: string) {
+    setCourtCloseTimesByWeekday((previous) => ({
+      ...previous,
+      [dayKey]: { ...previous[dayKey], [courtName]: time },
+    }));
   }
 
   return (
@@ -176,6 +208,48 @@ export function CourtHoursPanel({
           <p className="text-muted-foreground text-xs">
             00:00 means no cutoff of its own — the court runs until facility close instead.
           </p>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t pt-4">
+          <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+            Weekday exceptions (Sunday–Thursday)
+          </p>
+          <p className="text-muted-foreground text-xs">
+            A different cutoff for one court on one weekday, every week — e.g. Court 2 handing over to open play at
+            6 PM on Wednesdays and Thursdays. Leave blank to use the per-court cutoff above.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="text-sm">
+              <thead>
+                <tr>
+                  <th />
+                  {SUN_TO_THU.map((day) => (
+                    <th key={day.key} className="text-muted-foreground px-1 pb-1 text-left text-xs font-medium">
+                      {day.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {courts.map((court) => (
+                  <tr key={court.id}>
+                    <td className="pr-2 whitespace-nowrap">{court.name}</td>
+                    {SUN_TO_THU.map((day) => (
+                      <td key={day.key} className="p-1">
+                        <Input
+                          aria-label={`${court.name} cutoff on ${day.label}`}
+                          type="time"
+                          className="w-28"
+                          value={courtCloseTimesByWeekday[day.key]?.[court.name] ?? ""}
+                          onChange={(event) => setWeekdayOverride(day.key, court.name, event.target.value)}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div className="flex flex-col gap-1.5 border-t pt-4">

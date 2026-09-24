@@ -313,6 +313,8 @@ const DEFAULT_COURT_HOURS: CourtHoursSettings = {
   },
   fridaySaturdayCloseTime: "18:00",
   fridaySaturdayCourtCloseTimes: {},
+  // Empty by default — every weekday falls through to courtCloseTimes.
+  courtCloseTimesByWeekday: {},
   courtCloseTimes: {
     "Court 1": "18:00",
     "Court 2": "20:00",

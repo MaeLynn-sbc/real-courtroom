@@ -62,6 +62,23 @@ describe("getCourtBookingWindow", () => {
     expect(getCourtBookingWindow(settings, "Court 1", MONDAY).closeMinutes).toBe(18 * 60);
   });
 
+  it("lets a weekday exception override one court's cutoff on that weekday only", () => {
+    // Owner (2026-09-24): Court 2 hands over to open play at 6 PM on
+    // Wednesdays and Thursdays; Monday keeps its 8 PM.
+    const WEDNESDAY = new Date(2026, 6, 22);
+    const THURSDAY = new Date(2026, 6, 23);
+    const settings: CourtHoursSettings = {
+      ...SETTINGS,
+      courtCloseTimesByWeekday: { "3": { "Court 2": "18:00" }, "4": { "Court 2": "18:00" } },
+    };
+    expect(getCourtBookingWindow(settings, "Court 2", WEDNESDAY).closeMinutes).toBe(18 * 60);
+    expect(getCourtBookingWindow(settings, "Court 2", THURSDAY).closeMinutes).toBe(18 * 60);
+    expect(getCourtBookingWindow(settings, "Court 2", MONDAY).closeMinutes).toBe(20 * 60);
+    // Other courts on those days are untouched.
+    expect(getCourtBookingWindow(settings, "Court 1", WEDNESDAY).closeMinutes).toBe(18 * 60);
+    expect(getCourtBookingWindow(settings, "Court 3", THURSDAY).closeMinutes).toBe(23 * 60);
+  });
+
   it("caps a court's cutoff at facility close even if configured later", () => {
     const lateCourtSettings: CourtHoursSettings = {
       ...SETTINGS,

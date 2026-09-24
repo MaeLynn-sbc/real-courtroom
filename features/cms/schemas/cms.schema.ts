@@ -107,6 +107,25 @@ export const courtHoursSchema = z.object({
   // is bookable right up to facilityCloseTimes for that weekday. It's a
   // sentinel, not a real midnight cutoff (BUILD-SPEC.md §0).
   courtCloseTimes: z.record(z.string(), timeStringSchema),
+  // Per-WEEKDAY, per-court override of courtCloseTimes above (owner,
+  // 2026-09-24: "open plays for court 2 and 3 starts at 6pm... on wed and
+  // thurs", every week). Keyed weekday ("0"-"6") then court name.
+  //
+  // courtCloseTimes carries ONE cutoff per court for every non-Fri/Sat
+  // day, so without this, closing Courts 2 and 3 at 6 PM for Wednesday
+  // and Thursday would also close them at 6 PM on Monday, Tuesday and
+  // Sunday. This narrows it to the days actually meant.
+  //
+  // Optional and absent by default: with no entry for a weekday, that
+  // day falls straight through to courtCloseTimes and behaves exactly as
+  // before. Fri/Sat ignore this entirely — they have their own pair of
+  // settings above, which run the Unliplay handover.
+  // String weekday key, not z.enum: an enum-keyed record requires ALL
+  // seven days, and this map is deliberately SPARSE — only the weekdays
+  // that actually override anything appear in it.
+  courtCloseTimesByWeekday: z
+    .record(z.string(), z.record(z.string(), timeStringSchema))
+    .optional(),
   // BUILD-SPEC.md §0 "Business date vs calendar date" — the hour at which
   // a new business day starts for reporting purposes (default 3AM), so a
   // session that runs past midnight still reports under the night it

@@ -93,7 +93,18 @@ export function getCourtBookingWindow(
     courtCutoffMinutes =
       allCourts === null ? thisCourt : thisCourt === null ? allCourts : Math.min(allCourts, thisCourt);
   } else {
-    courtCutoffMinutes = parseCourtCutoffMinutes(settings.courtCloseTimes[courtName] ?? "00:00");
+    // A weekday-specific cutoff for this court wins over its general one
+    // (owner, 2026-09-24: Courts 2 and 3 hand over to open play at 6 PM
+    // on Wednesdays and Thursdays, every week, while Monday and Tuesday
+    // keep 8 PM). Absent — the normal case — falls straight through to
+    // courtCloseTimes and behaves exactly as before.
+    //
+    // Fri/Sat never reach here: they are handled by the branch above,
+    // which runs the Unliplay handover.
+    const weekdayOverride = settings.courtCloseTimesByWeekday?.[String(date.getDay())]?.[courtName];
+    courtCutoffMinutes = parseCourtCutoffMinutes(
+      weekdayOverride ?? settings.courtCloseTimes[courtName] ?? "00:00",
+    );
   }
 
   const closeMinutes =
