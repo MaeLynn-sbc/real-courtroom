@@ -247,46 +247,68 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
     }
     case "expenses": {
       const rows = await expenseService.getExpensesReport(range);
-      // Split by the STABLE key, not the label — labels are editable.
-      const total = (key: string) =>
-        rows
-          .filter((r) => !r.isVoided && r.paymentMethodKey === key)
-          .reduce((sum, r) => sum + r.amountCents, 0);
-      const cashTotal = total("CASH");
-      const gcashTotal = total("GCASH");
-      const otherTotal = rows
-        .filter((r) => !r.isVoided && r.paymentMethodKey !== "CASH" && r.paymentMethodKey !== "GCASH")
-        .reduce((sum, r) => sum + r.amountCents, 0);
+      // SEPARATE COLUMNS PER TENDER (owner request, 2026-09-22), not one
+      // Amount column with a method badge. Scanning down a single column
+      // to total the cash is what this report is used for; a mixed column
+      // makes that a manual filter every time.
+      //
+      // A voided expense contributes NOTHING to either column — its
+      // amount is struck through in place so the reversal stays visible
+      // without polluting the total beneath it.
+      const cashOf = (r: ExpenseReportRow) =>
+        !r.isVoided && r.paymentMethodKey === "CASH" ? r.amountCents : 0;
+      const gcashOf = (r: ExpenseReportRow) =>
+        !r.isVoided && r.paymentMethodKey === "GCASH" ? r.amountCents : 0;
+      const otherOf = (r: ExpenseReportRow) =>
+        !r.isVoided && r.paymentMethodKey !== "CASH" && r.paymentMethodKey !== "GCASH"
+          ? r.amountCents
+          : 0;
+      const sum = (pick: (r: ExpenseReportRow) => number) =>
+        rows.reduce((total, r) => total + pick(r), 0);
+
+      const cashTotal = sum(cashOf);
+      const gcashTotal = sum(gcashOf);
+      const otherTotal = sum(otherOf);
+      // Only shown when something actually used a third method — an empty
+      // column on every row is noise.
+      const hasOther = otherTotal > 0;
+
+      // Amount in its own tender's column, struck through if voided, and
+      // a plain dash where that row used the other tender — so a blank
+      // reads as "not this one" rather than "missing".
+      const amountCell = (r: ExpenseReportRow, belongs: boolean) => {
+        if (!belongs) {
+          return <span className="text-muted-foreground/40">—</span>;
+        }
+        return r.isVoided ? (
+          <span className="text-muted-foreground line-through">{formatCurrency(r.amountCents)}</span>
+        ) : (
+          formatCurrency(r.amountCents)
+        );
+      };
 
       const columns: ReportTableColumn<ExpenseReportRow>[] = [
         { header: "Date", render: (r) => toDateValue(r.date) },
-        // `date` is date-only, so the time has to come from when it was
-        // keyed in. Labelled "Recorded" rather than implying a spend time
-        // that was never captured.
         { header: "Recorded", render: (r) => timeFormatter.format(r.recordedAt) },
         { header: "Description", render: (r) => r.description },
         { header: "Category", render: (r) => r.category },
         {
-          header: "Paid by",
-          render: (r) => (
-            <span
-              className={`rounded-full border px-2 py-0.5 text-xs font-medium ${paymentMethodStyle(r.paymentMethodKey).badge}`}
-            >
-              {r.paymentMethodLabel}
-            </span>
-          ),
+          header: "Cash",
+          render: (r) => amountCell(r, r.paymentMethodKey === "CASH"),
         },
         {
-          header: "Amount",
-          render: (r) =>
-            r.isVoided ? (
-              <span className="text-muted-foreground line-through">
-                {formatCurrency(r.amountCents)}
-              </span>
-            ) : (
-              formatCurrency(r.amountCents)
-            ),
+          header: "GCash",
+          render: (r) => amountCell(r, r.paymentMethodKey === "GCASH"),
         },
+        ...(hasOther
+          ? [
+              {
+                header: "Other",
+                render: (r: ExpenseReportRow) =>
+                  amountCell(r, r.paymentMethodKey !== "CASH" && r.paymentMethodKey !== "GCASH"),
+              },
+            ]
+          : []),
         { header: "Recorded by", render: (r) => r.recordedBy },
         {
           header: "Status",
@@ -303,10 +325,6 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
 
       return (
         <div className="flex flex-col gap-4">
-          {/* Totals split by tender — the question this report is opened
-              to answer. Voided rows are excluded here but still listed
-              below, struck through, so a reversal is visible rather than
-              silently missing. */}
           <div className="flex flex-wrap gap-3 text-sm">
             <span className={`rounded-md border px-3 py-1.5 ${paymentMethodStyle("CASH").badge}`}>
               Cash: <span className="font-bold">{formatCurrency(cashTotal)}</span>
@@ -314,7 +332,7 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
             <span className={`rounded-md border px-3 py-1.5 ${paymentMethodStyle("GCASH").badge}`}>
               GCash: <span className="font-bold">{formatCurrency(gcashTotal)}</span>
             </span>
-            {otherTotal > 0 ? (
+            {hasOther ? (
               <span className="rounded-md border px-3 py-1.5">
                 Other: <span className="font-bold">{formatCurrency(otherTotal)}</span>
               </span>
@@ -326,7 +344,34 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
               </span>
             </span>
           </div>
-          <ReportTable rows={rows} columns={columns} getRowKey={(r) => r.expenseNumber} />
+          <ReportTable
+            rows={rows}
+            columns={columns}
+            getRowKey={(r) => r.expenseNumber}
+            // Totals under their own columns, so the figure sits directly
+            // beneath the numbers it adds up.
+            renderFooter={() => [
+              "Total",
+              "",
+              "",
+              "",
+              <span key="cash" className="font-bold">
+                {formatCurrency(cashTotal)}
+              </span>,
+              <span key="gcash" className="font-bold">
+                {formatCurrency(gcashTotal)}
+              </span>,
+              ...(hasOther
+                ? [
+                    <span key="other" className="font-bold">
+                      {formatCurrency(otherTotal)}
+                    </span>,
+                  ]
+                : []),
+              "",
+              "",
+            ]}
+          />
         </div>
       );
     }

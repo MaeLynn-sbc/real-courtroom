@@ -145,6 +145,33 @@ export const REPORT_CSV_COLUMNS = {
     { header: "Category", value: (r: ExpenseReportRow) => r.category },
     { header: "Payment Method", value: (r: ExpenseReportRow) => r.paymentMethodLabel },
     { header: "Payment Method Key", value: (r: ExpenseReportRow) => r.paymentMethodKey },
+    // SPLIT COLUMNS, matching the on-screen table: the amount lands in
+    // its own tender's column so a spreadsheet can SUM each one directly
+    // instead of needing a filter or a SUMIF.
+    //
+    // A voided expense contributes 0 to both — its amount stays visible
+    // in "Amount (cents)" below, so the reversal is still in the file
+    // without being counted. That keeps a SUM of the Cash column equal
+    // to the Cash total on screen.
+    {
+      header: "Cash (cents)",
+      value: (r: ExpenseReportRow) =>
+        !r.isVoided && r.paymentMethodKey === "CASH" ? r.amountCents : 0,
+    },
+    {
+      header: "GCash (cents)",
+      value: (r: ExpenseReportRow) =>
+        !r.isVoided && r.paymentMethodKey === "GCASH" ? r.amountCents : 0,
+    },
+    {
+      header: "Other (cents)",
+      value: (r: ExpenseReportRow) =>
+        !r.isVoided && r.paymentMethodKey !== "CASH" && r.paymentMethodKey !== "GCASH"
+          ? r.amountCents
+          : 0,
+    },
+    // The raw amount, voided or not — kept so a reversed row still shows
+    // what it was for, which the split columns deliberately zero out.
     { header: "Amount (cents)", value: (r: ExpenseReportRow) => r.amountCents },
     { header: "Recorded By", value: (r: ExpenseReportRow) => r.recordedBy },
     { header: "Voided", value: (r: ExpenseReportRow) => (r.isVoided ? "YES" : "") },
