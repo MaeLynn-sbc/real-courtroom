@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { auth } from "@/auth";
 import { RecentProductSalesList } from "@/features/products/components/recent-product-sales-list";
+import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
 import { SellProductForm } from "@/features/products/components/sell-product-form";
 import { hasPermission } from "@/lib/rbac";
 import { playerService } from "@/services/player/player.service";
@@ -18,6 +19,10 @@ export const dynamic = "force-dynamic";
 export default async function ProductsPage() {
   const session = await auth();
   const canVoidSale = hasPermission(session?.user.permissions ?? [], PERMISSIONS.ACCOUNTS_VOID_SALE);
+  const canCorrectPaymentMethod = hasPermission(
+    session?.user.permissions ?? [],
+    PERMISSIONS.ACCOUNTS_CORRECT_SALE_PAYMENT_METHOD,
+  );
 
   const [products, players, paymentMethods, recentSales] = await Promise.all([
     productService.listActiveProducts(),
@@ -55,12 +60,16 @@ export default async function ProductsPage() {
       />
       <RecentProductSalesList
         canVoidSale={canVoidSale}
+        canCorrectPaymentMethod={canCorrectPaymentMethod}
+        correctablePaymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
         sales={recentSales.map((sale) => ({
           id: sale.id,
           productName: sale.product?.name ?? sale.description ?? "Item",
           amountCents: sale.amountCents,
           employeeName: `${sale.employee.firstName} ${sale.employee.lastName}`,
+          paymentMethodId: sale.paymentMethodId,
           paymentMethodLabel: sale.paymentMethod.label,
+          paymentMethodCorrectionReason: sale.paymentMethodCorrectionReason,
           status: sale.status,
           createdAt: sale.createdAt.toISOString(),
           voidReason: sale.voidReason,

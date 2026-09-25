@@ -8,6 +8,8 @@ import { voidSaleAction } from "@/actions/sale.actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CorrectSalePaymentMethodForm } from "@/features/bookings/components/correct-sale-payment-method-form";
+import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
 import { formatCurrency } from "@/lib/utils";
 
 export interface RecentProductSaleRow {
@@ -15,7 +17,9 @@ export interface RecentProductSaleRow {
   productName: string;
   amountCents: number;
   employeeName: string;
+  paymentMethodId: string;
   paymentMethodLabel: string;
+  paymentMethodCorrectionReason: string | null;
   status: string;
   createdAt: string;
   voidReason: string | null;
@@ -25,6 +29,11 @@ export interface RecentProductSaleRow {
 interface RecentProductSalesListProps {
   sales: RecentProductSaleRow[];
   canVoidSale: boolean;
+  // Owner request (2026-09-25): a T-shirt rung up as Cash was really paid
+  // by GCash, leaving the drawer ₱1,200 short. Same correction the
+  // booking page already offers.
+  canCorrectPaymentMethod: boolean;
+  correctablePaymentMethods: SettlementPaymentMethodOption[];
 }
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" });
@@ -64,7 +73,12 @@ function VoidButton({ saleId }: { saleId: string }) {
   );
 }
 
-export function RecentProductSalesList({ sales, canVoidSale }: RecentProductSalesListProps) {
+export function RecentProductSalesList({
+  sales,
+  canVoidSale,
+  canCorrectPaymentMethod,
+  correctablePaymentMethods,
+}: RecentProductSalesListProps) {
   if (sales.length === 0) {
     return null;
   }
@@ -91,12 +105,27 @@ export function RecentProductSalesList({ sales, canVoidSale }: RecentProductSale
                   Voided by {sale.voidedByEmployeeName ?? "—"}: {sale.voidReason}
                 </p>
               ) : null}
+              {sale.paymentMethodCorrectionReason ? (
+                <p className="text-muted-foreground text-xs">
+                  Payment method corrected: {sale.paymentMethodCorrectionReason}
+                </p>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm">{formatCurrency(sale.amountCents)}</span>
               {sale.status === "VOID" ? <Badge variant="destructive">Voided</Badge> : null}
               {canVoidSale && sale.status === "COMPLETED" ? <VoidButton saleId={sale.id} /> : null}
             </div>
+            {canCorrectPaymentMethod && sale.status === "COMPLETED" ? (
+              <div className="basis-full">
+                <CorrectSalePaymentMethodForm
+                  saleId={sale.id}
+                  currentPaymentMethodId={sale.paymentMethodId}
+                  currentPaymentMethodLabel={sale.paymentMethodLabel}
+                  paymentMethods={correctablePaymentMethods}
+                />
+              </div>
+            ) : null}
           </div>
         ))}
       </CardContent>
