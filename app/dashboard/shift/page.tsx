@@ -71,10 +71,11 @@ async function ShiftWorkspaceData({
   // cash" is shown to staff BEFORE they start entering their physical
   // count — a real comparison, not a number that only appears after
   // they've already committed to a total.
-  const [expectedCashCents, expectedGcashCents, manualSales] = await Promise.all([
+  const [expectedCashCents, expectedGcashCents, manualSales, lastClosingGcashCents] = await Promise.all([
     currentShift ? shiftService.getExpectedCashForShift(currentShift) : null,
     currentShift ? shiftService.getExpectedGcashForShift(currentShift) : null,
     currentShift ? saleService.listManualSalesForShift(currentShift.id) : [],
+    currentShift ? null : shiftService.getLastClosingGcashCents(),
   ]);
 
   return (
@@ -83,6 +84,7 @@ async function ShiftWorkspaceData({
       recentShifts={recentShifts}
       expectedCashCents={expectedCashCents}
       expectedGcashCents={expectedGcashCents}
+      lastClosingGcashCents={lastClosingGcashCents}
       showEmployeeColumn={canReviewAllShifts}
       canRecordManualSale={canRecordManualSale}
       paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}

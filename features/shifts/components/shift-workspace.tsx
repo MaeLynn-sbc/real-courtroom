@@ -39,6 +39,9 @@ interface ShiftWorkspaceProps {
   // Null when there is no open shift, or it was started before the shift
   // GCash check existed (no opening balance) — the GCash section is hidden.
   expectedGcashCents: number | null;
+  // The GCash balance the last shift closed with — the start form's
+  // default. Null when nobody has closed with one yet.
+  lastClosingGcashCents: number | null;
   // REPORTS_MANAGE holders see every employee's shifts here (an
   // Employee column added to the same table), not just their own —
   // false for everyone else, who keep the exact table they had before.
@@ -52,14 +55,16 @@ interface ShiftWorkspaceProps {
   manualSales: ManualSaleView[];
 }
 
-function StartShiftForm() {
+function StartShiftForm({ lastClosingGcashCents }: { lastClosingGcashCents: number | null }) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [openingCash, setOpeningCash] = useState("0");
-  // Blank, not "0": a GCash balance has to be read off the app, and a
-  // pre-filled zero would let it be skipped without looking.
-  const [openingGcash, setOpeningGcash] = useState("");
+  // The last shift's closing balance when there is one; otherwise blank,
+  // not "0" — a made-up zero would let it be skipped without looking.
+  const [openingGcash, setOpeningGcash] = useState(
+    lastClosingGcashCents !== null ? (lastClosingGcashCents / 100).toFixed(2) : "",
+  );
   const [openingNotes, setOpeningNotes] = useState("");
 
   function handleSubmit(event: React.FormEvent) {
@@ -121,6 +126,12 @@ function StartShiftForm() {
               value={openingGcash}
               onChange={(event) => setOpeningGcash(event.target.value)}
             />
+            {lastClosingGcashCents !== null ? (
+              <p className="text-muted-foreground text-xs">
+                Filled in from the last shift&apos;s closing balance ({formatCurrency(lastClosingGcashCents)}). Check it
+                against the app and change it if money came in or went out since.
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="openingNotes">Opening notes (optional)</Label>
@@ -496,6 +507,7 @@ export function ShiftWorkspace({
   recentShifts,
   expectedCashCents,
   expectedGcashCents,
+  lastClosingGcashCents,
   showEmployeeColumn,
   canRecordManualSale,
   paymentMethods,
@@ -510,7 +522,7 @@ export function ShiftWorkspace({
           expectedGcashCents={expectedGcashCents}
         />
       ) : (
-        <StartShiftForm />
+        <StartShiftForm lastClosingGcashCents={lastClosingGcashCents} />
       )}
 
       {currentShift && canRecordManualSale ? <RecordManualSaleForm paymentMethods={paymentMethods} /> : null}

@@ -44,6 +44,22 @@ export class ShiftAlreadyOpenError extends Error {
 const NOT_A_CASH_DRAWER_MARKER = "Payment-approval attribution shift — not a real cash drawer.";
 
 export class ShiftService {
+  // Pre-fills "GCash balance" on the start-shift form (owner, 2026-09-26:
+  // "the starting gcash would be the end of gcash when the last shift
+  // closed"). GCash is one shared account, so the last close by ANYONE is
+  // the right starting point. Still only a default — money can land
+  // between shifts (a website payment overnight, an owner transfer), so
+  // staff confirm it against the app. Null until a shift has closed with
+  // a GCash balance.
+  async getLastClosingGcashCents(): Promise<number | null> {
+    const last = await prisma.shift.findFirst({
+      where: { status: "CLOSED", closingGcashCents: { not: null } },
+      orderBy: { endedAt: "desc" },
+      select: { closingGcashCents: true },
+    });
+    return last?.closingGcashCents ?? null;
+  }
+
   async getCurrentShift(employeeId: string) {
     return prisma.shift.findFirst({
       where: { employeeId, status: "OPEN" },
