@@ -313,13 +313,15 @@ const DEFAULT_COURT_HOURS: CourtHoursSettings = {
   },
   fridaySaturdayCloseTime: "18:00",
   fridaySaturdayCourtCloseTimes: {},
-  // Owner (2026-09-25): Court 2 hands over to open play at 6 PM on
-  // Wednesdays and Thursdays, every week. A default rather than a saved
-  // value so it applies without anyone editing Court Hours; once that
-  // panel is saved, the stored map (even an empty one) wins over this.
+  // Owner (2026-09-24/26): Courts 2 and 3 hand over to open play at 6 PM
+  // on Wednesdays and Thursdays, every week. A coach booking already in
+  // that window stays booked — classifyCourtSlot checks bookings before
+  // the cutoff. A default rather than a saved value so it applies without
+  // anyone editing Court Hours; once that panel is saved, the stored map
+  // (even an empty one) wins over this.
   courtCloseTimesByWeekday: {
-    "3": { "Court 2": "18:00" },
-    "4": { "Court 2": "18:00" },
+    "3": { "Court 2": "18:00", "Court 3": "18:00" },
+    "4": { "Court 2": "18:00", "Court 3": "18:00" },
   },
   courtCloseTimes: {
     "Court 1": "18:00",
