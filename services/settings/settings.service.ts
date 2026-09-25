@@ -313,8 +313,14 @@ const DEFAULT_COURT_HOURS: CourtHoursSettings = {
   },
   fridaySaturdayCloseTime: "18:00",
   fridaySaturdayCourtCloseTimes: {},
-  // Empty by default — every weekday falls through to courtCloseTimes.
-  courtCloseTimesByWeekday: {},
+  // Owner (2026-09-25): Court 2 hands over to open play at 6 PM on
+  // Wednesdays and Thursdays, every week. A default rather than a saved
+  // value so it applies without anyone editing Court Hours; once that
+  // panel is saved, the stored map (even an empty one) wins over this.
+  courtCloseTimesByWeekday: {
+    "3": { "Court 2": "18:00" },
+    "4": { "Court 2": "18:00" },
+  },
   courtCloseTimes: {
     "Court 1": "18:00",
     "Court 2": "20:00",
