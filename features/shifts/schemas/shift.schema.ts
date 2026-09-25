@@ -2,6 +2,11 @@ import { z } from "zod";
 
 export const startShiftSchema = z.object({
   openingCashCents: z.coerce.number().int("Enter a whole peso amount.").min(0, "Can't be negative."),
+  // The GCash app balance at shift start (owner request, 2026-09-26).
+  openingGcashCents: z.coerce
+    .number({ error: "Enter the GCash balance shown in the app." })
+    .int("Enter a valid GCash balance.")
+    .min(0, "Can't be negative."),
   openingNotes: z.string().max(1000).optional(),
 });
 export type StartShiftInput = z.infer<typeof startShiftSchema>;
@@ -16,6 +21,10 @@ export type StartShiftInput = z.infer<typeof startShiftSchema>;
 // (it depends on a live Sale query, not just this input).
 export const endShiftSchema = z.object({
   closingCashBreakdown: z.record(z.string(), z.number().int().nonnegative()),
+  // Optional here: a shift started before the GCash check existed has no
+  // opening balance to compare against. shiftService.endShift requires it
+  // whenever the shift does have one.
+  closingGcashCents: z.number().int("Enter a valid GCash balance.").min(0, "Can't be negative.").optional(),
   closingNotes: z.string().max(1000).optional(),
 });
 export type EndShiftInput = z.infer<typeof endShiftSchema>;

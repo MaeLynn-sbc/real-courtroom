@@ -704,9 +704,21 @@ export class SaleService {
   // Powers "expected cash" on the close-shift screen: openingCashCents +
   // this = what the drawer should hold before staff count it.
   async getCashSalesForShift(shiftId: string): Promise<ShiftSalesSummary> {
-    const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
+    return this.getSalesForShiftByMethod(shiftId, "CASH");
+  }
+
+  // Same as getCashSalesForShift, for GCash — the shift-level GCash check
+  // (shiftService.getExpectedGcashForShift). Unlike getGcashSalesForDate
+  // below, this is shift-scoped on purpose: it answers "what should have
+  // landed in GCash while THIS person was on", not the whole day.
+  async getGcashSalesForShift(shiftId: string): Promise<ShiftSalesSummary> {
+    return this.getSalesForShiftByMethod(shiftId, "GCASH");
+  }
+
+  private async getSalesForShiftByMethod(shiftId: string, methodKey: "CASH" | "GCASH"): Promise<ShiftSalesSummary> {
+    const method = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: methodKey } });
     const result = await prisma.sale.aggregate({
-      where: { shiftId, status: "COMPLETED", paymentMethodId: cashMethod.id },
+      where: { shiftId, status: "COMPLETED", paymentMethodId: method.id },
       _sum: { amountCents: true },
       _count: true,
     });

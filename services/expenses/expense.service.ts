@@ -295,10 +295,20 @@ export class ExpenseService {
   // the day's cash reconciliation — which already subtracts expenses —
   // read Balanced. The shortfall was never the attendant's.
   async getCashExpensesBetween(from: Date, to: Date): Promise<number> {
-    const cashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "CASH" } });
+    return this.getExpensesBetweenByMethod("CASH", from, to);
+  }
+
+  // GCash counterpart, for the shift-level GCash check — same createdAt
+  // attribution as above.
+  async getGcashExpensesBetween(from: Date, to: Date): Promise<number> {
+    return this.getExpensesBetweenByMethod("GCASH", from, to);
+  }
+
+  private async getExpensesBetweenByMethod(methodKey: "CASH" | "GCASH", from: Date, to: Date): Promise<number> {
+    const method = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: methodKey } });
 
     const result = await prisma.expense.aggregate({
-      where: { paymentMethodId: cashMethod.id, createdAt: { gte: from, lte: to }, voidedAt: null },
+      where: { paymentMethodId: method.id, createdAt: { gte: from, lte: to }, voidedAt: null },
       _sum: { amountCents: true },
     });
     return result._sum.amountCents ?? 0;

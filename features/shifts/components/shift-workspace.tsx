@@ -36,6 +36,9 @@ interface ShiftWorkspaceProps {
   currentShift: Shift;
   recentShifts: RecentShifts;
   expectedCashCents: number | null;
+  // Null when there is no open shift, or it was started before the shift
+  // GCash check existed (no opening balance) — the GCash section is hidden.
+  expectedGcashCents: number | null;
   // REPORTS_MANAGE holders see every employee's shifts here (an
   // Employee column added to the same table), not just their own —
   // false for everyone else, who keep the exact table they had before.
@@ -54,6 +57,9 @@ function StartShiftForm() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [openingCash, setOpeningCash] = useState("0");
+  // Blank, not "0": a GCash balance has to be read off the app, and a
+  // pre-filled zero would let it be skipped without looking.
+  const [openingGcash, setOpeningGcash] = useState("");
   const [openingNotes, setOpeningNotes] = useState("");
 
   function handleSubmit(event: React.FormEvent) {
@@ -65,10 +71,16 @@ function StartShiftForm() {
       setServerError("Enter a valid amount.");
       return;
     }
+    const openingGcashCents = Math.round(Number(openingGcash) * 100);
+    if (!openingGcash.trim() || !Number.isFinite(openingGcashCents)) {
+      setServerError("Enter the GCash balance shown in the app.");
+      return;
+    }
 
     startTransition(async () => {
       const result = await startShiftAction({
         openingCashCents,
+        openingGcashCents,
         openingNotes: openingNotes || undefined,
       });
       if (result.error) {
@@ -96,6 +108,18 @@ function StartShiftForm() {
               min="0"
               value={openingCash}
               onChange={(event) => setOpeningCash(event.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="openingGcash">GCash balance (as shown in the app)</Label>
+            <Input
+              id="openingGcash"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              value={openingGcash}
+              onChange={(event) => setOpeningGcash(event.target.value)}
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -275,7 +299,15 @@ function ManualSalesList({ manualSales }: { manualSales: ManualSaleView[] }) {
   );
 }
 
-function EndShiftForm({ shift, expectedCashCents }: { shift: NonNullable<Shift>; expectedCashCents: number }) {
+function EndShiftForm({
+  shift,
+  expectedCashCents,
+  expectedGcashCents,
+}: {
+  shift: NonNullable<Shift>;
+  expectedCashCents: number;
+  expectedGcashCents: number | null;
+}) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -285,6 +317,7 @@ function EndShiftForm({ shift, expectedCashCents }: { shift: NonNullable<Shift>;
   // uses, so the live preview here can never disagree with what
   // actually gets computed and persisted.
   const [denominationCounts, setDenominationCounts] = useState<Record<string, string>>({});
+  const [closingGcash, setClosingGcash] = useState("");
   const [closingNotes, setClosingNotes] = useState("");
 
   const breakdown = Object.fromEntries(
@@ -292,20 +325,31 @@ function EndShiftForm({ shift, expectedCashCents }: { shift: NonNullable<Shift>;
   );
   const closingCashCents = sumCashDenominationBreakdown(breakdown);
   const varianceCents = closingCashCents - expectedCashCents;
-  const hasVariance = varianceCents !== 0;
+  const hasGcashCheck = expectedGcashCents !== null;
+  const closingGcashCents = closingGcash.trim() ? Math.round(Number(closingGcash) * 100) : null;
+  const gcashVarianceCents =
+    hasGcashCheck && closingGcashCents !== null && Number.isFinite(closingGcashCents)
+      ? closingGcashCents - expectedGcashCents
+      : null;
+  const hasVariance = varianceCents !== 0 || (gcashVarianceCents !== null && gcashVarianceCents !== 0);
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setServerError(null);
 
+    if (hasGcashCheck && (closingGcashCents === null || !Number.isFinite(closingGcashCents))) {
+      setServerError("Enter the GCash balance shown in the app.");
+      return;
+    }
     if (hasVariance && !closingNotes.trim()) {
-      setServerError("Counted cash doesn't match the expected amount — enter a note explaining the difference.");
+      setServerError("Cash or GCash doesn't match the expected amount — enter a note explaining the difference.");
       return;
     }
 
     startTransition(async () => {
       const result = await endShiftAction(shift.id, {
         closingCashBreakdown: breakdown,
+        closingGcashCents: hasGcashCheck ? (closingGcashCents ?? undefined) : undefined,
         closingNotes: closingNotes || undefined,
       });
       if (result.error) {
@@ -391,6 +435,38 @@ function EndShiftForm({ shift, expectedCashCents }: { shift: NonNullable<Shift>;
             </div>
           </div>
 
+          {hasGcashCheck ? (
+            <div className="flex flex-col gap-2 border-t pt-4">
+              <Label htmlFor="closingGcash">GCash balance (as shown in the app now)</Label>
+              <div className="bg-muted/40 flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
+                <span className="text-muted-foreground">
+                  Expected GCash (opening {formatCurrency(shift.openingGcashCents ?? 0)} + GCash sales − GCash
+                  expenses so far)
+                </span>
+                <span className="font-semibold">{formatCurrency(expectedGcashCents)}</span>
+              </div>
+              <Input
+                id="closingGcash"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                className="w-48"
+                value={closingGcash}
+                onChange={(event) => setClosingGcash(event.target.value)}
+              />
+              {gcashVarianceCents !== null ? (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">GCash variance</span>
+                  <span className={`${varianceTextClass(gcashVarianceCents)} font-semibold`}>
+                    {gcashVarianceCents > 0 ? "+" : ""}
+                    {formatCurrency(gcashVarianceCents)}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="closingNotes">
               Closing notes {hasVariance ? <span className="text-destructive">(required — there&apos;s a variance)</span> : "(optional)"}
@@ -419,6 +495,7 @@ export function ShiftWorkspace({
   currentShift,
   recentShifts,
   expectedCashCents,
+  expectedGcashCents,
   showEmployeeColumn,
   canRecordManualSale,
   paymentMethods,
@@ -427,7 +504,11 @@ export function ShiftWorkspace({
   return (
     <div className="flex flex-col gap-6">
       {currentShift ? (
-        <EndShiftForm shift={currentShift} expectedCashCents={expectedCashCents ?? currentShift.openingCashCents} />
+        <EndShiftForm
+          shift={currentShift}
+          expectedCashCents={expectedCashCents ?? currentShift.openingCashCents}
+          expectedGcashCents={expectedGcashCents}
+        />
       ) : (
         <StartShiftForm />
       )}

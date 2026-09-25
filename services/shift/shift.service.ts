@@ -175,7 +175,15 @@ export class ShiftService {
   // v1.1 maintenance: shiftNumber now comes from the shared atomic
   // counter (lib/reference-counter.ts), so it can no longer collide —
   // the retry loop this used to need solely for that is gone.
-  async startShift(employeeId: string, input: StartShiftInput, actorUserId: string) {
+  // openingGcashCents is required by the start-shift form's schema but
+  // optional here, so a shift started without one (fixtures, scripts)
+  // simply skips the GCash check at close — the same path as every shift
+  // from before the check existed.
+  async startShift(
+    employeeId: string,
+    input: Omit<StartShiftInput, "openingGcashCents"> & { openingGcashCents?: number },
+    actorUserId: string,
+  ) {
     const existingOpen = await this.getCurrentShift(employeeId);
     if (existingOpen) {
       throw new ShiftAlreadyOpenError();
@@ -190,6 +198,7 @@ export class ShiftService {
         shiftNumber,
         employeeId,
         openingCashCents: input.openingCashCents,
+        openingGcashCents: input.openingGcashCents ?? null,
         openingNotes: input.openingNotes,
       },
     });
@@ -221,6 +230,28 @@ export class ShiftService {
       expenseService.getCashExpensesBetween(shift.startedAt, shift.endedAt ?? new Date()),
     ]);
     return shift.openingCashCents + cashSales.totalAmountCents - cashExpensesCents;
+  }
+
+  // Shift GCash check (owner request, 2026-09-26) — the GCash twin of
+  // getExpectedCashForShift: what the GCash app balance SHOULD read now.
+  // Null for a shift started before this existed (no opening balance), so
+  // callers skip the check rather than invent one.
+  //
+  // Known gap: GCash is one account for the whole business, so money that
+  // moves outside a recorded Sale/Expense — an owner transfer, a website
+  // payment that landed before this shift but was approved during it —
+  // shows up here as variance. That is what the closing note is for.
+  async getExpectedGcashForShift(
+    shift: Pick<Shift, "id" | "openingGcashCents" | "startedAt" | "endedAt">,
+  ): Promise<number | null> {
+    if (shift.openingGcashCents === null) {
+      return null;
+    }
+    const [gcashSales, gcashExpensesCents] = await Promise.all([
+      saleService.getGcashSalesForShift(shift.id),
+      expenseService.getGcashExpensesBetween(shift.startedAt, shift.endedAt ?? new Date()),
+    ]);
+    return shift.openingGcashCents + gcashSales.totalAmountCents - gcashExpensesCents;
   }
 
   // Gate 1 (fix for the existing gap): varianceCents now actually gets
@@ -314,8 +345,20 @@ export class ShiftService {
     }
 
     const closingCashCents = sumCashDenominationBreakdown(input.closingCashBreakdown);
-    const expectedCashCents = await this.getExpectedCashForShift(existing);
+    const [expectedCashCents, expectedGcashCents] = await Promise.all([
+      this.getExpectedCashForShift(existing),
+      this.getExpectedGcashForShift(existing),
+    ]);
     const varianceCents = closingCashCents - expectedCashCents;
+
+    // The GCash balance is required whenever the shift has an opening one
+    // to compare it to; a pre-existing shift without one skips the check.
+    if (expectedGcashCents !== null && input.closingGcashCents === undefined) {
+      throw new Error("Enter the GCash balance shown in the app before closing.");
+    }
+    const closingGcashCents = expectedGcashCents !== null ? (input.closingGcashCents ?? null) : null;
+    const gcashVarianceCents =
+      expectedGcashCents !== null && closingGcashCents !== null ? closingGcashCents - expectedGcashCents : null;
 
     // "If there's a variance, require a note" — enforced here, not in
     // the zod schema, since only this method knows the variance (it
@@ -323,6 +366,11 @@ export class ShiftService {
     if (varianceCents !== 0 && !input.closingNotes?.trim()) {
       throw new Error(
         `Counted cash doesn't match the expected amount (${varianceCents > 0 ? "+" : ""}${(varianceCents / 100).toFixed(2)} PHP). Enter a note explaining the difference before closing.`,
+      );
+    }
+    if (gcashVarianceCents !== null && gcashVarianceCents !== 0 && !input.closingNotes?.trim()) {
+      throw new Error(
+        `The GCash balance doesn't match the expected amount (${gcashVarianceCents > 0 ? "+" : ""}${(gcashVarianceCents / 100).toFixed(2)} PHP). Enter a note explaining the difference before closing.`,
       );
     }
 
@@ -333,6 +381,8 @@ export class ShiftService {
         closingCashCents,
         closingCashBreakdown: input.closingCashBreakdown,
         varianceCents,
+        closingGcashCents,
+        gcashVarianceCents,
         closingNotes: input.closingNotes,
         endedAt: new Date(),
       },

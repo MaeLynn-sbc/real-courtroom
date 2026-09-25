@@ -435,6 +435,16 @@ model Shift {
   // money" reasoning as every Sale-creating action in this app. Null for
   // shifts closed before this existed.
   closingCashBreakdown Json?
+  // Shift GCash check (owner request, 2026-09-26): the GCash app balance
+  // staff read off the phone at start and end of shift. Expected close =
+  // openingGcash + this shift's GCash sales - GCash expenses keyed in
+  // while it was open (shiftService.getExpectedGcashForShift). Catches a
+  // GCash payment rung up as Cash (the Sep 25 T-shirt: cash -1,200, GCash
+  // +1,200) at the shift, not days later at reconciliation. All null on
+  // shifts started before this existed, which then skip the GCash check.
+  openingGcashCents    Int?
+  closingGcashCents    Int?
+  gcashVarianceCents   Int?
   startedAt            DateTime    @default(now())
   endedAt              DateTime?
   createdAt            DateTime    @default(now())

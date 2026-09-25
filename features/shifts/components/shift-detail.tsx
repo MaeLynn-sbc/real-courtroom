@@ -105,6 +105,43 @@ export function ShiftDetail({ shift }: ShiftDetailProps) {
             </div>
           </div>
 
+          {shift.openingGcashCents !== null ? (
+            <div className="flex flex-col gap-1 border-t pt-3 text-sm">
+              <p className="mb-1 font-medium">GCash</p>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Opening balance</span>
+                <span className="font-medium">{formatCurrency(shift.openingGcashCents)}</span>
+              </div>
+              {shift.closingGcashCents !== null && shift.gcashVarianceCents !== null ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Expected balance</span>
+                    <span className="font-medium">
+                      {formatCurrency(shift.closingGcashCents - shift.gcashVarianceCents)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Balance in app at close</span>
+                    <span className="font-semibold">{formatCurrency(shift.closingGcashCents)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Variance</span>
+                    <span
+                      className={
+                        shift.gcashVarianceCents !== 0 ? "text-destructive font-semibold" : "text-success font-semibold"
+                      }
+                    >
+                      {shift.gcashVarianceCents > 0 ? "+" : ""}
+                      {formatCurrency(shift.gcashVarianceCents)}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-muted-foreground">No closing GCash balance was recorded.</p>
+              )}
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-1.5 border-t pt-4">
             <p className="text-sm font-medium">Closing note</p>
             {shift.closingNotes ? (
