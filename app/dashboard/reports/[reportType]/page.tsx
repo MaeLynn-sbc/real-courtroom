@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { DateRangePicker } from "@/features/analytics/components/date-range-picker";
@@ -93,6 +93,15 @@ export default async function ReportPage({ params, searchParams }: ReportPagePro
   // type below shares — see that component's own comment.
   if (parsedType.data === "coaching") {
     return <CoachingWeeklyReport searchParams={rawSearchParams} />;
+  }
+
+  // The sales journal is read one day at a time, like a register tape
+  // (owner, 2026-09-26: "only show the daily sales"), so it opens on
+  // Today rather than every other report's 30-day default. A redirect,
+  // not a silent default, so the picker shows "Today" too; any other
+  // range can still be picked.
+  if (parsedType.data === "salesJournal" && rawSearchParams.preset === undefined) {
+    redirect("/dashboard/reports/salesJournal?preset=TODAY");
   }
 
   const courtHours = await settingsService.getCourtHours();
