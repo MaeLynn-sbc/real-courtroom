@@ -215,6 +215,52 @@ export interface SalesByPaymentMethodRow {
   amountCents: number;
 }
 
+// Owner request (2026-09-26): "i need the itemized items for the gcash and
+// cash transactions daily. theres always a deficit" — "like a cash
+// register, where i need to know the sales where the gcash and cash came
+// from". One row per Sale, so every peso in the Cash and GCash totals can
+// be traced back to what was sold, by whom, on which shift.
+//
+// Voided sales are INCLUDED (flagged, never counted) — a void is exactly
+// the kind of thing someone chasing a deficit needs to see.
+export interface SalesJournalRow {
+  businessDate: Date | null;
+  recordedAt: Date;
+  saleNumber: string;
+  category: string;
+  item: string;
+  paymentMethodKey: string;
+  paymentMethodLabel: string;
+  amountCents: number;
+  staff: string;
+  shiftNumber: string;
+  source: string;
+  isVoided: boolean;
+  voidReason: string | null;
+  paymentMethodCorrectionReason: string | null;
+}
+
+const SALE_CATEGORY_LABELS: Record<string, string> = {
+  BOOKING: "Booking",
+  MEMBERSHIP: "Membership",
+  EQUIPMENT_RENTAL: "Equipment rental",
+  LOCKER_RENTAL: "Locker rental",
+  TOURNAMENT_REGISTRATION: "Tournament",
+  PRODUCT: "Product",
+  OPEN_PLAY: "Open play",
+  COACHING: "Coaching",
+  OTHER: "Other",
+};
+
+const journalTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  timeZone: "Asia/Manila",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
 export interface SalesByProductRow {
   productName: string;
   transactionCount: number;
@@ -849,6 +895,53 @@ export class ReportingService {
       });
     }
     return rows;
+  }
+
+  // See SalesJournalRow. Same business-date window as every other sales
+  // report (dateAwareSaleWhere), minus its COMPLETED-only filter so voids
+  // show up too — a day's rows here add up to that day's sales report.
+  async getSalesJournal(range: DateRange, rolloverHour = 0): Promise<SalesJournalRow[]> {
+    const rows = await prisma.sale.findMany({
+      // Overrides dateAwareSaleWhere's COMPLETED-only status; same window.
+      where: { ...this.dateAwareSaleWhere(range, rolloverHour), status: { in: ["COMPLETED", "VOID"] } },
+      include: {
+        paymentMethod: { select: { key: true, label: true } },
+        employee: { select: { firstName: true, lastName: true } },
+        shift: { select: { shiftNumber: true } },
+        product: { select: { name: true } },
+        booking: { select: { startAt: true, guestName: true, court: { select: { name: true } } } },
+        player: { select: { user: { select: { name: true } } } },
+      },
+      orderBy: [{ businessDate: "asc" }, { createdAt: "asc" }],
+    });
+
+    return rows.map((row) => {
+      // The most specific thing the sale was for, then who it was for.
+      const what =
+        row.product?.name ??
+        (row.booking ? `${row.booking.court.name}, ${journalTimeFormatter.format(row.booking.startAt)}` : null) ??
+        row.description ??
+        row.notes ??
+        SALE_CATEGORY_LABELS[row.category] ??
+        row.category;
+      const who = row.booking?.guestName ?? row.player?.user.name ?? null;
+      return {
+        businessDate: row.businessDate,
+        recordedAt: row.createdAt,
+        saleNumber: row.saleNumber,
+        category: SALE_CATEGORY_LABELS[row.category] ?? row.category,
+        item: who ? `${what} — ${who}` : what,
+        paymentMethodKey: row.paymentMethod.key,
+        paymentMethodLabel: row.paymentMethod.label,
+        amountCents: row.amountCents,
+        staff: `${row.employee.firstName} ${row.employee.lastName}`,
+        shiftNumber: row.shift.shiftNumber,
+        source: row.source,
+        isVoided: row.status === "VOID",
+        voidReason: row.voidReason,
+        paymentMethodCorrectionReason: row.paymentMethodCorrectionReason,
+      };
+    });
   }
 
   private dateAwareSaleWhere(range: DateRange, rolloverHour = 0): Prisma.SaleWhereInput {

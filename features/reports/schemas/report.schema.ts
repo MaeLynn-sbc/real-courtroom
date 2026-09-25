@@ -44,6 +44,7 @@ export const reportTypeSchema = z.enum([
   "salesByProduct",
   "dailyReconciliation",
   "expenses",
+  "salesJournal",
 ]);
 
 export type ReportTypeInput = z.infer<typeof reportTypeSchema>;

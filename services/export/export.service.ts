@@ -13,6 +13,7 @@ import type {
   TournamentReportRow,
 } from "@/services/reporting/reporting.service";
 import type { ExpenseReportRow } from "@/services/expenses/expense.service";
+import type { SalesJournalRow } from "@/services/reporting/reporting.service";
 
 export interface CsvColumn<T> {
   header: string;
@@ -179,6 +180,36 @@ export const REPORT_CSV_COLUMNS = {
     { header: "Voided By", value: (r: ExpenseReportRow) => r.voidedBy },
     { header: "Receipt", value: (r: ExpenseReportRow) => (r.hasReceipt ? "yes" : "") },
   ] satisfies CsvColumn<ExpenseReportRow>[],
+  // Itemized sales, split columns like expenses above: a voided sale
+  // exports 0 in Cash/GCash but keeps its raw amount in "Amount (cents)".
+  salesJournal: [
+    { header: "Date", value: (r: SalesJournalRow) => (r.businessDate ? toDateValue(r.businessDate) : "") },
+    { header: "Recorded At", value: (r: SalesJournalRow) => r.recordedAt.toISOString() },
+    { header: "Sale #", value: (r: SalesJournalRow) => r.saleNumber },
+    { header: "Type", value: (r: SalesJournalRow) => r.category },
+    { header: "Item", value: (r: SalesJournalRow) => r.item },
+    { header: "Payment Method", value: (r: SalesJournalRow) => r.paymentMethodLabel },
+    {
+      header: "Cash (cents)",
+      value: (r: SalesJournalRow) => (!r.isVoided && r.paymentMethodKey === "CASH" ? r.amountCents : 0),
+    },
+    {
+      header: "GCash (cents)",
+      value: (r: SalesJournalRow) => (!r.isVoided && r.paymentMethodKey === "GCASH" ? r.amountCents : 0),
+    },
+    {
+      header: "Other (cents)",
+      value: (r: SalesJournalRow) =>
+        !r.isVoided && r.paymentMethodKey !== "CASH" && r.paymentMethodKey !== "GCASH" ? r.amountCents : 0,
+    },
+    { header: "Amount (cents)", value: (r: SalesJournalRow) => r.amountCents },
+    { header: "Staff", value: (r: SalesJournalRow) => r.staff },
+    { header: "Shift", value: (r: SalesJournalRow) => r.shiftNumber },
+    { header: "Source", value: (r: SalesJournalRow) => r.source },
+    { header: "Voided", value: (r: SalesJournalRow) => (r.isVoided ? "YES" : "") },
+    { header: "Void Reason", value: (r: SalesJournalRow) => r.voidReason },
+    { header: "Payment Method Correction", value: (r: SalesJournalRow) => r.paymentMethodCorrectionReason },
+  ] satisfies CsvColumn<SalesJournalRow>[],
   dailyReconciliation: [
     { header: "Date", value: (r: DailyReconciliationRow) => toDateValue(r.date) },
     { header: "Transactions", value: (r: DailyReconciliationRow) => r.transactionCount },

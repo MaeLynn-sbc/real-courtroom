@@ -41,6 +41,7 @@ import {
   type SalesByCategoryRow,
   type SalesByPaymentMethodRow,
   type SalesByProductRow,
+  type SalesJournalRow,
   type TournamentReportRow,
 } from "@/services/reporting/reporting.service";
 
@@ -66,6 +67,8 @@ const REPORT_TITLES: Record<string, string> = {
   salesByPaymentMethod: "Sales by payment method",
   salesByProduct: "Sales by product",
   dailyReconciliation: "Sales report",
+  expenses: "Expenses (detailed)",
+  salesJournal: "Sales journal (itemized)",
 };
 
 interface ReportPageProps {
@@ -368,6 +371,112 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
                     </span>,
                   ]
                 : []),
+              "",
+              "",
+            ]}
+          />
+        </div>
+      );
+    }
+    case "salesJournal": {
+      const rows = await reportingService.getSalesJournal(range, rolloverHour);
+      // Same Cash / GCash split-column layout as the expenses report above:
+      // one column per tender, so each column's total is exactly that
+      // day's cash (or GCash) sales, and every figure in it has a row.
+      // A voided sale is shown struck through and counts nowhere.
+      const inMethod = (r: SalesJournalRow, key: "CASH" | "GCASH" | "OTHER") =>
+        key === "OTHER" ? r.paymentMethodKey !== "CASH" && r.paymentMethodKey !== "GCASH" : r.paymentMethodKey === key;
+      const total = (key: "CASH" | "GCASH" | "OTHER") =>
+        rows.reduce((sum, r) => sum + (!r.isVoided && inMethod(r, key) ? r.amountCents : 0), 0);
+      const cashTotal = total("CASH");
+      const gcashTotal = total("GCASH");
+      const otherTotal = total("OTHER");
+      const hasOther = otherTotal > 0;
+      const countedRows = rows.filter((r) => !r.isVoided).length;
+
+      const amountCell = (r: SalesJournalRow, key: "CASH" | "GCASH" | "OTHER") => {
+        if (!inMethod(r, key)) {
+          return <span className="text-muted-foreground/40">—</span>;
+        }
+        return r.isVoided ? (
+          <span className="text-muted-foreground line-through">{formatCurrency(r.amountCents)}</span>
+        ) : (
+          formatCurrency(r.amountCents)
+        );
+      };
+
+      const columns: ReportTableColumn<SalesJournalRow>[] = [
+        { header: "Date", render: (r) => (r.businessDate ? toDateValue(r.businessDate) : "—") },
+        { header: "Time", render: (r) => timeFormatter.format(r.recordedAt) },
+        { header: "Sale #", render: (r) => <span className="font-mono text-xs">{r.saleNumber}</span> },
+        { header: "Type", render: (r) => r.category },
+        { header: "Item", render: (r) => r.item },
+        { header: "Cash", render: (r) => amountCell(r, "CASH") },
+        { header: "GCash", render: (r) => amountCell(r, "GCASH") },
+        ...(hasOther ? [{ header: "Other", render: (r: SalesJournalRow) => amountCell(r, "OTHER") }] : []),
+        { header: "Staff", render: (r) => r.staff },
+        { header: "Shift", render: (r) => <span className="font-mono text-xs">{r.shiftNumber}</span> },
+        {
+          header: "Notes",
+          render: (r) => (
+            <span className="flex flex-col gap-0.5 text-xs">
+              {r.isVoided ? (
+                <span className="text-destructive">Voided{r.voidReason ? `: ${r.voidReason}` : ""}</span>
+              ) : null}
+              {r.paymentMethodCorrectionReason ? (
+                <span className="text-muted-foreground">
+                  Payment method corrected: {r.paymentMethodCorrectionReason}
+                </span>
+              ) : null}
+              {r.source === "WEBSITE" ? <span className="text-muted-foreground">Website</span> : null}
+            </span>
+          ),
+        },
+      ];
+
+      return (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap gap-3 text-sm">
+            <span className={`rounded-md border px-3 py-1.5 ${paymentMethodStyle("CASH").badge}`}>
+              Cash: <span className="font-bold">{formatCurrency(cashTotal)}</span>
+            </span>
+            <span className={`rounded-md border px-3 py-1.5 ${paymentMethodStyle("GCASH").badge}`}>
+              GCash: <span className="font-bold">{formatCurrency(gcashTotal)}</span>
+            </span>
+            {hasOther ? (
+              <span className="rounded-md border px-3 py-1.5">
+                Other: <span className="font-bold">{formatCurrency(otherTotal)}</span>
+              </span>
+            ) : null}
+            <span className="rounded-md border px-3 py-1.5">
+              Total: <span className="font-bold">{formatCurrency(cashTotal + gcashTotal + otherTotal)}</span>
+              <span className="text-muted-foreground"> · {countedRows} sales</span>
+            </span>
+          </div>
+          <ReportTable
+            rows={rows}
+            columns={columns}
+            getRowKey={(r) => r.saleNumber}
+            renderFooter={() => [
+              "Total",
+              "",
+              "",
+              "",
+              "",
+              <span key="cash" className="font-bold">
+                {formatCurrency(cashTotal)}
+              </span>,
+              <span key="gcash" className="font-bold">
+                {formatCurrency(gcashTotal)}
+              </span>,
+              ...(hasOther
+                ? [
+                    <span key="other" className="font-bold">
+                      {formatCurrency(otherTotal)}
+                    </span>,
+                  ]
+                : []),
+              "",
               "",
               "",
             ]}

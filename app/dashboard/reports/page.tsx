@@ -34,6 +34,12 @@ const REPORT_LINKS: { reportType: string; title: string; description: string }[]
     description: "Coaching sessions, coaches, and fees in range.",
   },
   {
+    reportType: "salesJournal",
+    title: "Sales journal (itemized)",
+    description:
+      "Every sale, one per line, like a cash register tape: time, what was sold, who rang it up, which shift — with Cash and GCash in separate columns so each day's totals can be traced sale by sale. Voids and payment-method corrections are flagged.",
+  },
+  {
     reportType: "expenses",
     title: "Expenses (detailed)",
     description:
