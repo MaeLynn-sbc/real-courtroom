@@ -1,5 +1,6 @@
 import type { EndShiftInput, StartShiftInput } from "@/features/shifts/schemas/shift.schema";
 import type { Prisma, Shift } from "@/lib/generated/prisma/client";
+import { computeBusinessDate, getBusinessDateRange, widenToBusinessDateRangeStart } from "@/lib/business-date";
 import { sumCashDenominationBreakdown } from "@/lib/cash-denominations";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
@@ -10,6 +11,7 @@ import { attendanceRecordService } from "@/services/payroll/attendance-record.se
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
 import { WEBSITE_SYSTEM_USER_EMAIL } from "@/lib/system-identities";
 import { saleService } from "@/services/sales/sale.service";
+import type { DateRange } from "@/services/analytics/date-range";
 import { formatShiftNumber } from "@/services/shift/shift-number";
 
 function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
@@ -43,6 +45,26 @@ export class ShiftAlreadyOpenError extends Error {
 // since approving creates a real Sale immediately. Standalone (no
 // auth()/session dependency) so it's directly testable, same shape as
 // services/booking/website-identity.ts's getWebsiteBookingContext.
+export interface ShiftReconciliationRow {
+  id: string;
+  shiftNumber: string;
+  employee: string;
+  status: string;
+  startedAt: Date;
+  endedAt: Date | null;
+  openingCashCents: number;
+  expectedCashCents: number | null;
+  countedCashCents: number | null;
+  cashVarianceCents: number | null;
+  // Null on shifts from before the GCash check, and on open shifts.
+  openingGcashCents: number | null;
+  expectedGcashCents: number | null;
+  closingGcashCents: number | null;
+  gcashVarianceCents: number | null;
+  closedWithoutCount: boolean;
+  closingNotes: string | null;
+}
+
 const NOT_A_CASH_DRAWER_MARKER = "Payment-approval attribution shift — not a real cash drawer.";
 
 export class ShiftService {
@@ -137,6 +159,50 @@ export class ShiftService {
   // to the caller (app/dashboard/shift/page.tsx), same split as
   // getShiftById's own ownership check — this method only knows "all
   // shifts," not "who's allowed to ask for them."
+  // Reports → Shift reconciliation (owner request, 2026-09-26: "a page
+  // where we can see the account reconciliation per shift"). Every real
+  // shift STARTED in the range's business days, cash and GCash side by
+  // side. Expected figures are rebuilt from the stored counted amount and
+  // variance, same as the shift detail page — what the closer saw, not a
+  // fresh recomputation. Leaves out the payment-approval attribution
+  // shifts and the website identity's shift: neither is a real drawer.
+  async getShiftReconciliationReport(range: DateRange, rolloverHour: number): Promise<ShiftReconciliationRow[]> {
+    const start = getBusinessDateRange(widenToBusinessDateRangeStart(range.from, rolloverHour), rolloverHour).start;
+    const end = getBusinessDateRange(computeBusinessDate(range.to, rolloverHour), rolloverHour).end;
+    const shifts = await prisma.shift.findMany({
+      where: {
+        startedAt: { gte: start, lt: end },
+        NOT: { openingNotes: { startsWith: NOT_A_CASH_DRAWER_MARKER } },
+        employee: { user: { OR: [{ email: null }, { email: { not: WEBSITE_SYSTEM_USER_EMAIL } }] } },
+      },
+      include: { employee: { select: { firstName: true, lastName: true } } },
+      orderBy: { startedAt: "asc" },
+    });
+
+    return shifts.map((shift) => {
+      const counted = shift.closingCashCents !== null && shift.varianceCents !== null;
+      const gcashCounted = shift.closingGcashCents !== null && shift.gcashVarianceCents !== null;
+      return {
+        id: shift.id,
+        shiftNumber: shift.shiftNumber,
+        employee: `${shift.employee.firstName} ${shift.employee.lastName}`,
+        status: shift.status,
+        startedAt: shift.startedAt,
+        endedAt: shift.endedAt,
+        openingCashCents: shift.openingCashCents,
+        expectedCashCents: counted ? shift.closingCashCents! - shift.varianceCents! : null,
+        countedCashCents: shift.closingCashCents,
+        cashVarianceCents: shift.varianceCents,
+        openingGcashCents: shift.openingGcashCents,
+        expectedGcashCents: gcashCounted ? shift.closingGcashCents! - shift.gcashVarianceCents! : null,
+        closingGcashCents: shift.closingGcashCents,
+        gcashVarianceCents: shift.gcashVarianceCents,
+        closedWithoutCount: shift.status === "CLOSED" && shift.closingCashCents === null,
+        closingNotes: shift.closingNotes,
+      };
+    });
+  }
+
   async listAllShiftsForReview(limit = 20) {
     return prisma.shift.findMany({
       include: { employee: { select: { firstName: true, lastName: true } } },

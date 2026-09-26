@@ -18,6 +18,7 @@ import {
   toXlsx,
 } from "@/services/export/excel.service";
 import { expenseService } from "@/services/expenses/expense.service";
+import { shiftService } from "@/services/shift/shift.service";
 import { REPORT_CSV_COLUMNS, toCsv } from "@/services/export/export.service";
 import { reportingService } from "@/services/reporting/reporting.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -106,6 +107,10 @@ async function buildReportCsv(
     case "dailyReconciliation": {
       const rows = await reportingService.getDailyReconciliationReport(range, rolloverHour);
       return toCsv(rows, REPORT_CSV_COLUMNS.dailyReconciliation);
+    }
+    case "shiftReconciliation": {
+      const rows = await shiftService.getShiftReconciliationReport(range, rolloverHour);
+      return toCsv(rows, REPORT_CSV_COLUMNS.shiftReconciliation);
     }
     case "salesJournal": {
       const rows = await reportingService.getSalesJournal(range, rolloverHour);

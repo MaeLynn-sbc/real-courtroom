@@ -34,6 +34,12 @@ const REPORT_LINKS: { reportType: string; title: string; description: string }[]
     description: "Coaching sessions, coaches, and fees in range.",
   },
   {
+    reportType: "shiftReconciliation",
+    title: "Shift reconciliation",
+    description:
+      "One row per shift: who, when, and cash and GCash side by side — opening, expected, counted and variance — with the closing note. Click a shift for its full count.",
+  },
+  {
     reportType: "salesJournal",
     title: "Sales journal (itemized)",
     description:

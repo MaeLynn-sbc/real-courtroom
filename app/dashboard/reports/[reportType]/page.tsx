@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,7 @@ import { formatCurrency, varianceTextClass } from "@/lib/utils";
 import { resolveDateRangeFromSearchParams, type DateRange } from "@/services/analytics/date-range";
 import { expenseService, type ExpenseReportRow } from "@/services/expenses/expense.service";
 import { settingsService } from "@/services/settings/settings.service";
+import { shiftService, type ShiftReconciliationRow } from "@/services/shift/shift.service";
 import {
   reportingService,
   type BookingReportRow,
@@ -69,6 +71,7 @@ const REPORT_TITLES: Record<string, string> = {
   dailyReconciliation: "Sales report",
   expenses: "Expenses (detailed)",
   salesJournal: "Sales journal (itemized)",
+  shiftReconciliation: "Shift reconciliation",
 };
 
 interface ReportPageProps {
@@ -100,8 +103,11 @@ export default async function ReportPage({ params, searchParams }: ReportPagePro
   // Today rather than every other report's 30-day default. A redirect,
   // not a silent default, so the picker shows "Today" too; any other
   // range can still be picked.
-  if (parsedType.data === "salesJournal" && rawSearchParams.preset === undefined) {
-    redirect("/dashboard/reports/salesJournal?preset=TODAY");
+  if (
+    (parsedType.data === "salesJournal" || parsedType.data === "shiftReconciliation") &&
+    rawSearchParams.preset === undefined
+  ) {
+    redirect(`/dashboard/reports/${parsedType.data}?preset=TODAY`);
   }
 
   const courtHours = await settingsService.getCourtHours();
@@ -381,6 +387,101 @@ async function renderTable(reportType: ReportTypeInput, range: DateRange, rollov
                   ]
                 : []),
               "",
+              "",
+            ]}
+          />
+        </div>
+      );
+    }
+    case "shiftReconciliation": {
+      const rows = await shiftService.getShiftReconciliationReport(range, rolloverHour);
+      const money = (cents: number | null) =>
+        cents === null ? <span className="text-muted-foreground/40">—</span> : formatCurrency(cents);
+      const variance = (cents: number | null) =>
+        cents === null ? (
+          <span className="text-muted-foreground/40">—</span>
+        ) : (
+          <span className={`${varianceTextClass(cents)} font-semibold`}>
+            {cents > 0 ? "+" : ""}
+            {formatCurrency(cents)}
+          </span>
+        );
+      const sumOf = (pick: (r: ShiftReconciliationRow) => number | null) =>
+        rows.reduce((sum, r) => sum + (pick(r) ?? 0), 0);
+      const cashVarianceTotal = sumOf((r) => r.cashVarianceCents);
+      const gcashVarianceTotal = sumOf((r) => r.gcashVarianceCents);
+
+      const columns: ReportTableColumn<ShiftReconciliationRow>[] = [
+        {
+          header: "Shift",
+          render: (r) => (
+            <Link href={`/dashboard/shift/${r.id}`} className="font-mono text-xs underline-offset-2 hover:underline">
+              {r.shiftNumber}
+            </Link>
+          ),
+        },
+        { header: "Employee", render: (r) => r.employee },
+        {
+          header: "Time",
+          render: (r) =>
+            `${dateFormatter.format(r.startedAt)} – ${r.endedAt ? timeFormatter.format(r.endedAt) : "open"}`,
+        },
+        { header: "Opening cash", render: (r) => money(r.openingCashCents) },
+        { header: "Expected cash", render: (r) => money(r.expectedCashCents) },
+        { header: "Counted cash", render: (r) => money(r.countedCashCents) },
+        { header: "Cash variance", render: (r) => variance(r.cashVarianceCents) },
+        { header: "Opening GCash", render: (r) => money(r.openingGcashCents) },
+        { header: "Expected GCash", render: (r) => money(r.expectedGcashCents) },
+        { header: "GCash in app", render: (r) => money(r.closingGcashCents) },
+        { header: "GCash variance", render: (r) => variance(r.gcashVarianceCents) },
+        {
+          header: "Note",
+          render: (r) => (
+            <span className="text-xs">
+              {r.status === "OPEN" ? (
+                <Badge variant="status">Open</Badge>
+              ) : r.closedWithoutCount ? (
+                <span className="text-destructive">Closed without a count. </span>
+              ) : null}
+              {r.closingNotes && !r.closedWithoutCount ? r.closingNotes : null}
+            </span>
+          ),
+        },
+      ];
+
+      return (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap gap-3 text-sm">
+            <span className="rounded-md border px-3 py-1.5">
+              Shifts: <span className="font-bold">{rows.length}</span>
+            </span>
+            <span className={`rounded-md border px-3 py-1.5 ${paymentMethodStyle("CASH").badge}`}>
+              Cash variance: <span className="font-bold">{cashVarianceTotal > 0 ? "+" : ""}{formatCurrency(cashVarianceTotal)}</span>
+            </span>
+            <span className={`rounded-md border px-3 py-1.5 ${paymentMethodStyle("GCASH").badge}`}>
+              GCash variance: <span className="font-bold">{gcashVarianceTotal > 0 ? "+" : ""}{formatCurrency(gcashVarianceTotal)}</span>
+            </span>
+          </div>
+          <ReportTable
+            rows={rows}
+            columns={columns}
+            getRowKey={(r) => r.id}
+            renderFooter={() => [
+              "Total",
+              "",
+              "",
+              "",
+              "",
+              "",
+              <span key="cash" className="font-bold">
+                {variance(cashVarianceTotal)}
+              </span>,
+              "",
+              "",
+              "",
+              <span key="gcash" className="font-bold">
+                {variance(gcashVarianceTotal)}
+              </span>,
               "",
             ]}
           />

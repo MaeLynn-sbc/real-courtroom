@@ -14,6 +14,7 @@ import type {
 } from "@/services/reporting/reporting.service";
 import type { ExpenseReportRow } from "@/services/expenses/expense.service";
 import type { SalesJournalRow } from "@/services/reporting/reporting.service";
+import type { ShiftReconciliationRow } from "@/services/shift/shift.service";
 
 export interface CsvColumn<T> {
   header: string;
@@ -210,6 +211,25 @@ export const REPORT_CSV_COLUMNS = {
     { header: "Void Reason", value: (r: SalesJournalRow) => r.voidReason },
     { header: "Payment Method Correction", value: (r: SalesJournalRow) => r.paymentMethodCorrectionReason },
   ] satisfies CsvColumn<SalesJournalRow>[],
+  // Blank, not 0, wherever nothing was counted (open shift, closed without
+  // a count, or no GCash check yet) — same rule as the sales report.
+  shiftReconciliation: [
+    { header: "Shift #", value: (r: ShiftReconciliationRow) => r.shiftNumber },
+    { header: "Employee", value: (r: ShiftReconciliationRow) => r.employee },
+    { header: "Status", value: (r: ShiftReconciliationRow) => r.status },
+    { header: "Started At", value: (r: ShiftReconciliationRow) => r.startedAt.toISOString() },
+    { header: "Ended At", value: (r: ShiftReconciliationRow) => r.endedAt?.toISOString() ?? "" },
+    { header: "Opening Cash (cents)", value: (r: ShiftReconciliationRow) => r.openingCashCents },
+    { header: "Expected Cash (cents)", value: (r: ShiftReconciliationRow) => r.expectedCashCents },
+    { header: "Counted Cash (cents)", value: (r: ShiftReconciliationRow) => r.countedCashCents },
+    { header: "Cash Variance (cents)", value: (r: ShiftReconciliationRow) => r.cashVarianceCents },
+    { header: "Opening GCash (cents)", value: (r: ShiftReconciliationRow) => r.openingGcashCents },
+    { header: "Expected GCash (cents)", value: (r: ShiftReconciliationRow) => r.expectedGcashCents },
+    { header: "GCash In App (cents)", value: (r: ShiftReconciliationRow) => r.closingGcashCents },
+    { header: "GCash Variance (cents)", value: (r: ShiftReconciliationRow) => r.gcashVarianceCents },
+    { header: "Closed Without Count", value: (r: ShiftReconciliationRow) => (r.closedWithoutCount ? "YES" : "") },
+    { header: "Closing Note", value: (r: ShiftReconciliationRow) => r.closingNotes },
+  ] satisfies CsvColumn<ShiftReconciliationRow>[],
   dailyReconciliation: [
     { header: "Date", value: (r: DailyReconciliationRow) => toDateValue(r.date) },
     { header: "Transactions", value: (r: DailyReconciliationRow) => r.transactionCount },
