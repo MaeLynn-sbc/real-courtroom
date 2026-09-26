@@ -39,9 +39,9 @@ interface ShiftWorkspaceProps {
   // Null when there is no open shift, or it was started before the shift
   // GCash check existed (no opening balance) — the GCash section is hidden.
   expectedGcashCents: number | null;
-  // The GCash balance the last shift closed with — the start form's
-  // default. Null when nobody has closed with one yet.
-  lastClosingGcashCents: number | null;
+  // The start form's GCash default: what Accounts Reconciliation expects
+  // the GCash balance to be right now (shiftService.getSuggestedOpeningGcashCents).
+  suggestedOpeningGcashCents: number | null;
   // REPORTS_MANAGE holders see every employee's shifts here (an
   // Employee column added to the same table), not just their own —
   // false for everyone else, who keep the exact table they had before.
@@ -55,15 +55,15 @@ interface ShiftWorkspaceProps {
   manualSales: ManualSaleView[];
 }
 
-function StartShiftForm({ lastClosingGcashCents }: { lastClosingGcashCents: number | null }) {
+function StartShiftForm({ suggestedOpeningGcashCents }: { suggestedOpeningGcashCents: number | null }) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [openingCash, setOpeningCash] = useState("0");
-  // The last shift's closing balance when there is one; otherwise blank,
+  // Reconciliation's expected balance when there is one; otherwise blank,
   // not "0" — a made-up zero would let it be skipped without looking.
   const [openingGcash, setOpeningGcash] = useState(
-    lastClosingGcashCents !== null ? (lastClosingGcashCents / 100).toFixed(2) : "",
+    suggestedOpeningGcashCents !== null ? (suggestedOpeningGcashCents / 100).toFixed(2) : "",
   );
   const [openingNotes, setOpeningNotes] = useState("");
 
@@ -126,10 +126,11 @@ function StartShiftForm({ lastClosingGcashCents }: { lastClosingGcashCents: numb
               value={openingGcash}
               onChange={(event) => setOpeningGcash(event.target.value)}
             />
-            {lastClosingGcashCents !== null ? (
+            {suggestedOpeningGcashCents !== null ? (
               <p className="text-muted-foreground text-xs">
-                Filled in from the last shift&apos;s closing balance ({formatCurrency(lastClosingGcashCents)}). Check it
-                against the app and change it if money came in or went out since.
+                Filled in from Accounts Reconciliation&apos;s expected GCash balance (
+                {formatCurrency(suggestedOpeningGcashCents)}). Check it against the app — if the app shows something
+                different, enter what the app shows.
               </p>
             ) : null}
           </div>
@@ -507,7 +508,7 @@ export function ShiftWorkspace({
   recentShifts,
   expectedCashCents,
   expectedGcashCents,
-  lastClosingGcashCents,
+  suggestedOpeningGcashCents,
   showEmployeeColumn,
   canRecordManualSale,
   paymentMethods,
@@ -522,7 +523,7 @@ export function ShiftWorkspace({
           expectedGcashCents={expectedGcashCents}
         />
       ) : (
-        <StartShiftForm lastClosingGcashCents={lastClosingGcashCents} />
+        <StartShiftForm suggestedOpeningGcashCents={suggestedOpeningGcashCents} />
       )}
 
       {currentShift && canRecordManualSale ? <RecordManualSaleForm paymentMethods={paymentMethods} /> : null}

@@ -4,6 +4,8 @@ import { sumCashDenominationBreakdown } from "@/lib/cash-denominations";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { expenseService } from "@/services/expenses/expense.service";
+import { gcashReconciliationService } from "@/services/gcash/gcash-reconciliation.service";
+import { settingsService } from "@/services/settings/settings.service";
 import { attendanceRecordService } from "@/services/payroll/attendance-record.service";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
 import { WEBSITE_SYSTEM_USER_EMAIL } from "@/lib/system-identities";
@@ -44,14 +46,21 @@ export class ShiftAlreadyOpenError extends Error {
 const NOT_A_CASH_DRAWER_MARKER = "Payment-approval attribution shift — not a real cash drawer.";
 
 export class ShiftService {
-  // Pre-fills "GCash balance" on the start-shift form (owner, 2026-09-26:
-  // "the starting gcash would be the end of gcash when the last shift
-  // closed"). GCash is one shared account, so the last close by ANYONE is
-  // the right starting point. Still only a default — money can land
-  // between shifts (a website payment overnight, an owner transfer), so
-  // staff confirm it against the app. Null until a shift has closed with
-  // a GCash balance.
-  async getLastClosingGcashCents(): Promise<number | null> {
+  // Pre-fills "GCash balance" on the start-shift form. Owner (2026-09-26):
+  // the Accounts Reconciliation screen is the right number — the first
+  // shift of the new check started blank, the attendant guessed ₱1,609
+  // against a real ~₱87,309, and closed showing a +₱86,750 "variance".
+  // So: the balance that screen expects RIGHT NOW (today's starting
+  // balance + GCash sales so far − GCash expenses so far), which keeps a
+  // shift's GCash variance consistent with the day's. Falls back to the
+  // last shift's closing balance when today's GCash day can't be opened
+  // (yesterday not confirmed yet). Still editable: staff check the app.
+  async getSuggestedOpeningGcashCents(): Promise<number | null> {
+    const { businessDateRolloverHour } = await settingsService.getCourtHours();
+    const today = await gcashReconciliationService.getTodaysBalance(businessDateRolloverHour);
+    if (today) {
+      return gcashReconciliationService.getExpectedEndingBalance(today);
+    }
     const last = await prisma.shift.findFirst({
       where: { status: "CLOSED", closingGcashCents: { not: null } },
       orderBy: { endedAt: "desc" },
