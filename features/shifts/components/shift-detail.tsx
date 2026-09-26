@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CASH_DENOMINATIONS_PESOS, type CashDenominationBreakdown } from "@/lib/cash-denominations";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, varianceTextClass } from "@/lib/utils";
 import type { shiftService } from "@/services/shift/shift.service";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short" });
@@ -25,7 +25,6 @@ export function ShiftDetail({ shift }: ShiftDetailProps) {
   const closingCashCents = shift.closingCashCents ?? 0;
   const varianceCents = shift.varianceCents ?? 0;
   const expectedCashCents = closingCashCents - varianceCents;
-  const hasVariance = varianceCents !== 0;
 
   const breakdown = (shift.closingCashBreakdown ?? {}) as CashDenominationBreakdown;
   const countedDenominations = CASH_DENOMINATIONS_PESOS.filter((denomination) => {
@@ -98,7 +97,7 @@ export function ShiftDetail({ shift }: ShiftDetailProps) {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Variance</span>
-              <span className={hasVariance ? "text-destructive font-semibold" : "text-success font-semibold"}>
+              <span className={`${varianceTextClass(varianceCents)} font-semibold`}>
                 {varianceCents > 0 ? "+" : ""}
                 {formatCurrency(varianceCents)}
               </span>
@@ -126,11 +125,7 @@ export function ShiftDetail({ shift }: ShiftDetailProps) {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Variance</span>
-                    <span
-                      className={
-                        shift.gcashVarianceCents !== 0 ? "text-destructive font-semibold" : "text-success font-semibold"
-                      }
-                    >
+                    <span className={`${varianceTextClass(shift.gcashVarianceCents)} font-semibold`}>
                       {shift.gcashVarianceCents > 0 ? "+" : ""}
                       {formatCurrency(shift.gcashVarianceCents)}
                     </span>
