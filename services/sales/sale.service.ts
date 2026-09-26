@@ -707,12 +707,21 @@ export class SaleService {
     return this.getSalesForShiftByMethod(shiftId, "CASH");
   }
 
-  // Same as getCashSalesForShift, for GCash — the shift-level GCash check
-  // (shiftService.getExpectedGcashForShift). Unlike getGcashSalesForDate
-  // below, this is shift-scoped on purpose: it answers "what should have
-  // landed in GCash while THIS person was on", not the whole day.
-  async getGcashSalesForShift(shiftId: string): Promise<ShiftSalesSummary> {
-    return this.getSalesForShiftByMethod(shiftId, "GCASH");
+  // The shift-level GCash check (shiftService.getExpectedGcashForShift).
+  // By TIME WINDOW, not shiftId — unlike the cash drawer, GCash is one
+  // account, and a website GCash payment approved during a shift is filed
+  // on the approver's separate approvals shift (see
+  // shiftService.resolveShiftForSaleAttribution), yet still sits in the
+  // same app balance the attendant reads. Owner (2026-09-26): the shift's
+  // GCash figure has to match Accounts Reconciliation's. Current status
+  // and method at query time, so voids and corrections are reflected.
+  async getGcashSalesBetween(from: Date, to: Date): Promise<number> {
+    const gcashMethod = await prisma.paymentMethod.findUniqueOrThrow({ where: { key: "GCASH" } });
+    const result = await prisma.sale.aggregate({
+      where: { status: "COMPLETED", paymentMethodId: gcashMethod.id, createdAt: { gte: from, lte: to } },
+      _sum: { amountCents: true },
+    });
+    return result._sum.amountCents ?? 0;
   }
 
   private async getSalesForShiftByMethod(shiftId: string, methodKey: "CASH" | "GCASH"): Promise<ShiftSalesSummary> {

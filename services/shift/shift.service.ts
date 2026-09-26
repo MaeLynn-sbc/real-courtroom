@@ -265,18 +265,20 @@ export class ShiftService {
   // Known gap: GCash is one account for the whole business, so money that
   // moves outside a recorded Sale/Expense — an owner transfer, a website
   // payment that landed before this shift but was approved during it —
-  // shows up here as variance. That is what the closing note is for.
+  // shows up here as variance. Sales and expenses are both counted by
+  // time window, not by shift, for the same one-account reason. That is what the closing note is for.
   async getExpectedGcashForShift(
     shift: Pick<Shift, "id" | "openingGcashCents" | "startedAt" | "endedAt">,
   ): Promise<number | null> {
     if (shift.openingGcashCents === null) {
       return null;
     }
-    const [gcashSales, gcashExpensesCents] = await Promise.all([
-      saleService.getGcashSalesForShift(shift.id),
-      expenseService.getGcashExpensesBetween(shift.startedAt, shift.endedAt ?? new Date()),
+    const until = shift.endedAt ?? new Date();
+    const [gcashSalesCents, gcashExpensesCents] = await Promise.all([
+      saleService.getGcashSalesBetween(shift.startedAt, until),
+      expenseService.getGcashExpensesBetween(shift.startedAt, until),
     ]);
-    return shift.openingGcashCents + gcashSales.totalAmountCents - gcashExpensesCents;
+    return shift.openingGcashCents + gcashSalesCents - gcashExpensesCents;
   }
 
   // Gate 1 (fix for the existing gap): varianceCents now actually gets
