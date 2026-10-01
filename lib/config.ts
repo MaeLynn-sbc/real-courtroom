@@ -93,6 +93,9 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
     items: [
       { title: "Courts", href: "/dashboard/courts" },
       { title: "Block Courts", href: "/dashboard/admin/special-events" },
+      // Owner (2026-10-01): which hours Courts 1-3 run open play instead
+      // of bookings, every day.
+      { title: "Open Play Schedule", href: "/dashboard/admin/open-play-schedule" },
       { title: "Employees", href: "/dashboard/admin/employees" },
       { title: "Roles", href: "/dashboard/admin/roles" },
       { title: "Payroll", href: "/dashboard/payroll" },

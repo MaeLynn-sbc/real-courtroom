@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -94,6 +95,9 @@ export function CourtHoursPanel({
       fridaySaturdayCourtCloseTimes,
       courtCloseTimes,
       courtCloseTimesByWeekday: pruneWeekdayOverrides(courtCloseTimesByWeekday),
+      // Edited on its own page (Open Play Schedule); carried through so
+      // saving this panel never wipes it.
+      openPlayHours: courtHours.openPlayHours,
       businessDateRolloverHour,
     });
   }
@@ -111,6 +115,16 @@ export function CourtHoursPanel({
         <CardTitle>Court Hours</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
+        {courtHours.openPlayHours && Object.keys(courtHours.openPlayHours).length > 0 && (
+          <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            {Object.keys(courtHours.openPlayHours).join(", ")} follow the daily{" "}
+            <Link href="/dashboard/admin/open-play-schedule" className="font-medium underline">
+              Open Play Schedule
+            </Link>
+            , so their per-court cutoffs below are ignored. The Fri/Sat all-courts cutoff still starts the
+            Unliplay night.
+          </p>
+        )}
         <p className="text-muted-foreground text-sm">
           Controls the public availability grid and blocks online bookings outside these windows. Staff
           can still book any court/time from the dashboard — it&apos;s just flagged &quot;after hours&quot; for

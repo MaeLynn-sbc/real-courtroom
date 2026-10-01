@@ -23,7 +23,7 @@ import { createBookingSchema } from "@/features/bookings/schemas/booking.schema"
 import { StaffCoachPicker, type StaffCoachSelection } from "@/features/coaching/components/staff-coach-picker";
 import { PlayerSearchCombobox } from "@/features/players/components/player-search-combobox";
 import { useLiveNow } from "@/hooks/use-live-now";
-import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
+import { getCourtBookingWindow, isBookableRange, isHourInThePast } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
@@ -93,6 +93,9 @@ function getAvailableTimeOptions(
 
   const options: string[] = [];
   for (let minutes = window.openMinutes; minutes <= lastStartMinutes; minutes += 60) {
+    if (!isBookableRange(window, minutes, minutes + durationMinutes)) {
+      continue;
+    }
     const hours = Math.floor(minutes / 60);
     const slotStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, 0);
     if (isHourInThePast(slotStart, now)) {

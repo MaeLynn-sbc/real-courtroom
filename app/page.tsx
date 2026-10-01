@@ -8,7 +8,11 @@ import { CourtAvailabilityGrid } from "@/features/bookings/components/court-avai
 import { CoachingTeaser } from "@/features/coaching/components/coaching-teaser";
 import { TournamentsTeaser } from "@/features/tournaments/components/tournaments-teaser";
 import { computeBusinessDate } from "@/lib/business-date";
-import { getCourtBookingWindow, getFacilityCloseMinutes } from "@/lib/court-hours";
+import {
+  getCourtBookingWindow,
+  getEveningOpenPlayStartMinutes,
+  getFacilityCloseMinutes,
+} from "@/lib/court-hours";
 import { EQUIPMENT_KEYS } from "@/lib/equipment-keys";
 import { resolveOpenPlayClosedMessage } from "@/lib/open-play-closed-message";
 import { computeRemainingSeats } from "@/lib/open-play-seats";
@@ -228,13 +232,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const fridayForCopy = nextWeekday(5);
   const saturdayForCopy = nextWeekday(6);
   const court1Close = formatMinutesOfDay(
-    getCourtBookingWindow(courtHours, "Court 1", mondayForCopy).closeMinutes,
+    getEveningOpenPlayStartMinutes(getCourtBookingWindow(courtHours, "Court 1", mondayForCopy)),
   );
   const court2Close = formatMinutesOfDay(
-    getCourtBookingWindow(courtHours, "Court 2", mondayForCopy).closeMinutes,
+    getEveningOpenPlayStartMinutes(getCourtBookingWindow(courtHours, "Court 2", mondayForCopy)),
   );
   const court3Close = formatMinutesOfDay(
-    getCourtBookingWindow(courtHours, "Court 3", mondayForCopy).closeMinutes,
+    getEveningOpenPlayStartMinutes(getCourtBookingWindow(courtHours, "Court 3", mondayForCopy)),
   );
   const fridaySaturdayClose = formatMinutesOfDay(
     getCourtBookingWindow(courtHours, "Court 1", fridayForCopy).closeMinutes,

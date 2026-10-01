@@ -1,7 +1,9 @@
 import {
   classifyCourtSlot,
   getCourtBookingWindow,
+  getEveningOpenPlayStartMinutes,
   isBeforeFridaySaturdayOpenPlayCutoff,
+  isBookableRange,
   isWithinCourtBookingWindow,
   overlappingRangeCoachName,
 } from "@/lib/court-hours";
@@ -37,6 +39,7 @@ describe("getCourtBookingWindow", () => {
     expect(getCourtBookingWindow(SETTINGS, "Court 3", MONDAY)).toEqual({
       openMinutes: 7 * 60,
       closeMinutes: 23 * 60,
+      openPlayHours: [],
     });
   });
 
@@ -193,7 +196,7 @@ describe("classifyCourtSlot", () => {
     // past the cutoff are open play.
     const fourPm = new Date(2026, 8, 15, 16, 0);
     const fivePm = new Date(2026, 8, 15, 17, 0);
-    const window = { openMinutes: 7 * 60, closeMinutes: 16 * 60 };
+    const window = { openMinutes: 7 * 60, closeMinutes: 16 * 60, openPlayHours: [] };
     expect(
       classifyCourtSlot({ hour: 16, slotStart: fourPm, slotEnd: fivePm, now: fourPm.getTime() - 3_600_000, window, maintenanceRanges: [], bookedRanges: [{ startAt: fourPm, endAt: fivePm }] }),
     ).toBe("booked");
@@ -383,7 +386,7 @@ describe("isBeforeFridaySaturdayOpenPlayCutoff", () => {
 describe("classifyCourtSlot — a special event beside an open-play block", () => {
   const tenPm = new Date(2026, 8, 18, 22, 0);
   const elevenPm = new Date(2026, 8, 18, 23, 0);
-  const window = { openMinutes: 7 * 60, closeMinutes: 18 * 60 };
+  const window = { openMinutes: 7 * 60, closeMinutes: 18 * 60, openPlayHours: [] };
 
   it("shows the special event when both blocks cover the hour", () => {
     expect(
@@ -414,5 +417,69 @@ describe("classifyCourtSlot — a special event beside an open-play block", () =
         bookedRanges: [],
       }),
     ).toBe("openPlay");
+  });
+});
+
+describe("daily open play schedule", () => {
+  // Court 1: open play 9-11 AM and from 7 PM; Court 2 has no schedule.
+  const SCHEDULED: CourtHoursSettings = {
+    ...SETTINGS,
+    openPlayHours: { "Court 1": [9, 10, 19, 20, 21, 22] },
+  };
+
+  it("replaces a scheduled court's own cutoff with facility close on a weeknight", () => {
+    const window = getCourtBookingWindow(SCHEDULED, "Court 1", MONDAY);
+    expect(window.closeMinutes).toBe(23 * 60);
+    expect(window.openPlayHours).toEqual([9, 10, 19, 20, 21, 22]);
+  });
+
+  it("leaves a court without a schedule on its cutoff", () => {
+    const window = getCourtBookingWindow(SCHEDULED, "Court 2", MONDAY);
+    expect(window.closeMinutes).toBe(20 * 60);
+    expect(window.openPlayHours).toEqual([]);
+  });
+
+  it("still ends Fri/Sat at the all-courts Unliplay cutoff, ignoring the per-court one", () => {
+    const window = getCourtBookingWindow(
+      { ...SCHEDULED, fridaySaturdayCourtCloseTimes: { "Court 1": "16:00" } },
+      "Court 1",
+      FRIDAY,
+    );
+    expect(window.closeMinutes).toBe(18 * 60);
+    expect(window.openPlayHours).toEqual([9, 10]);
+  });
+
+  it("blocks any booking that touches a scheduled open-play hour", () => {
+    const window = getCourtBookingWindow(SCHEDULED, "Court 1", MONDAY);
+    expect(isBookableRange(window, 7 * 60, 9 * 60)).toBe(true);
+    expect(isBookableRange(window, 8 * 60, 10 * 60)).toBe(false);
+    expect(isBookableRange(window, 10 * 60 + 30, 11 * 60)).toBe(false);
+    expect(isBookableRange(window, 11 * 60, 19 * 60)).toBe(true);
+    expect(isWithinCourtBookingWindow(SCHEDULED, "Court 1", new Date(2026, 6, 20, 19), new Date(2026, 6, 20, 20))).toBe(
+      false,
+    );
+  });
+
+  it("classifies a scheduled hour as open play and the hours around it as available", () => {
+    const window = getCourtBookingWindow(SCHEDULED, "Court 1", MONDAY);
+    const now = new Date(2026, 6, 19).getTime();
+    const slot = (hour: number) => ({
+      hour,
+      slotStart: new Date(2026, 6, 20, hour),
+      slotEnd: new Date(2026, 6, 20, hour + 1),
+      now,
+      window,
+      maintenanceRanges: [],
+      bookedRanges: [],
+    });
+    expect(classifyCourtSlot(slot(8))).toBe("available");
+    expect(classifyCourtSlot(slot(9))).toBe("openPlay");
+    expect(classifyCourtSlot(slot(11))).toBe("available");
+    expect(classifyCourtSlot(slot(19))).toBe("openPlay");
+  });
+
+  it("reports the evening handover as the start of the run reaching close", () => {
+    expect(getEveningOpenPlayStartMinutes(getCourtBookingWindow(SCHEDULED, "Court 1", MONDAY))).toBe(19 * 60);
+    expect(getEveningOpenPlayStartMinutes(getCourtBookingWindow(SCHEDULED, "Court 2", MONDAY))).toBe(20 * 60);
   });
 });

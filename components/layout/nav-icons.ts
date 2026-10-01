@@ -2,6 +2,7 @@ import {
   Activity,
   BarChart3,
   Banknote,
+  CalendarClock,
   CalendarDays,
   CalendarRange,
   Clock,
@@ -79,6 +80,7 @@ export const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
   "/dashboard/admin/gcash-reconciliation": Landmark,
   // Previously absent from BOTH maps, so these rendered bare everywhere.
   "/dashboard/admin/special-events": Sparkles,
+  "/dashboard/admin/open-play-schedule": CalendarClock,
   "/dashboard/payroll": Coins,
   "/dashboard/admin/tv-display": MonitorPlay,
   "/dashboard/sales": Store,

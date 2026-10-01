@@ -44,6 +44,11 @@ function parseCourtCutoffMinutes(time: string): number | null {
 export interface CourtBookingWindow {
   openMinutes: number;
   closeMinutes: number;
+  // Hours (0-23, each meaning [h:00, h+1:00)) inside openMinutes..closeMinutes
+  // that the daily open-play schedule hands to open play (owner,
+  // 2026-10-01). Empty for a court with no saved schedule, which keeps
+  // the single-cutoff behaviour.
+  openPlayHours: readonly number[];
 }
 
 // The building's own closing time for a given date's weekday — exported
@@ -80,9 +85,21 @@ export function getCourtBookingWindow(
 ): CourtBookingWindow {
   const facilityCloseMinutes = getFacilityCloseMinutes(settings, date);
 
+  // The daily open-play schedule (owner, 2026-10-01: "I'll be the one to
+  // adjust it, open for booking or for open play") replaces this court's
+  // own cutoffs — courtCloseTimes, the weekday exceptions and the Fri/Sat
+  // per-court cutoff — on every day of the week. The Fri/Sat all-courts
+  // cutoff and a per-date override still end the day: that is when the
+  // Unliplay night starts, which the schedule does not run.
+  const scheduledOpenPlayHours = settings.openPlayHours?.[courtName];
+
   let courtCutoffMinutes: number | null;
   if (startTimeOverrideMinutes !== undefined) {
     courtCutoffMinutes = startTimeOverrideMinutes;
+  } else if (scheduledOpenPlayHours !== undefined) {
+    courtCutoffMinutes = isFridayOrSaturday(date)
+      ? parseCourtCutoffMinutes(settings.fridaySaturdayCloseTime)
+      : null;
   } else if (isFridayOrSaturday(date)) {
     // The all-courts Fri/Sat time, narrowed by this court's own Fri/Sat
     // cutoff when one is set (Court 1 at 4 PM while the others keep
@@ -112,10 +129,36 @@ export function getCourtBookingWindow(
       ? facilityCloseMinutes
       : Math.min(courtCutoffMinutes, facilityCloseMinutes);
 
+  const openMinutes = parseTimeToMinutes(settings.facilityOpenTime);
   return {
-    openMinutes: parseTimeToMinutes(settings.facilityOpenTime),
+    openMinutes,
     closeMinutes,
+    openPlayHours: (scheduledOpenPlayHours ?? []).filter(
+      (hour) => (hour + 1) * 60 > openMinutes && hour * 60 < closeMinutes,
+    ),
   };
+}
+
+// Whether [startMinutes, endMinutes) can be booked: inside the window and
+// clear of every scheduled open-play hour. The one rule server-side
+// enforcement and both booking forms' time dropdowns share.
+export function isBookableRange(window: CourtBookingWindow, startMinutes: number, endMinutes: number): boolean {
+  if (startMinutes < window.openMinutes || endMinutes > window.closeMinutes) {
+    return false;
+  }
+  return !window.openPlayHours.some((hour) => startMinutes < (hour + 1) * 60 && endMinutes > hour * 60);
+}
+
+// When the court's evening open play starts: the start of the run of
+// open-play hours that reaches the end of the window, or the window's
+// close when the last hour is bookable. For copy like "Court 1 switches
+// over at 6 PM" — equals closeMinutes for a court with no schedule.
+export function getEveningOpenPlayStartMinutes(window: CourtBookingWindow): number {
+  let start = window.closeMinutes;
+  while (start - 60 >= window.openMinutes && window.openPlayHours.includes(start / 60 - 1)) {
+    start -= 60;
+  }
+  return start;
 }
 
 // Reported live: Fri/Sat walk-in open-play registration was always
@@ -178,7 +221,7 @@ export function isWithinCourtBookingWindow(
     endAt.getDate() !== startAt.getDate();
   const endMinutes = endsAtNextMidnight ? MINUTES_PER_DAY : minutesSinceMidnight(endAt);
 
-  return startMinutes >= window.openMinutes && endMinutes <= window.closeMinutes;
+  return isBookableRange(window, startMinutes, endMinutes);
 }
 
 // "bookedCoach" is a variant of "booked" (owner request, 2026-08-02),
@@ -333,7 +376,11 @@ export function classifyCourtSlot(params: {
   if (rangesOverlap(slotStart, slotEnd, bookedRanges)) {
     return overlappingRangeHasCoach(slotStart, slotEnd, bookedRanges) ? "bookedCoach" : "booked";
   }
-  if (hour * 60 < window.openMinutes || (hour + 1) * 60 > window.closeMinutes) {
+  if (
+    hour * 60 < window.openMinutes ||
+    (hour + 1) * 60 > window.closeMinutes ||
+    window.openPlayHours.includes(hour)
+  ) {
     return "openPlay";
   }
   if (isHourInThePast(slotStart, now)) {

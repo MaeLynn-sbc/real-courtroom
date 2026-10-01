@@ -46,7 +46,7 @@ import { useLiveNow } from "@/hooks/use-live-now";
 import { coachingFeeCents, getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
 import { coachSessionWindow, describeTimeWindow } from "@/lib/coach-session-window";
 import { CoachWindowPicker } from "@/features/coaching/components/coach-window-picker";
-import { getCourtBookingWindow, isHourInThePast } from "@/lib/court-hours";
+import { getCourtBookingWindow, isBookableRange, isHourInThePast } from "@/lib/court-hours";
 import { cn, formatCurrency } from "@/lib/utils";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
@@ -121,6 +121,9 @@ function getAvailableTimeOptions(
 
   const options: string[] = [];
   for (let minutes = window.openMinutes; minutes <= lastStartMinutes; minutes += 60) {
+    if (!isBookableRange(window, minutes, minutes + durationMinutes)) {
+      continue;
+    }
     const hours = Math.floor(minutes / 60);
     const slotStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, 0);
     if (isHourInThePast(slotStart, now)) {
