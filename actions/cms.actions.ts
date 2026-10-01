@@ -7,7 +7,7 @@ import {
   courtHoursSchema,
   galleryImagesSchema,
   homepageHeroSchema,
-  openPlayHoursSchema,
+  openPlayHoursByWeekdaySchema,
   otherRatesSchema,
   type BusinessInfo,
   type CourtHoursSettings,
@@ -121,25 +121,33 @@ export async function setCourtHoursAction(input: CourtHoursSettings): Promise<Cm
   }
 }
 
-// Saves only the daily open-play schedule, leaving every other court-hours
-// setting as stored — the Open Play Schedule page edits nothing else.
-export async function setOpenPlayScheduleAction(input: Record<string, number[]>): Promise<CmsActionState> {
+// Saves only the weekly open-play schedule, leaving every other
+// court-hours setting as stored — the Open Play Schedule page edits
+// nothing else.
+export async function setOpenPlayScheduleAction(
+  input: Record<string, Record<string, number[]>>,
+): Promise<CmsActionState> {
   const authz = await requireWebsiteAdmin();
   if (!authz.ok) {
     return { error: authz.error };
   }
 
-  const parsed = openPlayHoursSchema.safeParse(input);
+  const parsed = openPlayHoursByWeekdaySchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid open play schedule." };
   }
-  const openPlayHours = Object.fromEntries(
-    Object.entries(parsed.data).map(([court, hours]) => [court, [...new Set(hours)].sort((a, b) => a - b)]),
+  const openPlayHoursByWeekday = Object.fromEntries(
+    Object.entries(parsed.data).map(([day, byCourt]) => [
+      day,
+      Object.fromEntries(
+        Object.entries(byCourt).map(([court, hours]) => [court, [...new Set(hours)].sort((a, b) => a - b)]),
+      ),
+    ]),
   );
 
   try {
     const courtHours = await settingsService.getCourtHours();
-    await settingsService.setCourtHours({ ...courtHours, openPlayHours }, authz.userId);
+    await settingsService.setCourtHours({ ...courtHours, openPlayHoursByWeekday }, authz.userId);
     revalidatePublicSite();
     revalidatePath("/dashboard/admin/open-play-schedule");
     revalidatePath("/dashboard/bookings/grid");

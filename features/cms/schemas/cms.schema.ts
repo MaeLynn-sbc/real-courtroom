@@ -89,7 +89,12 @@ const timeStringSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use 24-h
 // convention) — z.record needs string keys, JSON can't hold numeric ones.
 const weekdayTimesSchema = z.record(z.enum(["0", "1", "2", "3", "4", "5", "6"]), timeStringSchema);
 
-export const openPlayHoursSchema = z.record(z.string(), z.array(z.number().int().min(0).max(23)));
+const openPlayHoursSchema = z.record(z.string(), z.array(z.number().int().min(0).max(23)));
+
+export const openPlayHoursByWeekdaySchema = z.record(
+  z.enum(["0", "1", "2", "3", "4", "5", "6"]),
+  openPlayHoursSchema,
+);
 
 export const courtHoursSchema = z.object({
   facilityOpenTime: timeStringSchema,
@@ -128,12 +133,13 @@ export const courtHoursSchema = z.object({
   courtCloseTimesByWeekday: z
     .record(z.string(), z.record(z.string(), timeStringSchema))
     .optional(),
-  // The daily open-play schedule (owner, 2026-10-01), keyed by court
-  // name: the hours (0-23, each one [h:00, h+1:00)) the court runs open
-  // play instead of taking bookings, every day of the week. A court with
-  // an entry ignores its cutoffs above — see getCourtBookingWindow.
-  // Absent for a court means "no schedule yet, use the cutoffs".
-  openPlayHours: openPlayHoursSchema.optional(),
+  // The weekly open-play schedule (owner, 2026-10-01), keyed weekday
+  // ("0"-"6", Date#getDay()) then court name: the hours (0-23, each one
+  // [h:00, h+1:00)) the court runs open play instead of taking bookings
+  // on that weekday, every week. A court with an entry for a weekday
+  // ignores its cutoffs above on that day — see getCourtBookingWindow.
+  // One-off dates stay with Block Courts (CourtMaintenance OPEN_PLAY).
+  openPlayHoursByWeekday: z.record(z.string(), openPlayHoursSchema).optional(),
   // BUILD-SPEC.md §0 "Business date vs calendar date" — the hour at which
   // a new business day starts for reporting purposes (default 3AM), so a
   // session that runs past midnight still reports under the night it

@@ -45,7 +45,7 @@ export interface CourtBookingWindow {
   openMinutes: number;
   closeMinutes: number;
   // Hours (0-23, each meaning [h:00, h+1:00)) inside openMinutes..closeMinutes
-  // that the daily open-play schedule hands to open play (owner,
+  // that the weekly open-play schedule hands to open play on this date (owner,
   // 2026-10-01). Empty for a court with no saved schedule, which keeps
   // the single-cutoff behaviour.
   openPlayHours: readonly number[];
@@ -85,13 +85,14 @@ export function getCourtBookingWindow(
 ): CourtBookingWindow {
   const facilityCloseMinutes = getFacilityCloseMinutes(settings, date);
 
-  // The daily open-play schedule (owner, 2026-10-01: "I'll be the one to
-  // adjust it, open for booking or for open play") replaces this court's
-  // own cutoffs — courtCloseTimes, the weekday exceptions and the Fri/Sat
-  // per-court cutoff — on every day of the week. The Fri/Sat all-courts
-  // cutoff and a per-date override still end the day: that is when the
-  // Unliplay night starts, which the schedule does not run.
-  const scheduledOpenPlayHours = settings.openPlayHours?.[courtName];
+  // The weekly open-play schedule (owner, 2026-10-01: "I'll be the one to
+  // adjust it, open for booking or for open play" — per weekday, not per
+  // date) replaces this court's own cutoffs — courtCloseTimes, the
+  // weekday exceptions and the Fri/Sat per-court cutoff — on any weekday
+  // it has an entry for. The Fri/Sat all-courts cutoff and a per-date
+  // override still end the day: that is when the Unliplay night starts,
+  // which the schedule does not run.
+  const scheduledOpenPlayHours = settings.openPlayHoursByWeekday?.[weekdayKey(date)]?.[courtName];
 
   let courtCutoffMinutes: number | null;
   if (startTimeOverrideMinutes !== undefined) {

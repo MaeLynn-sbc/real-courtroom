@@ -97,7 +97,7 @@ export function CourtHoursPanel({
       courtCloseTimesByWeekday: pruneWeekdayOverrides(courtCloseTimesByWeekday),
       // Edited on its own page (Open Play Schedule); carried through so
       // saving this panel never wipes it.
-      openPlayHours: courtHours.openPlayHours,
+      openPlayHoursByWeekday: courtHours.openPlayHoursByWeekday,
       businessDateRolloverHour,
     });
   }
@@ -115,13 +115,13 @@ export function CourtHoursPanel({
         <CardTitle>Court Hours</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
-        {courtHours.openPlayHours && Object.keys(courtHours.openPlayHours).length > 0 && (
+        {courtHours.openPlayHoursByWeekday && Object.keys(courtHours.openPlayHoursByWeekday).length > 0 && (
           <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-            {Object.keys(courtHours.openPlayHours).join(", ")} follow the daily{" "}
+            Courts with a saved{" "}
             <Link href="/dashboard/admin/open-play-schedule" className="font-medium underline">
               Open Play Schedule
-            </Link>
-            , so their per-court cutoffs below are ignored. The Fri/Sat all-courts cutoff still starts the
+            </Link>{" "}
+            follow it instead of the per-court cutoffs below. The Fri/Sat all-courts cutoff still starts the
             Unliplay night.
           </p>
         )}

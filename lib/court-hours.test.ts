@@ -420,12 +420,21 @@ describe("classifyCourtSlot — a special event beside an open-play block", () =
   });
 });
 
-describe("daily open play schedule", () => {
-  // Court 1: open play 9-11 AM and from 7 PM; Court 2 has no schedule.
+describe("weekly open play schedule", () => {
+  // Court 1 on Mondays and Fridays: open play 9-11 AM and from 7 PM.
+  // Court 2 has no schedule; no other weekday has one.
+  const COURT_1 = { "Court 1": [9, 10, 19, 20, 21, 22] };
   const SCHEDULED: CourtHoursSettings = {
     ...SETTINGS,
-    openPlayHours: { "Court 1": [9, 10, 19, 20, 21, 22] },
+    openPlayHoursByWeekday: { "1": COURT_1, "5": COURT_1 },
   };
+
+  it("applies only on the weekdays it has an entry for", () => {
+    const tuesday = new Date(2026, 6, 21);
+    const window = getCourtBookingWindow(SCHEDULED, "Court 1", tuesday);
+    expect(window.closeMinutes).toBe(18 * 60);
+    expect(window.openPlayHours).toEqual([]);
+  });
 
   it("replaces a scheduled court's own cutoff with facility close on a weeknight", () => {
     const window = getCourtBookingWindow(SCHEDULED, "Court 1", MONDAY);
