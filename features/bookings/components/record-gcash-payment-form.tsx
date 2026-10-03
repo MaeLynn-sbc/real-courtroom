@@ -10,24 +10,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { toUploadPayload } from "@/lib/upload-payload";
 
 interface RecordGcashPaymentFormProps {
   bookingId: string;
   expectedAmountCents: number;
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      // Strip the "data:image/png;base64," prefix — the action only wants
-      // the raw base64 payload.
-      resolve(result.slice(result.indexOf(",") + 1));
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 // A hold waits on the CUSTOMER to submit this — this form exists for the
@@ -60,12 +47,11 @@ export function RecordGcashPaymentForm({ bookingId, expectedAmountCents }: Recor
     }
 
     startTransition(async () => {
-      const dataBase64 = await fileToBase64(file);
       const result = await submitPublicBookingPaymentProofAction({
         bookingId,
         gcashReference: gcashReference.trim(),
         submittedAmountCents: amountCents,
-        screenshot: { fileName: file.name, contentType: file.type || "image/png", dataBase64 },
+        screenshot: await toUploadPayload(file),
       });
       if (result.error) {
         setServerError(result.error);

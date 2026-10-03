@@ -9,18 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
 import { cn, formatCurrency } from "@/lib/utils";
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.slice(result.indexOf(",") + 1));
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
+import { toUploadPayload } from "@/lib/upload-payload";
 
 interface PublicPaymentProofUploadProps {
   bookingId: string;
@@ -82,7 +71,6 @@ export function PublicPaymentProofUpload({
     }
 
     startTransition(async () => {
-      const dataBase64 = await fileToBase64(file);
       const result = await submitPublicBookingPaymentProofAction({
         bookingId,
         // Removed from the customer-facing form — the screenshot is the
@@ -90,7 +78,7 @@ export function PublicPaymentProofUpload({
         // friction. Staff can still record one manually at verification.
         gcashReference: null,
         submittedAmountCents: amountCents,
-        screenshot: { fileName: file.name, contentType: file.type || "image/png", dataBase64 },
+        screenshot: await toUploadPayload(file),
       });
       if (result.error) {
         setServerError(result.error);

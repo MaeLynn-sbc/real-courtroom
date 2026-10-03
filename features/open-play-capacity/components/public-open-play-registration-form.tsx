@@ -27,22 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
-
-// Mirrors OpenPlayRegistrationProofForm's own fileToBase64 (that file's
-// comment explains why: same file -> base64 -> action shape as
-// record-gcash-payment-form.tsx, an established, already-duplicated
-// pattern in this codebase rather than a shared cross-module helper).
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.slice(result.indexOf(",") + 1));
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
+import { toUploadPayload } from "@/lib/upload-payload";
 
 function remainingSeatsLabel(remaining: number): string {
   if (remaining <= 0) return "Full";
@@ -233,16 +218,11 @@ export function PublicOpenPlayRegistrationForm({
 
         let proofErrorMessage: string | null = null;
         try {
-          const dataBase64 = await fileToBase64(screenshot);
           const proofResult = await submitPublicOpenPlayRegistrationPaymentProofAction({
             registrationId,
             gcashReference: null,
             submittedAmountCents: amountCents,
-            screenshot: {
-              fileName: screenshot.name,
-              contentType: screenshot.type || "image/png",
-              dataBase64,
-            },
+            screenshot: await toUploadPayload(screenshot),
           });
           if (proofResult.error) {
             proofErrorMessage = proofResult.error;
@@ -250,7 +230,8 @@ export function PublicOpenPlayRegistrationForm({
             setStep({ kind: "proof-submitted" });
           }
         } catch {
-          proofErrorMessage = "We couldn't process your payment screenshot.";
+          proofErrorMessage =
+            "We couldn't upload your payment screenshot — check your connection and try again.";
         }
 
         if (proofErrorMessage !== null) {

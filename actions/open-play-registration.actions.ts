@@ -155,6 +155,19 @@ export async function markCheckedOutAction(
   );
 }
 
+// Owner request (2026-10-03): undo a check-out tapped by mistake. Guards
+// (still checked out, a seat still free on a Fri/Sat night) live in
+// openPlayRegistrationService.undoCheckOut.
+export async function undoCheckOutAction(
+  input: ReleaseRegistrationInput,
+): Promise<OpenPlayRegistrationActionState> {
+  return releaseRegistration(
+    input,
+    (id, userId) => openPlayRegistrationService.undoCheckOut(id, userId),
+    "undoCheckOutAction",
+  );
+}
+
 // Reported live: leftover test registrations (made while trying out the
 // public form) had no cleanup path short of direct database access. Safety
 // guards (blocked on a real Sale, real game participation, or a

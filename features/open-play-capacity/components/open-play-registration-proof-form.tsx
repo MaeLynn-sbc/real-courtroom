@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { ContactFallbackLinks } from "@/features/bookings/components/contact-fallback-links";
 import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
 import { cn, formatCurrency } from "@/lib/utils";
+import { toUploadPayload } from "@/lib/upload-payload";
 
 interface OpenPlayRegistrationProofFormProps {
   registrationId: string;
@@ -24,24 +25,6 @@ interface OpenPlayRegistrationProofFormProps {
   contactPhone: string;
   contactFacebookUrl: string;
   onSubmitted: () => void;
-}
-
-// Mirrors features/bookings/components/record-gcash-payment-form.tsx's
-// file -> base64 -> action shape exactly. Unlike that component (staff-
-// only today — the public upload step for court bookings is still "not
-// yet built," confirmed while researching this), this one IS the
-// public, self-service step — reachable by anyone who just registered,
-// no staff session involved. Same action-side hardening either way.
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.slice(result.indexOf(",") + 1));
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 export function OpenPlayRegistrationProofForm({
@@ -72,7 +55,6 @@ export function OpenPlayRegistrationProofForm({
     }
 
     startTransition(async () => {
-      const dataBase64 = await fileToBase64(file);
       const result = await submitPublicOpenPlayRegistrationPaymentProofAction({
         registrationId,
         // Removed from the customer-facing form — the screenshot is the
@@ -80,7 +62,7 @@ export function OpenPlayRegistrationProofForm({
         // friction. Staff can still record one manually at verification.
         gcashReference: null,
         submittedAmountCents: amountCents,
-        screenshot: { fileName: file.name, contentType: file.type || "image/png", dataBase64 },
+        screenshot: await toUploadPayload(file),
       });
       if (result.error) {
         setServerError(result.error);

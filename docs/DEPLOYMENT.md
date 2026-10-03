@@ -88,6 +88,32 @@ app's actual origin — it's where `next start` runs directly, not a
 tunnel or reverse-proxy endpoint in front of a separate machine. This
 is the droplet's public IP Cloudflare needs.
 
+### nginx on the droplet
+
+nginx terminates Cloudflare's origin TLS and proxies to `next start` on
+`127.0.0.1:3000`. The site file is `/etc/nginx/sites-available/tcpms`
+(symlinked into `sites-enabled`). The 443 server block **must** set:
+
+```nginx
+client_max_body_size 12m;
+```
+
+Reported live (2026-10-03): customers "can't push through" open-play
+registration and court booking, then "registered too many times". nginx
+was on its **1 MB default**, so any GCash screenshot over ~750 KB (base64
+adds a third) got a `413` before reaching the app — 130 refusals in two
+weeks across `/open-play/register` and `/book`, each one auto-cancelling
+the customer's hold, each retry burning a rate-limit attempt. 12m sits
+just above `serverActions.bodySizeLimit` (10mb, next.config.ts) so the
+app, not nginx, is the limit that decides. Uploads are also compressed in
+the browser now (lib/upload-payload.ts), so a normal screenshot is a few
+hundred KB either way — but if this droplet is ever rebuilt, set this line
+again. Check for refusals with:
+
+```sh
+zgrep -h ' 413 ' /var/log/nginx/access.log* | awk '{print $7}' | cut -d'?' -f1 | sort | uniq -c
+```
+
 ## Boot failures — what they look like, and why that matters
 
 Two things can stop the app from starting at all, both validated in

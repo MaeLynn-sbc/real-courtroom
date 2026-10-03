@@ -7,7 +7,7 @@ import {
   type PublicOpenPlayRegistrationInput,
 } from "@/features/open-play-capacity/schemas/public-open-play-registration.schema";
 import { toActionError } from "@/lib/errors";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { peekRateLimit, recordRateLimitFailure } from "@/lib/rate-limit";
 import { createPublicOpenPlayRegistration } from "@/services/open-play/public-open-play-registration.service";
 
 export interface PublicOpenPlayRegistrationActionState {
@@ -19,7 +19,13 @@ export interface PublicOpenPlayRegistrationActionState {
   waitlistEntryId?: string;
 }
 
-const RATE_LIMIT_MAX = 5;
+// Counts only attempts that actually took a seat hold or a waitlist spot
+// (reported live 2026-10-03: "says I registered too many times"). It
+// used to count EVERY attempt, so a customer whose payment screenshot
+// was refused (the nginx 413 — see lib/upload-payload.ts) burned one per
+// retry and was locked out for an hour after a few. Ten, not five: one
+// phone often registers a friend or two as well.
+const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 // No session — the public, unauthenticated entry point (BUILD-SPEC.md
@@ -36,13 +42,13 @@ export async function createPublicOpenPlayRegistrationAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid registration details." };
   }
 
-  const rateLimit = checkRateLimit(
-    `public-open-play-registration:${parsed.data.phone.replace(/\D/g, "")}`,
-    RATE_LIMIT_MAX,
-    RATE_LIMIT_WINDOW_MS,
-  );
+  const rateLimitKey = `public-open-play-registration:${parsed.data.phone.replace(/\D/g, "")}`;
+  const rateLimit = peekRateLimit(rateLimitKey, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   if (!rateLimit.allowed) {
-    return { error: "Too many registration attempts — please wait a while and try again." };
+    return {
+      error:
+        "This phone number has registered too many times in the last hour. Please try again later, or register at the front desk.",
+    };
   }
 
   try {
@@ -71,6 +77,7 @@ export async function createPublicOpenPlayRegistrationAction(
       };
     }
 
+    recordRateLimitFailure(rateLimitKey, RATE_LIMIT_WINDOW_MS);
     revalidatePath("/dashboard/admin/open-play-capacity");
 
     if (result.status === "registered") {

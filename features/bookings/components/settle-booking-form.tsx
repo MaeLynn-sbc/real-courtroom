@@ -13,26 +13,12 @@ import {
 } from "@/components/shared/settlement-payment-fields";
 import { formatCurrency } from "@/lib/utils";
 import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
+import { toUploadPayload } from "@/lib/upload-payload";
 
 interface SettleBookingFormProps {
   bookingId: string;
   amountCents: number;
   paymentMethods: SettlementPaymentMethodOption[];
-}
-
-// Mirrors PublicPaymentProofUpload's own fileToBase64 — same established
-// per-file duplicated pattern this codebase already uses rather than a
-// shared cross-module helper.
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.slice(result.indexOf(",") + 1));
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 export function SettleBookingForm({
@@ -64,11 +50,7 @@ export function SettleBookingForm({
 
     startTransition(async () => {
       const receipt = receiptFile
-        ? {
-            fileName: receiptFile.name,
-            contentType: receiptFile.type || "application/octet-stream",
-            dataBase64: await fileToBase64(receiptFile),
-          }
+        ? await toUploadPayload(receiptFile, "application/octet-stream")
         : undefined;
 
       const result = await settleBookingAction({

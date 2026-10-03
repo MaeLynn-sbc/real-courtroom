@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn, formatCurrency } from "@/lib/utils";
+import { toUploadPayload } from "@/lib/upload-payload";
 
 type EntryDuplicate = NonNullable<CreateExpenseActionState["duplicate"]>;
 
@@ -54,22 +55,6 @@ function todayDateValue(): string {
   const now = new Date();
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
-// Same FileReader -> strip "data:...;base64," prefix pattern as
-// record-gcash-payment-form.tsx / open-play-registration-proof-form.tsx —
-// duplicated here rather than shared, matching this codebase's established
-// "duplicate small helpers, don't share" precedent for tiny per-form utils.
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.slice(result.indexOf(",") + 1));
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 export function ExpenseEntryForm({ categories, paymentMethods }: ExpenseEntryFormProps) {
@@ -114,13 +99,7 @@ export function ExpenseEntryForm({ categories, paymentMethods }: ExpenseEntryFor
         description: values.description.trim(),
         categoryId: values.categoryId,
         paymentMethodId: values.paymentMethodId,
-        receipt: receipt
-          ? {
-              fileName: receipt.name,
-              contentType: receipt.type || "image/png",
-              dataBase64: await fileToBase64(receipt),
-            }
-          : undefined,
+        receipt: receipt ? await toUploadPayload(receipt) : undefined,
       });
       if (result.error) {
         setServerError(result.error);

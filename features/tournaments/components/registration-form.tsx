@@ -18,23 +18,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { registerTeamSchema } from "@/features/tournaments/schemas/tournament.schema";
 import { cn } from "@/lib/utils";
-
-// Same FileReader -> strip "data:...;base64," prefix pattern as
-// expense-entry-form.tsx / record-gcash-payment-form.tsx /
-// open-play-registration-proof-form.tsx — duplicated here rather than
-// shared, matching this codebase's established "duplicate small helpers,
-// don't share" precedent for tiny per-form utils.
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.slice(result.indexOf(",") + 1));
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
+import { toUploadPayload } from "@/lib/upload-payload";
 
 interface RegistrationFormPaymentMethod {
   id: string;
@@ -100,13 +84,7 @@ export function RegistrationForm({
     startTransition(async () => {
       const result = await registerTeamAction(tournamentId, categoryId, {
         ...parsed.data,
-        receipt: receipt
-          ? {
-              fileName: receipt.name,
-              contentType: receipt.type || "image/png",
-              dataBase64: await fileToBase64(receipt),
-            }
-          : undefined,
+        receipt: receipt ? await toUploadPayload(receipt) : undefined,
       });
       if (result.error) {
         setServerError(result.error);

@@ -1008,6 +1008,67 @@ export class OpenPlayRegistrationService {
     return this.releaseRegistration(registrationId, "CHECKED_OUT", actorUserId);
   }
 
+  // Owner request (2026-10-03): undo a check-out tapped by mistake. Back
+  // to CONFIRMED, and a queue entry the rotation board's "Done" closed
+  // goes back in line at its ORIGINAL joinedQueueAt — an accidental tap
+  // must not cost the player their place.
+  //
+  // Fri/Sat: check-out freed the seat and may have promoted the walk-in
+  // waitlist head or invited an online registrant into it. Taking it
+  // back would overbook the night, so a full night refuses instead of
+  // silently exceeding capacity — staff raise capacity first if they
+  // want both. Same session lock as releaseRegistration, so a concurrent
+  // registration can't grab the seat between the count and the update.
+  async undoCheckOut(registrationId: string, actorUserId: string): Promise<OpenPlayNightRegistration> {
+    const restored = await prisma.$transaction(async (tx) => {
+      const existing = await tx.openPlayNightRegistration.findUniqueOrThrow({
+        where: { id: registrationId },
+      });
+      if (existing.sessionId) {
+        await lockSessionRow(tx, existing.sessionId);
+      }
+      const current = await tx.openPlayNightRegistration.findUniqueOrThrow({
+        where: { id: registrationId },
+      });
+      if (current.status !== "CHECKED_OUT") {
+        throw new Error("This player isn't checked out.");
+      }
+
+      if (current.sessionId) {
+        const session = await tx.openPlayNightSession.findUniqueOrThrow({
+          where: { id: current.sessionId },
+          select: { capacity: true },
+        });
+        const occupied = await countOccupiedSeats(tx, current.sessionId, new Date());
+        if (occupied >= session.capacity) {
+          throw new Error(
+            "Tonight is full — this player's seat has already gone to someone else. Raise the capacity first, then undo.",
+          );
+        }
+      }
+
+      const updated = await tx.openPlayNightRegistration.update({
+        where: { id: registrationId },
+        data: { status: "CONFIRMED", checkedOutAt: null, waitlistPos: null },
+      });
+      await tx.queueEntry.updateMany({
+        where: { registrationId, status: "DONE" },
+        data: { status: "WAITING" },
+      });
+      return updated;
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_registration.check_out_undone",
+      entityType: "OpenPlayNightRegistration",
+      entityId: registrationId,
+      newValues: { status: "CONFIRMED" },
+    });
+
+    return restored;
+  }
+
   // Reported live: test registrations made while trying out the public
   // form had no way to clean up except direct database access — every
   // existing action (cancel/no-show/refund) changes STATUS, none of them

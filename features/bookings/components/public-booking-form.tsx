@@ -50,22 +50,7 @@ import { getCourtBookingWindow, isBookableRange, isHourInThePast } from "@/lib/c
 import { cn, formatCurrency } from "@/lib/utils";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
-
-// Mirrors PublicPaymentProofUpload's own fileToBase64 — same established
-// per-file duplicated pattern this codebase already uses (see that
-// component's, and open-play's public registration form's, identical
-// comment) rather than a shared cross-module helper.
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.slice(result.indexOf(",") + 1));
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
+import { toUploadPayload } from "@/lib/upload-payload";
 
 // Presentation-only convenience list — no schema/service duration limit
 // exists (services/booking/booking.service.ts's totalAmountCents is
@@ -799,16 +784,11 @@ export function PublicBookingForm({
       if (requiresPrepayment && result.requiresPayment && bookingScreenshot) {
         let proofErrorMessage: string | null = null;
         try {
-          const dataBase64 = await fileToBase64(bookingScreenshot);
           const proofResult = await submitPublicBookingPaymentProofAction({
             bookingId,
             gcashReference: null,
             submittedAmountCents: bookingAmountCents,
-            screenshot: {
-              fileName: bookingScreenshot.name,
-              contentType: bookingScreenshot.type || "image/png",
-              dataBase64,
-            },
+            screenshot: await toUploadPayload(bookingScreenshot),
           });
           if (proofResult.error) {
             proofErrorMessage = proofResult.error;
@@ -817,7 +797,8 @@ export function PublicBookingForm({
             proofSubmitted = true;
           }
         } catch {
-          proofErrorMessage = "We couldn't process your payment screenshot.";
+          proofErrorMessage =
+            "We couldn't upload your payment screenshot — check your connection and try again.";
         }
 
         if (proofErrorMessage !== null) {

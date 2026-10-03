@@ -9,6 +9,7 @@ import {
   cancelRegistrationAction,
   deleteRegistrationAction,
   markNoShowAction,
+  undoCheckOutAction,
   refundRegistrationAction,
 } from "@/actions/open-play-registration.actions";
 import {
@@ -165,6 +166,34 @@ function RowActions({ registrationId }: { registrationId: string }) {
         Cancel
       </Button>
     </div>
+  );
+}
+
+// Owner request (2026-10-03): a check-out tapped by mistake had no way back.
+function UndoCheckOutAction({ registrationId }: { registrationId: string }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      disabled={isPending}
+      onClick={() =>
+        startTransition(async () => {
+          const result = await undoCheckOutAction({ registrationId });
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
+          toast.success("Check-out undone.");
+          router.refresh();
+        })
+      }
+    >
+      {isPending ? "Undoing…" : "Undo check-out"}
+    </Button>
   );
 }
 
@@ -426,6 +455,9 @@ export function RegistrationRosterPanel({
                       ) : null}
                       {registration.status === "CONFIRMED" ? (
                         <RowActions registrationId={registration.id} />
+                      ) : null}
+                      {registration.status === "CHECKED_OUT" ? (
+                        <UndoCheckOutAction registrationId={registration.id} />
                       ) : null}
                       {registration.status === "CONFIRMED" ||
                       registration.status === "CANCELLED" ||

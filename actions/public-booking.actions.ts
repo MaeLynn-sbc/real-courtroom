@@ -7,7 +7,7 @@ import {
   type PublicBookingInput,
 } from "@/features/bookings/schemas/public-booking.schema";
 import { toActionError } from "@/lib/errors";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { peekRateLimit, recordRateLimitFailure } from "@/lib/rate-limit";
 import { BookingConflictError, bookingService, type AvailabilityConflict } from "@/services/booking/booking.service";
 import { createPublicBooking } from "@/services/booking/public-booking.service";
 import { coachAvailabilityService } from "@/services/coaching/coach-availability.service";
@@ -212,13 +212,16 @@ export async function createPublicBookingAction(
     return { error: parsedPublic.error.issues[0]?.message ?? "Invalid booking details." };
   }
 
-  const rateLimit = checkRateLimit(
-    `public-booking:${parsedPublic.data.guestPhone.replace(/\D/g, "")}`,
-    RATE_LIMIT_MAX,
-    RATE_LIMIT_WINDOW_MS,
-  );
+  // Counts only bookings actually created, not every attempt (2026-10-03):
+  // a payment screenshot refused by nginx's old 1 MB limit cancelled the
+  // hold, and each retry used to burn an attempt until the customer was
+  // locked out for an hour. See lib/upload-payload.ts.
+  const rateLimitKey = `public-booking:${parsedPublic.data.guestPhone.replace(/\D/g, "")}`;
+  const rateLimit = peekRateLimit(rateLimitKey, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   if (!rateLimit.allowed) {
-    return { error: "Too many booking attempts — please wait a while and try again." };
+    return {
+      error: "This phone number has booked too many times in the last hour. Please try again later or call us.",
+    };
   }
 
   const startAt = new Date(`${parsedPublic.data.date}T${parsedPublic.data.time}`);
@@ -240,6 +243,7 @@ export async function createPublicBookingAction(
       idempotencyKey: parsedPublic.data.idempotencyKey,
     });
 
+    recordRateLimitFailure(rateLimitKey, RATE_LIMIT_WINDOW_MS);
     revalidatePath("/dashboard/bookings");
     revalidatePath("/availability");
 
