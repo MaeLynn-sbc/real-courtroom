@@ -55,8 +55,12 @@ export const specialEventSchema = z
     // green "Open play" cell the per-weekday court cutoffs produce;
     // SPECIAL_EVENT shows "Booked for special events". Defaults to
     // SPECIAL_EVENT so every existing caller is unchanged.
-    kind: z.enum(["SPECIAL_EVENT", "OPEN_PLAY"]).default("SPECIAL_EVENT"),
-    // Optional for OPEN_PLAY, required for SPECIAL_EVENT (refine below).
+    // MAINTENANCE (owner, 2026-10-05) shows the plain "Unavailable" cell —
+    // the same kind the per-court maintenance form on the Courts screen
+    // creates, now schedulable for several courts at once from here.
+    kind: z.enum(["SPECIAL_EVENT", "OPEN_PLAY", "MAINTENANCE"]).default("SPECIAL_EVENT"),
+    // Optional for OPEN_PLAY and MAINTENANCE, required for SPECIAL_EVENT
+    // (refine below).
     // An open-play block has nothing to name: the public grid shows
     // "Open play" whatever this says, so demanding a label was asking
     // staff to invent a value nobody reads.

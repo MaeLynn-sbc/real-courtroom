@@ -20,7 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { specialEventSchema } from "@/features/courts/schemas/court.schema";
 
-type BlockKind = "SPECIAL_EVENT" | "OPEN_PLAY";
+type BlockKind = "SPECIAL_EVENT" | "OPEN_PLAY" | "MAINTENANCE";
 
 interface SpecialEventFormCourt {
   id: string;
@@ -144,8 +144,8 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
     setFormError(null);
     setSlotErrors({});
 
-    // Only special events need a name — an open-play block is labelled
-    // "Open play" on the grid regardless of what is typed here.
+    // Only special events need a name — open-play and maintenance blocks
+    // show a fixed label on the grid regardless of what is typed here.
     if (kind === "SPECIAL_EVENT" && !reason.trim()) {
       setFormError("A name is required.");
       toast.error("A name is required.");
@@ -243,6 +243,7 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
   }
 
   const isOpenPlay = kind === "OPEN_PLAY";
+  const isMaintenance = kind === "MAINTENANCE";
 
   return (
     <div className="flex flex-col gap-4">
@@ -259,17 +260,24 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
             <SelectItem value="SPECIAL_EVENT">
               Special event — shows &quot;Booked for special events&quot;
             </SelectItem>
+            <SelectItem value="MAINTENANCE">Maintenance — shows &quot;Unavailable&quot;</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="reason">
-          {isOpenPlay ? "Label (internal, optional)" : "Event name"}
+          {isOpenPlay ? "Label (internal, optional)" : isMaintenance ? "What's being done (internal, optional)" : "Event name"}
         </Label>
         <Input
           id="reason"
-          placeholder={isOpenPlay ? "Optional — defaults to \"Open play\"" : "e.g. Private tournament"}
+          placeholder={
+            isOpenPlay
+              ? "Optional — defaults to \"Open play\""
+              : isMaintenance
+                ? "e.g. Net repair — defaults to \"Maintenance\""
+                : "e.g. Private tournament"
+          }
           value={reason}
           onChange={(event) => setReason(event.target.value)}
         />
@@ -277,6 +285,11 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
           <p className="text-muted-foreground text-xs">
             Not shown to customers — the grid just says &quot;Open play&quot;, exactly like the
             regular open-play hours.
+          </p>
+        ) : isMaintenance ? (
+          <p className="text-muted-foreground text-xs">
+            Not shown to customers — the grid just says &quot;Unavailable&quot;. The court can&apos;t be
+            booked and is left out of open-play rotation for this time.
           </p>
         ) : null}
       </div>

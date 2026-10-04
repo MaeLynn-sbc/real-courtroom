@@ -177,10 +177,11 @@ export class CourtService {
           data: {
             courtId,
             createdById: actorUserId,
-            // reason is optional for OPEN_PLAY blocks. Stored as a plain
-            // "Open play" so the staff-facing list still reads sensibly;
-            // the public grid never shows this field for either kind.
-            reason: input.reason?.trim() || "Open play",
+            // reason is optional for OPEN_PLAY and MAINTENANCE blocks.
+            // Stored as a plain "Open play"/"Maintenance" so the staff-
+            // facing list still reads sensibly; the public grid never
+            // shows this field for any kind.
+            reason: input.reason?.trim() || (input.kind === "MAINTENANCE" ? "Maintenance" : "Open play"),
             notes: input.notes,
             startAt: input.startAt,
             endAt: input.endAt,
@@ -214,9 +215,11 @@ export class CourtService {
       // Both kinds. The page is "Block Courts" now, not Special Events —
       // filtering to SPECIAL_EVENT meant an OPEN_PLAY block never
       // appeared in the list, so staff could create one and then had no
-      // way to see or cancel it. Plain MAINTENANCE is still excluded:
-      // that is managed per court on the Courts screen, not here.
-      where: { kind: { in: ["SPECIAL_EVENT", "OPEN_PLAY"] } },
+      // way to see or cancel it. MAINTENANCE too since 2026-10-05 (owner:
+      // "can we add court maintenance") — including blocks made from a
+      // court's own page on the Courts screen, so this list shows every
+      // block in one place.
+      where: { kind: { in: ["SPECIAL_EVENT", "OPEN_PLAY", "MAINTENANCE"] } },
       include: { court: { select: { name: true } } },
       orderBy: { startAt: "desc" },
       take: limit,

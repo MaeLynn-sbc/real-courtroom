@@ -28,10 +28,11 @@ export default async function SpecialEventsPage() {
           <span className="font-medium">Open play</span> to hand the court over for the night — it
           shows exactly like the regular open-play hours — or{" "}
           <span className="font-medium">Special event</span> to show &quot;Booked for special
-          events&quot;.
+          events&quot;, or <span className="font-medium">Maintenance</span> to show
+          &quot;Unavailable&quot; while a court is being repaired.
           <br />
-          For a STANDING handover that repeats every week, use the per-court cutoffs in Admin →
-          Website instead. This page is for one date only.
+          For open play that repeats every week, use Administration → Open Play Schedule instead.
+          This page is for specific dates.
         </p>
       </div>
 
