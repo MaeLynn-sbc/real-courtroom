@@ -29,7 +29,7 @@ export default async function SpecialEventsPage() {
           shows exactly like the regular open-play hours — or{" "}
           <span className="font-medium">Special event</span> to show &quot;Booked for special
           events&quot;, or <span className="font-medium">Maintenance</span> to show
-          &quot;Unavailable&quot; while a court is being repaired.
+          &quot;Maintenance&quot; while a court is being repaired.
           <br />
           For open play that repeats every week, use Administration → Open Play Schedule instead.
           This page is for specific dates.

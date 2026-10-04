@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { TimeSelect } from "@/components/shared/time-select";
 import { specialEventSchema } from "@/features/courts/schemas/court.schema";
 
 type BlockKind = "SPECIAL_EVENT" | "OPEN_PLAY" | "MAINTENANCE";
@@ -51,19 +52,22 @@ function toTimeInputValue(date: Date): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-// Rounds up to the next 30-minute mark so the default "Starts" value is
-// never in the past by the time staff actually submit the form.
-function roundUpToNextHalfHour(date: Date): Date {
+// Rounds up to the next whole hour so the default "Starts" value is never
+// in the past by the time staff actually submit the form, and is one the
+// hourly time dropdown offers.
+function roundUpToNextHour(date: Date): Date {
   const rounded = new Date(date);
-  rounded.setSeconds(0, 0);
-  const minutes = rounded.getMinutes();
-  const add = minutes % 30 === 0 ? 30 : 30 - (minutes % 30);
-  rounded.setMinutes(minutes + add);
+  rounded.setMinutes(0, 0, 0);
+  rounded.setHours(rounded.getHours() + 1);
+  // Nothing opens before 7 AM — the time dropdown starts there too.
+  if (rounded.getHours() < 7) {
+    rounded.setHours(7);
+  }
   return rounded;
 }
 
 function makeDefaultSlot(): EventSlot {
-  const start = roundUpToNextHalfHour(new Date());
+  const start = roundUpToNextHour(new Date());
   const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
   return {
     id: crypto.randomUUID(),
@@ -260,7 +264,7 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
             <SelectItem value="SPECIAL_EVENT">
               Special event — shows &quot;Booked for special events&quot;
             </SelectItem>
-            <SelectItem value="MAINTENANCE">Maintenance — shows &quot;Unavailable&quot;</SelectItem>
+            <SelectItem value="MAINTENANCE">Maintenance — court under repair</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -288,7 +292,7 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
           </p>
         ) : isMaintenance ? (
           <p className="text-muted-foreground text-xs">
-            Not shown to customers — the grid just says &quot;Unavailable&quot;. The court can&apos;t be
+            Not shown to customers — the grid just says &quot;Maintenance&quot;. The court can&apos;t be
             booked and is left out of open-play rotation for this time.
           </p>
         ) : null}
@@ -333,11 +337,10 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
                   value={slot.startDate}
                   onChange={(event) => updateSlot(slot.id, { startDate: event.target.value })}
                 />
-                <Input
-                  type="time"
+                <TimeSelect
                   aria-label="Start time"
                   value={slot.startTime}
-                  onChange={(event) => updateSlot(slot.id, { startTime: event.target.value })}
+                  onChange={(startTime) => updateSlot(slot.id, { startTime })}
                 />
               </div>
             </div>
@@ -351,11 +354,10 @@ export function SpecialEventForm({ courts }: SpecialEventFormProps) {
                   value={slot.endDate}
                   onChange={(event) => updateSlot(slot.id, { endDate: event.target.value })}
                 />
-                <Input
-                  type="time"
+                <TimeSelect
                   aria-label="End time"
                   value={slot.endTime}
-                  onChange={(event) => updateSlot(slot.id, { endTime: event.target.value })}
+                  onChange={(endTime) => updateSlot(slot.id, { endTime })}
                 />
               </div>
             </div>

@@ -62,7 +62,8 @@ function cellClasses(state: StaffBoardCellState): string {
       return "bg-amber-400 border-amber-500 text-navy-900 font-bold after:bg-amber-600 after:opacity-70";
     case "unavailable":
     default:
-      return "bg-navy-700/40 border-transparent text-slate/50 after:bg-slate after:opacity-20";
+      // Maintenance — matches the public grid (availability-board.tsx).
+      return "bg-slate-500 border-slate-400 text-white text-[12px] font-bold tracking-[0.1em] uppercase after:bg-slate-300 after:opacity-70";
   }
 }
 
@@ -75,7 +76,7 @@ function cellLabel(state: StaffBoardCellState): string {
     case "past":
       return "Past";
     case "unavailable":
-      return "Unavailable";
+      return "Maintenance";
     case "specialEvent":
       return "Booked for special events";
     case "booked":

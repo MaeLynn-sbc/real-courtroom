@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TimeSelect } from "@/components/shared/time-select";
 
 interface SpecialEventRow {
   id: string;
@@ -178,7 +179,9 @@ function EditTimingRow({ event, onDone }: { event: SpecialEventRow; onDone: () =
     <TableRow>
       <TableCell colSpan={6}>
         <div className="flex flex-col gap-3 py-1">
-          <div className="grid grid-cols-2 gap-4">
+          {/* Stacked on phones: four fields in one row left each one too
+              narrow to tap. */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <span className="text-muted-foreground text-xs">Starts</span>
               <div className="grid grid-cols-2 gap-2">
@@ -188,12 +191,7 @@ function EditTimingRow({ event, onDone }: { event: SpecialEventRow; onDone: () =
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                 />
-                <Input
-                  type="time"
-                  aria-label="Start time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                />
+                <TimeSelect aria-label="Start time" value={startTime} onChange={setStartTime} />
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -205,12 +203,7 @@ function EditTimingRow({ event, onDone }: { event: SpecialEventRow; onDone: () =
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
                 />
-                <Input
-                  type="time"
-                  aria-label="End time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                />
+                <TimeSelect aria-label="End time" value={endTime} onChange={setEndTime} />
               </div>
             </div>
           </div>

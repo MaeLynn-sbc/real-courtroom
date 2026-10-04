@@ -70,9 +70,12 @@ function toTimeValue(hour: number): string {
 //     the brand --green used by the Available stripe accent below, so
 //     an open-play cell is never mistaken for a bookable one.
 //     5.48:1 contrast.
-//   - past / unavailable (maintenance): neutral/muted, deliberately not
-//     part of the color system — not bookable states competing for
-//     attention, just dimmed out.
+//   - past: neutral/muted, deliberately not part of the color system —
+//     not a bookable state competing for attention, just dimmed out.
+//   - unavailable (maintenance): solid slate-500, white text, labelled
+//     "Maintenance" (owner, 2026-10-05: "can we show maintenance in the
+//     website") — it used to share past's dimmed look and read as an
+//     elapsed hour. 4.76:1 contrast.
 function cellClasses(state: BoardCell["state"]): string {
   switch (state) {
     case "available":
@@ -93,7 +96,7 @@ function cellClasses(state: BoardCell["state"]): string {
       return "bg-amber-400 border-amber-500 text-navy-900 font-bold cursor-not-allowed after:bg-amber-600 after:opacity-70";
     default:
       // unavailable (maintenance)
-      return "bg-navy-700/40 border-transparent text-slate/50 cursor-not-allowed after:bg-slate after:opacity-20";
+      return "bg-slate-500 border-slate-400 text-white text-[12px] font-bold tracking-[0.1em] uppercase cursor-not-allowed after:bg-slate-300 after:opacity-70";
   }
 }
 
@@ -110,7 +113,7 @@ function cellLabel(state: BoardCell["state"]): string {
       // isn't the same state as a genuinely open one.
       return "Past";
     case "unavailable":
-      return "Unavailable";
+      return "Maintenance";
     case "specialEvent":
       return "Booked for special events";
     case "bookedCoach":

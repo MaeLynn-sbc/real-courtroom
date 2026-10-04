@@ -8,6 +8,7 @@ import { QueryProvider } from "@/components/providers/query-provider";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { AddToHomeScreenBanner } from "@/components/pwa/add-to-home-screen";
+import { LaunchSplash } from "@/components/pwa/launch-splash";
 import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-registration";
 import { siteConfig } from "@/lib/config";
 
@@ -99,6 +100,9 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col">
+        {/* First in <body> so it paints with the first frame of a
+            home-screen launch; hides itself on a CSS timer. */}
+        <LaunchSplash />
         {/* v1.1 Sub-phase 5: the dark navy system is the flagship brand
             look ("Dark Navy inspired by the court walls"), not an
             opt-in dark mode — defaultTheme is "dark" so that's what
