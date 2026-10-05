@@ -169,6 +169,42 @@ function RowActions({ registrationId }: { registrationId: string }) {
   );
 }
 
+// Shared by the desktop table and the phone cards below.
+function RegistrationStatusBadge({ registration }: { registration: RosterRegistration }) {
+  if (registration.status !== "CONFIRMED") {
+    return <Badge variant="destructive">{registration.status.replace("_", " ")}</Badge>;
+  }
+  if (registration.waitlistPos !== null) {
+    // Owner decision (Fri/Sat waitlist rework): a waitlisted walk-in is
+    // registered at zero charge — "Unpaid" here is that fact, not a
+    // warning about a missed payment. Pays at the desk only once promoted
+    // into a real seat.
+    return <Badge variant="warning">Waitlist #{registration.waitlistPos} · Unpaid</Badge>;
+  }
+  // BUILD-SPEC.md §2 — status/active, not action green.
+  return <Badge variant="status">Confirmed · Paid</Badge>;
+}
+
+function RegistrationActions({ registration }: { registration: RosterRegistration }) {
+  return (
+    <div className="flex flex-wrap items-start gap-1.5 md:flex-col">
+      {registration.paymentProofs[0] ? <ProofLink proof={registration.paymentProofs[0]} /> : null}
+      {registration.status === "CONFIRMED" ? <RowActions registrationId={registration.id} /> : null}
+      {registration.status === "CHECKED_OUT" ? (
+        <UndoCheckOutAction registrationId={registration.id} />
+      ) : null}
+      {registration.status === "CONFIRMED" ||
+      registration.status === "CANCELLED" ||
+      registration.status === "REJECTED" ? (
+        <RefundAction registrationId={registration.id} />
+      ) : null}
+      {registration.status !== "CONFIRMED" && registration.status !== "CHECKED_OUT" ? (
+        <DeleteAction registrationId={registration.id} playerName={registration.playerName} />
+      ) : null}
+    </div>
+  );
+}
+
 // Owner request (2026-10-03): a check-out tapped by mistake had no way back.
 function UndoCheckOutAction({ registrationId }: { registrationId: string }) {
   const router = useRouter();
@@ -408,75 +444,69 @@ export function RegistrationRosterPanel({
         {registrations.length === 0 ? (
           <p className="text-muted-foreground text-sm">No registrations yet.</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Skill</TableHead>
-                <TableHead>Night</TableHead>
-                <TableHead>Registered</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <>
+            {/* Phones: one card per player, actions visible without
+                scrolling sideways (2026-10-05 mobile audit — in the
+                table they sat in the 7th column, off-screen). */}
+            <ul className="flex flex-col gap-3 md:hidden">
               {registrations.map((registration) => (
-                <TableRow key={registration.id}>
-                  <TableCell className="font-medium">{registration.playerName}</TableCell>
-                  <TableCell>{registration.phone}</TableCell>
-                  <TableCell>{OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}</TableCell>
-                  <TableCell className="text-muted-foreground text-sm">
-                    {formatNightDate(registration.date)}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-sm">
-                    {formatRegisteredAt(registration.registeredAt)}
-                  </TableCell>
-                  <TableCell>
-                    {registration.status !== "CONFIRMED" ? (
-                      <Badge variant="destructive">{registration.status.replace("_", " ")}</Badge>
-                    ) : registration.waitlistPos !== null ? (
-                      // Owner decision (Fri/Sat waitlist rework): a
-                      // waitlisted walk-in is registered at zero charge —
-                      // "Unpaid" here is that fact, not a warning about a
-                      // missed payment. Pays at the desk only once
-                      // promoted into a real seat.
-                      <Badge variant="warning">Waitlist #{registration.waitlistPos} · Unpaid</Badge>
-                    ) : (
-                      // BUILD-SPEC.md §2 — status/active, not action green;
-                      // a roster table, not a record-card list.
-                      <Badge variant="status">Confirmed · Paid</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col items-start gap-1.5">
-                      {registration.paymentProofs[0] ? (
-                        <ProofLink proof={registration.paymentProofs[0]} />
-                      ) : null}
-                      {registration.status === "CONFIRMED" ? (
-                        <RowActions registrationId={registration.id} />
-                      ) : null}
-                      {registration.status === "CHECKED_OUT" ? (
-                        <UndoCheckOutAction registrationId={registration.id} />
-                      ) : null}
-                      {registration.status === "CONFIRMED" ||
-                      registration.status === "CANCELLED" ||
-                      registration.status === "REJECTED" ? (
-                        <RefundAction registrationId={registration.id} />
-                      ) : null}
-                      {registration.status !== "CONFIRMED" &&
-                      registration.status !== "CHECKED_OUT" ? (
-                        <DeleteAction
-                          registrationId={registration.id}
-                          playerName={registration.playerName}
-                        />
-                      ) : null}
+                <li key={registration.id} className="flex flex-col gap-2 rounded-lg border p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{registration.playerName}</p>
+                      <p className="text-muted-foreground text-sm">
+                        {registration.phone} ·{" "}
+                        {OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}
+                      </p>
                     </div>
-                  </TableCell>
-                </TableRow>
+                    <RegistrationStatusBadge registration={registration} />
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    {formatNightDate(registration.date)} · registered{" "}
+                    {formatRegisteredAt(registration.registeredAt)}
+                  </p>
+                  <RegistrationActions registration={registration} />
+                </li>
               ))}
-            </TableBody>
-          </Table>
+            </ul>
+
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Phone</TableHead>
+                    <TableHead>Skill</TableHead>
+                    <TableHead>Night</TableHead>
+                    <TableHead>Registered</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {registrations.map((registration) => (
+                    <TableRow key={registration.id}>
+                      <TableCell className="font-medium">{registration.playerName}</TableCell>
+                      <TableCell>{registration.phone}</TableCell>
+                      <TableCell>{OPEN_PLAY_SKILL_LEVELS[registration.skillLevel].label}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {formatNightDate(registration.date)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {formatRegisteredAt(registration.registeredAt)}
+                      </TableCell>
+                      <TableCell>
+                        <RegistrationStatusBadge registration={registration} />
+                      </TableCell>
+                      <TableCell>
+                        <RegistrationActions registration={registration} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

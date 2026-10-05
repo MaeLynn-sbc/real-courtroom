@@ -17,11 +17,16 @@ function formatLabel(value: string): string {
   const [hours, minutes] = value.split(":").map(Number);
   const period = hours >= 12 ? "PM" : "AM";
   const displayHour = hours % 12 === 0 ? 12 : hours % 12;
-  return minutes === 0 ? `${displayHour} ${period}` : `${displayHour}:${String(minutes).padStart(2, "0")} ${period}`;
+  return minutes === 0
+    ? `${displayHour} ${period}`
+    : `${displayHour}:${String(minutes).padStart(2, "0")} ${period}`;
 }
 
 function hourOptions(firstHour: number): string[] {
-  const hours = Array.from({ length: 24 - firstHour }, (_, index) => `${String(firstHour + index).padStart(2, "0")}:00`);
+  const hours = Array.from(
+    { length: 24 - firstHour },
+    (_, index) => `${String(firstHour + index).padStart(2, "0")}:00`,
+  );
   return firstHour === 0 ? hours : [...hours, "00:00"];
 }
 
@@ -55,7 +60,7 @@ export function TimeSelect({
       value={value}
       onChange={(event) => onChange(event.target.value)}
       className={cn(
-        "border-input dark:bg-input/30 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2 text-base outline-none md:text-sm",
+        "border-input dark:bg-input/30 h-8 w-full min-w-0 rounded-lg border bg-transparent px-2 text-base outline-none md:text-sm pointer-coarse:h-10",
         "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-3 disabled:opacity-50",
         className,
       )}

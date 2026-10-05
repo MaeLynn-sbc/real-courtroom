@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { scheduleMaintenanceAction } from "@/actions/court.actions";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { courtMaintenanceSchema } from "@/features/courts/schemas/court.schema";
+import { DateTimeField } from "@/components/shared/date-time-field";
 
 interface CourtMaintenanceFormProps {
   courtId: string;
@@ -22,6 +23,7 @@ export function CourtMaintenanceForm({ courtId, onScheduled }: CourtMaintenanceF
   const [isPending, startTransition] = useTransition();
 
   const {
+    control,
     register,
     handleSubmit,
     reset,
@@ -52,9 +54,7 @@ export function CourtMaintenanceForm({ courtId, onScheduled }: CourtMaintenanceF
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="reason">Reason</Label>
         <Input id="reason" {...register("reason")} />
-        {errors.reason ? (
-          <p className="text-destructive text-sm">{errors.reason.message}</p>
-        ) : null}
+        {errors.reason ? <p className="text-destructive text-sm">{errors.reason.message}</p> : null}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -64,7 +64,18 @@ export function CourtMaintenanceForm({ courtId, onScheduled }: CourtMaintenanceF
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="startAt">Starts</Label>
-        <Input id="startAt" type="datetime-local" {...register("startAt")} />
+        <Controller
+          control={control}
+          name="startAt"
+          render={({ field }) => (
+            <DateTimeField
+              id="startAt"
+              minuteStep={30}
+              value={typeof field.value === "string" ? field.value : ""}
+              onChange={field.onChange}
+            />
+          )}
+        />
         {errors.startAt ? (
           <p className="text-destructive text-sm">{errors.startAt.message}</p>
         ) : null}
@@ -72,11 +83,26 @@ export function CourtMaintenanceForm({ courtId, onScheduled }: CourtMaintenanceF
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="endAt">Ends</Label>
-        <Input id="endAt" type="datetime-local" {...register("endAt")} />
+        <Controller
+          control={control}
+          name="endAt"
+          render={({ field }) => (
+            <DateTimeField
+              id="endAt"
+              minuteStep={30}
+              value={typeof field.value === "string" ? field.value : ""}
+              onChange={field.onChange}
+            />
+          )}
+        />
         {errors.endAt ? <p className="text-destructive text-sm">{errors.endAt.message}</p> : null}
       </div>
 
-      {serverError ? <p className="text-destructive text-sm" role="alert">{serverError}</p> : null}
+      {serverError ? (
+        <p className="text-destructive text-sm" role="alert">
+          {serverError}
+        </p>
+      ) : null}
 
       <Button type="submit" disabled={isPending}>
         {isPending ? "Scheduling…" : "Schedule maintenance"}

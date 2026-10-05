@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LONG_SHIFT_WARNING_HOURS } from "@/lib/payroll/compute-day";
+import { ClockTimeSelect } from "@/components/shared/clock-time-select";
 
 interface CorrectDayEntryFormProps {
   recordId: string;
@@ -113,11 +114,10 @@ export function CorrectDayEntryForm({
           <Label htmlFor={`in-${recordId}`} className="text-xs">
             Clock in
           </Label>
-          <Input
+          <ClockTimeSelect
             id={`in-${recordId}`}
-            type="time"
             value={inTime}
-            onChange={(event) => setInTime(event.target.value)}
+            onChange={(time) => setInTime(time)}
             disabled={isPending}
           />
         </div>
@@ -125,11 +125,10 @@ export function CorrectDayEntryForm({
           <Label htmlFor={`out-${recordId}`} className="text-xs">
             Clock out
           </Label>
-          <Input
+          <ClockTimeSelect
             id={`out-${recordId}`}
-            type="time"
             value={outTime}
-            onChange={(event) => setOutTime(event.target.value)}
+            onChange={(time) => setOutTime(time)}
             disabled={isPending}
           />
         </div>

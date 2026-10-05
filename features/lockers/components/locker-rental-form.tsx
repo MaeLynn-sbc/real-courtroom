@@ -7,7 +7,6 @@ import { toast } from "sonner";
 
 import { createLockerRentalAction } from "@/actions/locker.actions";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -17,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createLockerRentalSchema } from "@/features/lockers/schemas/locker.schema";
+import { DateTimeField } from "@/components/shared/date-time-field";
 
 const TYPE_OPTIONS = [
   { value: "DAILY", label: "Daily" },
@@ -59,7 +59,7 @@ export function LockerRentalForm({ lockerId, players, paymentMethods }: LockerRe
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const { handleSubmit, control, register, reset } = useForm<LockerRentalFormValues>({
+  const { handleSubmit, control, reset } = useForm<LockerRentalFormValues>({
     defaultValues: {
       playerId: players[0]?.id ?? "",
       type: "DAILY",
@@ -113,7 +113,9 @@ export function LockerRentalForm({ lockerId, players, paymentMethods }: LockerRe
             <Select value={field.value} onValueChange={field.onChange}>
               <SelectTrigger id="lockerRentalPlayerId" className="w-full">
                 <SelectValue placeholder="Select a player">
-                  {(value: string) => players.find((player) => player.id === value)?.label ?? "Select a player"}
+                  {(value: string) =>
+                    players.find((player) => player.id === value)?.label ?? "Select a player"
+                  }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -137,7 +139,9 @@ export function LockerRentalForm({ lockerId, players, paymentMethods }: LockerRe
             <Select value={field.value} onValueChange={field.onChange}>
               <SelectTrigger id="type" className="w-full">
                 <SelectValue>
-                  {(value: string) => TYPE_OPTIONS.find((option) => option.value === value)?.label ?? value}
+                  {(value: string) =>
+                    TYPE_OPTIONS.find((option) => option.value === value)?.label ?? value
+                  }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -154,12 +158,34 @@ export function LockerRentalForm({ lockerId, players, paymentMethods }: LockerRe
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="startAt">Starts</Label>
-        <Input id="startAt" type="datetime-local" {...register("startAt")} />
+        <Controller
+          control={control}
+          name="startAt"
+          render={({ field }) => (
+            <DateTimeField
+              id="startAt"
+              minuteStep={15}
+              value={field.value ?? ""}
+              onChange={field.onChange}
+            />
+          )}
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="endAt">Ends</Label>
-        <Input id="endAt" type="datetime-local" {...register("endAt")} />
+        <Controller
+          control={control}
+          name="endAt"
+          render={({ field }) => (
+            <DateTimeField
+              id="endAt"
+              minuteStep={15}
+              value={field.value ?? ""}
+              onChange={field.onChange}
+            />
+          )}
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -189,7 +215,11 @@ export function LockerRentalForm({ lockerId, players, paymentMethods }: LockerRe
         />
       </div>
 
-      {serverError ? <p className="text-destructive text-sm" role="alert">{serverError}</p> : null}
+      {serverError ? (
+        <p className="text-destructive text-sm" role="alert">
+          {serverError}
+        </p>
+      ) : null}
 
       <Button type="submit" disabled={isPending} size="sm">
         {isPending ? "Renting…" : "Rent out"}

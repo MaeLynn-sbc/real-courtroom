@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { createSessionAction } from "@/actions/open-play.actions";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createOpenPlaySessionSchema } from "@/features/open-play/schemas/open-play.schema";
+import { DateTimeField } from "@/components/shared/date-time-field";
 
 interface SessionFormValues {
   title: string;
@@ -31,6 +32,7 @@ export function SessionForm() {
   const [isPending, startTransition] = useTransition();
 
   const {
+    control,
     register,
     handleSubmit,
     formState: { errors },
@@ -80,12 +82,34 @@ export function SessionForm() {
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="startAt">Starts</Label>
-        <Input id="startAt" type="datetime-local" {...register("startAt")} />
+        <Controller
+          control={control}
+          name="startAt"
+          render={({ field }) => (
+            <DateTimeField
+              id="startAt"
+              minuteStep={15}
+              value={field.value ?? ""}
+              onChange={field.onChange}
+            />
+          )}
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="endAt">Ends</Label>
-        <Input id="endAt" type="datetime-local" {...register("endAt")} />
+        <Controller
+          control={control}
+          name="endAt"
+          render={({ field }) => (
+            <DateTimeField
+              id="endAt"
+              minuteStep={15}
+              value={field.value ?? ""}
+              onChange={field.onChange}
+            />
+          )}
+        />
         {errors.endAt ? <p className="text-destructive text-sm">{errors.endAt.message}</p> : null}
       </div>
 
@@ -99,7 +123,11 @@ export function SessionForm() {
         />
       </div>
 
-      {serverError ? <p className="text-destructive text-sm" role="alert">{serverError}</p> : null}
+      {serverError ? (
+        <p className="text-destructive text-sm" role="alert">
+          {serverError}
+        </p>
+      ) : null}
 
       <Button type="submit" disabled={isPending}>
         {isPending ? "Creating…" : "Create session"}

@@ -6,8 +6,8 @@ import { toast } from "sonner";
 
 import { changeBookingSlotAction } from "@/actions/booking.actions";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DateTimeField } from "@/components/shared/date-time-field";
 
 interface MoveBookingFormProps {
   bookingId: string;
@@ -118,23 +118,22 @@ export function MoveBookingForm({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="moveStart">Starts</Label>
-          <Input
+          <DateTimeField
             id="moveStart"
-            type="datetime-local"
+            minuteStep={30}
             value={startValue}
-            onChange={(event) => handleStartChange(event.target.value)}
+            onChange={handleStartChange}
             disabled={isPending}
           />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="moveEnd">Ends</Label>
-          <Input
+          <DateTimeField
             id="moveEnd"
-            type="datetime-local"
+            minuteStep={30}
             value={endValue}
-            onChange={(event) => setEndValue(event.target.value)}
+            onChange={setEndValue}
             disabled={isPending || isPaid}
-            readOnly={isPaid}
           />
         </div>
       </div>
@@ -145,7 +144,13 @@ export function MoveBookingForm({
           : "Move this booking to a different court, time, or both."}
       </p>
 
-      <Button type="submit" size="sm" variant="outline" disabled={isPending || !canSubmit} className="w-fit">
+      <Button
+        type="submit"
+        size="sm"
+        variant="outline"
+        disabled={isPending || !canSubmit}
+        className="w-fit"
+      >
         {isPending ? "Moving…" : "Move booking"}
       </Button>
     </form>

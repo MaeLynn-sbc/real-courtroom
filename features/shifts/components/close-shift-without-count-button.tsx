@@ -7,6 +7,7 @@ import { closeShiftWithoutCountAction } from "@/actions/shift.actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DateTimeField } from "@/components/shared/date-time-field";
 
 // Management closing a shift an attendant forgot (owner request,
 // 2026-09-11: "sometimes the staff forgets to do it", "close it as is").
@@ -79,13 +80,7 @@ export function CloseShiftWithoutCountButton({
         <Label htmlFor={`endedAt-${shiftId}`} className="text-xs">
           Shift actually ended
         </Label>
-        <Input
-          id={`endedAt-${shiftId}`}
-          type="datetime-local"
-          value={endedAt}
-          onChange={(event) => setEndedAt(event.target.value)}
-          className="h-8"
-        />
+        <DateTimeField id={`endedAt-${shiftId}`} value={endedAt} onChange={setEndedAt} />
         <p className="text-muted-foreground text-[11px]">
           Used for payroll — set when they really finished, not now.
         </p>

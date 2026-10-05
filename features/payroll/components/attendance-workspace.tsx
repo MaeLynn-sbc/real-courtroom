@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import type { attendanceRecordService } from "@/services/payroll/attendance-record.service";
+import { ClockTimeSelect } from "@/components/shared/clock-time-select";
 
 const dateFormatter = new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" });
 const timeFormatter = new Intl.DateTimeFormat("en-PH", { timeStyle: "short", hour12: true });
@@ -121,13 +122,14 @@ function ShiftWindowNote({
     <div className="flex flex-col gap-1">
       {rolled ? (
         <p className="text-muted-foreground text-xs">
-          Ends {clockOut.toTimeString().slice(0, 5)} the next day, {nextDayFormatter.format(clockOut)}.
+          Ends {clockOut.toTimeString().slice(0, 5)} the next day,{" "}
+          {nextDayFormatter.format(clockOut)}.
         </p>
       ) : null}
       {isLong ? (
         <p className="text-xs text-amber-600 dark:text-amber-500" role="status">
-          That is a {spanHours!.toFixed(1)}-hour shift — longer than {LONG_SHIFT_WARNING_HOURS} hours.
-          Double-check the times if that was not intended.
+          That is a {spanHours!.toFixed(1)}-hour shift — longer than {LONG_SHIFT_WARNING_HOURS}{" "}
+          hours. Double-check the times if that was not intended.
         </p>
       ) : null}
     </div>
@@ -223,20 +225,18 @@ function NewEntryForm({
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="attendanceClockIn">Clock in</Label>
-              <Input
+              <ClockTimeSelect
                 id="attendanceClockIn"
-                type="time"
                 value={clockInTime}
-                onChange={(event) => setClockInTime(event.target.value)}
+                onChange={(time) => setClockInTime(time)}
               />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="attendanceClockOut">Clock out (optional)</Label>
-              <Input
+              <ClockTimeSelect
                 id="attendanceClockOut"
-                type="time"
                 value={clockOutTime}
-                onChange={(event) => setClockOutTime(event.target.value)}
+                onChange={(time) => setClockOutTime(time)}
               />
             </div>
           </div>
@@ -324,30 +324,30 @@ function CorrectEntryRow({ entry }: { entry: AttendanceEntries[number] }) {
           <Label htmlFor={`correctClockIn-${entry.id}`} className="text-xs">
             Clock in
           </Label>
-          <Input
+          <ClockTimeSelect
             id={`correctClockIn-${entry.id}`}
-            type="time"
             value={clockInTime}
-            onChange={(event) => setClockInTime(event.target.value)}
+            onChange={(time) => setClockInTime(time)}
           />
         </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor={`correctClockOut-${entry.id}`} className="text-xs">
+            Clock out
+          </Label>
+          <ClockTimeSelect
+            id={`correctClockOut-${entry.id}`}
+            value={clockOutTime}
+            onChange={(time) => setClockOutTime(time)}
+          />
+        </div>
+      </div>
+      {/* Below the grid, not between its two cells — inside it, the note
+          took Clock out's slot and pushed it onto a row of its own. */}
       <ShiftWindowNote
         clockOut={preview.clockOut}
         rolled={preview.rolled}
         spanHours={preview.spanHours}
       />
-        <div className="flex flex-col gap-1">
-          <Label htmlFor={`correctClockOut-${entry.id}`} className="text-xs">
-            Clock out
-          </Label>
-          <Input
-            id={`correctClockOut-${entry.id}`}
-            type="time"
-            value={clockOutTime}
-            onChange={(event) => setClockOutTime(event.target.value)}
-          />
-        </div>
-      </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor={`correctReason-${entry.id}`} className="text-xs">
           Reason (required)

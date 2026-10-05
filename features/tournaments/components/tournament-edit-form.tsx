@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { updateTournamentAction } from "@/actions/tournament.actions";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ClockTimeSelect } from "@/components/shared/clock-time-select";
 
 // Editing an existing tournament (owner request, 2026-09-05): "i cant see
 // any option to change the date".
@@ -52,6 +53,7 @@ export function TournamentEditForm({
   const [isPending, startTransition] = useTransition();
 
   const {
+    control,
     register,
     handleSubmit,
     formState: { errors },
@@ -109,7 +111,19 @@ export function TournamentEditForm({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="editStartTime">Start time (optional)</Label>
-          <Input id="editStartTime" type="time" {...register("startTime")} />
+          <Controller
+            control={control}
+            name="startTime"
+            render={({ field }) => (
+              <ClockTimeSelect
+                id="editStartTime"
+                minuteStep={15}
+                emptyLabel="—"
+                value={field.value ?? ""}
+                onChange={field.onChange}
+              />
+            )}
+          />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="editEndDate">End date</Label>
@@ -117,13 +131,29 @@ export function TournamentEditForm({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="editEndTime">End time (optional)</Label>
-          <Input id="editEndTime" type="time" {...register("endTime")} />
+          <Controller
+            control={control}
+            name="endTime"
+            render={({ field }) => (
+              <ClockTimeSelect
+                id="editEndTime"
+                minuteStep={15}
+                emptyLabel="—"
+                value={field.value ?? ""}
+                onChange={field.onChange}
+              />
+            )}
+          />
         </div>
       </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="editVenueInfo">Venue</Label>
-        <Input id="editVenueInfo" {...register("venueInfo")} placeholder="e.g. The Courtroom, Kalibo" />
+        <Input
+          id="editVenueInfo"
+          {...register("venueInfo")}
+          placeholder="e.g. The Courtroom, Kalibo"
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">

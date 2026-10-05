@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { formatTime12h } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
+import { ClockTimeSelect } from "@/components/shared/clock-time-select";
 
 interface RosterEmployee {
   id: string;
@@ -197,17 +198,13 @@ export function ScheduleRoster({ weekStart, employees, templates, assignments }:
                       <td key={day.toISOString()} className="p-1.5 align-top">
                         {isEditingCustom ? (
                           <div className="flex flex-col gap-1 rounded-md border border-dashed p-1.5">
-                            <Input
-                              type="time"
+                            <ClockTimeSelect
                               value={customStart}
-                              onChange={(event) => setCustomStart(event.target.value)}
-                              className="h-7 text-xs"
+                              onChange={(time) => setCustomStart(time)}
                             />
-                            <Input
-                              type="time"
+                            <ClockTimeSelect
                               value={customEnd}
-                              onChange={(event) => setCustomEnd(event.target.value)}
-                              className="h-7 text-xs"
+                              onChange={(time) => setCustomEnd(time)}
                             />
                             <div className="flex gap-1">
                               <Button

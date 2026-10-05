@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { formatTime12h } from "@/lib/format-time";
+import { ClockTimeSelect } from "@/components/shared/clock-time-select";
 
 interface ShiftTemplateRow {
   id: string;
@@ -145,22 +146,18 @@ export function ShiftTemplateSettings({ templates }: ShiftTemplateSettingsProps)
                             />
                           </td>
                           <td className="px-3 py-2">
-                            <Input
-                              type="time"
+                            <ClockTimeSelect
                               value={editStart}
-                              onChange={(event) => setEditStart(event.target.value)}
-                              className="h-8 w-28"
+                              onChange={(time) => setEditStart(time)}
                             />
                           </td>
                           <td className="px-3 py-2">
-                            <Input
-                              type="time"
+                            <ClockTimeSelect
                               value={editEnd}
-                              onChange={(event) => setEditEnd(event.target.value)}
-                              className="h-8 w-28"
+                              onChange={(time) => setEditEnd(time)}
                             />
                           </td>
-                          <td className="px-3 py-2 text-muted-foreground text-xs">
+                          <td className="text-muted-foreground px-3 py-2 text-xs">
                             {template.active ? "Active" : "Inactive"}
                           </td>
                           <td className="px-3 py-2">
@@ -244,20 +241,18 @@ export function ShiftTemplateSettings({ templates }: ShiftTemplateSettingsProps)
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="newShiftStart">Start</Label>
-                <Input
+                <ClockTimeSelect
                   id="newShiftStart"
-                  type="time"
                   value={newStart}
-                  onChange={(event) => setNewStart(event.target.value)}
+                  onChange={(time) => setNewStart(time)}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="newShiftEnd">End</Label>
-                <Input
+                <ClockTimeSelect
                   id="newShiftEnd"
-                  type="time"
                   value={newEnd}
-                  onChange={(event) => setNewEnd(event.target.value)}
+                  onChange={(time) => setNewEnd(time)}
                 />
               </div>
               <div className="flex items-end">
