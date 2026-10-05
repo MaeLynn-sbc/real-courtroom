@@ -20,19 +20,26 @@ function formatLabel(value: string): string {
   return minutes === 0 ? `${displayHour} ${period}` : `${displayHour}:${String(minutes).padStart(2, "0")} ${period}`;
 }
 
-const OPTIONS = [
-  ...Array.from({ length: 24 - FIRST_HOUR }, (_, index) => `${String(FIRST_HOUR + index).padStart(2, "0")}:00`),
-  "00:00",
-];
+function hourOptions(firstHour: number): string[] {
+  const hours = Array.from({ length: 24 - firstHour }, (_, index) => `${String(firstHour + index).padStart(2, "0")}:00`);
+  return firstHour === 0 ? hours : [...hours, "00:00"];
+}
 
 export function TimeSelect({
   value,
   onChange,
+  firstHour = FIRST_HOUR,
+  emptyLabel,
   className,
   ...props
 }: {
   value: string;
   onChange: (value: string) => void;
+  // Settings (facility hours) can legitimately start before opening.
+  firstHour?: number;
+  // When set, a blank choice with this label is always offered, so a
+  // field that means "none" when empty can be cleared again.
+  emptyLabel?: string;
   className?: string;
   id?: string;
   "aria-label"?: string;
@@ -40,7 +47,8 @@ export function TimeSelect({
 }) {
   // An existing value outside the list (e.g. 6:30 PM saved earlier)
   // still shows as itself, first, instead of silently snapping.
-  const options = value && !OPTIONS.includes(value) ? [value, ...OPTIONS] : OPTIONS;
+  const base = hourOptions(firstHour);
+  const options = value && !base.includes(value) ? [value, ...base] : base;
 
   return (
     <select
@@ -53,7 +61,11 @@ export function TimeSelect({
       )}
       {...props}
     >
-      {!value ? <option value="">Select time</option> : null}
+      {emptyLabel !== undefined ? (
+        <option value="">{emptyLabel}</option>
+      ) : !value ? (
+        <option value="">Select time</option>
+      ) : null}
       {options.map((option) => (
         <option key={option} value={option}>
           {formatLabel(option)}

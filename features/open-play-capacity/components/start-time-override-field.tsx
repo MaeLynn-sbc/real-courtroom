@@ -9,7 +9,7 @@ import {
   resetSessionStartTimeAction,
 } from "@/actions/open-play-capacity.actions";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { TimeSelect } from "@/components/shared/time-select";
 import { Label } from "@/components/ui/label";
 
 interface StartTimeOverrideFieldProps {
@@ -61,11 +61,11 @@ export function StartTimeOverrideField({ date, startTime, overridden }: StartTim
         Open Play start time for this night{overridden ? " (overridden)" : ""}
       </Label>
       <div className="flex items-center gap-2">
-        <Input
+        <TimeSelect
           id="startTimeOverride"
-          type="time"
+          firstHour={0}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={setValue}
           disabled={isPending}
           className="max-w-[140px]"
         />

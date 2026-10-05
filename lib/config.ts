@@ -113,6 +113,15 @@ export const dashboardNavGroups: DashboardNavGroup[] = [
   },
 ];
 
+// Owner-only "visible only to me" item, deliberately NOT in
+// dashboardNavGroups (which every staff member sees) — appended to the
+// Administration group by both the desktop sidebar and the phone menu
+// only when the viewer has permission. See dashboard-sidebar.tsx.
+export const OPEN_PLAY_SPECIAL_ITEM: DashboardNavItem = {
+  title: "Special Open Play",
+  href: "/dashboard/admin/openplayspecial",
+};
+
 // Flattened view — used anywhere that just needs every nav destination
 // without caring about grouping (e.g. active-link matching).
 export const dashboardNavItems: DashboardNavItem[] = dashboardNavGroups.flatMap(

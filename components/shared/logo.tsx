@@ -38,7 +38,9 @@ function resolveLogoSrc(variant: LogoProps["variant"]): string {
     case "dark":
     case "auto":
     default:
-      return "/branding/logo.png";
+      // The cleaned badge (grey halo removed, 2026-10-05) — logo.png is
+      // the original small file it was made from.
+      return "/branding/logo-badge.png";
   }
 }
 

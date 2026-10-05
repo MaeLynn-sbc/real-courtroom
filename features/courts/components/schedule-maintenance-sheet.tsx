@@ -25,7 +25,7 @@ export function ScheduleMaintenanceSheet({ courtId }: ScheduleMaintenanceSheetPr
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger render={<Button>Schedule maintenance</Button>} />
-      <SheetContent side="right" className="w-96">
+      <SheetContent side="right" className="w-full overflow-y-auto sm:w-96">
         <SheetHeader>
           <SheetTitle>Schedule maintenance</SheetTitle>
           <SheetDescription>Block this court out for a maintenance window.</SheetDescription>

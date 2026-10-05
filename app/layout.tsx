@@ -51,6 +51,27 @@ const jetbrainsMono = JetBrains_Mono({
   weight: ["400", "500", "700"],
 });
 
+// [CSS width, CSS height, pixel ratio] of each portrait iPhone screen;
+// files in public/splash, generated at those exact pixel sizes.
+const IOS_SCREENS: [number, number, number][] = [
+  [440, 956, 3],
+  [402, 874, 3],
+  [430, 932, 3],
+  [393, 852, 3],
+  [428, 926, 3],
+  [390, 844, 3],
+  [375, 812, 3],
+  [414, 896, 3],
+  [414, 896, 2],
+  [414, 736, 3],
+  [375, 667, 2],
+];
+
+const IOS_STARTUP_IMAGES = IOS_SCREENS.map(([width, height, ratio]) => ({
+  url: `/splash/apple-splash-${width * ratio}x${height * ratio}.png`,
+  media: `(device-width: ${width}px) and (device-height: ${height}px) and (-webkit-device-pixel-ratio: ${ratio}) and (orientation: portrait)`,
+}));
+
 export const metadata: Metadata = {
   title: {
     default: siteConfig.name,
@@ -78,6 +99,13 @@ export const metadata: Metadata = {
     // handles the inset. "default" keeps the status bar its own solid
     // strip, which is correct for a site that is not full-bleed.
     statusBarStyle: "default",
+    // iOS draws nothing of its own while a home-screen app launches — no
+    // icon, no colour — so without these it showed a blank or stale
+    // screen (owner, 2026-10-05: "the square logo still appears"). One
+    // image per iPhone screen, each the exact first frame of
+    // components/pwa/launch-splash.tsx, so the launch hands off into the
+    // animated splash without a jump.
+    startupImage: IOS_STARTUP_IMAGES,
   },
 };
 

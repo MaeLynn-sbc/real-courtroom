@@ -92,6 +92,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <div className="flex min-h-svh flex-col">
       <DashboardHeader
+        canViewOpenPlaySpecial={canViewOnDuty}
         pendingVerificationCount={pendingVerificationCount}
         pendingOpenPlayVerificationCount={pendingOpenPlayVerificationCount}
         onDutyShifts={onDutyShifts}
@@ -102,7 +103,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
           pendingVerificationCount={pendingVerificationCount}
           pendingOpenPlayVerificationCount={pendingOpenPlayVerificationCount}
         />
-        <main className="flex-1 p-4 md:p-6">
+        {/* min-w-0: a flex item never shrinks below its content, so a wide
+            table stretched the whole page sideways on a phone instead of
+            scrolling inside its own overflow-x-auto wrapper. */}
+        <main className="min-w-0 flex-1 p-4 md:p-6">
           <VerificationBanner initialCount={pendingVerificationCount} />
           <StaleHoldsBanner initialCount={staleHoldsCount} />
           {children}

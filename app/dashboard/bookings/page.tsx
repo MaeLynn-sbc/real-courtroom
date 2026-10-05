@@ -131,7 +131,7 @@ export default async function BookingsPage({ searchParams }: BookingsPageProps) 
             Manage court bookings, walk-ins, and check-ins.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link href="/dashboard/bookings/grid" className={buttonVariants({ variant: "outline" })}>
             Grid view
           </Link>

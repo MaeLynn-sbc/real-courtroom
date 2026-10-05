@@ -31,6 +31,11 @@ export default function manifest(): MetadataRoute.Manifest {
     // of the wrong colour on open.
     background_color: "#0e1424",
     theme_color: "#0e1424",
+    // The "any" icons are the badge on a TRANSPARENT background (owner,
+    // 2026-10-05: "the square logo still appears when you open it").
+    // Android's launch screen draws this icon on background_color, so a
+    // background baked into the icon showed as a square. The launcher
+    // icon itself comes from the maskable one below.
     icons: [
       {
         src: "/icons/icon-192.png",

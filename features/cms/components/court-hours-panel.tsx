@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { setCourtHoursAction } from "@/actions/cms.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TimeSelect } from "@/components/shared/time-select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
@@ -57,7 +58,9 @@ export function CourtHoursPanel({
   const router = useRouter();
   const [facilityOpenTime, setFacilityOpenTime] = useState(courtHours.facilityOpenTime);
   const [facilityCloseTimes, setFacilityCloseTimes] = useState(courtHours.facilityCloseTimes);
-  const [fridaySaturdayCloseTime, setFridaySaturdayCloseTime] = useState(courtHours.fridaySaturdayCloseTime);
+  const [fridaySaturdayCloseTime, setFridaySaturdayCloseTime] = useState(
+    courtHours.fridaySaturdayCloseTime,
+  );
   const [courtCloseTimes, setCourtCloseTimes] = useState(courtHours.courtCloseTimes);
   const [fridaySaturdayCourtCloseTimes, setFridaySaturdayCourtCloseTimes] = useState(
     courtHours.fridaySaturdayCourtCloseTimes ?? {},
@@ -65,7 +68,9 @@ export function CourtHoursPanel({
   const [courtCloseTimesByWeekday, setCourtCloseTimesByWeekday] = useState(
     courtHours.courtCloseTimesByWeekday ?? {},
   );
-  const [businessDateRolloverHour, setBusinessDateRolloverHour] = useState(courtHours.businessDateRolloverHour);
+  const [businessDateRolloverHour, setBusinessDateRolloverHour] = useState(
+    courtHours.businessDateRolloverHour,
+  );
   const [isPending, startTransition] = useTransition();
 
   function save(next: CourtHoursSettings) {
@@ -115,30 +120,31 @@ export function CourtHoursPanel({
         <CardTitle>Court Hours</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
-        {courtHours.openPlayHoursByWeekday && Object.keys(courtHours.openPlayHoursByWeekday).length > 0 && (
-          <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-            Courts with a saved{" "}
-            <Link href="/dashboard/admin/open-play-schedule" className="font-medium underline">
-              Open Play Schedule
-            </Link>{" "}
-            follow it instead of the per-court cutoffs below. The Fri/Sat all-courts cutoff still starts the
-            Unliplay night.
-          </p>
-        )}
+        {courtHours.openPlayHoursByWeekday &&
+          Object.keys(courtHours.openPlayHoursByWeekday).length > 0 && (
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              Courts with a saved{" "}
+              <Link href="/dashboard/admin/open-play-schedule" className="font-medium underline">
+                Open Play Schedule
+              </Link>{" "}
+              follow it instead of the per-court cutoffs below. The Fri/Sat all-courts cutoff still
+              starts the Unliplay night.
+            </p>
+          )}
         <p className="text-muted-foreground text-sm">
-          Controls the public availability grid and blocks online bookings outside these windows. Staff
-          can still book any court/time from the dashboard — it&apos;s just flagged &quot;after hours&quot; for
-          reporting instead of blocked.
+          Controls the public availability grid and blocks online bookings outside these windows.
+          Staff can still book any court/time from the dashboard — it&apos;s just flagged
+          &quot;after hours&quot; for reporting instead of blocked.
         </p>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="facilityOpenTime">Opens (every day)</Label>
-          <Input
+          <TimeSelect
+            firstHour={0}
             id="facilityOpenTime"
-            type="time"
             className="w-32"
             value={facilityOpenTime}
-            onChange={(event) => setFacilityOpenTime(event.target.value)}
+            onChange={(time) => setFacilityOpenTime(time)}
           />
         </div>
 
@@ -155,12 +161,12 @@ export function CourtHoursPanel({
                 <Label htmlFor={`facilityClose-${day.key}`} className="text-xs">
                   {day.label}
                 </Label>
-                <Input
+                <TimeSelect
+                  firstHour={0}
                   id={`facilityClose-${day.key}`}
-                  type="time"
                   value={facilityCloseTimes[day.key] ?? "23:00"}
-                  onChange={(event) =>
-                    setFacilityCloseTimes((previous) => ({ ...previous, [day.key]: event.target.value }))
+                  onChange={(time) =>
+                    setFacilityCloseTimes((previous) => ({ ...previous, [day.key]: time }))
                   }
                 />
               </div>
@@ -170,33 +176,39 @@ export function CourtHoursPanel({
 
         <div className="flex flex-col gap-1.5 border-t pt-4">
           <Label htmlFor="fridaySaturdayCloseTime">Fri/Sat cutoff (all courts)</Label>
-          <Input
+          <TimeSelect
+            firstHour={0}
             id="fridaySaturdayCloseTime"
-            type="time"
             className="w-32"
             value={fridaySaturdayCloseTime}
-            onChange={(event) => setFridaySaturdayCloseTime(event.target.value)}
+            onChange={(time) => setFridaySaturdayCloseTime(time)}
           />
           <p className="text-muted-foreground text-xs">
-            When the Fri/Sat open-play night starts. A court below can hand over earlier than this, never later.
+            When the Fri/Sat open-play night starts. A court below can hand over earlier than this,
+            never later.
           </p>
           <div className="mt-2 flex flex-col gap-2">
             {courts.map((court) => (
               <div key={court.id} className="grid grid-cols-[1fr_auto] items-center gap-2">
                 <Label htmlFor={`friSatCourtClose-${court.id}`}>{court.name} (Fri/Sat)</Label>
-                <Input
+                <TimeSelect
+                  firstHour={0}
                   id={`friSatCourtClose-${court.id}`}
-                  type="time"
                   className="w-32"
                   value={fridaySaturdayCourtCloseTimes[court.name] ?? "00:00"}
-                  onChange={(event) =>
-                    setFridaySaturdayCourtCloseTimes((previous) => ({ ...previous, [court.name]: event.target.value }))
+                  onChange={(time) =>
+                    setFridaySaturdayCourtCloseTimes((previous) => ({
+                      ...previous,
+                      [court.name]: time,
+                    }))
                   }
                 />
               </div>
             ))}
           </div>
-          <p className="text-muted-foreground text-xs">00:00 means the court simply uses the all-courts Fri/Sat cutoff above.</p>
+          <p className="text-muted-foreground text-xs">
+            12 AM means the court simply uses the all-courts Fri/Sat cutoff above.
+          </p>
         </div>
 
         <div className="flex flex-col gap-2 border-t pt-4">
@@ -207,20 +219,20 @@ export function CourtHoursPanel({
             {courts.map((court) => (
               <div key={court.id} className="grid grid-cols-[1fr_auto] items-center gap-2">
                 <Label htmlFor={`courtClose-${court.id}`}>{court.name}</Label>
-                <Input
+                <TimeSelect
+                  firstHour={0}
                   id={`courtClose-${court.id}`}
-                  type="time"
                   className="w-32"
                   value={courtCloseTimes[court.name] ?? "00:00"}
-                  onChange={(event) =>
-                    setCourtCloseTimes((previous) => ({ ...previous, [court.name]: event.target.value }))
+                  onChange={(time) =>
+                    setCourtCloseTimes((previous) => ({ ...previous, [court.name]: time }))
                   }
                 />
               </div>
             ))}
           </div>
           <p className="text-muted-foreground text-xs">
-            00:00 means no cutoff of its own — the court runs until facility close instead.
+            12 AM means no cutoff of its own — the court runs until facility close instead.
           </p>
         </div>
 
@@ -229,8 +241,9 @@ export function CourtHoursPanel({
             Weekday exceptions (Sunday–Thursday)
           </p>
           <p className="text-muted-foreground text-xs">
-            A different cutoff for one court on one weekday, every week — e.g. Court 2 handing over to open play at
-            6 PM on Wednesdays and Thursdays. Leave blank to use the per-court cutoff above.
+            A different cutoff for one court on one weekday, every week — e.g. Court 2 handing over
+            to open play at 6 PM on Wednesdays and Thursdays. Leave blank to use the per-court
+            cutoff above.
           </p>
           <div className="overflow-x-auto">
             <table className="text-sm">
@@ -238,7 +251,10 @@ export function CourtHoursPanel({
                 <tr>
                   <th />
                   {SUN_TO_THU.map((day) => (
-                    <th key={day.key} className="text-muted-foreground px-1 pb-1 text-left text-xs font-medium">
+                    <th
+                      key={day.key}
+                      className="text-muted-foreground px-1 pb-1 text-left text-xs font-medium"
+                    >
                       {day.label}
                     </th>
                   ))}
@@ -250,12 +266,13 @@ export function CourtHoursPanel({
                     <td className="pr-2 whitespace-nowrap">{court.name}</td>
                     {SUN_TO_THU.map((day) => (
                       <td key={day.key} className="p-1">
-                        <Input
+                        <TimeSelect
+                          firstHour={0}
+                          emptyLabel="—"
                           aria-label={`${court.name} cutoff on ${day.label}`}
-                          type="time"
                           className="w-28"
                           value={courtCloseTimesByWeekday[day.key]?.[court.name] ?? ""}
-                          onChange={(event) => setWeekdayOverride(day.key, court.name, event.target.value)}
+                          onChange={(time) => setWeekdayOverride(day.key, court.name, time)}
                         />
                       </td>
                     ))}
@@ -278,11 +295,19 @@ export function CourtHoursPanel({
               value={businessDateRolloverHour}
               onChange={(event) => setBusinessDateRolloverHour(Number(event.target.value))}
             />
-            <span className="text-muted-foreground text-sm">:00 — a booking before this hour still counts toward the previous night</span>
+            <span className="text-muted-foreground text-sm">
+              :00 — a booking before this hour still counts toward the previous night
+            </span>
           </div>
         </div>
 
-        <Button type="button" size="sm" disabled={isPending} onClick={handleSave} className="self-start">
+        <Button
+          type="button"
+          size="sm"
+          disabled={isPending}
+          onClick={handleSave}
+          className="self-start"
+        >
           {isPending ? "Saving…" : "Save court hours"}
         </Button>
       </CardContent>

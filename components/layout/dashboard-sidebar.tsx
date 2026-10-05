@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import { UserNav } from "@/components/layout/user-nav";
 import { Logo } from "@/components/shared/logo";
 import { useCurrentUser } from "@/hooks/use-current-user";
-import { dashboardNavGroups, dashboardNavItems } from "@/lib/config";
+import { OPEN_PLAY_SPECIAL_ITEM, dashboardNavGroups, dashboardNavItems } from "@/lib/config";
 import { isFridayOrSaturday } from "@/lib/court-hours";
 import { cn } from "@/lib/utils";
 
@@ -23,10 +23,8 @@ import { cn } from "@/lib/utils";
 // app/dashboard/layout.tsx (the same SYSTEM_ADMIN check that page's own
 // route access already requires — see lib/rbac.ts's /dashboard/admin
 // default).
-const OPEN_PLAY_SPECIAL_ITEM = {
-  title: "Special Open Play",
-  href: "/dashboard/admin/openplayspecial",
-};
+// Defined in lib/config.ts (outside dashboardNavGroups) so the phone menu
+// in dashboard-header.tsx appends the same item.
 
 // Picks the longest href that matches the current path (exact or as a
 // parent segment), so a nested route like /dashboard/courts/abc123

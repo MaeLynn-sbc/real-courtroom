@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { NotificationBell } from "@/features/notifications/components/notification-bell";
-import { dashboardNavGroups, siteConfig } from "@/lib/config";
+import { OPEN_PLAY_SPECIAL_ITEM, dashboardNavGroups, siteConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { shiftService } from "@/services/shift/shift.service";
 
@@ -37,12 +37,17 @@ const onDutyTimeFormatter = new Intl.DateTimeFormat("en-PH", { hour: "numeric", 
 type OnDutyShifts = Awaited<ReturnType<typeof shiftService.listOpenShiftsWithEmployee>> | null;
 
 interface DashboardHeaderProps {
+  // Same owner-only item the desktop sidebar appends (see
+  // OPEN_PLAY_SPECIAL_ITEM) — the phone menu used to leave it out, so it
+  // was unreachable on a phone (2026-10-05 mobile audit).
+  canViewOpenPlaySpecial?: boolean;
   pendingVerificationCount: number;
   pendingOpenPlayVerificationCount: number;
   onDutyShifts: OnDutyShifts;
 }
 
 export function DashboardHeader({
+  canViewOpenPlaySpecial = false,
   pendingVerificationCount,
   pendingOpenPlayVerificationCount,
   onDutyShifts,
@@ -87,15 +92,23 @@ export function DashboardHeader({
                 <h2 className="text-muted-foreground px-3 pb-1 text-xs font-semibold tracking-wide uppercase">
                   {group.label}
                 </h2>
-                {group.items.map((item) => {
+                {(group.label === "Administration" && canViewOpenPlaySpecial
+                  ? [...group.items, OPEN_PLAY_SPECIAL_ITEM]
+                  : group.items
+                ).map((item) => {
                   const Icon = NAV_ICONS[item.href];
+                  const isActive = pathname === item.href || (pathname ?? "").startsWith(`${item.href}/`);
 
                   return (
                     <Link
                       key={item.href}
                       href={item.href}
                       onClick={() => setMenuOpen(false)}
-                      className="hover:bg-accent hover:text-accent-foreground flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium"
+                      aria-current={isActive ? "page" : undefined}
+                      className={cn(
+                        "hover:bg-accent hover:text-accent-foreground flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium",
+                        isActive && "bg-accent text-accent-foreground",
+                      )}
                     >
                       {Icon ? <Icon className="size-4" aria-hidden="true" /> : null}
                       {item.title}
