@@ -24,8 +24,14 @@ export default async function ShiftPage() {
   // adding one wasn't asked for. Held by Owner and Manager, not
   // Receptionist/Tournament Director/Member — everyone below owner-tier
   // still only ever sees their own shift.
-  const canReviewAllShifts = hasPermission(session?.user.permissions ?? [], PERMISSIONS.REPORTS_MANAGE);
-  const canRecordManualSale = hasPermission(session?.user.permissions ?? [], PERMISSIONS.SALES_RECORD_MANUAL);
+  const canReviewAllShifts = hasPermission(
+    session?.user.permissions ?? [],
+    PERMISSIONS.REPORTS_MANAGE,
+  );
+  const canRecordManualSale = hasPermission(
+    session?.user.permissions ?? [],
+    PERMISSIONS.SALES_RECORD_MANUAL,
+  );
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
@@ -63,7 +69,9 @@ async function ShiftWorkspaceData({
 }) {
   const [currentShift, recentShifts, paymentMethods] = await Promise.all([
     shiftService.getCurrentShift(employeeId),
-    canReviewAllShifts ? shiftService.listAllShiftsForReview(20) : shiftService.listShifts(employeeId, 10),
+    canReviewAllShifts
+      ? shiftService.listAllShiftsForReview(20)
+      : shiftService.listShifts(employeeId, 10),
     canRecordManualSale ? saleService.listPaymentMethods() : Promise.resolve([]),
   ]);
 
@@ -71,11 +79,18 @@ async function ShiftWorkspaceData({
   // cash" is shown to staff BEFORE they start entering their physical
   // count — a real comparison, not a number that only appears after
   // they've already committed to a total.
-  const [expectedCashCents, expectedGcashCents, manualSales, suggestedOpeningGcashCents] = await Promise.all([
+  const [
+    expectedCashCents,
+    expectedGcashCents,
+    manualSales,
+    suggestedOpeningGcashCents,
+    expectedOpeningCashCents,
+  ] = await Promise.all([
     currentShift ? shiftService.getExpectedCashForShift(currentShift) : null,
     currentShift ? shiftService.getExpectedGcashForShift(currentShift) : null,
     currentShift ? saleService.listManualSalesForShift(currentShift.id) : [],
     currentShift ? null : shiftService.getSuggestedOpeningGcashCents(),
+    currentShift ? null : shiftService.getExpectedOpeningCashCents(),
   ]);
 
   return (
@@ -85,6 +100,7 @@ async function ShiftWorkspaceData({
       expectedCashCents={expectedCashCents}
       expectedGcashCents={expectedGcashCents}
       suggestedOpeningGcashCents={suggestedOpeningGcashCents}
+      expectedOpeningCashCents={expectedOpeningCashCents}
       showEmployeeColumn={canReviewAllShifts}
       canRecordManualSale={canRecordManualSale}
       paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}

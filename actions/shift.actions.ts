@@ -14,7 +14,7 @@ import { requireEmployeeWithOpenShift, requirePermission, requireSession } from 
 import { toActionError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { saleService } from "@/services/sales/sale.service";
-import { shiftService } from "@/services/shift/shift.service";
+import { OpeningCashMismatchError, shiftService } from "@/services/shift/shift.service";
 import { PERMISSIONS } from "@/types/permissions";
 
 export interface ShiftActionState {
@@ -50,6 +50,20 @@ export async function startShiftAction(input: StartShiftInput): Promise<ShiftAct
   }
 
   try {
+    // A count that doesn't match what the drawer should hold needs a note
+    // saying why (owner, 2026-10-09) — asked at the handover, by the person
+    // holding the drawer, not days later. Checked here rather than inside
+    // startShift so fixtures and scripts that open shifts directly are
+    // unaffected.
+    const expectedOpeningCashCents = await shiftService.getExpectedOpeningCashCents();
+    if (
+      expectedOpeningCashCents !== null &&
+      parsed.data.openingCashCents !== expectedOpeningCashCents &&
+      !parsed.data.openingNotes?.trim()
+    ) {
+      return { error: new OpeningCashMismatchError(parsed.data.openingCashCents, expectedOpeningCashCents).message };
+    }
+
     await shiftService.startShift(authz.employeeId, parsed.data, authz.userId);
     revalidatePath("/dashboard/shift");
     return { error: null };

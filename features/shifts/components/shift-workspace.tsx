@@ -42,6 +42,9 @@ interface ShiftWorkspaceProps {
   // The start form's GCash default: what Accounts Reconciliation expects
   // the GCash balance to be right now (shiftService.getSuggestedOpeningGcashCents).
   suggestedOpeningGcashCents: number | null;
+  // What the drawer should hold at open (shiftService.getExpectedOpeningCashCents);
+  // null when there's nothing to compare against.
+  expectedOpeningCashCents: number | null;
   // REPORTS_MANAGE holders see every employee's shifts here (an
   // Employee column added to the same table), not just their own —
   // false for everyone else, who keep the exact table they had before.
@@ -55,7 +58,13 @@ interface ShiftWorkspaceProps {
   manualSales: ManualSaleView[];
 }
 
-function StartShiftForm({ suggestedOpeningGcashCents }: { suggestedOpeningGcashCents: number | null }) {
+function StartShiftForm({
+  suggestedOpeningGcashCents,
+  expectedOpeningCashCents,
+}: {
+  suggestedOpeningGcashCents: number | null;
+  expectedOpeningCashCents: number | null;
+}) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -66,6 +75,19 @@ function StartShiftForm({ suggestedOpeningGcashCents }: { suggestedOpeningGcashC
     suggestedOpeningGcashCents !== null ? (suggestedOpeningGcashCents / 100).toFixed(2) : "",
   );
   const [openingNotes, setOpeningNotes] = useState("");
+
+  // Not pre-filled and not shown up front — the attendant counts first.
+  // Only a count that doesn't match reveals the difference (owner,
+  // 2026-10-09: a ₱1,005 gap between Wednesday's close and Thursday's
+  // opening went unnoticed until the day-end close).
+  const typedOpeningCashCents = openingCash.trim() ? Math.round(Number(openingCash) * 100) : null;
+  const openingCashDifferenceCents =
+    expectedOpeningCashCents !== null &&
+    typedOpeningCashCents !== null &&
+    Number.isFinite(typedOpeningCashCents) &&
+    typedOpeningCashCents !== expectedOpeningCashCents
+      ? typedOpeningCashCents - expectedOpeningCashCents
+      : null;
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -79,6 +101,10 @@ function StartShiftForm({ suggestedOpeningGcashCents }: { suggestedOpeningGcashC
     const openingGcashCents = Math.round(Number(openingGcash) * 100);
     if (!openingGcash.trim() || !Number.isFinite(openingGcashCents)) {
       setServerError("Enter the GCash balance shown in the app.");
+      return;
+    }
+    if (openingCashDifferenceCents !== null && !openingNotes.trim()) {
+      setServerError("Your cash count doesn't match — count again, or write in the opening notes what happened.");
       return;
     }
 
@@ -113,7 +139,22 @@ function StartShiftForm({ suggestedOpeningGcashCents }: { suggestedOpeningGcashC
               min="0"
               value={openingCash}
               onChange={(event) => setOpeningCash(event.target.value)}
+              aria-invalid={openingCashDifferenceCents !== null || undefined}
             />
+            {openingCashDifferenceCents !== null && expectedOpeningCashCents !== null ? (
+              <p
+                className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                role="alert"
+              >
+                The drawer should have <strong>{formatCurrency(expectedOpeningCashCents)}</strong> — you counted{" "}
+                <strong>
+                  {formatCurrency(Math.abs(openingCashDifferenceCents))}{" "}
+                  {openingCashDifferenceCents < 0 ? "less" : "more"}
+                </strong>
+                . Count again. If your count is right, write in the opening notes what happened (for example, cash
+                collected but not recorded).
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="openingGcash">GCash balance (as shown in the app)</Label>
@@ -135,7 +176,9 @@ function StartShiftForm({ suggestedOpeningGcashCents }: { suggestedOpeningGcashC
             ) : null}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="openingNotes">Opening notes (optional)</Label>
+            <Label htmlFor="openingNotes">
+              Opening notes {openingCashDifferenceCents !== null ? "(required — explain the difference)" : "(optional)"}
+            </Label>
             <Textarea
               id="openingNotes"
               value={openingNotes}
@@ -509,6 +552,7 @@ export function ShiftWorkspace({
   expectedCashCents,
   expectedGcashCents,
   suggestedOpeningGcashCents,
+  expectedOpeningCashCents,
   showEmployeeColumn,
   canRecordManualSale,
   paymentMethods,
@@ -523,7 +567,10 @@ export function ShiftWorkspace({
           expectedGcashCents={expectedGcashCents}
         />
       ) : (
-        <StartShiftForm suggestedOpeningGcashCents={suggestedOpeningGcashCents} />
+        <StartShiftForm
+          suggestedOpeningGcashCents={suggestedOpeningGcashCents}
+          expectedOpeningCashCents={expectedOpeningCashCents}
+        />
       )}
 
       {currentShift && canRecordManualSale ? <RecordManualSaleForm paymentMethods={paymentMethods} /> : null}

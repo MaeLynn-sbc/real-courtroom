@@ -1,9 +1,10 @@
 import type { EndShiftInput, StartShiftInput } from "@/features/shifts/schemas/shift.schema";
 import type { Prisma, Shift } from "@/lib/generated/prisma/client";
-import { computeBusinessDate, getBusinessDateRange, widenToBusinessDateRangeStart } from "@/lib/business-date";
+import { computeBusinessDate, getBusinessDateRange, isWithinBusinessDay, widenToBusinessDateRangeStart } from "@/lib/business-date";
 import { sumCashDenominationBreakdown } from "@/lib/cash-denominations";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { cashReconciliationService, PriorDayNotClosedError } from "@/services/cash/cash-reconciliation.service";
 import { expenseService } from "@/services/expenses/expense.service";
 import { gcashReconciliationService } from "@/services/gcash/gcash-reconciliation.service";
 import { settingsService } from "@/services/settings/settings.service";
@@ -67,6 +68,21 @@ export interface ShiftReconciliationRow {
 
 const NOT_A_CASH_DRAWER_MARKER = "Payment-approval attribution shift — not a real cash drawer.";
 
+const formatPeso = (cents: number) =>
+  `₱${(cents / 100).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+export class OpeningCashMismatchError extends Error {
+  constructor(countedCents: number, expectedCents: number) {
+    const difference = countedCents - expectedCents;
+    super(
+      `The drawer should have ${formatPeso(expectedCents)} but you counted ${formatPeso(Math.abs(difference))} ${
+        difference < 0 ? "less" : "more"
+      }. Count again — if your count is right, write in the opening notes what happened.`,
+    );
+    this.name = "OpeningCashMismatchError";
+  }
+}
+
 export class ShiftService {
   // Pre-fills "GCash balance" on the start-shift form. Owner (2026-09-26):
   // the Accounts Reconciliation screen is the right number — the first
@@ -89,6 +105,58 @@ export class ShiftService {
       select: { closingGcashCents: true },
     });
     return last?.closingGcashCents ?? null;
+  }
+
+  // What the drawer SHOULD hold when a shift opens, so a gap between one
+  // shift's close and the next shift's opening count is caught on the spot
+  // (owner, 2026-10-09: Wednesday's ₱4,200 collection was entered as
+  // ₱3,200; the ₱1,005 gap only surfaced at Thursday's day-end close).
+  //   - Today's day already confirmed (a shift opening after the night
+  //     close): the confirmed count minus what was withdrawn.
+  //   - A shift already closed earlier today (mid-day handover): that
+  //     shift's own count — nothing is withdrawn between shifts.
+  //   - First shift of the day: Accounts Reconciliation's expected
+  //     balance (yesterday's count minus its withdrawal, plus any sales
+  //     since).
+  // Null when there is nothing to compare against.
+  async getExpectedOpeningCashCents(): Promise<number | null> {
+    const { businessDateRolloverHour } = await settingsService.getCourtHours();
+    const lastShift = await prisma.shift.findFirst({
+      where: {
+        status: "CLOSED",
+        closingCashCents: { not: null },
+        endedAt: { not: null },
+        // OR with null explicitly: in SQL, NOT (openingNotes LIKE '…%') is
+        // NULL — not true — for a shift with no opening note, which would
+        // silently drop most real shifts.
+        OR: [{ openingNotes: null }, { NOT: { openingNotes: { startsWith: NOT_A_CASH_DRAWER_MARKER } } }],
+      },
+      orderBy: { endedAt: "desc" },
+      select: { closingCashCents: true, endedAt: true },
+    });
+
+    let today: Awaited<ReturnType<typeof cashReconciliationService.getTodaysBalance>> = null;
+    try {
+      today = await cashReconciliationService.getTodaysBalance(businessDateRolloverHour);
+    } catch (error) {
+      if (!(error instanceof PriorDayNotClosedError)) {
+        throw error;
+      }
+    }
+
+    if (today?.status === "CONFIRMED" && today.confirmedEndingBalanceCents !== null) {
+      return today.confirmedEndingBalanceCents - today.withdrawnCents;
+    }
+    if (
+      lastShift?.endedAt &&
+      (!today || isWithinBusinessDay(lastShift.endedAt, today.date, businessDateRolloverHour))
+    ) {
+      return lastShift.closingCashCents;
+    }
+    if (today) {
+      return cashReconciliationService.getExpectedEndingBalance(today);
+    }
+    return lastShift?.closingCashCents ?? null;
   }
 
   async getCurrentShift(employeeId: string) {
@@ -172,7 +240,10 @@ export class ShiftService {
     const shifts = await prisma.shift.findMany({
       where: {
         startedAt: { gte: start, lt: end },
-        NOT: { openingNotes: { startsWith: NOT_A_CASH_DRAWER_MARKER } },
+        // OR with null explicitly (found 2026-10-09): NOT (openingNotes LIKE
+        // '…%') is NULL, not true, for a shift with no opening note, so this
+        // report silently dropped 61 of the last 64 real shifts.
+        OR: [{ openingNotes: null }, { NOT: { openingNotes: { startsWith: NOT_A_CASH_DRAWER_MARKER } } }],
         employee: { user: { OR: [{ email: null }, { email: { not: WEBSITE_SYSTEM_USER_EMAIL } }] } },
       },
       include: { employee: { select: { firstName: true, lastName: true } } },
