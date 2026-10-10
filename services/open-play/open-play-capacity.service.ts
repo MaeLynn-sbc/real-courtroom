@@ -396,7 +396,7 @@ export class OpenPlayCapacityService {
     date: Date,
     capacity: number,
     actorUserId: string,
-  ): Promise<OpenPlayNightSession> {
+  ): Promise<OpenPlayNightSession & { seatedFromWaitlist: string[]; invitedFromOnline: string[] }> {
     const session = await this.getOrCreateSessionForDate(date);
 
     // Open-play online self-registration, Gate 2 (BUILD-SPEC.md §6): "a
@@ -433,15 +433,15 @@ export class OpenPlayCapacityService {
       // has its own separate, not-yet-built guard (this method's own
       // "Phase 4 note" above already flags that lowering below the
       // confirmed count isn't rejected yet; unrelated to this gate).
-      if (capacity > locked.capacity) {
-        await openPlayRegistrationService.inviteNextWaitlistEntry(
-          tx,
-          { id: session.id, date: locked.date },
-          actorUserId,
-        );
-      }
+      // Walk-in waitlisters first, then the online waitlist — the same
+      // rule as every other freed seat (owner, 2026-10-10: raising to 41
+      // offered the seat online while Joshua waited at the desk).
+      const filled =
+        capacity > locked.capacity
+          ? await openPlayRegistrationService.fillFreedSeats(tx, { id: session.id, date: locked.date }, actorUserId)
+          : { seated: [], invited: [] };
 
-      return result;
+      return { ...result, seatedFromWaitlist: filled.seated, invitedFromOnline: filled.invited };
     });
 
     await this.writeAuditLog({

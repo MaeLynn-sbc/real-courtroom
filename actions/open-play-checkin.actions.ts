@@ -122,9 +122,6 @@ export async function registerAndCheckInAction(
     if (!authz.ok) {
       return { error: authz.error };
     }
-    if (!parsed.data.method || !parsed.data.paymentMethodId) {
-      return { error: "Select a payment method." };
-    }
     if (parsed.data.method === "GCASH" && !parsed.data.gcashReference?.trim()) {
       return { error: "A GCash reference number is required." };
     }
@@ -133,13 +130,19 @@ export async function registerAndCheckInAction(
       const result = await openPlayCheckinService.registerAndCheckIn(
         {
           sessionId: parsed.data.sessionId,
-          saleContext: {
-            method: parsed.data.method,
-            gcashReference: parsed.data.gcashReference ?? null,
-            paymentMethodId: parsed.data.paymentMethodId,
-            employeeId: authz.employeeId,
-            shiftId: authz.shiftId,
-          },
+          // No payment method = the form showed the night as full, so
+          // no payment was taken (owner, 2026-10-10). A seat that turns
+          // out to be free leaves them "Seated · Unpaid" on the roster.
+          saleContext:
+            parsed.data.method && parsed.data.paymentMethodId
+              ? {
+                  method: parsed.data.method,
+                  gcashReference: parsed.data.gcashReference ?? null,
+                  paymentMethodId: parsed.data.paymentMethodId,
+                  employeeId: authz.employeeId,
+                  shiftId: authz.shiftId,
+                }
+              : undefined,
         },
         base,
         authz.userId,

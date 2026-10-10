@@ -90,6 +90,11 @@ interface WalkInRegistrationFormProps {
   // every pre-existing single-form call site (weeknight, post-cutoff
   // capacity-only) is byte-for-byte unaffected.
   formId?: string;
+  // Fri/Sat only: free seats right now (capacity minus seats taken,
+  // including online holds). At 0 the form says the player goes onto the
+  // waitlist and stops asking for a payment it would not record (owner,
+  // 2026-10-10: Joshua's GCash payment was silently dropped).
+  seatsRemaining?: number;
 }
 
 export function WalkInRegistrationForm({
@@ -101,6 +106,7 @@ export function WalkInRegistrationForm({
   friSatRegistrationFeeCents,
   title = "Register a Walk-in",
   formId = "walkIn",
+  seatsRemaining,
 }: WalkInRegistrationFormProps) {
   const router = useRouter();
   const [playerName, setPlayerName] = useState("");
@@ -115,6 +121,8 @@ export function WalkInRegistrationForm({
   const [isPending, startTransition] = useTransition();
 
   const isCapacityNight = "sessionId" in target;
+  const isNightFull = isCapacityNight && seatsRemaining !== undefined && seatsRemaining <= 0;
+  const needsPayment = isCapacityNight && !isNightFull;
 
   // Search-as-you-type combobox (shared with New Booking's "Player"
   // field) needs a `label` per option — reuse `name` rather than
@@ -159,8 +167,8 @@ export function WalkInRegistrationForm({
       toast.error("Enter a name and phone number.");
       return;
     }
-    const method = deriveSettlementMethod(paymentMethods, paymentMethodId);
-    if (isCapacityNight) {
+    const method = needsPayment ? deriveSettlementMethod(paymentMethods, paymentMethodId) : null;
+    if (needsPayment) {
       if (!method) {
         toast.error("Select a payment method.");
         return;
@@ -182,22 +190,17 @@ export function WalkInRegistrationForm({
       // isCapacityNight ("sessionId" in target) already returned early
       // above unless method is set — non-null here by construction.
       let result: { error: string | null; waitlisted?: boolean };
+      const payment = method
+        ? {
+            method,
+            gcashReference: method === "GCASH" ? gcashReference.trim() : undefined,
+            paymentMethodId,
+          }
+        : {};
       if (action === "register" && "sessionId" in target) {
-        result = await registerWalkInAction({
-          sessionId: target.sessionId,
-          ...base,
-          method: method!,
-          gcashReference: method === "GCASH" ? gcashReference.trim() : undefined,
-          paymentMethodId,
-        });
+        result = await registerWalkInAction({ sessionId: target.sessionId, ...base, ...payment });
       } else if ("sessionId" in target) {
-        result = await registerAndCheckInAction({
-          sessionId: target.sessionId,
-          ...base,
-          method: method!,
-          gcashReference: method === "GCASH" ? gcashReference.trim() : undefined,
-          paymentMethodId,
-        });
+        result = await registerAndCheckInAction({ sessionId: target.sessionId, ...base, ...payment });
       } else {
         result = await registerAndCheckInAction({ date: target.date, ...base });
       }
@@ -210,13 +213,12 @@ export function WalkInRegistrationForm({
       // that landed on the waiting roster (capacity full) was never
       // checked in — there's no seat to check into — so it needs its
       // own message, not the normal "checked in" one.
-      const message =
-        action === "register"
+      const message = result.waitlisted
+        ? `${playerName.trim()} added to the waitlist — not charged. Use "Seat now" on the roster when a seat opens.`
+        : action === "register"
           ? `${playerName.trim()} registered.`
-          : result.waitlisted
-            ? `${playerName.trim()} added to the waiting roster — no charge.`
-            : `${playerName.trim()} checked in.`;
-      toast.success(message);
+          : `${playerName.trim()} checked in.`;
+      toast.success(message, result.waitlisted ? { duration: 10_000 } : undefined);
       reset();
       router.refresh();
     });
@@ -291,7 +293,17 @@ export function WalkInRegistrationForm({
             </Select>
           </div>
         </div>
-        {isCapacityNight ? (
+        {isNightFull ? (
+          <p
+            className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+            role="status"
+          >
+            <strong>Tonight is full.</strong> This player goes onto the waitlist and is <strong>not charged</strong> —
+            don&apos;t take payment yet. When a seat opens, use <strong>Seat now</strong> on the roster to seat them and
+            take the payment.
+          </p>
+        ) : null}
+        {needsPayment ? (
           <div className="flex flex-wrap items-end gap-3 rounded-md border border-dashed px-3 py-2">
             <SettlementPaymentFields
               paymentMethods={paymentMethods}
@@ -307,19 +319,19 @@ export function WalkInRegistrationForm({
         <div className="flex gap-2">
           <Button
             type="button"
-            disabled={isPending || (isCapacityNight && !paymentMethodId)}
+            disabled={isPending || (needsPayment && !paymentMethodId)}
             onClick={() => submit("walkin")}
           >
-            {isPending ? "Working…" : "Walk-in (register & check in)"}
+            {isPending ? "Working…" : isNightFull ? "Add to waitlist" : "Walk-in (register & check in)"}
           </Button>
           {showRegisterOnly && "sessionId" in target ? (
             <Button
               type="button"
               variant="outline"
-              disabled={isPending || (isCapacityNight && !paymentMethodId)}
+              disabled={isPending || (needsPayment && !paymentMethodId)}
               onClick={() => submit("register")}
             >
-              Register only (arriving later)
+              {isNightFull ? "Add to waitlist (arriving later)" : "Register only (arriving later)"}
             </Button>
           ) : null}
         </div>

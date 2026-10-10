@@ -11,12 +11,27 @@ export const registerWalkInInputSchema = z.object({
   // only by construction (sessionId always required above), so the
   // ₱150 registration fee always applies — same required-ness as
   // settleTabInputSchema's own method/paymentMethodId.
+  // Optional only for a night the form shows as full (owner, 2026-10-10):
+  // a waitlisted walk-in isn't charged, so the form no longer asks for a
+  // payment it would silently drop. If a seat turns out to be free after
+  // all, they're seated unpaid and the roster offers Take payment.
+  method: z.enum(["CASH", "GCASH"]).optional(),
+  gcashReference: z.string().max(100).optional(),
+  paymentMethodId: z.string().min(1).optional(),
+});
+
+export type RegisterWalkInInput = z.infer<typeof registerWalkInInputSchema>;
+
+// Seat now / Take payment on the roster: the ₱150 fee, same fields as a
+// walk-in registration's payment.
+export const registrationPaymentInputSchema = z.object({
+  registrationId: z.string().min(1),
   method: z.enum(["CASH", "GCASH"]),
   gcashReference: z.string().max(100).optional(),
   paymentMethodId: z.string().min(1),
 });
 
-export type RegisterWalkInInput = z.infer<typeof registerWalkInInputSchema>;
+export type RegistrationPaymentInput = z.infer<typeof registrationPaymentInputSchema>;
 
 export const releaseRegistrationInputSchema = z.object({
   registrationId: z.string().min(1),

@@ -260,6 +260,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
                     players={players}
                     paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
                     friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
+                    seatsRemaining={session.capacity - occupiedCount}
                   />
                 </>
               ) : (
@@ -269,6 +270,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
                   paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
                   weeknightGameRateCents={gameFormat.rateCents}
                   friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
+                  seatsRemaining={session.capacity - occupiedCount}
                 />
               )}
               <CheckInPanel
@@ -287,9 +289,15 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
           }
           roster={
             <RegistrationRosterPanel
-              registrations={registrations}
+              registrations={registrations.map((registration) => ({
+                ...registration,
+                isPaid: registration.sale !== null || registration.creditsRedeemed.length > 0,
+              }))}
               skillBreakdown={skillBreakdown}
               capacity={session.capacity}
+              seatsRemaining={session.capacity - occupiedCount}
+              paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
+              friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
             />
           }
         />

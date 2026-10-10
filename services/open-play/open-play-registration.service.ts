@@ -157,6 +157,8 @@ async function countOccupiedSeats(
 // (still reachable by anyone who already has that older proofId, e.g.
 // from Audit Logs).
 export type SessionRegistrationWithLatestProof = OpenPlayNightRegistration & {
+  sale: { id: string } | null;
+  creditsRedeemed: { id: string }[];
   paymentProofs: {
     id: string;
     status: OpenPlayRegistrationPaymentProofStatus;
@@ -682,12 +684,61 @@ export class OpenPlayRegistrationService {
   // transition it EXPIRED first, then fall through and try the next
   // WAITING entry in the same call — one "a slot is available" moment
   // can both resolve a stale invite and hand the slot to someone new.
+  // One rule for every way a Fri/Sat seat frees up — a release (cancel,
+  // no-show, check-out), a deleted hold, a capacity increase (owner,
+  // 2026-10-10: raising capacity to 41 offered the seat to the online
+  // waitlist while Joshua stood at the desk; deleting that hold then freed
+  // the seat and moved nobody up). Walk-in waitlisters go first: they are
+  // physically here. Only then does the online waitlist get an invite.
+  // Seated walk-ins are NOT charged here — the roster shows them as
+  // "Seated · Unpaid" with a Take payment button. Caller holds the session
+  // lock.
+  async fillFreedSeats(
+    tx: Prisma.TransactionClient,
+    session: { id: string; date: Date },
+    actorUserId: string | null,
+  ): Promise<{ seated: string[]; invited: string[] }> {
+    const seated: string[] = [];
+    for (;;) {
+      const { capacity } = await tx.openPlayNightSession.findUniqueOrThrow({
+        where: { id: session.id },
+        select: { capacity: true },
+      });
+      if ((await countOccupiedSeats(tx, session.id, new Date())) >= capacity) {
+        return { seated, invited: [] };
+      }
+      const head = await tx.openPlayNightRegistration.findFirst({
+        where: { sessionId: session.id, waitlistPos: { not: null } },
+        orderBy: { waitlistPos: "asc" },
+      });
+      if (!head) {
+        break;
+      }
+      await tx.openPlayNightRegistration.update({ where: { id: head.id }, data: { waitlistPos: null } });
+      await tx.openPlayNightRegistration.updateMany({
+        where: { sessionId: session.id, waitlistPos: { gt: head.waitlistPos ?? 0 } },
+        data: { waitlistPos: { decrement: 1 } },
+      });
+      await this.writeAuditLog({
+        actorUserId,
+        action: "open_play_night_registration.seated_from_waitlist",
+        entityType: "OpenPlayNightRegistration",
+        entityId: head.id,
+        newValues: { waitlistPos: null, previousWaitlistPos: head.waitlistPos, automatic: true },
+      });
+      seated.push(head.playerName);
+    }
+    const invited = await this.inviteNextWaitlistEntry(tx, session, actorUserId);
+    return { seated, invited };
+  }
+
   async inviteNextWaitlistEntry(
     tx: Prisma.TransactionClient,
     session: { id: string; date: Date },
     actorUserId: string | null,
-  ): Promise<void> {
+  ): Promise<string[]> {
     const now = new Date();
+    const invitedNames: string[] = [];
 
     // Resolve every stale invite first — cleanliness/audit correctness,
     // not a capacity effect: countOccupiedSeats already stops counting
@@ -737,7 +788,7 @@ export class OpenPlayRegistrationService {
       });
       const occupied = await countOccupiedSeats(tx, session.id, now);
       if (occupied >= currentSession.capacity) {
-        return;
+        return invitedNames;
       }
 
       const nextWaiting = await tx.openPlayWaitlistEntry.findFirst({
@@ -745,7 +796,7 @@ export class OpenPlayRegistrationService {
         orderBy: { submittedAt: "asc" },
       });
       if (!nextWaiting) {
-        return;
+        return invitedNames;
       }
 
       if (!canTransitionOpenPlayWaitlistEntryStatus("WAITING", "INVITED")) {
@@ -768,6 +819,7 @@ export class OpenPlayRegistrationService {
         },
       });
 
+      invitedNames.push(nextWaiting.playerName);
       await tx.openPlayWaitlistEntry.update({
         where: { id: nextWaiting.id },
         data: {
@@ -1008,6 +1060,94 @@ export class OpenPlayRegistrationService {
     return this.releaseRegistration(registrationId, "CHECKED_OUT", actorUserId);
   }
 
+  // Owner (2026-10-10): staff had no way to seat a waitlisted walk-in
+  // themselves — only a release did it. Refuses when every seat is taken
+  // (raise the capacity first), and records the fee in the same
+  // transaction, so a seated player is never left unpaid by this path.
+  async seatFromWaitlist(
+    registrationId: string,
+    saleContext: RegisterWalkInSaleContext,
+    actorUserId: string,
+  ): Promise<OpenPlayNightRegistration> {
+    if (saleContext.method === "GCASH" && !saleContext.gcashReference?.trim()) {
+      throw new Error("A GCash reference number is required.");
+    }
+    const seated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+      if (!existing.sessionId) {
+        throw new Error("Only Fri/Sat registrations have a waitlist.");
+      }
+      const session = await lockSessionRow(tx, existing.sessionId);
+      const current = await tx.openPlayNightRegistration.findUniqueOrThrow({ where: { id: registrationId } });
+      if (current.status !== "CONFIRMED" || current.waitlistPos === null) {
+        throw new Error("This player isn't on the waitlist.");
+      }
+      if (!session || (await countOccupiedSeats(tx, existing.sessionId, new Date())) >= session.capacity) {
+        throw new Error("Every seat is taken — raise the night's capacity first, then seat them.");
+      }
+      const updated = await tx.openPlayNightRegistration.update({
+        where: { id: registrationId },
+        data: { waitlistPos: null },
+      });
+      await tx.openPlayNightRegistration.updateMany({
+        where: { sessionId: existing.sessionId, waitlistPos: { gt: current.waitlistPos } },
+        data: { waitlistPos: { decrement: 1 } },
+      });
+      await createOpenPlayRegistrationFeeSale(
+        tx,
+        { id: updated.id, playerId: updated.playerId, playerName: updated.playerName },
+        saleContext,
+      );
+      return updated;
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_registration.seated_from_waitlist",
+      entityType: "OpenPlayNightRegistration",
+      entityId: registrationId,
+      newValues: { waitlistPos: null, paymentMethod: saleContext.method, automatic: false },
+    });
+    return seated;
+  }
+
+  // A walk-in seated by fillFreedSeats (or registered while the form
+  // believed the night was full) has a seat but no fee recorded. The
+  // roster shows "Seated · Unpaid"; this records the payment.
+  async collectRegistrationFee(
+    registrationId: string,
+    saleContext: RegisterWalkInSaleContext,
+    actorUserId: string,
+  ): Promise<void> {
+    if (saleContext.method === "GCASH" && !saleContext.gcashReference?.trim()) {
+      throw new Error("A GCash reference number is required.");
+    }
+    await prisma.$transaction(async (tx) => {
+      const registration = await tx.openPlayNightRegistration.findUniqueOrThrow({
+        where: { id: registrationId },
+        include: { sale: { select: { id: true } }, creditsRedeemed: { select: { id: true }, take: 1 } },
+      });
+      if (!registration.sessionId || registration.status !== "CONFIRMED" || registration.waitlistPos !== null) {
+        throw new Error("Only a seated Fri/Sat player can be charged.");
+      }
+      if (registration.sale || registration.creditsRedeemed.length > 0) {
+        throw new Error("This player has already paid.");
+      }
+      await createOpenPlayRegistrationFeeSale(
+        tx,
+        { id: registration.id, playerId: registration.playerId, playerName: registration.playerName },
+        saleContext,
+      );
+    });
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_registration.fee_collected",
+      entityType: "OpenPlayNightRegistration",
+      entityId: registrationId,
+      newValues: { paymentMethod: saleContext.method },
+    });
+  }
+
   // Owner request (2026-10-03): undo a check-out tapped by mistake. Back
   // to CONFIRMED, and a queue entry the rotation board's "Done" closed
   // goes back in line at its ORIGINAL joinedQueueAt — an accidental tap
@@ -1109,12 +1249,23 @@ export class OpenPlayRegistrationService {
       throw new Error("This registration was part of a game assignment and can't be deleted.");
     }
 
-    await prisma.$transaction([
-      prisma.openPlayRegistrationPaymentProof.deleteMany({ where: { registrationId } }),
-      prisma.openPlayWaitlistEntry.deleteMany({ where: { registrationId } }),
-      prisma.queueEntry.deleteMany({ where: { registrationId } }),
-      prisma.openPlayNightRegistration.delete({ where: { id: registrationId } }),
-    ]);
+    // A deleted online hold (AWAITING_PAYMENT / PENDING_VERIFICATION) was
+    // holding a seat. Deleting it used to free that seat and move nobody
+    // up (owner, 2026-10-10: Mark's hold deleted, Joshua stayed waitlisted
+    // beside an empty seat) — so the freed seat now goes through the same
+    // fillFreedSeats rule as every release, under the session lock.
+    await prisma.$transaction(async (tx) => {
+      if (registration.sessionId) {
+        await lockSessionRow(tx, registration.sessionId);
+      }
+      await tx.openPlayRegistrationPaymentProof.deleteMany({ where: { registrationId } });
+      await tx.openPlayWaitlistEntry.deleteMany({ where: { registrationId } });
+      await tx.queueEntry.deleteMany({ where: { registrationId } });
+      await tx.openPlayNightRegistration.delete({ where: { id: registrationId } });
+      if (registration.sessionId) {
+        await this.fillFreedSeats(tx, { id: registration.sessionId, date: registration.date }, actorUserId);
+      }
+    });
 
     await this.writeAuditLog({
       actorUserId,
@@ -1254,33 +1405,9 @@ export class OpenPlayRegistrationService {
           : null;
 
       if (releasedHadSeat) {
-        const head = await tx.openPlayNightRegistration.findFirst({
-          where: { sessionId: existing.sessionId, waitlistPos: { not: null } },
-          orderBy: { waitlistPos: "asc" },
-        });
-        if (head) {
-          await tx.openPlayNightRegistration.update({
-            where: { id: head.id },
-            data: { waitlistPos: null },
-          });
-          await tx.openPlayNightRegistration.updateMany({
-            where: { sessionId: existing.sessionId, waitlistPos: { gt: head.waitlistPos ?? 0 } },
-            data: { waitlistPos: { decrement: 1 } },
-          });
-        } else {
-          // Open-play online self-registration, Gate 2: the paid walk-in
-          // waitlist (waitlistPos-based, above) always gets first claim
-          // on a freed seat — unchanged, still the very branch this
-          // comment sits in. Only once THAT waitlist has nobody left
-          // does the freed seat go to the online waitlist instead. Same
-          // transaction, same session lock already held above — not a
-          // second, parallel release mechanism.
-          await this.inviteNextWaitlistEntry(
-            tx,
-            { id: existing.sessionId, date: existing.date },
-            actorUserId,
-          );
-        }
+        // Walk-in waitlist first, then the online waitlist — the shared
+        // rule in fillFreedSeats, same transaction and session lock.
+        await this.fillFreedSeats(tx, { id: existing.sessionId, date: existing.date }, actorUserId);
       } else if (releasedWaitlistPos !== null) {
         // Released registration was itself waitlisted, not seated — no
         // promotion, just close the gap behind it.
@@ -1418,6 +1545,10 @@ export class OpenPlayRegistrationService {
       where: { sessionId },
       orderBy: [{ waitlistPos: "asc" }, { registeredAt: "asc" }],
       include: {
+        // Whether the ₱150 is actually recorded — a walk-in seated from
+        // the waitlist has a seat but no sale until Take payment.
+        sale: { select: { id: true } },
+        creditsRedeemed: { select: { id: true }, take: 1 },
         paymentProofs: {
           orderBy: { submittedAt: "desc" },
           take: 1,

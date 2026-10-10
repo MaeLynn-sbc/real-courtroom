@@ -26,6 +26,9 @@ import { openPlayCapacityService } from "@/services/open-play/open-play-capacity
 
 export interface OpenPlayCapacityActionState {
   error: string | null;
+  // Capacity increases only: who the new seat(s) went to.
+  seatedFromWaitlist?: string[];
+  invitedFromOnline?: string[];
 }
 
 // Business-policy configuration (same category as Court Hours), not
@@ -256,13 +259,19 @@ export async function setSessionCapacityOverrideAction(
   }
 
   try {
-    await openPlayCapacityService.setSessionCapacityOverride(
+    const updated = await openPlayCapacityService.setSessionCapacityOverride(
       date,
       parsed.data.capacity,
       authz.userId,
     );
     revalidateOpenPlayCapacity();
-    return { error: null };
+    // Who got the new seat(s), so the screen can say so instead of the
+    // seat silently going to the online waitlist.
+    return {
+      error: null,
+      seatedFromWaitlist: updated.seatedFromWaitlist,
+      invitedFromOnline: updated.invitedFromOnline,
+    };
   } catch (error) {
     return {
       error: toActionError(error, {

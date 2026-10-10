@@ -40,7 +40,13 @@ function NightRow({ night }: { night: UpcomingNight }) {
         toast.error(result.error);
         return;
       }
-      toast.success(`${night.label} capacity saved.`);
+      // Say who the new seat(s) went to (owner, 2026-10-10): the online
+      // waitlist used to get them silently.
+      const notes = [
+        result.seatedFromWaitlist?.length ? `Seated from the desk waitlist: ${result.seatedFromWaitlist.join(", ")} (take their payment on the roster).` : "",
+        result.invitedFromOnline?.length ? `Offered online to: ${result.invitedFromOnline.join(", ")} — they have 30 minutes to pay.` : "",
+      ].filter(Boolean);
+      toast.success(`${night.label} capacity saved.`, notes.length ? { description: notes.join(" "), duration: 10_000 } : undefined);
       router.refresh();
     });
   }

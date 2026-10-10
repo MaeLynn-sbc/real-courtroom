@@ -5,10 +5,12 @@ import { revalidatePath } from "next/cache";
 import {
   refundRegistrationInputSchema,
   registerWalkInInputSchema,
+  registrationPaymentInputSchema,
   releaseRegistrationInputSchema,
   updateRegistrationDetailsInputSchema,
   type RefundRegistrationInput,
   type RegisterWalkInInput,
+  type RegistrationPaymentInput,
   type ReleaseRegistrationInput,
   type UpdateRegistrationDetailsInput,
 } from "@/features/open-play-capacity/schemas/open-play-registration.schema";
@@ -18,11 +20,17 @@ import {
   requirePermission,
 } from "@/lib/action-auth";
 import { toActionError } from "@/lib/errors";
-import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
+import {
+  openPlayRegistrationService,
+  type RegisterWalkInSaleContext,
+} from "@/services/open-play/open-play-registration.service";
 import { PERMISSIONS } from "@/types/permissions";
 
 export interface OpenPlayRegistrationActionState {
   error: string | null;
+  // registerWalkInAction only: the night was full, so the player went onto
+  // the waitlist and was not charged.
+  waitlisted?: boolean;
 }
 
 // Day-to-day staff operation (unlike Open Play Capacity's owner-only
@@ -75,7 +83,8 @@ export async function registerWalkInAction(
   }
 
   try {
-    await openPlayRegistrationService.registerWalkIn(
+    const { method, paymentMethodId } = parsed.data;
+    const registration = await openPlayRegistrationService.registerWalkIn(
       parsed.data.sessionId,
       {
         playerName: parsed.data.playerName,
@@ -84,16 +93,18 @@ export async function registerWalkInAction(
         partyId: parsed.data.partyId,
       },
       authz.userId,
-      {
-        method: parsed.data.method,
-        gcashReference: parsed.data.gcashReference ?? null,
-        paymentMethodId: parsed.data.paymentMethodId,
-        employeeId: authz.employeeId,
-        shiftId: authz.shiftId,
-      },
+      method && paymentMethodId
+        ? {
+            method,
+            gcashReference: parsed.data.gcashReference ?? null,
+            paymentMethodId,
+            employeeId: authz.employeeId,
+            shiftId: authz.shiftId,
+          }
+        : undefined,
     );
     revalidateSession();
-    return { error: null };
+    return { error: null, waitlisted: registration.waitlistPos !== null };
   } catch (error) {
     return {
       error: toActionError(error, { action: "registerWalkInAction", userId: authz.userId }),
@@ -165,6 +176,64 @@ export async function undoCheckOutAction(
     input,
     (id, userId) => openPlayRegistrationService.undoCheckOut(id, userId),
     "undoCheckOutAction",
+  );
+}
+
+async function chargeRegistration(
+  input: RegistrationPaymentInput,
+  charge: (registrationId: string, saleContext: RegisterWalkInSaleContext, actorUserId: string) => Promise<unknown>,
+  actionName: string,
+): Promise<OpenPlayRegistrationActionState> {
+  const authz = await requireOpenPlayManageWithOpenShift();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+  const parsed = registrationPaymentInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid payment." };
+  }
+  if (parsed.data.method === "GCASH" && !parsed.data.gcashReference?.trim()) {
+    return { error: "A GCash reference number is required." };
+  }
+  try {
+    await charge(
+      parsed.data.registrationId,
+      {
+        method: parsed.data.method,
+        gcashReference: parsed.data.gcashReference ?? null,
+        paymentMethodId: parsed.data.paymentMethodId,
+        employeeId: authz.employeeId,
+        shiftId: authz.shiftId,
+      },
+      authz.userId,
+    );
+    revalidateSession();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: actionName, userId: authz.userId }) };
+  }
+}
+
+// Owner (2026-10-10): seat a waitlisted walk-in yourself, taking the ₱150
+// at the same moment.
+export async function seatFromWaitlistAction(
+  input: RegistrationPaymentInput,
+): Promise<OpenPlayRegistrationActionState> {
+  return chargeRegistration(
+    input,
+    (id, ctx, userId) => openPlayRegistrationService.seatFromWaitlist(id, ctx, userId),
+    "seatFromWaitlistAction",
+  );
+}
+
+// A walk-in seated automatically from the waitlist has no payment yet.
+export async function collectRegistrationFeeAction(
+  input: RegistrationPaymentInput,
+): Promise<OpenPlayRegistrationActionState> {
+  return chargeRegistration(
+    input,
+    (id, ctx, userId) => openPlayRegistrationService.collectRegistrationFee(id, ctx, userId),
+    "collectRegistrationFeeAction",
   );
 }
 

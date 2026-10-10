@@ -8,10 +8,13 @@ import { toast } from "sonner";
 import {
   cancelRegistrationAction,
   deleteRegistrationAction,
+  collectRegistrationFeeAction,
   markNoShowAction,
+  seatFromWaitlistAction,
   undoCheckOutAction,
   refundRegistrationAction,
 } from "@/actions/open-play-registration.actions";
+import { deriveSettlementMethod, SettlementPaymentFields } from "@/components/shared/settlement-payment-fields";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,6 +40,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { isRegistrationOccupyingSeat } from "@/lib/open-play-seats";
+import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
 import {
   OPEN_PLAY_SKILL_LEVEL_ORDER,
   OPEN_PLAY_SKILL_LEVELS,
@@ -45,6 +49,9 @@ import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 
 interface RosterRegistration {
   id: string;
+  // A sale or a redeemed credit is recorded for the ₱150. False for a
+  // walk-in seated from the waitlist until someone takes the payment.
+  isPaid: boolean;
   playerName: string;
   phone: string;
   skillLevel: OpenPlaySkillLevel;
@@ -124,6 +131,17 @@ interface RegistrationRosterPanelProps {
   registrations: RosterRegistration[];
   skillBreakdown: Record<OpenPlaySkillLevel, number>;
   capacity: number;
+  seatsRemaining: number;
+  paymentMethods: SettlementPaymentMethodOption[];
+  friSatRegistrationFeeCents: number;
+}
+
+// What the Seat now / Take payment forms need, threaded through the table
+// and the phone cards alike.
+interface PaymentSetup {
+  seatsRemaining: number;
+  paymentMethods: SettlementPaymentMethodOption[];
+  feeCents: number;
 }
 
 function RowActions({ registrationId }: { registrationId: string }) {
@@ -174,6 +192,11 @@ function RegistrationStatusBadge({ registration }: { registration: RosterRegistr
   if (registration.status !== "CONFIRMED") {
     return <Badge variant="destructive">{registration.status.replace("_", " ")}</Badge>;
   }
+  if (registration.waitlistPos === null && !registration.isPaid) {
+    // Seated from the waitlist (or registered while the night looked
+    // full) — has a seat, no payment recorded yet.
+    return <Badge variant="warning">Seated · Unpaid</Badge>;
+  }
   if (registration.waitlistPos !== null) {
     // Owner decision (Fri/Sat waitlist rework): a waitlisted walk-in is
     // registered at zero charge — "Unpaid" here is that fact, not a
@@ -185,15 +208,29 @@ function RegistrationStatusBadge({ registration }: { registration: RosterRegistr
   return <Badge variant="status">Confirmed · Paid</Badge>;
 }
 
-function RegistrationActions({ registration }: { registration: RosterRegistration }) {
+function RegistrationActions({
+  registration,
+  payment,
+}: {
+  registration: RosterRegistration;
+  payment: PaymentSetup;
+}) {
+  const isConfirmed = registration.status === "CONFIRMED";
   return (
     <div className="flex flex-wrap items-start gap-1.5 md:flex-col">
       {registration.paymentProofs[0] ? <ProofLink proof={registration.paymentProofs[0]} /> : null}
-      {registration.status === "CONFIRMED" ? <RowActions registrationId={registration.id} /> : null}
+      {isConfirmed && registration.waitlistPos !== null ? (
+        <PaymentAction mode="seat" registration={registration} payment={payment} />
+      ) : null}
+      {isConfirmed && registration.waitlistPos === null && !registration.isPaid ? (
+        <PaymentAction mode="collect" registration={registration} payment={payment} />
+      ) : null}
+      {isConfirmed ? <RowActions registrationId={registration.id} /> : null}
       {registration.status === "CHECKED_OUT" ? (
         <UndoCheckOutAction registrationId={registration.id} />
       ) : null}
-      {registration.status === "CONFIRMED" ||
+      {/* Nothing to refund on an unpaid waitlist or unpaid seat. */}
+      {(isConfirmed && registration.isPaid) ||
       registration.status === "CANCELLED" ||
       registration.status === "REJECTED" ? (
         <RefundAction registrationId={registration.id} />
@@ -201,6 +238,95 @@ function RegistrationActions({ registration }: { registration: RosterRegistratio
       {registration.status !== "CONFIRMED" && registration.status !== "CHECKED_OUT" ? (
         <DeleteAction registrationId={registration.id} playerName={registration.playerName} />
       ) : null}
+    </div>
+  );
+}
+
+// Owner (2026-10-10). "seat": put a waitlisted walk-in into a free seat and
+// take the ₱150 at the same moment — the only way to do that used to be a
+// cancel and re-register. "collect": a walk-in already seated from the
+// waitlist, payment not yet taken.
+function PaymentAction({
+  mode,
+  registration,
+  payment,
+}: {
+  mode: "seat" | "collect";
+  registration: RosterRegistration;
+  payment: PaymentSetup;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [paymentMethodId, setPaymentMethodId] = useState("");
+  const [gcashReference, setGcashReference] = useState("");
+  const [isPending, startTransition] = useTransition();
+  const noSeat = mode === "seat" && payment.seatsRemaining <= 0;
+  const label = mode === "seat" ? "Seat now" : "Take payment";
+
+  if (!open) {
+    return (
+      <Button
+        type="button"
+        size="sm"
+        variant={mode === "collect" ? "default" : "outline"}
+        disabled={noSeat}
+        title={noSeat ? "Every seat is taken — raise the night's capacity first." : undefined}
+        onClick={() => setOpen(true)}
+      >
+        {label}
+      </Button>
+    );
+  }
+
+  function confirm() {
+    const method = deriveSettlementMethod(payment.paymentMethods, paymentMethodId);
+    if (!method) {
+      toast.error("Select a payment method.");
+      return;
+    }
+    if (method === "GCASH" && !gcashReference.trim()) {
+      toast.error("Enter the GCash reference number.");
+      return;
+    }
+    startTransition(async () => {
+      const input = {
+        registrationId: registration.id,
+        method,
+        gcashReference: method === "GCASH" ? gcashReference.trim() : undefined,
+        paymentMethodId,
+      };
+      const result = mode === "seat" ? await seatFromWaitlistAction(input) : await collectRegistrationFeeAction(input);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(
+        mode === "seat" ? `${registration.playerName} seated and paid.` : `Payment recorded for ${registration.playerName}.`,
+      );
+      setOpen(false);
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-dashed p-2">
+      <SettlementPaymentFields
+        paymentMethods={payment.paymentMethods}
+        paymentMethodId={paymentMethodId}
+        onPaymentMethodIdChange={setPaymentMethodId}
+        gcashReference={gcashReference}
+        onGcashReferenceChange={setGcashReference}
+        idPrefix={`${mode}-${registration.id}`}
+        amountCents={payment.feeCents}
+      />
+      <div className="flex gap-1.5">
+        <Button type="button" size="sm" disabled={isPending} onClick={confirm}>
+          {isPending ? "Saving…" : mode === "seat" ? "Seat and record payment" : "Record payment"}
+        </Button>
+        <Button type="button" size="sm" variant="ghost" disabled={isPending} onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }
@@ -411,7 +537,11 @@ export function RegistrationRosterPanel({
   registrations,
   skillBreakdown,
   capacity,
+  seatsRemaining,
+  paymentMethods,
+  friSatRegistrationFeeCents,
 }: RegistrationRosterPanelProps) {
+  const paymentSetup: PaymentSetup = { seatsRemaining, paymentMethods, feeCents: friSatRegistrationFeeCents };
   // Same occupied-seat predicate the capacity page's header now uses
   // (lib/open-play-seats.ts) — this used to be a narrower, silently
   // drifted "CONFIRMED only" count that disagreed with the canonical
@@ -465,7 +595,7 @@ export function RegistrationRosterPanel({
                     {formatNightDate(registration.date)} · registered{" "}
                     {formatRegisteredAt(registration.registeredAt)}
                   </p>
-                  <RegistrationActions registration={registration} />
+                  <RegistrationActions registration={registration} payment={paymentSetup} />
                 </li>
               ))}
             </ul>
@@ -499,7 +629,7 @@ export function RegistrationRosterPanel({
                         <RegistrationStatusBadge registration={registration} />
                       </TableCell>
                       <TableCell>
-                        <RegistrationActions registration={registration} />
+                        <RegistrationActions registration={registration} payment={paymentSetup} />
                       </TableCell>
                     </TableRow>
                   ))}

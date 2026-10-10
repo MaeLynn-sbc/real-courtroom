@@ -329,7 +329,9 @@ export class OpenPlayCheckinService {
   // saleContext" is unrepresentable instead of a runtime check. The
   // weeknight (date) branch never carries one — no fee applies there.
   async registerAndCheckIn(
-    target: { sessionId: string; saleContext: RegisterWalkInSaleContext } | { date: Date },
+    // saleContext is optional since 2026-10-10: the form skips payment on
+    // a night it shows as full (a waitlisted walk-in isn't charged).
+    target: { sessionId: string; saleContext?: RegisterWalkInSaleContext } | { date: Date },
     input: RegisterWalkInInput,
     actorUserId: string,
   ): Promise<CheckInResult> {
