@@ -18,7 +18,7 @@ import { runSerializableWithRetry } from "@/lib/serializable-retry";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import { formatBookingReference } from "@/services/booking/booking-reference";
 import { generateShortCode } from "@/services/booking/booking-short-code";
-import { canTransitionBookingStatus } from "@/services/booking/booking-status";
+import { bookingStatusTooEarlyReason, canTransitionBookingStatus } from "@/services/booking/booking-status";
 import { PAY_AT_VENUE_PAYMENT_METHOD_KEY } from "@/lib/system-identities";
 import { coachSessionService } from "@/services/coaching/coach-session.service";
 import { recordCoachSessionFeeSale } from "@/services/coaching/coach-session-fee-sale";
@@ -1264,6 +1264,11 @@ export class BookingService {
 
     if (!canTransitionBookingStatus(existing.status, status)) {
       throw new Error(`Cannot move a booking from ${existing.status} to ${status}.`);
+    }
+
+    const tooEarly = bookingStatusTooEarlyReason(status, existing.startAt, new Date());
+    if (tooEarly) {
+      throw new Error(tooEarly);
     }
 
     // See BookingPaidCannotCancelError's own comment for the incident this

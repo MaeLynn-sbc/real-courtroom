@@ -153,11 +153,19 @@ async function main(): Promise<void> {
       bookingId: noShowBookingId,
       createdAt: at(18),
     });
+    // No-show is only allowed once the booking has started (time guard,
+    // 2026-10-15), so this fixture's start is moved into the past for the
+    // call and restored afterwards — cleanUp finds rows by TEST_DATE.
+    await prisma.booking.update({
+      where: { id: noShowBookingId },
+      data: { startAt: new Date(2020, 0, 6, 18), endAt: new Date(2020, 0, 6, 19) },
+    });
     const noShow = await bookingService.updateBookingStatus(
       noShowBookingId,
       "NO_SHOW",
       websiteContext.userId,
     );
+    await prisma.booking.update({ where: { id: noShowBookingId }, data: { startAt: at(18), endAt: at(19) } });
     assert(noShow.status === "NO_SHOW", "a paid booking can still be marked no-show");
     console.log("PASS: a paid booking can still be marked no-show — the venue keeps that money.");
 

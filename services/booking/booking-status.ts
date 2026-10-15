@@ -56,3 +56,38 @@ export function canTransitionBookingStatus(from: BookingStatus, to: BookingStatu
   }
   return BOOKING_STATUS_TRANSITIONS[from].includes(to);
 }
+
+// Time guard (owner, 2026-10-15): at 12:09 AM, closing out the night, staff
+// checked in and completed three of TODAY's paid bookings (4 PM, 6 PM,
+// 8 PM) — nothing stopped a booking being finished before it began.
+// Check-in opens an hour ahead (players arrive early); Completed and
+// No-show only once the booking has started. Pure, so the server enforces
+// it and the status buttons explain it with the same words.
+export const CHECK_IN_OPENS_MINUTES_BEFORE_START = 60;
+
+function formatStart(startAt: Date): string {
+  return startAt.toLocaleString("en-PH", {
+    timeZone: "Asia/Manila",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export function bookingStatusTooEarlyReason(to: BookingStatus, startAt: Date, now: Date): string | null {
+  if (to === "CHECKED_IN") {
+    const opensAt = new Date(startAt.getTime() - CHECK_IN_OPENS_MINUTES_BEFORE_START * 60_000);
+    return now < opensAt
+      ? `Too early to check in — check-in opens 1 hour before the booking (it starts ${formatStart(startAt)}).`
+      : null;
+  }
+  if (to === "COMPLETED" || to === "NO_SHOW") {
+    return now < startAt
+      ? `This booking hasn't started yet — it starts ${formatStart(startAt)}. It can be marked ${
+          to === "COMPLETED" ? "completed" : "no-show"
+        } once it starts.`
+      : null;
+  }
+  return null;
+}

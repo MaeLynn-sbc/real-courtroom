@@ -247,6 +247,7 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
           bookingId={booking.id}
           currentStatus={booking.status}
           isPaid={booking.sale?.status === "COMPLETED"}
+          startAt={booking.startAt.toISOString()}
         />
       </section>
 

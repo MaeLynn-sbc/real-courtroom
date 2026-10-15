@@ -11,7 +11,7 @@ import type { BookingStatus } from "@/lib/generated/prisma/enums";
 // Only the pure state-machine module is imported here (no lib/env.ts /
 // lib/prisma.ts in its dependency chain) — never import
 // services/booking/booking.service.ts itself from a "use client" file.
-import { BOOKING_STATUS_TRANSITIONS } from "@/services/booking/booking-status";
+import { BOOKING_STATUS_TRANSITIONS, bookingStatusTooEarlyReason } from "@/services/booking/booking-status";
 
 // AWAITING_PAYMENT/PENDING_VERIFICATION/REJECTED/REFUNDED (Phase 8
 // plumbing, Gate 1) are unreachable — BOOKING_STATUS_TRANSITIONS has no
@@ -42,12 +42,17 @@ interface BookingStatusActionsProps {
   // meet the explanation before the dead end rather than after it.
   // NO_SHOW stays available: the venue keeps that money.
   isPaid?: boolean;
+  // ISO start time — Check in / Complete / No-show are held back until
+  // it's time (see bookingStatusTooEarlyReason). Optional so other call
+  // sites keep working; without it only the server enforces the rule.
+  startAt?: string;
 }
 
 export function BookingStatusActions({
   bookingId,
   currentStatus,
   isPaid = false,
+  startAt,
 }: BookingStatusActionsProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -57,6 +62,10 @@ export function BookingStatusActions({
     ? allTransitions.filter((status) => status !== "CANCELLED")
     : allTransitions;
   const cancelWithheld = isPaid && allTransitions.includes("CANCELLED");
+  const now = new Date();
+  const tooEarly = (status: BookingStatus) =>
+    startAt ? bookingStatusTooEarlyReason(status, new Date(startAt), now) : null;
+  const tooEarlyReasons = [...new Set(availableTransitions.map(tooEarly).filter((r): r is string => r !== null))];
 
   function handleTransition(status: BookingStatus) {
     startTransition(async () => {
@@ -84,6 +93,11 @@ export function BookingStatusActions({
           time was wrong.
         </p>
       ) : null}
+      {tooEarlyReasons.map((reason) => (
+        <p key={reason} className="text-muted-foreground text-sm">
+          {reason}
+        </p>
+      ))}
       <div className="flex flex-wrap gap-2">
         {availableTransitions.map((status) =>
           status === "CANCELLED" || status === "NO_SHOW" ? (
@@ -101,7 +115,7 @@ export function BookingStatusActions({
                 status === "CANCELLED" ? "Cancel booking" : STATUS_ACTION_LABELS[status]
               }
               cancelLabel={status === "CANCELLED" ? "Keep booking" : undefined}
-              disabled={isPending}
+              disabled={isPending || tooEarly(status) !== null}
               onConfirm={() => handleTransition(status)}
             >
               {STATUS_ACTION_LABELS[status]}
@@ -112,7 +126,7 @@ export function BookingStatusActions({
               type="button"
               size="sm"
               variant="outline"
-              disabled={isPending}
+              disabled={isPending || tooEarly(status) !== null}
               onClick={() => handleTransition(status)}
             >
               {STATUS_ACTION_LABELS[status]}
