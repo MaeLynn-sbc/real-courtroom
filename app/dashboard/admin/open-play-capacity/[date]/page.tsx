@@ -156,7 +156,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
       startTimeOverrideMinutes,
     );
     const [
-      { registrations, skillBreakdown },
+      { registrations, skillBreakdown, onlineWaitlist },
       { expected, checkedIn },
       board,
       tabs,
@@ -298,6 +298,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
               seatsRemaining={session.capacity - occupiedCount}
               paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
               friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
+              onlineWaitlist={onlineWaitlist}
             />
           }
         />

@@ -134,6 +134,18 @@ interface RegistrationRosterPanelProps {
   seatsRemaining: number;
   paymentMethods: SettlementPaymentMethodOption[];
   friSatRegistrationFeeCents: number;
+  // Website registrants who found the night full (owner, 2026-10-16:
+  // seven on Oct 16, invisible anywhere on the dashboard). They get an
+  // automatic invite when a seat frees; staff can also just call them.
+  onlineWaitlist?: {
+    id: string;
+    playerName: string;
+    phone: string;
+    skillLevel: OpenPlaySkillLevel;
+    status: "WAITING" | "INVITED";
+    submittedAt: Date;
+    inviteExpiresAt: Date | null;
+  }[];
 }
 
 // What the Seat now / Take payment forms need, threaded through the table
@@ -540,6 +552,7 @@ export function RegistrationRosterPanel({
   seatsRemaining,
   paymentMethods,
   friSatRegistrationFeeCents,
+  onlineWaitlist = [],
 }: RegistrationRosterPanelProps) {
   const paymentSetup: PaymentSetup = { seatsRemaining, paymentMethods, feeCents: friSatRegistrationFeeCents };
   // Same occupied-seat predicate the capacity page's header now uses
@@ -564,7 +577,8 @@ export function RegistrationRosterPanel({
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="font-medium">
-            {seated.length} / {capacity} · {waitlisted.length} waiting
+            {seated.length} / {capacity} · {waitlisted.length} waiting at the desk
+            {onlineWaitlist.length > 0 ? ` · ${onlineWaitlist.length} on the online waitlist` : ""}
           </span>
           {active.length > 0 ? (
             <span className="text-muted-foreground">{breakdownText}</span>
@@ -638,6 +652,45 @@ export function RegistrationRosterPanel({
             </div>
           </>
         )}
+        {onlineWaitlist.length > 0 ? (
+          <div className="flex flex-col gap-2 border-t pt-4">
+            <div>
+              <h3 className="text-sm font-medium">Online waitlist ({onlineWaitlist.length})</h3>
+              <p className="text-muted-foreground text-xs">
+                Registered on the website while the night was full — not charged. When a seat frees up and nobody is
+                waiting at the desk, the first person here gets a text and 30 minutes to pay. You can also call them.
+              </p>
+            </div>
+            <ol className="flex flex-col gap-1.5">
+              {onlineWaitlist.map((entry, index) => (
+                <li
+                  key={entry.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+                >
+                  <span className="min-w-0">
+                    <span className="text-muted-foreground mr-2">#{index + 1}</span>
+                    <span className="font-medium">{entry.playerName}</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · <a href={`tel:${entry.phone}`} className="underline">{entry.phone}</a> ·{" "}
+                      {OPEN_PLAY_SKILL_LEVELS[entry.skillLevel].label} · joined {formatRegisteredAt(entry.submittedAt)}
+                    </span>
+                  </span>
+                  {entry.status === "INVITED" ? (
+                    <Badge variant="warning">
+                      Offered a seat
+                      {entry.inviteExpiresAt
+                        ? ` · pay by ${new Date(entry.inviteExpiresAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}`
+                        : ""}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">Waiting · not charged</Badge>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

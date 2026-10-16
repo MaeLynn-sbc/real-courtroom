@@ -1,13 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import { useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
-import { toast } from "sonner";
 
-import { cancelPublicOpenPlayRegistrationAction } from "@/actions/public-open-play-registration-cancellation.actions";
 import { createPublicOpenPlayRegistrationAction } from "@/actions/public-open-play-registration.actions";
-import { submitPublicOpenPlayRegistrationPaymentProofAction } from "@/actions/public-open-play-registration-payment-proof.actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,7 +23,6 @@ import {
 import { cn } from "@/lib/utils";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
-import { toUploadPayload } from "@/lib/upload-payload";
 
 function remainingSeatsLabel(remaining: number): string {
   if (remaining <= 0) return "Full";
@@ -82,6 +77,7 @@ type Step =
       kind: "awaiting-proof";
       registrationId: string;
       playerName: string;
+      holdExpiresAt?: string;
       proofFailedMessage?: string;
     }
   | { kind: "proof-submitted" };
@@ -120,8 +116,6 @@ export function PublicOpenPlayRegistrationForm({
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [step, setStep] = useState<Step>({ kind: "form" });
-  const [screenshot, setScreenshot] = useState<File | null>(null);
-  const [submittedAmount, setSubmittedAmount] = useState(String(registrationFeeCents / 100));
 
   const { control, register, handleSubmit } = useForm<PublicOpenPlayRegistrationFormValues>({
     defaultValues: {
@@ -143,27 +137,15 @@ export function PublicOpenPlayRegistrationForm({
   const selectedNight = lockedDate ?? nights.find((night) => night.date === watchedDate);
   const isFull = selectedNight ? selectedNight.remainingSeats <= 0 : false;
 
+  // Reserve FIRST, pay second (owner, 2026-10-16: "don't show the payment
+  // option for the waitlist"). Customers used to see the GCash details on
+  // this form and pay BEFORE submitting; if the night filled meanwhile
+  // they landed on the waitlist with their money unrecorded (7 people on
+  // Oct 16). Now this form only reserves: the server holds a seat (30
+  // minutes) or puts them on the waitlist, and only a held seat ever sees
+  // the payment step. An unpaid hold frees itself when it expires.
   const onSubmit = handleSubmit((values) => {
     setServerError(null);
-
-    const amountCents = Math.round(Number(submittedAmount) * 100);
-
-    // Skipped entirely when the selected date is full — the payment
-    // fields aren't even rendered in that case (see isFull above), so
-    // there's nothing to validate; the server decides waitlist-vs-
-    // registered from its own live count regardless.
-    if (!isFull) {
-      if (!screenshot) {
-        const message = "Please upload your payment screenshot to complete registration.";
-        setServerError(message);
-        toast.error(message);
-        return;
-      }
-      if (!Number.isFinite(amountCents) || amountCents <= 0) {
-        setServerError("Enter the amount you sent.");
-        return;
-      }
-    }
 
     startTransition(async () => {
       const result = await createPublicOpenPlayRegistrationAction(values);
@@ -188,60 +170,12 @@ export function PublicOpenPlayRegistrationForm({
         return;
       }
       if (result.status === "registered" && result.registrationId) {
-        // Owner request (2026-08-06, same fix already shipped for
-        // bookings): a registration must not "push through" without a
-        // real payment screenshot. This used to fall back to the
-        // awaiting-proof retry step on any failure — with no guarantee
-        // the customer ever came back, that left a real seat held
-        // indefinitely with zero payment behind it (the exact live
-        // incident reported here). A failed upload now cancels the hold
-        // immediately via the SAME customer-cancellation path the
-        // /open-play/cancel page uses (phone-verified, releases the seat
-        // and promotes the waitlist same as any other cancellation) and
-        // returns to the plain form — safe to retry because the seat is
-        // actually free again, not a second seat on top of a dangling one.
-        const registrationId = result.registrationId;
-
-        if (!screenshot) {
-          // Race: the client thought this date was full (payment fields
-          // hidden, isFull true at render time) but a spot actually
-          // freed up between page load and submit, and the server just
-          // created a real, unpaid hold. Same safe-to-retry cancellation
-          // as a failed upload below, rather than crashing on a null
-          // screenshot or silently leaving an unpaid hold.
-          await cancelPublicOpenPlayRegistrationAction({ registrationId, phone: values.phone });
-          toast.error(
-            "A spot just opened up for this night — please submit the form again to pay and confirm your spot.",
-          );
-          return;
-        }
-
-        let proofErrorMessage: string | null = null;
-        try {
-          const proofResult = await submitPublicOpenPlayRegistrationPaymentProofAction({
-            registrationId,
-            gcashReference: null,
-            submittedAmountCents: amountCents,
-            screenshot: await toUploadPayload(screenshot),
-          });
-          if (proofResult.error) {
-            proofErrorMessage = proofResult.error;
-          } else {
-            setStep({ kind: "proof-submitted" });
-          }
-        } catch {
-          proofErrorMessage =
-            "We couldn't upload your payment screenshot — check your connection and try again.";
-        }
-
-        if (proofErrorMessage !== null) {
-          // Best-effort cleanup — the customer sees the real error
-          // below regardless of whether this cancellation itself
-          // succeeds; it exists to release the seat, not to change
-          // what the customer is told.
-          await cancelPublicOpenPlayRegistrationAction({ registrationId, phone: values.phone });
-          toast.error(`${proofErrorMessage} This registration wasn't completed — please try again.`);
-        }
+        setStep({
+          kind: "awaiting-proof",
+          registrationId: result.registrationId,
+          playerName: values.playerName,
+          holdExpiresAt: result.holdExpiresAt ? new Date(result.holdExpiresAt).toISOString() : undefined,
+        });
         return;
       }
       setServerError(result.error ?? "Something went wrong. Please try again.");
@@ -279,12 +213,23 @@ export function PublicOpenPlayRegistrationForm({
     return (
       <Card className="mx-auto max-w-md">
         <CardHeader>
-          <CardTitle>Slot held — send your GCash payment</CardTitle>
+          <CardTitle>Step 2 of 2 — pay to confirm your seat</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <p className="text-warning-foreground bg-warning/15 rounded-lg p-2 pt-2 text-xs">
-            {step.proofFailedMessage ??
-              "This slot is held for 30 minutes, not yet confirmed. Send your GCash payment, then submit the reference number and a screenshot below."}
+          <p className="text-warning-foreground bg-warning/15 rounded-lg p-3 text-sm">
+            {step.proofFailedMessage ?? (
+              <>
+                <strong>A seat is held for {step.playerName}</strong>
+                {step.holdExpiresAt
+                  ? ` until ${new Date(step.holdExpiresAt).toLocaleTimeString("en-PH", {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}`
+                  : " for 30 minutes"}
+                . You&apos;re <strong>not registered yet</strong> — send your GCash payment and upload the
+                screenshot below, or the seat goes to the next person.
+              </>
+            )}
           </p>
           <OpenPlayRegistrationProofForm
             registrationId={step.registrationId}
@@ -407,94 +352,17 @@ export function PublicOpenPlayRegistrationForm({
       </div>
 
       {isFull ? (
-        // Reported live (2026-08-07): this whole panel used to render
-        // regardless of the selected date's capacity, so a customer
-        // picking an already-full night still saw "send payment now"
-        // and a QR code — money nobody should be sending, since
-        // submitting for a full night only ever joins the waitlist,
-        // never creates a paid registration.
         <div className="border-warning/40 bg-warning/10 flex flex-col gap-1 rounded-lg border p-3 text-sm">
           <p className="font-medium">This night is full.</p>
           <p className="text-muted-foreground">
-            Join the waitlist below — don&apos;t send payment yet. {waitlistedMessage}
+            Join the waitlist below — don&apos;t send any payment. {waitlistedMessage}
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-3 rounded-lg border p-3">
-          <div>
-            <p className="text-sm font-medium">Pay via GCash to complete your registration</p>
-            <p className="text-muted-foreground text-xs">
-              Send the registration fee to the account below, then attach your payment screenshot —
-              your seat isn&apos;t held until both this form and the screenshot are submitted
-              together.
-            </p>
-          </div>
-
-          {gcashInfo.qrImageUrl ? (
-            <Image
-              src={gcashInfo.qrImageUrl}
-              alt="GCash QR code"
-              width={140}
-              height={140}
-              unoptimized
-              className="self-center rounded-lg border"
-            />
-          ) : null}
-
-          {gcashInfo.accountName || gcashInfo.accountNumber ? (
-            <div className="rounded-lg border p-2 text-sm">
-              {gcashInfo.accountName ? (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Account name</span>
-                  <span className="font-medium">{gcashInfo.accountName}</span>
-                </div>
-              ) : null}
-              {gcashInfo.accountNumber ? (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Account number</span>
-                  <span className="font-mono font-medium">{gcashInfo.accountNumber}</span>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="submittedAmount">Amount sent (₱)</Label>
-            <Input
-              id="submittedAmount"
-              type="number"
-              step="0.01"
-              value={submittedAmount}
-              onChange={(event) => setSubmittedAmount(event.target.value)}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="screenshot">Payment screenshot (required)</Label>
-            {/* Same solid sky-400 as the court booking form's screenshot
-                picker (public-booking-form.tsx) — the availability grid's
-                "booked" cell color, half-width with the filename filling the
-                other half. */}
-            <div className="flex items-center gap-3">
-              <label
-                htmlFor="screenshot"
-                className="flex w-1/2 cursor-pointer items-center justify-center rounded-lg border border-sky-500 bg-sky-400 px-4 py-3 text-base font-bold text-navy-900 transition-colors hover:bg-sky-300"
-              >
-                Choose file
-              </label>
-              <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm">
-                {screenshot ? screenshot.name : "No file chosen"}
-              </span>
-            </div>
-            <input
-              id="screenshot"
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={(event) => setScreenshot(event.target.files?.[0] ?? null)}
-            />
-          </div>
-        </div>
+        <p className="text-muted-foreground text-sm">
+          Step 1 of 2: reserve your seat. If one is free, we&apos;ll hold it for you and show how to pay. If the
+          night is full, you&apos;ll join the waitlist instead — no payment needed.
+        </p>
       )}
 
       {serverError ? (
@@ -509,8 +377,8 @@ export function PublicOpenPlayRegistrationForm({
             ? "Joining waitlist…"
             : "Join waitlist"
           : isPending
-            ? "Submitting…"
-            : "Register & submit payment"}
+            ? "Reserving…"
+            : "Reserve my seat"}
       </Button>
     </form>
   );

@@ -171,9 +171,22 @@ export type SessionRegistrationWithLatestProof = OpenPlayNightRegistration & {
   }[];
 };
 
+export interface OnlineWaitlistRow {
+  id: string;
+  playerName: string;
+  phone: string;
+  skillLevel: OpenPlaySkillLevel;
+  status: "WAITING" | "INVITED";
+  submittedAt: Date;
+  inviteExpiresAt: Date | null;
+}
+
 export interface SessionRegistrations {
   registrations: SessionRegistrationWithLatestProof[];
   skillBreakdown: Record<OpenPlaySkillLevel, number>;
+  // People who tried to register on the website while the night was full
+  // (owner, 2026-10-16: seven of them on Oct 16, invisible to staff).
+  onlineWaitlist: OnlineWaitlistRow[];
 }
 
 async function lockSessionRow(
@@ -1570,7 +1583,25 @@ export class OpenPlayRegistrationService {
       }
     }
 
-    return { registrations, skillBreakdown };
+    const onlineWaitlist = await prisma.openPlayWaitlistEntry.findMany({
+      where: { sessionId, status: { in: ["WAITING", "INVITED"] } },
+      orderBy: { submittedAt: "asc" },
+      select: {
+        id: true,
+        playerName: true,
+        phone: true,
+        skillLevel: true,
+        status: true,
+        submittedAt: true,
+        inviteExpiresAt: true,
+      },
+    });
+
+    return {
+      registrations,
+      skillBreakdown,
+      onlineWaitlist: onlineWaitlist.map((entry) => ({ ...entry, status: entry.status as OnlineWaitlistRow["status"] })),
+    };
   }
 
   private async writeAuditLog(entry: AuditLogEntry): Promise<void> {
