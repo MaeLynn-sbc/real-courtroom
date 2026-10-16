@@ -248,6 +248,21 @@ export function OpenPlaySettingsPanel(props: OpenPlaySettings) {
           </div>
 
           <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="waitlistEnabled"
+                checked={settings.waitlistEnabled}
+                onCheckedChange={(checked) => setSettings((s) => ({ ...s, waitlistEnabled: checked }))}
+              />
+              <Label htmlFor="waitlistEnabled">Allow a waitlist when a Fri/Sat night is full</Label>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              Off: a full night is simply full — the website and the desk disable registration, and nobody is
+              ever texted to come and pay. On: extra players join a waitlist and get offered freed seats.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
             <Label htmlFor="waitlistedMessage">Waitlisted message</Label>
             <p className="text-muted-foreground text-xs">
               Shown to a customer right after they join the waitlist because a night is full —

@@ -160,6 +160,7 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
             contactPhone={businessInfo.phone}
             contactFacebookUrl={businessInfo.facebookUrl}
             waitlistedMessage={openPlaySettings.waitlistedMessage}
+            waitlistEnabled={openPlaySettings.waitlistEnabled}
           />
         </main>
         <SiteFooter />
@@ -212,6 +213,7 @@ export default async function OpenPlayRegisterPage({ searchParams }: OpenPlayReg
             contactPhone={businessInfo.phone}
             contactFacebookUrl={businessInfo.facebookUrl}
             waitlistedMessage={openPlaySettings.waitlistedMessage}
+            waitlistEnabled={openPlaySettings.waitlistEnabled}
           />
         )}
       </main>

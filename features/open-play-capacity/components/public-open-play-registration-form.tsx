@@ -90,6 +90,7 @@ export function PublicOpenPlayRegistrationForm({
   contactPhone,
   contactFacebookUrl,
   waitlistedMessage,
+  waitlistEnabled = false,
 }: {
   nights: PublicOpenPlayNight[];
   registrationFeeCents: number;
@@ -112,6 +113,9 @@ export function PublicOpenPlayRegistrationForm({
   // settings-panel.tsx) — see its own comment for why this replaced a
   // hardcoded "we'll text you" promise.
   waitlistedMessage: string;
+  // Off (owner, 2026-10-16): a full night has no waitlist — the button is
+  // disabled so nobody can push a registration through.
+  waitlistEnabled?: boolean;
 }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -174,7 +178,9 @@ export function PublicOpenPlayRegistrationForm({
           kind: "awaiting-proof",
           registrationId: result.registrationId,
           playerName: values.playerName,
-          holdExpiresAt: result.holdExpiresAt ? new Date(result.holdExpiresAt).toISOString() : undefined,
+          holdExpiresAt: result.holdExpiresAt
+            ? new Date(result.holdExpiresAt).toISOString()
+            : undefined,
         });
         return;
       }
@@ -226,8 +232,8 @@ export function PublicOpenPlayRegistrationForm({
                       minute: "2-digit",
                     })}`
                   : " for 30 minutes"}
-                . You&apos;re <strong>not registered yet</strong> — send your GCash payment and upload the
-                screenshot below, or the seat goes to the next person.
+                . You&apos;re <strong>not registered yet</strong> — send your GCash payment and
+                upload the screenshot below, or the seat goes to the next person.
               </>
             )}
           </p>
@@ -355,13 +361,19 @@ export function PublicOpenPlayRegistrationForm({
         <div className="border-warning/40 bg-warning/10 flex flex-col gap-1 rounded-lg border p-3 text-sm">
           <p className="font-medium">This night is full.</p>
           <p className="text-muted-foreground">
-            Join the waitlist below — don&apos;t send any payment. {waitlistedMessage}
+            {waitlistEnabled ? (
+              <>Join the waitlist below — don&apos;t send any payment. {waitlistedMessage}</>
+            ) : (
+              <>
+                There are no more online slots for this night — please don&apos;t send any payment.
+              </>
+            )}
           </p>
         </div>
       ) : (
         <p className="text-muted-foreground text-sm">
-          Step 1 of 2: reserve your seat. If one is free, we&apos;ll hold it for you and show how to pay. If the
-          night is full, you&apos;ll join the waitlist instead — no payment needed.
+          Step 1 of 2: reserve your seat. If one is free, we&apos;ll hold it for you and show how to
+          pay. If the night is full, you&apos;ll join the waitlist instead — no payment needed.
         </p>
       )}
 
@@ -371,14 +383,20 @@ export function PublicOpenPlayRegistrationForm({
         </p>
       ) : null}
 
-      <Button type="submit" size="lg" disabled={isPending || (!lockedDate && nights.length === 0)}>
-        {isFull
-          ? isPending
-            ? "Joining waitlist…"
-            : "Join waitlist"
-          : isPending
-            ? "Reserving…"
-            : "Reserve my seat"}
+      <Button
+        type="submit"
+        size="lg"
+        disabled={isPending || (!lockedDate && nights.length === 0) || (isFull && !waitlistEnabled)}
+      >
+        {isFull && !waitlistEnabled
+          ? "Night is full"
+          : isFull
+            ? isPending
+              ? "Joining waitlist…"
+              : "Join waitlist"
+            : isPending
+              ? "Reserving…"
+              : "Reserve my seat"}
       </Button>
     </form>
   );

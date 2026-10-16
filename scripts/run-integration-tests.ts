@@ -95,6 +95,12 @@ async function resetSharedMutableSettings(): Promise<void> {
   }
   await settingsService.setBookingRequirePrepayment(false, owner.id);
   console.log("Pre-flight: booking prepayment switch confirmed OFF before running any integration test.\n");
+  // The Fri/Sat waitlist defaults OFF in production (owner, 2026-10-16), but
+  // most open-play tests exercise waitlist behaviour, so the suite runs with
+  // it ON. waitlist-disabled.integration.ts switches it off for itself.
+  const openPlaySettings = await settingsService.getOpenPlaySettings();
+  await settingsService.setOpenPlaySettings({ ...openPlaySettings, waitlistEnabled: true }, owner.id);
+  console.log("Pre-flight: Fri/Sat waitlist switch confirmed ON for the integration suite.\n");
 }
 
 async function main(): Promise<void> {

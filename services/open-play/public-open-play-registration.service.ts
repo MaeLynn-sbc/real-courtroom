@@ -10,7 +10,8 @@ export type CreatePublicOpenPlayRegistrationResult =
   | { status: "date-blocked"; message: string }
   | { status: "not-yet-open"; opensAt: Date }
   | { status: "registered"; registrationId: string; holdExpiresAt: Date | null }
-  | { status: "waitlisted"; waitlistEntryId: string };
+  | { status: "waitlisted"; waitlistEntryId: string }
+  | { status: "full" };
 
 // Extracted from actions/public-open-play-registration.actions.ts, same
 // reason as services/booking/public-booking.service.ts's own extraction
@@ -103,6 +104,9 @@ export async function createPublicOpenPlayRegistration(
       registrationId: result.registration.id,
       holdExpiresAt: result.registration.holdExpiresAt,
     };
+  }
+  if (result.kind === "full") {
+    return { status: "full" };
   }
   return { status: "waitlisted", waitlistEntryId: result.entry.id };
 }

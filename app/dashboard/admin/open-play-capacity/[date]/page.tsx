@@ -261,6 +261,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
                     paymentMethods={toSettlementPaymentMethodOptions(paymentMethods)}
                     friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
                     seatsRemaining={session.capacity - occupiedCount}
+                    waitlistEnabled={openPlaySettings.waitlistEnabled}
                   />
                 </>
               ) : (
@@ -271,6 +272,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
                   weeknightGameRateCents={gameFormat.rateCents}
                   friSatRegistrationFeeCents={openPlaySettings.friSatRegistrationFeeCents}
                   seatsRemaining={session.capacity - occupiedCount}
+                  waitlistEnabled={openPlaySettings.waitlistEnabled}
                 />
               )}
               <CheckInPanel

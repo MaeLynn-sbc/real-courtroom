@@ -352,6 +352,8 @@ const DEFAULT_OPEN_PLAY_SETTINGS: OpenPlaySettings = {
   forgottenAssignmentNudgeMinutes: 3,
   closedRegistrationMessage: "Unlimited open play isn't open for online registration yet.",
   waitlistedMessage: "We'll get in touch if a slot opens up, and you can pay then.",
+  // Off by default (owner, 2026-10-16) — see the schema field.
+  waitlistEnabled: false,
 };
 
 // A generic key -> value(Json) table (existing since Phase 2, never

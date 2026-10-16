@@ -40,9 +40,10 @@ function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "09171234567" } });
 }
 
-function renderForm(formNights = nights) {
+function renderForm(formNights = nights, waitlistEnabled = false) {
   render(
     <PublicOpenPlayRegistrationForm
+      waitlistEnabled={waitlistEnabled}
       nights={formNights}
       registrationFeeCents={15000}
       gcashInfo={gcashInfo}
@@ -97,11 +98,25 @@ describe("PublicOpenPlayRegistrationForm — reserve first, pay second", () => {
     expect(screen.queryByText(/Step 2 of 2/)).not.toBeInTheDocument();
   });
 
-  it("switches to 'Join waitlist' and says not to pay the instant a FULL night is picked", async () => {
-    renderForm([
-      { date: "2026-08-01", label: "Fri, Aug 1", remainingSeats: 5 },
-      { date: "2026-08-02", label: "Sat, Aug 2", remainingSeats: 0 },
-    ]);
+  const openAndFull = [
+    { date: "2026-08-01", label: "Fri, Aug 1", remainingSeats: 5 },
+    { date: "2026-08-02", label: "Sat, Aug 2", remainingSeats: 0 },
+  ];
+
+  // Owner, 2026-10-16: "if registration is full kindly disable all buttons".
+  it("disables registration the instant a FULL night is picked when the waitlist is off", async () => {
+    renderForm(openAndFull);
+    await clickAsync(screen.getByRole("combobox", { name: /night/i }));
+    await selectOptionAsync(await screen.findByRole("option", { name: /sat, aug 2/i }));
+
+    expect(screen.getByText("This night is full.")).toBeInTheDocument();
+    expect(screen.getByText(/no more online slots/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /night is full/i })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /join waitlist/i })).not.toBeInTheDocument();
+  });
+
+  it("switches to 'Join waitlist' and says not to pay on a FULL night when the waitlist is on", async () => {
+    renderForm(openAndFull, true);
     expect(screen.getByRole("button", { name: /reserve my seat/i })).toBeInTheDocument();
 
     await clickAsync(screen.getByRole("combobox", { name: /night/i }));

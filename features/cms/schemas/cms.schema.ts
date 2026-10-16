@@ -212,6 +212,11 @@ export const openPlaySettingsSchema = z.object({
   // and not owner-editable at all. Shown on
   // PublicOpenPlayRegistrationForm's "waitlisted" step.
   waitlistedMessage: z.string().max(200),
+  // Owner (2026-10-16): "just a toggle button if we allow waitlist … so no
+  // more waitlisted customers". Off: a full Fri/Sat night simply says it's
+  // full — the website takes no names, the desk adds nobody to a
+  // waitlist, and no seat is ever offered by text. On: the old behaviour.
+  waitlistEnabled: z.boolean(),
 });
 
 export type OpenPlaySettings = z.infer<typeof openPlaySettingsSchema>;

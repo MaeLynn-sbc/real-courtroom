@@ -89,7 +89,9 @@ export interface RegisterOnlineInput {
 
 export type SubmitOnlineRegistrationResult =
   | { kind: "registered"; registration: OpenPlayNightRegistration }
-  | { kind: "waitlisted"; entry: OpenPlayWaitlistEntry };
+  | { kind: "waitlisted"; entry: OpenPlayWaitlistEntry }
+  // Full night with the waitlist switched off — nothing is created.
+  | { kind: "full" };
 
 export type ReleaseStatus = "CANCELLED" | "NO_SHOW" | "CHECKED_OUT" | "REJECTED";
 
@@ -436,6 +438,7 @@ export class OpenPlayRegistrationService {
       isNewPlayer = result.isNewPlayer;
     }
 
+    const { waitlistEnabled } = await settingsService.getOpenPlaySettings();
     const registration = await prisma.$transaction(async (tx) => {
       const session = await lockSessionRow(tx, sessionId);
       if (!session) {
@@ -453,6 +456,14 @@ export class OpenPlayRegistrationService {
       // feature-wide switch is off — proven in this gate's hard-
       // boundary check, not just asserted.
       const seatedCount = await countOccupiedSeats(tx, sessionId, new Date());
+
+      // Waitlist switched off (owner, 2026-10-16): a full night refuses the
+      // walk-in instead of waitlisting them.
+      if (seatedCount >= session.capacity && !waitlistEnabled) {
+        throw new Error(
+          `Tonight is full (${seatedCount} of ${session.capacity} seats). Raise the night's capacity to add more players.`,
+        );
+      }
 
       let waitlistPos: number | null = null;
       if (seatedCount >= session.capacity) {
@@ -615,6 +626,7 @@ export class OpenPlayRegistrationService {
     sessionId: string,
     input: RegisterOnlineInput,
   ): Promise<SubmitOnlineRegistrationResult> {
+    const { waitlistEnabled } = await settingsService.getOpenPlaySettings();
     const result = await prisma.$transaction(async (tx) => {
       const session = await lockSessionRow(tx, sessionId);
       if (!session) {
@@ -641,6 +653,12 @@ export class OpenPlayRegistrationService {
         return { kind: "registered" as const, registration };
       }
 
+      // Waitlist switched off (owner, 2026-10-16): a full night creates
+      // nothing at all.
+      if (!waitlistEnabled) {
+        return { kind: "full" as const };
+      }
+
       // Full — BUILD-SPEC.md §6 "no payment prompt at all... no hold, no
       // proof row." No OpenPlayNightRegistration row at all, on purpose
       // (see OpenPlayWaitlistEntry's own schema comment) — just the
@@ -656,6 +674,9 @@ export class OpenPlayRegistrationService {
       return { kind: "waitlisted" as const, entry };
     });
 
+    if (result.kind === "full") {
+      return result;
+    }
     if (result.kind === "registered") {
       await this.writeAuditLog({
         actorUserId: null,
@@ -745,6 +766,21 @@ export class OpenPlayRegistrationService {
     return { seated, invited };
   }
 
+  private async onlineInvitesAllowed(
+    tx: Prisma.TransactionClient,
+    session: { id: string; date: Date },
+  ): Promise<boolean> {
+    const [{ waitlistEnabled }, featureEnabled, row, defaults] = await Promise.all([
+      settingsService.getOpenPlaySettings(),
+      settingsService.getOpenPlayOnlineRegistrationEnabled(),
+      tx.openPlayNightSession.findUnique({ where: { id: session.id }, select: { onlineRegistrationBlocked: true } }),
+      tx.openPlayCapacityDefault.findMany({ select: { dayOfWeek: true, onlineRegistrationEnabled: true } }),
+    ]);
+    const dayEnabled =
+      defaults.find((d) => d.dayOfWeek === session.date.getDay())?.onlineRegistrationEnabled ?? false;
+    return waitlistEnabled && featureEnabled && dayEnabled && !row?.onlineRegistrationBlocked;
+  }
+
   async inviteNextWaitlistEntry(
     tx: Prisma.TransactionClient,
     session: { id: string; date: Date },
@@ -752,6 +788,14 @@ export class OpenPlayRegistrationService {
   ): Promise<string[]> {
     const now = new Date();
     const invitedNames: string[] = [];
+
+    // Never text a seat offer when online registration is off for this
+    // night (owner, 2026-10-16: blocked at 8:36 PM, yet at 10:05 PM every
+    // check-out texted the online waitlist to come and pay), or when the
+    // waitlist itself is switched off.
+    if (!(await this.onlineInvitesAllowed(tx, session))) {
+      return invitedNames;
+    }
 
     // Resolve every stale invite first — cleanliness/audit correctness,
     // not a capacity effect: countOccupiedSeats already stops counting

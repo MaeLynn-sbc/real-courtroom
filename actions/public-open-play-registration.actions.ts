@@ -12,7 +12,7 @@ import { createPublicOpenPlayRegistration } from "@/services/open-play/public-op
 
 export interface PublicOpenPlayRegistrationActionState {
   error: string | null;
-  status?: "disabled" | "date-blocked" | "not-yet-open" | "registered" | "waitlisted";
+  status?: "disabled" | "date-blocked" | "not-yet-open" | "registered" | "waitlisted" | "full";
   opensAt?: Date;
   registrationId?: string;
   holdExpiresAt?: Date | null;
@@ -75,6 +75,12 @@ export async function createPublicOpenPlayRegistrationAction(
         status: "not-yet-open",
         opensAt: result.opensAt,
       };
+    }
+
+    if (result.status === "full") {
+      // Waitlist switched off and the night filled up — nothing created,
+      // so it doesn't count against the customer's hourly limit either.
+      return { error: "Sorry — this night is full. No more online slots.", status: "full" };
     }
 
     recordRateLimitFailure(rateLimitKey, RATE_LIMIT_WINDOW_MS);
