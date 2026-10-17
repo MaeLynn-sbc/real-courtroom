@@ -87,6 +87,33 @@ describe("PublicOpenPlayRegistrationForm — reserve first, pay second", () => {
     expect(screen.getByText("0917 000 0000")).toBeInTheDocument();
   });
 
+  // Reported 2026-10-17: switching to GCash reloaded the page, step 2 was
+  // gone, and customers reserved a second time.
+  it("comes back to the payment step after a reload while the hold is live", async () => {
+    window.localStorage.setItem(
+      "courtroom.openPlay.pendingReservation",
+      JSON.stringify({
+        registrationId: "reg-1",
+        playerName: "Jane Guest",
+        holdExpiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      }),
+    );
+    renderForm();
+    expect(await screen.findByText(/Step 2 of 2/)).toBeInTheDocument();
+    expect(mockedCreate).not.toHaveBeenCalled();
+    window.localStorage.clear();
+  });
+
+  it("ignores a remembered reservation whose hold has run out", () => {
+    window.localStorage.setItem(
+      "courtroom.openPlay.pendingReservation",
+      JSON.stringify({ registrationId: "reg-1", playerName: "Jane", holdExpiresAt: new Date(Date.now() - 1000).toISOString() }),
+    );
+    renderForm();
+    expect(screen.getByRole("button", { name: /reserve my seat/i })).toBeInTheDocument();
+    expect(window.localStorage.getItem("courtroom.openPlay.pendingReservation")).toBeNull();
+  });
+
   it("never shows payment to someone who lands on the waitlist", async () => {
     mockedCreate.mockResolvedValue({ error: null, status: "waitlisted", waitlistEntryId: "wl-1" });
     renderForm();

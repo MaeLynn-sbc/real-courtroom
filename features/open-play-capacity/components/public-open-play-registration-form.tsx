@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 
 import { createPublicOpenPlayRegistrationAction } from "@/actions/public-open-play-registration.actions";
@@ -20,6 +20,7 @@ import {
   OPEN_PLAY_SKILL_LEVEL_ORDER,
   OPEN_PLAY_SKILL_LEVELS,
 } from "@/types/open-play-skill-levels";
+import { OPEN_PLAY_HOLD_MINUTES } from "@/lib/open-play-seats";
 import { cn } from "@/lib/utils";
 import type { OpenPlaySkillLevel } from "@/lib/generated/prisma/enums";
 import type { GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
@@ -82,6 +83,46 @@ type Step =
     }
   | { kind: "proof-submitted" };
 
+// Reported 2026-10-17: on a phone, switching to GCash to pay often reloads
+// this page when the customer comes back — step 2 vanished, they reserved
+// again, and the first hold sat unpaid on a seat. The pending reservation
+// is kept in this browser until it's paid or its hold runs out, so coming
+// back lands on "pay" again. Best-effort: storage can be unavailable.
+const PENDING_KEY = "courtroom.openPlay.pendingReservation";
+
+interface PendingReservation {
+  registrationId: string;
+  playerName: string;
+  holdExpiresAt: string;
+}
+
+function readPending(): PendingReservation | null {
+  try {
+    const raw = window.localStorage.getItem(PENDING_KEY);
+    if (!raw) return null;
+    const pending = JSON.parse(raw) as PendingReservation;
+    if (!pending.registrationId || new Date(pending.holdExpiresAt).getTime() <= Date.now()) {
+      window.localStorage.removeItem(PENDING_KEY);
+      return null;
+    }
+    return pending;
+  } catch {
+    return null;
+  }
+}
+
+function writePending(pending: PendingReservation | null): void {
+  try {
+    if (pending) {
+      window.localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
+    } else {
+      window.localStorage.removeItem(PENDING_KEY);
+    }
+  } catch {
+    // Storage blocked — the server still returns the same hold on a repeat.
+  }
+}
+
 export function PublicOpenPlayRegistrationForm({
   nights,
   registrationFeeCents,
@@ -120,6 +161,13 @@ export function PublicOpenPlayRegistrationForm({
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [step, setStep] = useState<Step>({ kind: "form" });
+
+  useEffect(() => {
+    const pending = readPending();
+    if (pending) {
+      setStep({ kind: "awaiting-proof", ...pending });
+    }
+  }, []);
 
   const { control, register, handleSubmit } = useForm<PublicOpenPlayRegistrationFormValues>({
     defaultValues: {
@@ -174,13 +222,21 @@ export function PublicOpenPlayRegistrationForm({
         return;
       }
       if (result.status === "registered" && result.registrationId) {
+        const holdExpiresAt = result.holdExpiresAt
+          ? new Date(result.holdExpiresAt).toISOString()
+          : undefined;
+        if (holdExpiresAt) {
+          writePending({
+            registrationId: result.registrationId,
+            playerName: values.playerName,
+            holdExpiresAt,
+          });
+        }
         setStep({
           kind: "awaiting-proof",
           registrationId: result.registrationId,
           playerName: values.playerName,
-          holdExpiresAt: result.holdExpiresAt
-            ? new Date(result.holdExpiresAt).toISOString()
-            : undefined,
+          holdExpiresAt,
         });
         return;
       }
@@ -231,7 +287,7 @@ export function PublicOpenPlayRegistrationForm({
                       hour: "numeric",
                       minute: "2-digit",
                     })}`
-                  : " for 30 minutes"}
+                  : ` for ${OPEN_PLAY_HOLD_MINUTES} minutes`}
                 . You&apos;re <strong>not registered yet</strong> — send your GCash payment and
                 upload the screenshot below, or the seat goes to the next person.
               </>
@@ -243,8 +299,21 @@ export function PublicOpenPlayRegistrationForm({
             gcashInfo={gcashInfo}
             contactPhone={contactPhone}
             contactFacebookUrl={contactFacebookUrl}
-            onSubmitted={() => setStep({ kind: "proof-submitted" })}
+            onSubmitted={() => {
+              writePending(null);
+              setStep({ kind: "proof-submitted" });
+            }}
           />
+          <button
+            type="button"
+            className="text-muted-foreground self-start text-xs underline"
+            onClick={() => {
+              writePending(null);
+              setStep({ kind: "form" });
+            }}
+          >
+            Not you, or reserving for someone else? Start a new registration
+          </button>
         </CardContent>
       </Card>
     );

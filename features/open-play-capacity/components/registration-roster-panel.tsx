@@ -39,7 +39,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { isRegistrationOccupyingSeat } from "@/lib/open-play-seats";
+import { isRegistrationOccupyingSeat, OPEN_PLAY_HOLD_MINUTES } from "@/lib/open-play-seats";
 import type { SettlementPaymentMethodOption } from "@/lib/settlement-payment-methods";
 import {
   OPEN_PLAY_SKILL_LEVEL_ORDER,
@@ -562,6 +562,13 @@ export function RegistrationRosterPanel({
   // holds). Two numbers for "how many seats are taken" on the same page
   // is worse than one, even a correct one.
   const seated = registrations.filter((r) => isRegistrationOccupyingSeat(r, new Date()));
+  // Live online holds — counted in `seated` (the seat is reserved), but
+  // not paid yet. Shown separately so staff can tell (owner, 2026-10-17).
+  const unpaidHolds = seated.filter((r) => r.status === "AWAITING_PAYMENT");
+  const latestHoldEnd = unpaidHolds.reduce<Date | null>(
+    (latest, r) => (r.holdExpiresAt && (!latest || r.holdExpiresAt > latest) ? r.holdExpiresAt : latest),
+    null,
+  );
   const waitlisted = registrations.filter((r) => r.waitlistPos !== null);
   const active = registrations.filter((r) => r.status === "CONFIRMED");
 
@@ -577,7 +584,15 @@ export function RegistrationRosterPanel({
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="font-medium">
-            {seated.length} / {capacity} · {waitlisted.length} waiting at the desk
+            {seated.length} / {capacity}
+            {unpaidHolds.length > 0
+              ? ` (${seated.length - unpaidHolds.length} paid · ${unpaidHolds.length} holding, unpaid${
+                  latestHoldEnd
+                    ? ` until ${new Date(latestHoldEnd).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}`
+                    : ""
+                })`
+              : ""}{" "}
+            · {waitlisted.length} waiting at the desk
             {onlineWaitlist.length > 0 ? ` · ${onlineWaitlist.length} on the online waitlist` : ""}
           </span>
           {active.length > 0 ? (
@@ -658,7 +673,7 @@ export function RegistrationRosterPanel({
               <h3 className="text-sm font-medium">Online waitlist ({onlineWaitlist.length})</h3>
               <p className="text-muted-foreground text-xs">
                 Registered on the website while the night was full — not charged. When a seat frees up and nobody is
-                waiting at the desk, the first person here gets a text and 30 minutes to pay. You can also call them.
+                waiting at the desk, the first person here gets a text and {OPEN_PLAY_HOLD_MINUTES} minutes to pay. You can also call them.
               </p>
             </div>
             <ol className="flex flex-col gap-1.5">

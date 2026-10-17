@@ -11,6 +11,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { OPEN_PLAY_HOLD_MINUTES } from "@/lib/open-play-seats";
 
 interface UpcomingNight {
   date: string; // "YYYY-MM-DD"
@@ -44,7 +45,7 @@ function NightRow({ night }: { night: UpcomingNight }) {
       // waitlist used to get them silently.
       const notes = [
         result.seatedFromWaitlist?.length ? `Seated from the desk waitlist: ${result.seatedFromWaitlist.join(", ")} (take their payment on the roster).` : "",
-        result.invitedFromOnline?.length ? `Offered online to: ${result.invitedFromOnline.join(", ")} — they have 30 minutes to pay.` : "",
+        result.invitedFromOnline?.length ? `Offered online to: ${result.invitedFromOnline.join(", ")} — they have ${OPEN_PLAY_HOLD_MINUTES} minutes to pay.` : "",
       ].filter(Boolean);
       toast.success(`${night.label} capacity saved.`, notes.length ? { description: notes.join(" "), duration: 10_000 } : undefined);
       router.refresh();

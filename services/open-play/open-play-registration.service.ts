@@ -22,6 +22,7 @@ import { settingsService } from "@/services/settings/settings.service";
 import { getSmsService } from "@/services/sms/sms-service.factory";
 import { OPEN_PLAY_SKILL_LEVEL_ORDER } from "@/types/open-play-skill-levels";
 import { SYSTEM_ROLES } from "@/types/roles";
+import { OPEN_PLAY_HOLD_MINUTES, onlineReservationKey } from "@/lib/open-play-seats";
 
 // BUILD-SPEC.md §5. Concurrency: SELECT ... FOR UPDATE on the session
 // row (the spec's first-named technique, not the Serializable-isolation-
@@ -98,7 +99,7 @@ export type ReleaseStatus = "CANCELLED" | "NO_SHOW" | "CHECKED_OUT" | "REJECTED"
 // Matches Phase 8's HOLD_DURATION_MINUTES (booking.service.ts) exactly,
 // per this gate's explicit instruction to reuse holdExpiresAt's pattern,
 // not invent a second one.
-const HOLD_DURATION_MINUTES = 30;
+const HOLD_DURATION_MINUTES = OPEN_PLAY_HOLD_MINUTES;
 
 // Cancellation policy Gate 1 (BUILD-SPEC.md's open-play "Cancellation
 // policy" section). Both are the spec's own explicit proposed defaults —
@@ -634,6 +635,21 @@ export class OpenPlayRegistrationService {
       }
 
       const now = new Date();
+
+      // Reported 2026-10-17: customers switched to GCash to pay, came back
+      // to a reloaded page, reserved again — and the first hold sat unpaid
+      // on a seat (Drey twice; Miguel, John, Albert once each, all deleted
+      // by hand). A repeat of the same name + phone while their hold is
+      // still live returns THAT hold instead of taking a second seat.
+      const liveHolds = await tx.openPlayNightRegistration.findMany({
+        where: { sessionId, status: "AWAITING_PAYMENT", holdExpiresAt: { gte: now } },
+      });
+      const key = onlineReservationKey(input.playerName, input.phone);
+      const existingHold = liveHolds.find((hold) => onlineReservationKey(hold.playerName, hold.phone) === key);
+      if (existingHold) {
+        return { kind: "registered" as const, registration: existingHold, reused: true };
+      }
+
       const occupied = await countOccupiedSeats(tx, sessionId, now);
 
       if (occupied < session.capacity) {
@@ -676,6 +692,9 @@ export class OpenPlayRegistrationService {
 
     if (result.kind === "full") {
       return result;
+    }
+    if (result.kind === "registered" && "reused" in result) {
+      return { kind: "registered", registration: result.registration };
     }
     if (result.kind === "registered") {
       await this.writeAuditLog({

@@ -43,3 +43,22 @@ export function isRegistrationOccupyingSeat(
 export function computeRemainingSeats(capacity: number, registeredCount: number): number {
   return Math.max(0, capacity - registeredCount);
 }
+
+// How long an online reservation holds a seat while the customer pays.
+// 10 minutes (owner, 2026-10-17; was 30): since reserve-first went live, an
+// unpaid hold counts as a taken seat for this long — the night looked
+// fuller than it was. Also the invite window for an online-waitlist offer.
+// Shared so every "you have N minutes" message matches the real rule.
+export const OPEN_PLAY_HOLD_MINUTES = 10;
+
+// Same person, same night: digits only, a +63 prefix read as 0, plus the
+// name, case- and space-insensitive. One phone can still reserve for a
+// group (Joelly and Jasper Jurilla share a number) — only an exact repeat
+// of name AND phone is treated as the same reservation.
+export function onlineReservationKey(playerName: string, phone: string): string {
+  let digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("63")) {
+    digits = `0${digits.slice(2)}`;
+  }
+  return `${digits}|${playerName.trim().toLowerCase().replace(/\s+/g, " ")}`;
+}
