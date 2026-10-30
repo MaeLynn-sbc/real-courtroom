@@ -1,7 +1,7 @@
 import type { PublicOpenPlayRegistrationInput } from "@/features/open-play-capacity/schemas/public-open-play-registration.schema";
 import { computeBusinessDate } from "@/lib/business-date";
 import { resolveOpenPlayClosedMessage } from "@/lib/open-play-closed-message";
-import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
+import { REGULAR_PLAY_NIGHT_MESSAGE, openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
 import { settingsService } from "@/services/settings/settings.service";
 
@@ -63,6 +63,13 @@ export async function createPublicOpenPlayRegistration(
         session.closedMessage,
         openPlaySettings.closedRegistrationMessage,
       ),
+    };
+  }
+  // A night switched to regular play has no Unliplay seats to take.
+  if (session.regularPlay) {
+    return {
+      status: "date-blocked",
+      message: session.closedMessage?.trim() || REGULAR_PLAY_NIGHT_MESSAGE,
     };
   }
 

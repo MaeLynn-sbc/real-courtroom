@@ -23,7 +23,7 @@ import { createBookingSchema } from "@/features/bookings/schemas/booking.schema"
 import { StaffCoachPicker, type StaffCoachSelection } from "@/features/coaching/components/staff-coach-picker";
 import { PlayerSearchCombobox } from "@/features/players/components/player-search-combobox";
 import { useLiveNow } from "@/hooks/use-live-now";
-import { getCourtBookingWindow, isBookableRange, isHourInThePast } from "@/lib/court-hours";
+import { type RegularPlayNight, getCourtBookingWindow, isBookableRange, isHourInThePast } from "@/lib/court-hours";
 import { formatCurrency } from "@/lib/utils";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import type { CourtHoursSettings } from "@/features/cms/schemas/cms.schema";
@@ -80,6 +80,7 @@ function getAvailableTimeOptions(
   dateValue: string,
   durationMinutes: number,
   now: number,
+  regularPlayNights: Record<string, RegularPlayNight> = {},
 ): string[] {
   if (!courtName || !dateValue) {
     return [];
@@ -88,7 +89,7 @@ function getAvailableTimeOptions(
   if (Number.isNaN(date.getTime())) {
     return [];
   }
-  const window = getCourtBookingWindow(courtHours, courtName, date);
+  const window = getCourtBookingWindow(courtHours, courtName, date, undefined, regularPlayNights[dateValue]);
   const lastStartMinutes = window.closeMinutes - durationMinutes;
 
   const options: string[] = [];
@@ -146,6 +147,8 @@ interface BookingFormProps {
   courts: BookingFormCourt[];
   players: BookingFormPlayer[];
   courtHours: CourtHoursSettings;
+  // Fri/Sat dates switched to regular play (openPlayCapacityService.listRegularPlayNights).
+  regularPlayNights?: Record<string, RegularPlayNight>;
 }
 
 function toLocalDateValue(date: Date): string {
@@ -153,7 +156,7 @@ function toLocalDateValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
+export function BookingForm({ courts, players, courtHours, regularPlayNights }: BookingFormProps) {
   const router = useRouter();
   const [isWalkIn, setIsWalkIn] = useState(true);
   // Shared by both modes — walk-in's own duration select already only
@@ -205,7 +208,7 @@ export function BookingForm({ courts, players, courtHours }: BookingFormProps) {
   // rendered.
   const businessHoursTimeOptions = isWalkIn
     ? []
-    : getAvailableTimeOptions(courtHours, selectedCourt?.name, advanceDate, durationMinutes, now);
+    : getAvailableTimeOptions(courtHours, selectedCourt?.name, advanceDate, durationMinutes, now, regularPlayNights);
 
   // Reported live: staff filled in a whole form only to be told at submit
   // that the dropdown's own offered slot was already booked. One fetch

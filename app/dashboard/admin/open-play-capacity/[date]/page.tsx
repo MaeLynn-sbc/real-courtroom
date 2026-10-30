@@ -11,6 +11,8 @@ import { OpenPlayDateNav } from "@/features/open-play-capacity/components/open-p
 import { OpenPlaySessionTabs } from "@/features/open-play-capacity/components/open-play-session-tabs";
 import { OpenTabsCarryoverBanner } from "@/features/open-play-capacity/components/open-tabs-carryover-banner";
 import { RegistrationRosterPanel } from "@/features/open-play-capacity/components/registration-roster-panel";
+import { RegularPlayHoursPanel } from "@/features/open-play-capacity/components/regular-play-hours-panel";
+import { RegularPlayToggle } from "@/features/open-play-capacity/components/regular-play-toggle";
 import { GameFormatToggle } from "@/features/open-play-capacity/components/game-format-toggle";
 import { RotationBoard } from "@/features/open-play-capacity/components/rotation-board";
 import { StartTimeOverrideField } from "@/features/open-play-capacity/components/start-time-override-field";
@@ -20,12 +22,17 @@ import {
   type RegistrablePlayer,
 } from "@/features/open-play-capacity/components/walk-in-registration-form";
 import type { PlayerTab } from "@/lib/generated/prisma/client";
-import { isBeforeFridaySaturdayOpenPlayCutoff } from "@/lib/court-hours";
+import {
+  getCourtBookingWindow,
+  getFacilityCloseMinutes,
+  isBeforeFridaySaturdayOpenPlayCutoff,
+} from "@/lib/court-hours";
 import { currentGameFormat } from "@/lib/game-format";
 import { shouldShowCarryoverBanner } from "@/lib/open-play-carryover";
 import { toSettlementPaymentMethodOptions } from "@/lib/settlement-payment-methods";
 import { serializeBoard } from "@/features/open-play-capacity/lib/serialize-rotation-board";
 import { isRegistrationOccupyingSeat } from "@/lib/open-play-seats";
+import { courtService } from "@/services/court/court.service";
 import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { openPlayCheckinService } from "@/services/open-play/open-play-checkin.service";
 import { openPlayRegistrationService } from "@/services/open-play/open-play-registration.service";
@@ -83,6 +90,34 @@ async function findCarryoverBanner(
   return { dateValue: previousDateValue, label: labelFormatter.format(previousDate) };
 }
 
+// Same courts the weekly Open Play Schedule covers (owner, 2026-10-01).
+const SCHEDULED_COURT_NAMES = ["Court 1", "Court 2", "Court 3"];
+
+// The per-court hours grid for a Fri/Sat switched to regular play, starting
+// from what the courts actually do on this date right now.
+async function getRegularPlayCourtHours(date: Date) {
+  const [courts, courtHours, { regularPlayNight }] = await Promise.all([
+    courtService.listCourts(),
+    settingsService.getCourtHours(),
+    openPlayCapacityService.getCourtDateOverrides(date),
+  ]);
+  const courtNames = SCHEDULED_COURT_NAMES.filter((name) =>
+    courts.some((court) => court.name === name && court.status !== "DISABLED"),
+  );
+  const startHour = Number(courtHours.facilityOpenTime.slice(0, 2));
+  const hours = Array.from(
+    { length: Math.ceil(getFacilityCloseMinutes(courtHours, date) / 60) - startHour },
+    (_, index) => startHour + index,
+  );
+  const initialHours = Object.fromEntries(
+    courtNames.map((name) => {
+      const window = getCourtBookingWindow(courtHours, name, date, undefined, regularPlayNight);
+      return [name, hours.filter((hour) => window.openPlayHours.includes(hour) || (hour + 1) * 60 > window.closeMinutes)];
+    }),
+  );
+  return { courtNames, hours, initialHours };
+}
+
 function toRegistrablePlayers(
   players: Awaited<ReturnType<typeof playerService.listPlayers>>,
 ): RegistrablePlayer[] {
@@ -109,7 +144,15 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
   const previousDateValue = toDateValue(previousDate);
   const nextDateValue = toDateValue(addDays(date, 1));
 
-  const isCapacityNight = [5, 6].includes(date.getDay());
+  // Fri/Sat is Unliplay unless the owner switched this date to regular
+  // play (OpenPlayNightSession.regularPlay). Viewing the page materializes
+  // the session (if it doesn't already exist) the same way an owner
+  // setting a per-date override does — "one per date, created on demand"
+  // (BUILD-SPEC.md §5).
+  const nightSession = [5, 6].includes(date.getDay())
+    ? await openPlayCapacityService.getOrCreateSessionForDate(date)
+    : null;
+  const isCapacityNight = nightSession !== null && !nightSession.regularPlay;
   const [players, openPlaySettings, shortGame] = await Promise.all([
     playerService.listPlayers("regulars").then(toRegistrablePlayers),
     settingsService.getOpenPlaySettings(),
@@ -125,7 +168,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     />
   );
 
-  if (isCapacityNight) {
+  if (nightSession && isCapacityNight) {
     // Reported live: walk-in registration was always routed into the
     // P150 unlimited capacity system on a Fri/Sat date, at every hour —
     // this page only ever checked the calendar date, never whether Open
@@ -138,10 +181,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     // bookings, not a second guess at it.
     const courtHours = await settingsService.getCourtHours();
 
-    // Viewing the page materializes the session (if it doesn't already
-    // exist) the same way an owner setting a per-date override does —
-    // "one per date, created on demand" (BUILD-SPEC.md §5).
-    const session = await openPlayCapacityService.getOrCreateSessionForDate(date);
+    const session = nightSession;
     // Owner request (2026-08-08): a per-date start-time override must move
     // this same cutoff, not just the court-booking window — otherwise
     // walk-in registration would keep routing to the regular (per-game)
@@ -204,6 +244,7 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
                 prevDateValue={previousDateValue}
                 nextDateValue={nextDateValue}
               />
+              <RegularPlayToggle date={dateParam} regularPlay={false} />
               <OnlineRegistrationBlockToggle
                 date={dateParam}
                 blocked={session.onlineRegistrationBlocked}
@@ -319,6 +360,9 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
     productService.listActiveProducts(),
   ]);
   const carryoverBanner = await findCarryoverBanner(previousDate, previousDateValue);
+  // A Fri/Sat switched to regular play: same screen as a weeknight, plus
+  // the switch back and this date's court hours.
+  const regularPlayCourts = nightSession ? await getRegularPlayCourtHours(date) : null;
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -342,16 +386,21 @@ export default async function OpenPlayNightPage({ params }: OpenPlayNightPagePro
           {labelFormatter.format(date)}
         </h1>
         <p className="text-muted-foreground text-sm">
-          Regular drop-in — no capacity, no prepayment.
+          {nightSession
+            ? "Regular play tonight (₱35 per game) instead of Unliplay — no capacity, no prepayment."
+            : "Regular drop-in — no capacity, no prepayment."}
         </p>
-        <div className="mt-2">
+        <div className="mt-2 flex flex-col gap-3">
           <OpenPlayDateNav
             dateValue={dateParam}
             prevDateValue={previousDateValue}
             nextDateValue={nextDateValue}
           />
+          {nightSession ? <RegularPlayToggle date={dateParam} regularPlay /> : null}
         </div>
       </div>
+
+      {regularPlayCourts ? <RegularPlayHoursPanel date={dateParam} {...regularPlayCourts} /> : null}
 
       <WalkInRegistrationForm
         target={{ date: dateParam }}

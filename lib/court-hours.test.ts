@@ -492,3 +492,51 @@ describe("weekly open play schedule", () => {
     expect(getEveningOpenPlayStartMinutes(getCourtBookingWindow(SCHEDULED, "Court 2", MONDAY))).toBe(20 * 60);
   });
 });
+
+// Owner (2026-10-31): "change the unli play for later to regular play,
+// the 35 per game", then pick per court which hours are booking.
+describe("a Fri/Sat switched to regular play", () => {
+  const SATURDAY_SCHEDULE: CourtHoursSettings = {
+    ...SETTINGS,
+    fridaySaturdayCourtCloseTimes: { "Court 1": "16:00" },
+    openPlayHoursByWeekday: { "6": { "Court 1": [16, 17, 18, 19, 20, 21, 22], "Court 2": [18, 19, 20, 21, 22] } },
+  };
+
+  it("keeps the Unliplay cutoff when the switch is off", () => {
+    expect(getCourtBookingWindow(SATURDAY_SCHEDULE, "Court 2", SATURDAY).closeMinutes).toBe(18 * 60);
+  });
+
+  it("drops the Unliplay cutoff and follows the weekly schedule", () => {
+    const window = getCourtBookingWindow(SATURDAY_SCHEDULE, "Court 2", SATURDAY, undefined, { openPlayHours: null });
+    expect(window.closeMinutes).toBe(23 * 60);
+    expect(window.openPlayHours).toEqual([18, 19, 20, 21, 22]);
+  });
+
+  it("uses this date's own hours over the weekly schedule", () => {
+    const night = { openPlayHours: { "Court 2": [21, 22] } };
+    const window = getCourtBookingWindow(SATURDAY_SCHEDULE, "Court 2", SATURDAY, undefined, night);
+    expect(window.openPlayHours).toEqual([21, 22]);
+    expect(isBookableRange(window, 18 * 60, 21 * 60)).toBe(true);
+    expect(isBookableRange(window, 20 * 60, 22 * 60)).toBe(false);
+    // An empty list means every hour is bookable.
+    const allBooking = getCourtBookingWindow(SATURDAY_SCHEDULE, "Court 2", SATURDAY, undefined, {
+      openPlayHours: { "Court 2": [] },
+    });
+    expect(isBookableRange(allBooking, 18 * 60, 23 * 60)).toBe(true);
+  });
+
+  it("ignores the Unliplay start-time override", () => {
+    const window = getCourtBookingWindow(SATURDAY_SCHEDULE, "Court 2", SATURDAY, 15 * 60, { openPlayHours: null });
+    expect(window.closeMinutes).toBe(23 * 60);
+  });
+
+  it("falls back to the weekday cutoff for a court with no hours at all", () => {
+    const window = getCourtBookingWindow(SETTINGS, "Court 2", SATURDAY, undefined, { openPlayHours: null });
+    expect(window.closeMinutes).toBe(20 * 60);
+    expect(
+      isWithinCourtBookingWindow(SETTINGS, "Court 2", new Date(2026, 6, 25, 18), new Date(2026, 6, 25, 20), undefined, {
+        openPlayHours: null,
+      }),
+    ).toBe(true);
+  });
+});

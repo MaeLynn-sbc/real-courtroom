@@ -46,7 +46,7 @@ import { useLiveNow } from "@/hooks/use-live-now";
 import { coachingFeeCents, getExpectedPaymentTotalCents } from "@/lib/booking-payment-total";
 import { coachSessionWindow, describeTimeWindow } from "@/lib/coach-session-window";
 import { CoachWindowPicker } from "@/features/coaching/components/coach-window-picker";
-import { getCourtBookingWindow, isBookableRange, isHourInThePast } from "@/lib/court-hours";
+import { type RegularPlayNight, getCourtBookingWindow, isBookableRange, isHourInThePast } from "@/lib/court-hours";
 import { cn, formatCurrency } from "@/lib/utils";
 import { hasTimeOverlap } from "@/services/booking/booking-availability";
 import type { CourtHoursSettings, GcashPaymentInfo } from "@/features/cms/schemas/cms.schema";
@@ -93,6 +93,7 @@ function getAvailableTimeOptions(
   dateValue: string,
   durationMinutes: number,
   now: number,
+  regularPlayNights: Record<string, RegularPlayNight> = {},
 ): string[] {
   if (!courtName || !dateValue) {
     return [];
@@ -101,7 +102,7 @@ function getAvailableTimeOptions(
   if (Number.isNaN(date.getTime())) {
     return [];
   }
-  const window = getCourtBookingWindow(courtHours, courtName, date);
+  const window = getCourtBookingWindow(courtHours, courtName, date, undefined, regularPlayNights[dateValue]);
   const lastStartMinutes = window.closeMinutes - durationMinutes;
 
   const options: string[] = [];
@@ -259,6 +260,9 @@ export function ShortCodeReveal({ shortCode, bookingReference }: { shortCode: st
 interface PublicBookingFormProps {
   courts: PublicBookingFormCourt[];
   courtHours: CourtHoursSettings;
+  // Fri/Sat dates switched to regular play, keyed "YYYY-MM-DD" — their
+  // evening hours can be bookable (openPlayCapacityService.listRegularPlayNights).
+  regularPlayNights?: Record<string, RegularPlayNight>;
   gcashInfo: GcashPaymentInfo;
   contactPhone: string;
   contactFacebookUrl: string;
@@ -296,6 +300,7 @@ interface PublicBookingFormProps {
 export function PublicBookingForm({
   courts,
   courtHours,
+  regularPlayNights,
   gcashInfo,
   contactPhone,
   contactFacebookUrl,
@@ -385,6 +390,7 @@ export function PublicBookingForm({
     initialDateResolved,
     Number(initialDurationResolved),
     Date.now(),
+    regularPlayNights,
   );
   const validInitialTime =
     initialTime && initialTimeOptions.includes(initialTime) ? initialTime : undefined;
@@ -490,6 +496,7 @@ export function PublicBookingForm({
     watchedDate,
     Number(watchedDurationMinutes),
     now,
+    regularPlayNights,
   );
 
   // Reported live: the dropdown still offered a slot a real CONFIRMED

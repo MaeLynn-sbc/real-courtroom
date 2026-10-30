@@ -55,11 +55,11 @@ export default async function BookingsGridPage({ searchParams }: BookingsGridPag
   const { date: dateParam } = await searchParams;
   const date = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();
 
-  const [courts, schedule, courtHours, startTimeOverrideMinutes] = await Promise.all([
+  const [courts, schedule, courtHours, { startTimeOverrideMinutes, regularPlayNight }] = await Promise.all([
     courtService.listCourts(),
     bookingService.getStaffDaySchedule(date),
     settingsService.getCourtHours(),
-    openPlayCapacityService.getStartTimeOverrideMinutes(date),
+    openPlayCapacityService.getCourtDateOverrides(date),
   ]);
 
   const activeCourts = courts.filter((court) => court.status === "ACTIVE");
@@ -78,7 +78,7 @@ export default async function BookingsGridPage({ searchParams }: BookingsGridPag
 
     for (const court of activeCourts) {
       const courtSchedule = scheduleByCourtId.get(court.id);
-      const window = getCourtBookingWindow(courtHours, court.name, date, startTimeOverrideMinutes);
+      const window = getCourtBookingWindow(courtHours, court.name, date, startTimeOverrideMinutes, regularPlayNight);
       const bookedRanges = courtSchedule?.bookedRanges ?? [];
 
       const state = classifyCourtSlot({

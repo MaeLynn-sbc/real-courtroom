@@ -50,7 +50,7 @@ export async function CourtAvailabilityGrid({
   date: Date;
   basePath?: string;
 }) {
-  const [courts, schedule, courtHours, scheduleQrCode, startTimeOverrideMinutes] = await Promise.all([
+  const [courts, schedule, courtHours, scheduleQrCode, { startTimeOverrideMinutes, regularPlayNight }] = await Promise.all([
     courtService.listCourts(),
     bookingService.getPublicDaySchedule(date),
     settingsService.getCourtHours(),
@@ -58,7 +58,7 @@ export async function CourtAvailabilityGrid({
     // Owner request (2026-08-08): fetched ONCE for the whole grid, same
     // "no query per cell" discipline as courtHours itself — see
     // getCourtBookingWindow's own comment.
-    openPlayCapacityService.getStartTimeOverrideMinutes(date),
+    openPlayCapacityService.getCourtDateOverrides(date),
   ]);
 
   const activeCourts = courts.filter((court) => court.status === "ACTIVE");
@@ -88,7 +88,7 @@ export async function CourtAvailabilityGrid({
 
     for (const court of activeCourts) {
       const courtSchedule = scheduleByCourtId.get(court.id);
-      const window = getCourtBookingWindow(courtHours, court.name, date, startTimeOverrideMinutes);
+      const window = getCourtBookingWindow(courtHours, court.name, date, startTimeOverrideMinutes, regularPlayNight);
 
       const bookedRanges = courtSchedule?.bookedRanges ?? [];
       const state = classifyCourtSlot({

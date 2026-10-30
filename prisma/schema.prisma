@@ -1813,6 +1813,14 @@ model OpenPlayNightSession {
   // block switch on later, or leave a message parked for a date that was
   // never actually blocked.
   closedMessage             String?             @db.VarChar(200)
+  // Owner request (2026-10-31): run this Fri/Sat as regular (weeknight)
+  // open play — ₱35 per game on tabs, no ₱150 registration, no online
+  // Unliplay registration. regularPlayHours (court name -> open-play
+  // hours 0-23, same shape as one weekday of openPlayHoursByWeekday)
+  // replaces the Unliplay court takeover for this date only; hours not
+  // listed are open for booking. Null means "the weekly schedule".
+  regularPlay               Boolean             @default(false)
+  regularPlayHours          Json?
   createdAt                 DateTime            @default(now())
   updatedAt                 DateTime            @updatedAt
 

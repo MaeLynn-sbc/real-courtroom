@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { BookingForm } from "@/features/bookings/components/booking-form";
 import { courtService } from "@/services/court/court.service";
+import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { playerService } from "@/services/player/player.service";
 import { settingsService } from "@/services/settings/settings.service";
 
@@ -17,10 +18,11 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function NewBookingPage() {
-  const [courts, players, courtHours] = await Promise.all([
+  const [courts, players, courtHours, regularPlayNights] = await Promise.all([
     courtService.listCourts(),
     playerService.listPlayers(),
     settingsService.getCourtHours(),
+    openPlayCapacityService.listRegularPlayNights(new Date()),
   ]);
 
   const activeCourts = courts
@@ -45,7 +47,7 @@ export default async function NewBookingPage() {
           Book a court for a walk-in or a specific future time.
         </p>
       </div>
-      <BookingForm courts={activeCourts} players={playerOptions} courtHours={courtHours} />
+      <BookingForm courts={activeCourts} players={playerOptions} courtHours={courtHours} regularPlayNights={regularPlayNights} />
     </div>
   );
 }

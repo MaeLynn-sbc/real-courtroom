@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { PublicBookingForm } from "@/features/bookings/components/public-booking-form";
 import { bookingService } from "@/services/booking/booking.service";
 import { courtService } from "@/services/court/court.service";
+import { openPlayCapacityService } from "@/services/open-play/open-play-capacity.service";
 import { settingsService } from "@/services/settings/settings.service";
 
 export const metadata: Metadata = {
@@ -58,6 +59,7 @@ export default async function BookPage({ searchParams }: BookPageProps) {
     businessInfo,
     bookingCommunication,
     slotAvailability,
+    regularPlayNights,
   ] = await Promise.all([
     courtService.listCourts(),
     settingsService.getBookingRequirePrepayment(),
@@ -75,6 +77,7 @@ export default async function BookPage({ searchParams }: BookPageProps) {
     deepLinkedSlot
       ? bookingService.checkAvailability(courtId!, deepLinkedSlot.startAt, deepLinkedSlot.endAt)
       : Promise.resolve(null),
+    openPlayCapacityService.listRegularPlayNights(new Date()),
   ]);
   const courtOptions = courts
     .filter((court) => court.status === "ACTIVE")
@@ -100,6 +103,7 @@ export default async function BookPage({ searchParams }: BookPageProps) {
         <PublicBookingForm
           courts={courtOptions}
           courtHours={courtHours}
+          regularPlayNights={regularPlayNights}
           gcashInfo={gcashInfo}
           contactPhone={businessInfo.phone}
           contactFacebookUrl={businessInfo.facebookUrl}

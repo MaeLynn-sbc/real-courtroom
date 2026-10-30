@@ -1,5 +1,6 @@
 import { computeBusinessDate } from "@/lib/business-date";
-import { getFacilityCloseMinutes } from "@/lib/court-hours";
+import { openPlayHoursSchema } from "@/features/cms/schemas/cms.schema";
+import { getFacilityCloseMinutes, type RegularPlayNight } from "@/lib/court-hours";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import type {
@@ -20,6 +21,16 @@ type OpenPlayDayOfWeek = (typeof OPEN_PLAY_DAYS_OF_WEEK)[number];
 
 function isOpenPlayDayOfWeek(dayOfWeek: number): dayOfWeek is OpenPlayDayOfWeek {
   return (OPEN_PLAY_DAYS_OF_WEEK as readonly number[]).includes(dayOfWeek);
+}
+
+// Shown on the website for a Fri/Sat switched to regular play when the
+// owner hasn't written a closed message of their own for that date.
+export const REGULAR_PLAY_NIGHT_MESSAGE =
+  "Regular open play tonight: ₱35 per game, no registration needed. Just walk in.";
+
+function parseRegularPlayHours(value: Prisma.JsonValue | null): Record<string, number[]> | null {
+  const parsed = openPlayHoursSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function toMidnight(date: Date): Date {
@@ -102,6 +113,10 @@ export interface UpcomingOpenPlayNight {
   // one with unsettled tabs, so OPEN here means genuinely still running,
   // not just forgotten) — every other entry in this list is false.
   stillRunning: boolean;
+  // Switched to regular (₱35 per game) play for this date — see
+  // OpenPlayNightSession.regularPlay. Such a night also reports
+  // onlineRegistrationBlocked, so every public surface closes it.
+  regularPlay: boolean;
 }
 
 export class OpenPlayCapacityService {
@@ -196,6 +211,75 @@ export class OpenPlayCapacityService {
       entityId: session.id,
       oldValues: { onlineRegistrationBlocked: session.onlineRegistrationBlocked },
       newValues: { onlineRegistrationBlocked: blocked },
+    });
+
+    return updated;
+  }
+
+  // Owner request (2026-10-31): run one Fri/Sat as regular play (₱35 per
+  // game) instead of Unliplay. Refused while anyone still holds a ₱150
+  // seat for the night: their payment needs refunding or the registration
+  // removing first, or it would be stranded on a night with no roster.
+  async setRegularPlayForDate(date: Date, regularPlay: boolean, actorUserId: string): Promise<OpenPlayNightSession> {
+    const session = await this.getOrCreateSessionForDate(date);
+
+    if (regularPlay && !session.regularPlay) {
+      const now = new Date();
+      const seated = await prisma.openPlayNightRegistration.count({
+        where: {
+          sessionId: session.id,
+          OR: [
+            { status: "CONFIRMED" },
+            { status: "PENDING_VERIFICATION" },
+            { status: "AWAITING_PAYMENT", holdExpiresAt: { gte: now } },
+          ],
+        },
+      });
+      if (seated > 0) {
+        throw new Error(
+          `${seated} ${seated === 1 ? "player is" : "players are"} registered for Unliplay this night. Refund or remove them on the Roster first.`,
+        );
+      }
+    }
+
+    const updated = await prisma.openPlayNightSession.update({
+      where: { id: session.id },
+      data: { regularPlay },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_session.regular_play_toggled",
+      entityType: "OpenPlayNightSession",
+      entityId: session.id,
+      oldValues: { regularPlay: session.regularPlay },
+      newValues: { regularPlay },
+    });
+
+    return updated;
+  }
+
+  // Per-court open-play hours for a regular-play night; every other hour
+  // is open for booking (getCourtBookingWindow).
+  async setRegularPlayHoursForDate(
+    date: Date,
+    hours: Record<string, number[]>,
+    actorUserId: string,
+  ): Promise<OpenPlayNightSession> {
+    const session = await this.getOrCreateSessionForDate(date);
+
+    const updated = await prisma.openPlayNightSession.update({
+      where: { id: session.id },
+      data: { regularPlayHours: hours },
+    });
+
+    await this.writeAuditLog({
+      actorUserId,
+      action: "open_play_night_session.regular_play_hours_updated",
+      entityType: "OpenPlayNightSession",
+      entityId: session.id,
+      oldValues: { regularPlayHours: session.regularPlayHours },
+      newValues: { regularPlayHours: hours },
     });
 
     return updated;
@@ -325,6 +409,43 @@ export class OpenPlayCapacityService {
       return undefined;
     }
     return session.startAt.getHours() * 60 + session.startAt.getMinutes();
+  }
+
+  // Upcoming regular-play nights keyed "YYYY-MM-DD", for the booking forms'
+  // time lists, which run getCourtBookingWindow in the browser.
+  async listRegularPlayNights(fromDate: Date): Promise<Record<string, RegularPlayNight>> {
+    const sessions = await prisma.openPlayNightSession.findMany({
+      where: { date: { gte: toMidnight(fromDate) }, regularPlay: true },
+      select: { date: true, regularPlayHours: true },
+    });
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return Object.fromEntries(
+      sessions.map((session) => [
+        `${session.date.getFullYear()}-${pad(session.date.getMonth() + 1)}-${pad(session.date.getDate())}`,
+        { openPlayHours: parseRegularPlayHours(session.regularPlayHours) },
+      ]),
+    );
+  }
+
+  // Everything getCourtBookingWindow needs to know about one date, read
+  // once per request: the Unliplay start-time override, or the
+  // regular-play switch that replaces the Unliplay night entirely.
+  async getCourtDateOverrides(
+    date: Date,
+  ): Promise<{ startTimeOverrideMinutes?: number; regularPlayNight?: RegularPlayNight }> {
+    if (!isOpenPlayDayOfWeek(date.getDay())) {
+      return {};
+    }
+    const session = await prisma.openPlayNightSession.findUnique({ where: { date: toMidnight(date) } });
+    if (!session) {
+      return {};
+    }
+    if (session.regularPlay) {
+      return { regularPlayNight: { openPlayHours: parseRegularPlayHours(session.regularPlayHours) } };
+    }
+    return session.startAtOverridden
+      ? { startTimeOverrideMinutes: session.startAt.getHours() * 60 + session.startAt.getMinutes() }
+      : {};
   }
 
   // "One per date. Created on demand from the weekday default" — nothing
@@ -631,9 +752,10 @@ export class OpenPlayCapacityService {
       status: session.status,
       registeredCount: registeredBySession.get(session.id) ?? 0,
       waitlistedCount: waitlistedBySession.get(session.id) ?? 0,
-      onlineRegistrationBlocked: session.onlineRegistrationBlocked,
-      closedMessage: session.closedMessage,
+      onlineRegistrationBlocked: session.onlineRegistrationBlocked || session.regularPlay,
+      closedMessage: session.closedMessage ?? (session.regularPlay ? REGULAR_PLAY_NIGHT_MESSAGE : null),
       stillRunning: true,
+      regularPlay: session.regularPlay,
     }));
 
     const upcomingNights: UpcomingOpenPlayNight[] = dates.map((date) => {
@@ -647,9 +769,11 @@ export class OpenPlayCapacityService {
         status: session?.status ?? null,
         registeredCount: session ? (registeredBySession.get(session.id) ?? 0) : 0,
         waitlistedCount: session ? (waitlistedBySession.get(session.id) ?? 0) : 0,
-        onlineRegistrationBlocked: session?.onlineRegistrationBlocked ?? false,
-        closedMessage: session?.closedMessage ?? null,
+        onlineRegistrationBlocked: Boolean(session?.onlineRegistrationBlocked || session?.regularPlay),
+        closedMessage:
+          session?.closedMessage ?? (session?.regularPlay ? REGULAR_PLAY_NIGHT_MESSAGE : null),
         stillRunning: false,
+        regularPlay: session?.regularPlay ?? false,
       };
     });
 

@@ -89,7 +89,7 @@ const timeStringSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use 24-h
 // convention) — z.record needs string keys, JSON can't hold numeric ones.
 const weekdayTimesSchema = z.record(z.enum(["0", "1", "2", "3", "4", "5", "6"]), timeStringSchema);
 
-const openPlayHoursSchema = z.record(z.string(), z.array(z.number().int().min(0).max(23)));
+export const openPlayHoursSchema = z.record(z.string(), z.array(z.number().int().min(0).max(23)));
 
 export const openPlayHoursByWeekdaySchema = z.record(
   z.enum(["0", "1", "2", "3", "4", "5", "6"]),

@@ -76,3 +76,19 @@ export const resetStartTimeInputSchema = z.object({
 });
 
 export type ResetStartTimeInput = z.infer<typeof resetStartTimeInputSchema>;
+
+// Owner request (2026-10-31): run one Fri/Sat as regular (₱35 per game)
+// play instead of Unliplay, with its own per-court open-play hours.
+export const regularPlayForDateInputSchema = z.object({
+  date: z.string().min(1, "Choose a date."),
+  regularPlay: z.boolean(),
+});
+
+export type RegularPlayForDateInput = z.infer<typeof regularPlayForDateInputSchema>;
+
+export const regularPlayHoursForDateInputSchema = z.object({
+  date: z.string().min(1, "Choose a date."),
+  hours: z.record(z.string(), z.array(z.number().int().min(0).max(23))),
+});
+
+export type RegularPlayHoursForDateInput = z.infer<typeof regularPlayHoursForDateInputSchema>;

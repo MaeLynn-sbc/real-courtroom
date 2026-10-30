@@ -58,6 +58,14 @@ export function getFacilityCloseMinutes(settings: CourtHoursSettings, date: Date
   return parseFacilityCloseMinutes(settings.facilityCloseTimes[weekdayKey(date)] ?? "23:00");
 }
 
+// A Fri/Sat switched to regular play for one date (owner, 2026-10-31,
+// OpenPlayNightSession.regularPlay): no Unliplay takeover that night, the
+// courts follow these per-court open-play hours instead (null: the weekly
+// schedule), the same way any other day does.
+export interface RegularPlayNight {
+  openPlayHours: Record<string, number[]> | null;
+}
+
 // Facility close (per weekday) is always the hard cap; a court's own
 // cutoff (or the Fri/Sat all-courts cutoff) can only make the window
 // narrower, never wider — see BUILD-SPEC.md §0 "Facility close is a
@@ -82,8 +90,10 @@ export function getCourtBookingWindow(
   courtName: string,
   date: Date,
   startTimeOverrideMinutes?: number,
+  regularPlayNight?: RegularPlayNight,
 ): CourtBookingWindow {
   const facilityCloseMinutes = getFacilityCloseMinutes(settings, date);
+  const isUnliplayNight = isFridayOrSaturday(date) && !regularPlayNight;
 
   // The weekly open-play schedule (owner, 2026-10-01: "I'll be the one to
   // adjust it, open for booking or for open play" — per weekday, not per
@@ -92,16 +102,18 @@ export function getCourtBookingWindow(
   // it has an entry for. The Fri/Sat all-courts cutoff and a per-date
   // override still end the day: that is when the Unliplay night starts,
   // which the schedule does not run.
-  const scheduledOpenPlayHours = settings.openPlayHoursByWeekday?.[weekdayKey(date)]?.[courtName];
+  const scheduledOpenPlayHours =
+    regularPlayNight?.openPlayHours?.[courtName] ??
+    settings.openPlayHoursByWeekday?.[weekdayKey(date)]?.[courtName];
 
   let courtCutoffMinutes: number | null;
-  if (startTimeOverrideMinutes !== undefined) {
+  if (startTimeOverrideMinutes !== undefined && !regularPlayNight) {
     courtCutoffMinutes = startTimeOverrideMinutes;
   } else if (scheduledOpenPlayHours !== undefined) {
-    courtCutoffMinutes = isFridayOrSaturday(date)
+    courtCutoffMinutes = isUnliplayNight
       ? parseCourtCutoffMinutes(settings.fridaySaturdayCloseTime)
       : null;
-  } else if (isFridayOrSaturday(date)) {
+  } else if (isUnliplayNight) {
     // The all-courts Fri/Sat time, narrowed by this court's own Fri/Sat
     // cutoff when one is set (Court 1 at 4 PM while the others keep
     // 6 PM, owner 2026-09-15). Never widened: the all-courts time is
@@ -117,8 +129,8 @@ export function getCourtBookingWindow(
     // keep 8 PM). Absent — the normal case — falls straight through to
     // courtCloseTimes and behaves exactly as before.
     //
-    // Fri/Sat never reach here: they are handled by the branch above,
-    // which runs the Unliplay handover.
+    // A Fri/Sat only reaches here as a regular-play night with no
+    // schedule for this court; an Unliplay night is handled above.
     const weekdayOverride = settings.courtCloseTimesByWeekday?.[String(date.getDay())]?.[courtName];
     courtCutoffMinutes = parseCourtCutoffMinutes(
       weekdayOverride ?? settings.courtCloseTimes[courtName] ?? "00:00",
@@ -211,8 +223,9 @@ export function isWithinCourtBookingWindow(
   startAt: Date,
   endAt: Date,
   startTimeOverrideMinutes?: number,
+  regularPlayNight?: RegularPlayNight,
 ): boolean {
-  const window = getCourtBookingWindow(settings, courtName, startAt, startTimeOverrideMinutes);
+  const window = getCourtBookingWindow(settings, courtName, startAt, startTimeOverrideMinutes, regularPlayNight);
 
   const startMinutes = minutesSinceMidnight(startAt);
   const endsAtNextMidnight =

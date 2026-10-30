@@ -500,16 +500,18 @@ export class BookingService {
     }
 
     if (enforceOperatingHours) {
-      const [courtHours, startTimeOverrideMinutes] = await Promise.all([
+      const [courtHours, { startTimeOverrideMinutes, regularPlayNight }] = await Promise.all([
         settingsService.getCourtHours(),
         // Owner request (2026-08-08): the REAL enforcement point, inside
         // the same Serializable transaction createBooking already runs
         // its whole conflict check in — a per-date Open Play start-time
         // override must reject a booking here, not just visually grey
         // out the grid. See getCourtBookingWindow's own comment.
-        openPlayCapacityService.getStartTimeOverrideMinutes(startAt),
+        openPlayCapacityService.getCourtDateOverrides(startAt),
       ]);
-      if (!isWithinCourtBookingWindow(courtHours, court.name, startAt, endAt, startTimeOverrideMinutes)) {
+      if (
+        !isWithinCourtBookingWindow(courtHours, court.name, startAt, endAt, startTimeOverrideMinutes, regularPlayNight)
+      ) {
         return { available: false, conflict: { type: "OUTSIDE_OPERATING_HOURS" } };
       }
     }
@@ -666,12 +668,17 @@ export class BookingService {
       // data limit." A WEBSITE booking that reached this point already
       // passed the operating-hours check, so this always resolves to
       // false for it.
-      const courtHours = await settingsService.getCourtHours();
+      const [courtHours, { startTimeOverrideMinutes, regularPlayNight }] = await Promise.all([
+        settingsService.getCourtHours(),
+        openPlayCapacityService.getCourtDateOverrides(input.startAt),
+      ]);
       const isAfterHours = !isWithinCourtBookingWindow(
         courtHours,
         court.name,
         input.startAt,
         input.endAt,
+        startTimeOverrideMinutes,
+        regularPlayNight,
       );
 
       // Pre-Phase-8 booking visibility: set once, here, never inferred
@@ -901,12 +908,17 @@ export class BookingService {
         );
       }
 
-      const courtHours = await settingsService.getCourtHours();
+      const [courtHours, { startTimeOverrideMinutes, regularPlayNight }] = await Promise.all([
+        settingsService.getCourtHours(),
+        openPlayCapacityService.getCourtDateOverrides(targetStartAt),
+      ]);
       const isAfterHours = !isWithinCourtBookingWindow(
         courtHours,
         newCourt.name,
         targetStartAt,
         targetEndAt,
+        startTimeOverrideMinutes,
+        regularPlayNight,
       );
 
       return tx.booking.update({

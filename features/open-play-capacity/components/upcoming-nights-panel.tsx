@@ -27,6 +27,8 @@ interface UpcomingNight {
   // date before today that's still genuinely open; see
   // OpenPlayCapacityService.getUpcomingNights' own comment.
   stillRunning: boolean;
+  // Switched to regular (₱35 per game) play for this date.
+  regularPlay: boolean;
 }
 
 function NightRow({ night }: { night: UpcomingNight }) {
@@ -69,6 +71,7 @@ function NightRow({ night }: { night: UpcomingNight }) {
         ) : (
           <span className="text-muted-foreground text-xs">from default</span>
         )}
+        {night.regularPlay ? <Badge variant="outline">Regular play</Badge> : null}
         {night.registeredCount > 0 || night.waitlistedCount > 0 ? (
           <span className="text-muted-foreground text-xs">
             {night.registeredCount} registered

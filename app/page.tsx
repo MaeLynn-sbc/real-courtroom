@@ -154,6 +154,15 @@ function computeOpenPlayCardState(
   if (!night) {
     return { kind: "not-open" };
   }
+  // Switched to regular play (owner, 2026-10-31): never "Full" — anyone
+  // can walk in and pay per game. closedMessage already falls back to
+  // the regular-play message (getUpcomingNights).
+  if (night.regularPlay) {
+    return {
+      kind: "blocked",
+      message: resolveOpenPlayClosedMessage(night.closedMessage, closedRegistrationMessage),
+    };
+  }
   // A DELIBERATE closure: the whole feature off, the weekday off, or this
   // night blocked. With the owner's option on (settings
   // openPlay.closedShowsFull) it reads as FULL, because turning

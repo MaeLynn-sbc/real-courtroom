@@ -9,6 +9,8 @@ import {
   closedMessageForDateInputSchema,
   onlineRegistrationBlockedForDateInputSchema,
   onlineRegistrationEnabledInputSchema,
+  regularPlayForDateInputSchema,
+  regularPlayHoursForDateInputSchema,
   resetStartTimeInputSchema,
   sessionCapacityOverrideInputSchema,
   startTimeOverrideInputSchema,
@@ -16,6 +18,8 @@ import {
   type ClosedMessageForDateInput,
   type OnlineRegistrationBlockedForDateInput,
   type OnlineRegistrationEnabledInput,
+  type RegularPlayForDateInput,
+  type RegularPlayHoursForDateInput,
   type ResetStartTimeInput,
   type SessionCapacityOverrideInput,
   type StartTimeOverrideInput,
@@ -308,5 +312,69 @@ export async function setOpenPlayClosedShowsFullAction(
         userId: authz.userId,
       }),
     };
+  }
+}
+
+// Regular play changes who can book the courts, so every grid and booking
+// form refreshes too, not just the open play pages.
+function revalidateRegularPlay(): void {
+  revalidateOpenPlayCapacity();
+  revalidatePath("/open-play/register");
+  revalidatePath("/");
+  revalidatePath("/book");
+  revalidatePath("/dashboard/bookings", "layout");
+}
+
+export async function setRegularPlayForDateAction(
+  input: RegularPlayForDateInput,
+): Promise<OpenPlayCapacityActionState> {
+  const authz = await requireOpenPlayCapacityAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = regularPlayForDateInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const date = new Date(`${parsed.data.date}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return { error: "Enter a valid date." };
+  }
+
+  try {
+    await openPlayCapacityService.setRegularPlayForDate(date, parsed.data.regularPlay, authz.userId);
+    revalidateRegularPlay();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "setRegularPlayForDateAction", userId: authz.userId }) };
+  }
+}
+
+export async function setRegularPlayHoursForDateAction(
+  input: RegularPlayHoursForDateInput,
+): Promise<OpenPlayCapacityActionState> {
+  const authz = await requireOpenPlayCapacityAdmin();
+  if (!authz.ok) {
+    return { error: authz.error };
+  }
+
+  const parsed = regularPlayHoursForDateInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const date = new Date(`${parsed.data.date}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return { error: "Enter a valid date." };
+  }
+
+  try {
+    await openPlayCapacityService.setRegularPlayHoursForDate(date, parsed.data.hours, authz.userId);
+    revalidateRegularPlay();
+    return { error: null };
+  } catch (error) {
+    return { error: toActionError(error, { action: "setRegularPlayHoursForDateAction", userId: authz.userId }) };
   }
 }
