@@ -6,7 +6,10 @@ import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { cashReconciliationService, PriorDayNotClosedError } from "@/services/cash/cash-reconciliation.service";
 import { expenseService } from "@/services/expenses/expense.service";
-import { gcashReconciliationService } from "@/services/gcash/gcash-reconciliation.service";
+import {
+  PriorDayNotClosedError as GcashPriorDayNotClosedError,
+  gcashReconciliationService,
+} from "@/services/gcash/gcash-reconciliation.service";
 import { settingsService } from "@/services/settings/settings.service";
 import { attendanceRecordService } from "@/services/payroll/attendance-record.service";
 import { dailyScope, nextSequence } from "@/lib/reference-counter";
@@ -95,7 +98,17 @@ export class ShiftService {
   // (yesterday not confirmed yet). Still editable: staff check the app.
   async getSuggestedOpeningGcashCents(): Promise<number | null> {
     const { businessDateRolloverHour } = await settingsService.getCourtHours();
-    const today = await gcashReconciliationService.getTodaysBalance(businessDateRolloverHour);
+    // Yesterday left open (Nov 1, 2026: a closed holiday with two website
+    // GCash payments) must not crash the Shift page — same as
+    // getExpectedOpeningCashCents below. Falls back to the last shift's count.
+    let today: Awaited<ReturnType<typeof gcashReconciliationService.getTodaysBalance>> = null;
+    try {
+      today = await gcashReconciliationService.getTodaysBalance(businessDateRolloverHour);
+    } catch (error) {
+      if (!(error instanceof GcashPriorDayNotClosedError)) {
+        throw error;
+      }
+    }
     if (today) {
       return gcashReconciliationService.getExpectedEndingBalance(today);
     }
