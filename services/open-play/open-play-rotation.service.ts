@@ -708,12 +708,11 @@ export class OpenPlayRotationService {
     stagedGroupId: string,
     registrationId: string,
     actorUserId: string,
-  ): Promise<StagedGroupWithMembers & { movedToBack: boolean }> {
+  ): Promise<StagedGroupWithMembers> {
     // An empty id would make the lookup below match ANY queued player.
     if (!registrationId) {
       throw new Error("Pick a player to add.");
     }
-    let movedToBack = false;
     await runSerializableWithRetry(async (tx) => {
       const group = await tx.stagedGroup.findUnique({
         where: { id: stagedGroupId },
@@ -745,22 +744,10 @@ export class OpenPlayRotationService {
 
       await tx.queueEntry.update({ where: { id: entry.id }, data: { stagedGroupId } });
 
-      // Owner rule (2026-09-17): a group completed by someone who JUST
-      // PLAYED goes to the back of the line. "Just played" = their last
-      // game ended after this group started forming, i.e. they came off a
-      // court and filled a group others were already waiting in. The
-      // whole group moves behind every other group; full groups behind its
-      // old place then move up as usual.
-      const completedByReturningPlayer =
-        group.queueEntries.length + 1 >= 4 &&
-        entry.lastPlayedAt !== null &&
-        entry.lastPlayedAt > group.createdAt;
-      if (completedByReturningPlayer) {
-        movedToBack = await this.moveGroupToBackTx(tx, group.id, group.date);
-      }
-
-      // A rack that just became complete may now move forward.
-      await this.compactPipelineTx(tx, group.date);
+      // Owner (2026-11-06): editing a group never moves it. The old rule
+      // (2026-09-17) sent a group completed by someone who had just played
+      // to the back of the line; staff now decide the order themselves.
+      // Adding someone keeps the group in the same rack.
     });
 
     await this.writeAuditLog({
@@ -768,10 +755,10 @@ export class OpenPlayRotationService {
       action: "staged_group.player_added",
       entityType: "StagedGroup",
       entityId: stagedGroupId,
-      newValues: { registrationId, movedToBack },
+      newValues: { registrationId },
     });
 
-    return { ...(await this.loadStagedGroupWithMembers(stagedGroupId)), movedToBack };
+    return this.loadStagedGroupWithMembers(stagedGroupId);
   }
 
   // The × control on a staged chip — un-stages exactly one player.
@@ -779,11 +766,11 @@ export class OpenPlayRotationService {
   // reorder, just an orthogonal flag (see QueueEntry.stagedGroupId's
   // own schema comment), so simply clearing it is what makes "returns
   // to Waiting at their correct position, not the bottom" true for
-  // free — there's no position to recompute. A group that drops below
-  // 2 members is dissolved outright (a manually-built group can't be
-  // 1 person either, so a staged one shouldn't end up there by
-  // attrition) — deleteMany, not delete, since a concurrent removal of
-  // the same group is a benign no-op here, not an error.
+  // free — there's no position to recompute. A group keeps its rack
+  // with 1 or 2 players left (owner, 2026-11-06: staff edit racks with
+  // only 1 or 2 inside); only an empty group is removed — deleteMany,
+  // not delete, since a concurrent removal of the same group is a benign
+  // no-op here, not an error.
   async unstageQueueEntry(queueEntryId: string, actorUserId: string): Promise<void> {
     await prisma.$transaction(async (tx) => {
       const entry = await tx.queueEntry.findUniqueOrThrow({ where: { id: queueEntryId } });
@@ -824,34 +811,6 @@ export class OpenPlayRotationService {
   // that can open or fill a position. Deliberately does NOT touch
   // announcementRequestedAt or announce anything — moving up is silent;
   // Announce stays a separate, manual staff action.
-  //
-  // Moves a group behind every other group in the line. Returns false
-  // (and leaves it in place) only when the last position is already
-  // taken, i.e. there is no room behind the others.
-  private async moveGroupToBackTx(
-    tx: Prisma.TransactionClient,
-    groupId: string,
-    date: Date,
-  ): Promise<boolean> {
-    const others = await tx.stagedGroup.findMany({
-      where: { date, id: { not: groupId } },
-      select: { slot: true },
-    });
-    const lastOther = Math.max(-1, ...others.map((other) => STAGED_SLOTS.indexOf(other.slot)));
-    const target = STAGED_SLOTS[lastOther + 1];
-    if (!target) {
-      return false;
-    }
-    const current = await tx.stagedGroup.findUniqueOrThrow({
-      where: { id: groupId },
-      select: { slot: true },
-    });
-    if (STAGED_SLOTS.indexOf(current.slot) >= lastOther + 1) {
-      return false; // already at the back
-    }
-    await tx.stagedGroup.update({ where: { id: groupId }, data: { slot: target } });
-    return true;
-  }
 
   private async compactPipelineTx(tx: Prisma.TransactionClient, date: Date): Promise<void> {
     // Every group — Next up, After that, Then and every rack — moves up
@@ -1297,7 +1256,7 @@ export class OpenPlayRotationService {
   // stays registered)." Only valid from WAITING — a player mid-game must
   // have their assignment completed/cancelled first.
   // Staging pipeline: if `queueEntryId` is currently staged, clears it
-  // (dissolving the group if that drops it below 2 members) — shared by
+  // (removing the group once it is empty) — shared by
   // markResting/markDone below and the public unstageQueueEntry, so
   // "leaves active rotation" always implies "leaves any staged group
   // too," from every entry point, not just the × button. No-op when the
@@ -1312,7 +1271,7 @@ export class OpenPlayRotationService {
     }
     await tx.queueEntry.update({ where: { id: queueEntryId }, data: { stagedGroupId: null } });
     const remaining = await tx.queueEntry.count({ where: { stagedGroupId } });
-    if (remaining < 2) {
+    if (remaining === 0) {
       const group = await tx.stagedGroup.findUnique({
         where: { id: stagedGroupId },
         select: { date: true },

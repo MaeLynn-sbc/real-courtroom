@@ -259,7 +259,7 @@ function NextUpSection({
 
   function buildByHand(slot: StagedGroupSlot) {
     const registrationIds = handPicks[slot];
-    if (registrationIds.length < 2 || registrationIds.length > 4) return;
+    if (registrationIds.length < 1 || registrationIds.length > 4) return;
     runAction(
       stageManualGroupAction({ date, slot, registrationIds }).then((r) => {
         if (!r.error) {
@@ -424,7 +424,7 @@ function NextUpSection({
                   <Button
                     type="button"
                     size="sm"
-                    disabled={isPending || handPicks[slot].length < 2 || handPicks[slot].length > 4}
+                    disabled={isPending || handPicks[slot].length < 1 || handPicks[slot].length > 4}
                     onClick={() => buildByHand(slot)}
                   >
                     Create group

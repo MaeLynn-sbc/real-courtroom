@@ -31,7 +31,6 @@ import { assertIsCurrentBusinessDate } from "@/lib/business-date";
 import { toActionError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { isPracticeDate } from "@/lib/practice";
-import { stagedSlotLabel } from "@/lib/staged-slots";
 import {
   AssignmentAlreadyCompletedError,
   openPlayRotationService,
@@ -264,18 +263,13 @@ export async function addPlayerToStagedGroupAction(
   }
 
   try {
-    const group = await openPlayRotationService.addPlayerToStagedGroup(
+    await openPlayRotationService.addPlayerToStagedGroup(
       parsed.data.stagedGroupId,
       parsed.data.registrationId,
       authz.userId,
     );
     revalidateRotation();
-    return {
-      error: null,
-      notice: group.movedToBack
-        ? `That player just played, so the completed group moved to the back of the line (${stagedSlotLabel(group.slot)}).`
-        : undefined,
-    };
+    return { error: null };
   } catch (error) {
     return {
       error: toActionError(error, { action: "addPlayerToStagedGroupAction", userId: authz.userId }),

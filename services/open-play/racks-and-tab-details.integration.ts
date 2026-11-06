@@ -2,7 +2,9 @@
  * Owner requests, 2026-09-17:
  *  - The line (Next up, After that, Then, Racks 1-12): every group moves
  *    up into an empty spot, whatever its size, keeping its order.
- *  - A group completed by a player who just played goes to the back.
+ *  - Adding a player keeps the group in its rack — even one who just
+ *    played (owner, 2026-11-06, replacing the 2026-09-17 back-of-line
+ *    rule) — and a rack keeps its place with only 1 or 2 players left.
  *  - "When the customer settles the tab, the details appear": a finished
  *    game is billed as "OP · Court N · start–end", and the tab list
  *    returns an itemised breakdown with voided charges left out.
@@ -11,7 +13,7 @@
  */
 import "dotenv/config";
 
-import { STAGED_SLOTS } from "../../lib/staged-slots";
+import { STAGED_SLOTS, stagedSlotLabel } from "../../lib/staged-slots";
 import { prisma } from "../../lib/prisma";
 import { openPlayCheckinService } from "./open-play-checkin.service";
 import { openPlayRegistrationService } from "./open-play-registration.service";
@@ -150,35 +152,43 @@ async function main(): Promise<void> {
       where: { gameAssignmentId: game.id },
     });
 
-    // Returning-player rule: a waiting group completed by someone who just
-    // played goes to the back; the same group completed by a fresh player
-    // stays where it is.
+    // Owner (2026-11-06): adding a player keeps the group in its rack,
+    // even when that player just came off a court.
     const returning = nextUp.members[0].registrationId;
+    const slotBefore = await slotOf(waitingGroup.id);
+    const behindBefore = await slotOf(behind.id);
     await openPlayRotationService.addPlayerToStagedGroup(waitingGroup.id, returning, owner.id);
-    const movedTo = await slotOf(waitingGroup.id);
-    const behindNow = await slotOf(behind.id);
-    const lastSlot = (await prisma.stagedGroup.findMany({ where: { date: TEST_DATE } }))
-      .map((g) => g.slot)
-      .sort((x, y) => STAGED_SLOTS.indexOf(y) - STAGED_SLOTS.indexOf(x))[0];
     assert(
-      behindNow === "RACK_6" && movedTo === "RACK_7" && lastSlot === "RACK_7",
-      `a group completed by a just-played player moves behind everyone (behind group ${behindNow}, it ${movedTo})`,
+      (await slotOf(waitingGroup.id)) === slotBefore && (await slotOf(behind.id)) === behindBefore,
+      `a group completed by a just-played player stays in ${slotBefore}`,
     );
     const freshGroup = await stage("RACK_8", 3);
+    const freshBefore = await slotOf(freshGroup.id);
     await openPlayRotationService.addPlayerToStagedGroup(freshGroup.id, take(1)[0], owner.id);
+    assert((await slotOf(freshGroup.id)) === freshBefore, "a group completed by a fresh player keeps its place");
+    console.log(`PASS: adding a player keeps the group in its rack (${slotBefore}), whoever they are.`);
+
+    // A rack keeps its place with only 1 or 2 players left.
+    const small = await prisma.stagedGroup.findUniqueOrThrow({
+      where: { id: behind.id },
+      include: { queueEntries: true },
+    });
+    const smallSlot = small.slot;
+    await openPlayRotationService.unstageQueueEntry(small.queueEntries[0].id, owner.id);
+    assert((await slotOf(behind.id)) === smallSlot, "a rack with 1 player left keeps its place");
+    await openPlayRotationService.unstageQueueEntry(small.queueEntries[1].id, owner.id);
     assert(
-      (await slotOf(freshGroup.id)) === "RACK_8",
-      "a group completed by a fresh player keeps its place",
+      (await prisma.stagedGroup.findUnique({ where: { id: behind.id } })) === null,
+      "an emptied rack is removed",
     );
-    console.log(
-      `PASS: a group completed by a player who just played goes to the back (${movedTo}); a fresh player's does not.`,
-    );
+    console.log("PASS: a rack with 1 player left keeps its place; an empty one is removed.");
 
     // Racks 7-12: a full group put on Rack 12 moves forward like any other.
+    const groupsAhead = await prisma.stagedGroup.count({ where: { date: TEST_DATE } });
     const farGroup = await stage("RACK_15", 4);
     const farSlot = await slotOf(farGroup.id);
     assert(
-      farSlot === "RACK_9",
+      farSlot === STAGED_SLOTS[groupsAhead],
       `a group on Rack 12 moves up to the first free rack, got ${farSlot}`,
     );
     console.log(`PASS: Racks 7-12 exist and a full group there moves forward (to ${farSlot}).`);
@@ -253,10 +263,12 @@ async function main(): Promise<void> {
       "an old plain 'Game' charge still shows court and time",
     );
     assert(listed.totalCents === charge.amountCents, "the total is unchanged by the void pair");
-    // The returning player's group went to the back, then Rack 5 filled
-    // behind it — it now sits in Rack 4.
+    // The returning player's group stayed in its rack.
+    const waitingSlot = await slotOf(waitingGroup.id);
+    assert(waitingSlot, "the waiting group is still in the line");
+    const expectedPlacement = stagedSlotLabel(waitingSlot);
     assert(
-      listed.placement === "Rack 4",
+      listed.placement === expectedPlacement,
       `the tab says where the player is, got "${listed.placement}"`,
     );
     console.log(
